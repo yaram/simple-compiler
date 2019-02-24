@@ -20,7 +20,7 @@ void print(Statement statement, unsigned int indentation_level) {
             printf("statements: [\n");
 
             for(auto i = 0; i < statement.function_declaration.statement_count; i += 1) {
-                print(statement.function_declaration.statements[i], indentation_level + 1);
+                print(statement.function_declaration.statements[i], indentation_level + 2);
             }
 
             indent(indentation_level + 1);
