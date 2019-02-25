@@ -27,7 +27,12 @@ int main(int argc, char *argv[]) {
     }
 
     for(auto i = 0; i < result.statement_count; i += 1) {
-        debug_print_statement(result.statements[i]);
+        debug_print_statement(result.statements[i], true);
+        
+        if(i != result.statement_count - 1) {
+            printf(",");
+            printf("\n");
+        }
     }
 
     return EXIT_SUCCESS;
