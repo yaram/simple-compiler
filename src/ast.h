@@ -1,7 +1,24 @@
 #pragma once
 
+#include <stdint.h>
+
+enum struct ExpressionType {
+    NamedReference
+};
+
+struct Expression {
+    ExpressionType type;
+
+    union {
+        char *named_reference;
+    };
+};
+
+void debug_print_expression(Expression expression);
+
 enum struct StatementType {
-    FunctionDeclaration
+    FunctionDeclaration,
+    Expression
 };
 
 struct Statement {
@@ -14,6 +31,8 @@ struct Statement {
             Statement *statements;
             size_t statement_count;
         } function_declaration;
+
+        Expression expression;
     };
 };
 

@@ -143,7 +143,7 @@ void skip_whitespace(Context *context) {
     }
 }
 
-const char *parse_identifier(Context *context) {
+char *parse_identifier(Context *context) {
     List<char> buffer{};
 
     while(true) {
@@ -195,78 +195,107 @@ ParseStatementResult parse_statement(Context *context) {
     if(isalpha(character)) {
         ungetc(character, context->source_file);
 
-        auto name = parse_identifier(context);
+        auto identifier = parse_identifier(context);
 
         skip_whitespace(context);
 
-        if(!expect_character(context, ':')){
-            return { false };
-        }
+        auto character = fgetc(context->source_file);
 
-        if(!expect_character(context, ':')){
-            return { false };
-        }
+        context->character += 1;
 
-        skip_whitespace(context);
+        switch(character) {
+            case ':': {
+                if(!expect_character(context, ':')){
+                    return { false };
+                }
 
-        // TODO: Other statement types
+                skip_whitespace(context);
 
-        if(!expect_character(context, '(')){
-            return { false };
-        }
+                // TODO: Other definitions
 
-        skip_whitespace(context);
+                if(!expect_character(context, '(')){
+                    return { false };
+                }
 
-        // TODO: Arguments
+                skip_whitespace(context);
 
-        if(!expect_character(context, ')')){
-            return { false };
-        }
+                // TODO: Arguments
 
-        skip_whitespace(context);
+                if(!expect_character(context, ')')){
+                    return { false };
+                }
 
-        if(!expect_character(context, '{')){
-            return { false };
-        }
+                skip_whitespace(context);
 
-        skip_whitespace(context);
+                if(!expect_character(context, '{')){
+                    return { false };
+                }
 
-        List<Statement> statements{};
+                skip_whitespace(context);
 
-        while(true) {
-            auto character = fgetc(context->source_file);
+                List<Statement> statements{};
 
-            if(character == '}') {
-                break;
-            } else {
-                ungetc(character, context->source_file);
-            }
+                while(true) {
+                    auto character = fgetc(context->source_file);
 
-            auto result = parse_statement(context);
+                    if(character == '}') {
+                        break;
+                    } else {
+                        ungetc(character, context->source_file);
+                    }
 
-            if(!result.status) {
+                    auto result = parse_statement(context);
+
+                    if(!result.status) {
+                        return { false };
+                    }
+
+                    append(&statements, result.statement);
+
+                    skip_whitespace(context);
+                }
+
+                // TODO: Return types
+
+                Statement statement;
+                statement.type = StatementType::FunctionDeclaration;
+                statement.function_declaration = {
+                    identifier,
+                    statements.elements,
+                    statements.count
+                };
+
+                return {
+                    true,
+                    statement
+                };
+            } break;
+
+            case ';': {
+                Statement statement;
+                statement.type = StatementType::Expression;
+
+                statement.expression.type = ExpressionType::NamedReference;
+                statement.expression.named_reference = identifier;
+
+                return {
+                    true,
+                    statement
+                };
+            } break;
+
+            case EOF: {
+                error(*context, "Unexpected EOF");
+
                 return { false };
-            }
+            } break;
 
-            append(&statements, result.statement);
+            default: {
+                error(*context, "Unexpected character '%c'", character);
 
-            skip_whitespace(context);
+                return { false };
+            } break;
         }
-
-        // TODO: Return types
-
-        Statement statement;
-        statement.type = StatementType::FunctionDeclaration;
-        statement.function_declaration = {
-            name,
-            statements.elements,
-            statements.count
-        };
-
-        return {
-            true,
-            statement
-        };
     } else if(character == EOF) {
         error(*context, "Unexpected EOF");
 

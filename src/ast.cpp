@@ -7,7 +7,20 @@ void indent(unsigned int level) {
     }
 }
 
-void print(Statement statement, unsigned int indentation_level) {
+void debug_print_expression_indent(Expression expression, unsigned int indentation_level) {
+    switch(expression.type) {
+        case ExpressionType::NamedReference: {
+            indent(indentation_level);
+            printf("NamedReference: %s\n", expression.named_reference);
+        } break;
+    }
+}
+
+void debug_print_expression(Expression expression) {
+    debug_print_expression_indent(expression, 0);
+}
+
+void debug_print_statement_indent(Statement statement, unsigned int indentation_level) {
     switch(statement.type) {
         case StatementType::FunctionDeclaration: {
             indent(indentation_level);
@@ -20,7 +33,7 @@ void print(Statement statement, unsigned int indentation_level) {
             printf("statements: [\n");
 
             for(auto i = 0; i < statement.function_declaration.statement_count; i += 1) {
-                print(statement.function_declaration.statements[i], indentation_level + 2);
+                debug_print_statement_indent(statement.function_declaration.statements[i], indentation_level + 2);
             }
 
             indent(indentation_level + 1);
@@ -29,9 +42,19 @@ void print(Statement statement, unsigned int indentation_level) {
             indent(indentation_level);
             printf("}\n");
         } break;
+
+        case StatementType::Expression: {
+            indent(indentation_level);
+            printf("Expression: {\n");
+
+            debug_print_expression_indent(statement.expression, indentation_level + 1);
+            
+            indent(indentation_level);
+            printf("}\n");
+        } break;
     }
 }
 
 void debug_print_statement(Statement statement) {
-    print(statement, 0);
+    debug_print_statement_indent(statement, 0);
 }
