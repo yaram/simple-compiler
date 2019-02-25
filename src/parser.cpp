@@ -189,13 +189,6 @@ bool expect_character(Context *context, char expected_character) {
     return true;
 }
 
-struct ParseBlockResult {
-    bool status;
-
-    Statement *statements;
-    size_t statement_count;
-};
-
 ParseStatementResult parse_statement(Context *context) {
     auto character = fgetc(context->source_file);
 
