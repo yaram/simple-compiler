@@ -15,12 +15,6 @@ struct Context {
     unsigned int character;
 };
 
-struct ParseStatementResult {
-    bool status;
-
-    Statement statement;
-};
-
 void error(Context context, const char *format, ...) {
     va_list arguments;
     va_start(arguments, format);
@@ -188,6 +182,12 @@ bool expect_character(Context *context, char expected_character) {
 
     return true;
 }
+
+struct ParseStatementResult {
+    bool status;
+
+    Statement statement;
+};
 
 ParseStatementResult parse_statement(Context *context) {
     auto character = fgetc(context->source_file);
