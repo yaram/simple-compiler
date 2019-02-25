@@ -14,7 +14,7 @@ struct Expression {
     };
 };
 
-void debug_print_expression(Expression expression, bool multiline);
+void debug_print_expression(Expression expression);
 
 enum struct StatementType {
     FunctionDeclaration,
@@ -36,4 +36,4 @@ struct Statement {
     };
 };
 
-void debug_print_statement(Statement statement, bool multiline);
+void debug_print_statement(Statement statement);
