@@ -4,7 +4,8 @@
 
 enum struct ExpressionType {
     NamedReference,
-    IntegerLiteral
+    IntegerLiteral,
+    FunctionCall
 };
 
 struct Expression {
@@ -14,6 +15,12 @@ struct Expression {
         char *named_reference;
 
         int64_t integer_literal;
+
+        struct {
+            Expression *expression;
+
+            // TODO: Arguments
+        } function_call;
     };
 };
 

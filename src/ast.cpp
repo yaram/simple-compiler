@@ -18,6 +18,17 @@ void debug_print_expression_indent(Expression expression, unsigned int indentati
         case ExpressionType::IntegerLiteral: {
             printf("IntegerLiteral: %llu", expression.integer_literal);
         } break;
+
+        case ExpressionType::FunctionCall: {
+            printf("FunctionCall: {");
+            next_line(indentation_level + 1);
+
+            printf("expression: ");
+            debug_print_expression_indent(*(expression.function_call.expression), indentation_level + 1);
+            next_line(indentation_level);
+
+            printf("}");
+        } break;
     }
 }
 
@@ -60,7 +71,7 @@ void debug_print_statement_indent(Statement statement, unsigned int indentation_
         case StatementType::Expression: {
             printf("Expression: ");
 
-            debug_print_expression_indent(statement.expression, indentation_level + 1);
+            debug_print_expression_indent(statement.expression, indentation_level);
         } break;
     }
 }

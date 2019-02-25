@@ -167,7 +167,7 @@ bool expect_character(Context *context, char expected_character) {
     auto character = fgetc(context->source_file);
 
     if(character == EOF) {
-        error(*context, "Unexpected EOF");
+        error(*context, "Unexpected End of File");
 
         return false;
     }
@@ -181,6 +181,52 @@ bool expect_character(Context *context, char expected_character) {
     context->character += 1;
 
     return true;
+}
+
+struct ParseRightExpressionResult {
+    bool status;
+
+    Expression right_most_expression;
+};
+
+ParseRightExpressionResult parse_right_expressions(Context *context, Expression left_expression) {
+    auto current_expression = left_expression;
+
+    while(true) {
+        skip_whitespace(context);
+
+        auto character = fgetc(context->source_file);
+
+        context->character += 1;
+
+        if(character == '(') {
+            skip_whitespace(context);
+
+            // TODO: Arguments
+
+            if(!expect_character(context, ')')){
+                return { false };
+            }
+
+            auto function_expression = (Expression*)malloc(sizeof(Expression));
+            *function_expression = current_expression;
+
+            Expression expression;
+            expression.type = ExpressionType::FunctionCall;
+            expression.function_call.expression = function_expression;
+
+            current_expression = expression;
+        } else {
+            ungetc(character, context->source_file);
+
+            break;
+        }
+    }
+
+    return { 
+        true,
+        current_expression
+    };
 }
 
 struct ParseStatementResult {
@@ -271,31 +317,39 @@ ParseStatementResult parse_statement(Context *context) {
                 };
             } break;
 
-            case ';': {
-                context->character += 1;
-
-                Statement statement;
-                statement.type = StatementType::Expression;
-
-                statement.expression.type = ExpressionType::NamedReference;
-                statement.expression.named_reference = identifier;
-
-                return {
-                    true,
-                    statement
-                };
-            } break;
-
             case EOF: {
-                error(*context, "Unexpected EOF");
+                error(*context, "Unexpected End of File");
 
                 return { false };
             } break;
 
             default: {
-                error(*context, "Unexpected character '%c'", character);
+                ungetc(character, context->source_file);
 
-                return { false };
+                Expression expression;
+                expression.type = ExpressionType::NamedReference;
+                expression.named_reference = identifier;
+
+                auto result = parse_right_expressions(context, expression);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                skip_whitespace(context);
+
+                if(!expect_character(context, ';')) {
+                    return { false };
+                }
+
+                Statement statement;
+                statement.type = StatementType::Expression;
+                statement.expression = result.right_most_expression;
+
+                return {
+                    true,
+                    statement
+                };
             } break;
         }
     } else if(isdigit(character) || character == '-') {
@@ -340,24 +394,32 @@ ParseStatementResult parse_statement(Context *context) {
             return { false };
         }
         
+        Expression expression;
+        expression.type = ExpressionType::IntegerLiteral;
+        expression.integer_literal = value;
+
+        auto result = parse_right_expressions(context, expression);
+
+        if(!result.status) {
+            return { false };
+        }
+
         skip_whitespace(context);
 
-        if(!expect_character(context, ';')){
+        if(!expect_character(context, ';')) {
             return { false };
         }
 
         Statement statement;
         statement.type = StatementType::Expression;
-
-        statement.expression.type = ExpressionType::IntegerLiteral;
-        statement.expression.integer_literal = value;
+        statement.expression = result.right_most_expression;
 
         return {
             true,
             statement
         };
     } else if(character == EOF) {
-        error(*context, "Unexpected EOF");
+        error(*context, "Unexpected End of File");
 
         return { false };
     } else {
