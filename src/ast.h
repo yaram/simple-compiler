@@ -3,7 +3,8 @@
 #include <stdint.h>
 
 enum struct ExpressionType {
-    NamedReference
+    NamedReference,
+    IntegerLiteral
 };
 
 struct Expression {
@@ -11,6 +12,8 @@ struct Expression {
 
     union {
         char *named_reference;
+
+        int64_t integer_literal;
     };
 };
 

@@ -201,10 +201,10 @@ ParseStatementResult parse_statement(Context *context) {
 
         auto character = fgetc(context->source_file);
 
-        context->character += 1;
-
         switch(character) {
             case ':': {
+                context->character += 1;
+
                 if(!expect_character(context, ':')){
                     return { false };
                 }
@@ -272,6 +272,8 @@ ParseStatementResult parse_statement(Context *context) {
             } break;
 
             case ';': {
+                context->character += 1;
+
                 Statement statement;
                 statement.type = StatementType::Expression;
 
@@ -296,6 +298,64 @@ ParseStatementResult parse_statement(Context *context) {
                 return { false };
             } break;
         }
+    } else if(isdigit(character) || character == '-') {
+        context->character += 1;
+
+        const auto buffer_size = 32;
+
+        char buffer[buffer_size + 1];
+
+        buffer[0] = character;
+
+        auto index = 1;
+        while(true) {
+            if(index == buffer_size - 1) {
+                error(*context, "Integer literal too long");
+
+                return { false };
+            }
+
+            auto character = fgetc(context->source_file);
+
+            if(isdigit(character)) {
+                context->character += 1;
+
+                buffer[index] = (char)character;
+
+                index += 1;
+            } else {
+                ungetc(character, context->source_file);
+
+                break;
+            }
+        }
+
+        buffer[index] = 0;
+
+        auto value = strtoll(buffer, NULL, 10);
+
+        if((value == LLONG_MAX || value == LLONG_MIN) && errno == ERANGE) {
+            error(*context, "Integer literal out of range");
+
+            return { false };
+        }
+        
+        skip_whitespace(context);
+
+        if(!expect_character(context, ';')){
+            return { false };
+        }
+
+        Statement statement;
+        statement.type = StatementType::Expression;
+
+        statement.expression.type = ExpressionType::IntegerLiteral;
+        statement.expression.integer_literal = value;
+
+        return {
+            true,
+            statement
+        };
     } else if(character == EOF) {
         error(*context, "Unexpected EOF");
 

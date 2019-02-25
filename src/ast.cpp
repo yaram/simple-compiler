@@ -14,6 +14,10 @@ void debug_print_expression_indent(Expression expression, unsigned int indentati
         case ExpressionType::NamedReference: {
             printf("NamedReference: %s", expression.named_reference);
         } break;
+
+        case ExpressionType::IntegerLiteral: {
+            printf("IntegerLiteral: %llu", expression.integer_literal);
+        } break;
     }
 }
 
