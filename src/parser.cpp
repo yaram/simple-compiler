@@ -436,7 +436,7 @@ ParseSourceResult parse_source(const char *source_file_path, FILE *source_file) 
         1, 1        
     };
 
-    List<Statement> statements{};
+    List<Statement> top_level_statements{};
 
     skip_whitespace(&context);
 
@@ -455,14 +455,14 @@ ParseSourceResult parse_source(const char *source_file_path, FILE *source_file) 
             return { false };
         }
 
-        append(&statements, result.statement);
+        append(&top_level_statements, result.statement);
 
         skip_whitespace(&context);
     }
 
     return {
         true,
-        statements.elements,
-        statements.count
+        top_level_statements.elements,
+        top_level_statements.count
     };
 }

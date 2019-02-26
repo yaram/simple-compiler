@@ -26,10 +26,10 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    for(auto i = 0; i < result.statement_count; i += 1) {
-        debug_print_statement(result.statements[i]);
+    for(auto i = 0; i < result.top_level_statement_count; i += 1) {
+        debug_print_statement(result.top_level_statements[i]);
         
-        if(i != result.statement_count - 1) {
+        if(i != result.top_level_statement_count - 1) {
             printf(",");
             printf("\n");
         }
