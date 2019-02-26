@@ -24,9 +24,7 @@ namespace list {
         } else if(list->count == list->capacity) {
             auto new_capacity = list->capacity * 2;
 
-            auto new_elements = (T*)malloc(initial_capacity * sizeof(T));
-
-            free(list->elements);
+            auto new_elements = (T*)realloc((void*)(list->elements), new_capacity * sizeof(T));
 
             list->capacity = new_capacity;
             list->elements = new_elements;
