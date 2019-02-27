@@ -27,7 +27,7 @@ struct Expression {
 void debug_print_expression(Expression expression);
 
 enum struct StatementType {
-    FunctionDeclaration,
+    FunctionDefinition,
     Expression
 };
 
@@ -40,7 +40,7 @@ struct Statement {
 
             Statement *statements;
             size_t statement_count;
-        } function_declaration;
+        } function_definition;
 
         Expression expression;
     };

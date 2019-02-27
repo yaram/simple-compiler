@@ -304,8 +304,8 @@ ParseStatementResult parse_statement(Context *context) {
                 // TODO: Return types
 
                 Statement statement;
-                statement.type = StatementType::FunctionDeclaration;
-                statement.function_declaration = {
+                statement.type = StatementType::FunctionDefinition;
+                statement.function_definition = {
                     identifier,
                     statements.elements,
                     statements.count

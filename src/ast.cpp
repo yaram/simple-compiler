@@ -38,24 +38,24 @@ void debug_print_expression(Expression expression) {
 
 void debug_print_statement_indent(Statement statement, unsigned int indentation_level) {
     switch(statement.type) {
-        case StatementType::FunctionDeclaration: {
+        case StatementType::FunctionDefinition: {
             printf("FunctionDeclaration {");
             next_line(indentation_level + 1);
 
-            printf("name: %s,", statement.function_declaration.name);
+            printf("name: %s,", statement.function_definition.name);
             next_line(indentation_level + 1);
 
             printf("statements: [");
             next_line(indentation_level + 2);
 
-            for(auto i = 0; i < statement.function_declaration.statement_count; i += 1) {
-                debug_print_statement_indent(statement.function_declaration.statements[i], indentation_level + 2);
+            for(auto i = 0; i < statement.function_definition.statement_count; i += 1) {
+                debug_print_statement_indent(statement.function_definition.statements[i], indentation_level + 2);
 
-                if(i != statement.function_declaration.statement_count - 1) {
+                if(i != statement.function_definition.statement_count - 1) {
                     printf(",");
                 }
 
-                if(i != statement.function_declaration.statement_count - 1) {
+                if(i != statement.function_definition.statement_count - 1) {
                     next_line(indentation_level + 2);
                 } else {
                     next_line(indentation_level + 1);
