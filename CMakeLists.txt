@@ -11,6 +11,12 @@ add_executable(compiler
     src/parser.h
     src/parser.cpp
 
+    src/types.h
+    src/types.cpp
+
+    src/generator.h
+    src/generator.cpp
+
     src/main.cpp
 )
 

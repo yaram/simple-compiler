@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <string.h>
 #include "parser.h"
+#include "generator.h"
 
 int main(int argc, char *argv[]) {
     if(argc < 2) {
@@ -20,20 +21,19 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    auto result = parse_source(path, file);
+    auto parser_result = parse_source(path, file);
 
-    if(!result.status) {
+    if(!parser_result.status) {
         return EXIT_FAILURE;
     }
 
-    for(auto i = 0; i < result.top_level_statement_count; i += 1) {
-        debug_print_statement(result.top_level_statements[i]);
-        
-        if(i != result.top_level_statement_count - 1) {
-            printf(",");
-            printf("\n");
-        }
+    auto generator_result = generate_c_source(parser_result.top_level_statements, parser_result.top_level_statement_count);
+
+    if(!generator_result.status) {
+        return EXIT_FAILURE;
     }
+
+    printf("%s\n", generator_result.source);
 
     return EXIT_SUCCESS;
 }
