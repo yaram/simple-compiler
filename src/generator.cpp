@@ -114,6 +114,16 @@ struct ResolveDeclarationTypeResult {
 ResolveDeclarationTypeResult resolve_declaration_type(Declaration declaration, bool print_errors) {
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
+            auto child_declarations_resolved = true;
+
+            for(size_t i = 0; i < declaration.function_definition.declaration_count; i += 1) {
+                auto child_declaration = declaration.function_definition.declarations[i];
+            }
+
+            if(!child_declarations_resolved) {
+                return { false };
+            }
+
             Type type;
             type.category = TypeCategory::Function;
 
@@ -145,6 +155,7 @@ int count_resolved_declarations(Declaration declaration) {
             }
         } break;
     }
+
     return resolved_declaration_count;
 }
 
