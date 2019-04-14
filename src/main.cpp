@@ -39,7 +39,9 @@ int main(int argc, char *argv[]) {
 
     fclose(output_file);
 
-    system("clang -o out out.c");
+    if(system("clang -o out out.c") != 0){
+        return EXIT_FAILURE;
+    }
 
     return EXIT_SUCCESS;
 }
