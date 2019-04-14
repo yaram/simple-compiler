@@ -123,8 +123,17 @@ ResolveDeclarationTypeResult resolve_declaration_type(Declaration declaration, b
         case DeclarationCategory::FunctionDefinition: {
             auto child_declarations_resolved = true;
 
-            for(size_t i = 0; i < declaration.function_definition.declaration_count; i += 1) {
-                auto child_declaration = declaration.function_definition.declarations[i];
+            for(auto &child_declaration : declaration.function_definition.declarations) {
+                if(!child_declaration.type_resolved) {
+                    auto result = resolve_declaration_type(child_declaration, print_errors);
+
+                    if(result.status) {
+                        child_declaration.type_resolved = true;
+                        child_declaration.type = result.type;
+                    } else {
+                        child_declarations_resolved = false;
+                    }
+                }
             }
 
             if(!child_declarations_resolved) {
