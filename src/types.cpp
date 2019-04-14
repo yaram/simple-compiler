@@ -1,5 +1,5 @@
 #include "types.h"
-#include <assert.h>
+#include <stdlib.h>
 
 bool types_equal(Type a, Type b) {
     if(a.category != b.category) {
@@ -16,9 +16,7 @@ bool types_equal(Type a, Type b) {
         } break;
 
         default: {
-            assert(false);
-
-            return false;
+            abort();
         } break;
     }
 }
