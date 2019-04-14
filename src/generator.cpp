@@ -70,7 +70,6 @@ CreateDeclarationResult create_declaration(const char* parent_mangled_name, Stat
                 char *mangled_name_buffer{};
 
                 string_buffer_append(&mangled_name_buffer, statement.function_definition.name);
-                string_buffer_append(&mangled_name_buffer, "@");
                 string_buffer_append(&mangled_name_buffer, parent_mangled_name);
 
                 mangled_name = mangled_name_buffer;
