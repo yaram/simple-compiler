@@ -10,7 +10,21 @@ struct List {
     size_t capacity;
 
     T *elements;
+
+    T &operator[](size_t index) {
+        return elements[i];
+    }
 };
+
+template <typename T>
+T *begin(List<T> &list) {
+    return list.elements;
+}
+
+template <typename T>
+T *end(List<T> &list) {
+    return list.elements + sizeof(T) * (count - 1);
+}
 
 template <typename T>
 void append(List<T> *list, T element) {

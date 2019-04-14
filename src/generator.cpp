@@ -245,7 +245,7 @@ GenerateCSourceResult generate_c_source(Statement *top_level_statements, size_t 
 
     while(true) {
         for(size_t i = 0; i < top_level_declarations.count; i += 1) {
-            auto top_level_declaration = &(top_level_declarations.elements[i]);
+            auto top_level_declaration = &(top_level_declarations[i]);
 
             if(!top_level_declaration->type_resolved) {
                 auto result = resolve_declaration_type(*top_level_declaration, false);
@@ -259,16 +259,12 @@ GenerateCSourceResult generate_c_source(Statement *top_level_statements, size_t 
 
         auto resolved_declaration_count = 0;
         
-        for(size_t i = 0; i < top_level_declarations.count; i += 1) {
-            auto declaration = top_level_declarations.elements[i];
-
-            resolved_declaration_count += count_resolved_declarations(declaration);
+        for(auto top_level_declaration : top_level_declarations) {
+            resolved_declaration_count += count_resolved_declarations(top_level_declaration);
         }
 
         if(resolved_declaration_count == previous_resolved_declaration_count) {
-            for(size_t i = 0; i < top_level_declarations.count; i += 1) {
-                auto top_level_declaration = top_level_declarations.elements[i];
-
+            for(auto top_level_declaration : top_level_declarations) {
                 if(!top_level_declaration.type_resolved) {
                     auto result = resolve_declaration_type(top_level_declaration, true);
 
@@ -286,9 +282,7 @@ GenerateCSourceResult generate_c_source(Statement *top_level_statements, size_t 
 
     GenerationContext context{};
 
-    for(size_t i = 0; i < top_level_declarations.count; i += 1) {
-        auto top_level_declaration = top_level_declarations.elements[i];
-
+    for(auto top_level_declaration : top_level_declarations) {
         if(!generate_declaration(&context, top_level_declaration)) {
             return { false };
         }
