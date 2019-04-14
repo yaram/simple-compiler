@@ -12,16 +12,16 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    auto path = argv[1];
-    auto file = fopen(path, "rb");
+    auto source_file_path = argv[1];
+    auto source_file = fopen(source_file_path, "rb");
 
-    if(file == NULL) {
+    if(source_file == NULL) {
         fprintf(stderr, "Unable to read source file: %s\n", strerror(errno));
 
         return EXIT_FAILURE;
     }
 
-    auto parser_result = parse_source(path, file);
+    auto parser_result = parse_source(source_file_path, source_file);
 
     if(!parser_result.status) {
         return EXIT_FAILURE;
@@ -33,7 +33,13 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    printf("%s\n", generator_result.source);
+    auto output_file = fopen("out.c", "w");
+
+    fprintf(output_file, "%s", generator_result.source);
+
+    fclose(output_file);
+
+    system("clang -o out out.c");
 
     return EXIT_SUCCESS;
 }
