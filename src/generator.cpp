@@ -5,7 +5,7 @@
 #include "types.h"
 
 void string_buffer_append(char **string_buffer, const char *string) {
-    auto string_length = strlen(*string_buffer);
+    auto string_length = strlen(string);
 
     if(*string_buffer == nullptr) {
         *string_buffer = (char*)malloc(string_length + 1);
