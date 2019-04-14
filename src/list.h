@@ -23,7 +23,7 @@ T *begin(List<T> &list) {
 
 template <typename T>
 T *end(List<T> &list) {
-    return list.elements + sizeof(T) * (list.count - 1);
+    return list.elements + sizeof(T) * list.count;
 }
 
 template <typename T>
