@@ -173,6 +173,60 @@ int count_resolved_declarations(Declaration declaration) {
     return resolved_declaration_count;
 }
 
+struct GenerationContext {
+    char *forward_declaration_source;
+    char *implementation_source;
+
+    List<Declaration> declaration_stack;
+};
+
+bool generate_statement(GenerationContext *context, Statement statement) {
+    return true;
+}
+
+bool generate_declaration(GenerationContext *context, Declaration declaration) {
+    switch(declaration.category) {
+        case DeclarationCategory::FunctionDefinition: {
+            string_buffer_append(&(context->forward_declaration_source), "void ");
+            string_buffer_append(&(context->forward_declaration_source), declaration.mangled_name);
+            string_buffer_append(&(context->forward_declaration_source), "();");
+
+            append(&(context->declaration_stack), declaration);
+
+            for(size_t i = 0; i < declaration.function_definition.declaration_count; i += 1) {
+                auto child_declaration = declaration.function_definition.declarations[i];
+
+                if(!generate_declaration(context, child_declaration)) {
+                    return false;
+                }
+            }
+
+            string_buffer_append(&(context->implementation_source), "void ");
+
+            string_buffer_append(&(context->implementation_source), declaration.mangled_name);
+            string_buffer_append(&(context->implementation_source), "(){");
+
+            for(size_t i = 0; i < declaration.function_definition.statement_count; i += 1) {
+                auto statement = declaration.function_definition.statements[i];
+
+                if(!generate_statement(context, statement)) {
+                    return false;
+                }
+            }
+
+            context->declaration_stack.count -= 1;
+
+            string_buffer_append(&(context->implementation_source), "}");
+
+            return true;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 GenerateCSourceResult generate_c_source(Statement *top_level_statements, size_t top_level_statement_count) {
     List<Declaration> top_level_declarations{};
 
@@ -231,8 +285,27 @@ GenerateCSourceResult generate_c_source(Statement *top_level_statements, size_t 
         previous_resolved_declaration_count = resolved_declaration_count;
     }
 
+    GenerationContext context{};
+
+    for(size_t i = 0; i < top_level_declarations.count; i += 1) {
+        auto top_level_declaration = top_level_declarations.elements[i];
+
+        append(&(context.declaration_stack), top_level_declaration);
+
+        if(!generate_declaration(&context, top_level_declaration)) {
+            return { false };
+        }
+
+        context.declaration_stack.count -= 1;
+    }
+
+    char *full_source{};
+
+    string_buffer_append(&full_source, context.forward_declaration_source);
+    string_buffer_append(&full_source, context.implementation_source);
+
     return {
         true,
-        ""
+        full_source
     };
 }
