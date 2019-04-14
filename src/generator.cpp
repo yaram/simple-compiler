@@ -41,11 +41,9 @@ struct Declaration {
 
     union{ 
         struct {
-            Declaration *declarations;
-            size_t declaration_count;
+            Array<Declaration> declarations;
 
-            Statement *statements;
-            size_t statement_count;
+            Array<Statement> statements;
         } function_definition;
     };
 };
@@ -75,8 +73,7 @@ CreateDeclarationResult create_declaration(const char* parent_mangled_name, Stat
                 mangled_name = mangled_name_buffer;
             }
 
-            for(size_t i = 0; i < statement.function_definition.statement_count; i += 1) {
-                auto child_statement = statement.function_definition.statements[i];
+            for(auto child_statement : statement.function_definition.statements) {
                 auto result = create_declaration(mangled_name, child_statement);
 
                 if(result.is_declaration){
@@ -93,10 +90,8 @@ CreateDeclarationResult create_declaration(const char* parent_mangled_name, Stat
             };
 
             declaration.function_definition = {
-                child_declarations.elements,
-                child_declarations.count,
-                child_statements.elements,
-                child_statements.count
+                to_array(child_declarations),
+                to_array(child_statements)
             };
 
             return {
@@ -114,8 +109,7 @@ CreateDeclarationResult create_declaration(const char* parent_mangled_name, Stat
 struct DeclarationTypeResolutionContext {
     List<Declaration> declaration_stack;
 
-    Declaration *top_level_declarations;
-    size_t top_level_declaration_count;
+    Array<Declaration> top_level_declarations;
 };
 
 struct ResolveDeclarationTypeResult {
@@ -161,9 +155,7 @@ int count_resolved_declarations(Declaration declaration) {
 
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
-            for(size_t i = 0; i < declaration.function_definition.declaration_count; i += 1) {
-                auto child_declaration = declaration.function_definition.declarations[i];
-
+            for(auto child_declaration : declaration.function_definition.declarations) {
                 resolved_declaration_count += count_resolved_declarations(child_declaration);
             }
         } break;
@@ -192,9 +184,7 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
 
             append(&(context->declaration_stack), declaration);
 
-            for(size_t i = 0; i < declaration.function_definition.declaration_count; i += 1) {
-                auto child_declaration = declaration.function_definition.declarations[i];
-
+            for(auto child_declaration : declaration.function_definition.declarations) {
                 if(!generate_declaration(context, child_declaration)) {
                     return false;
                 }
@@ -205,9 +195,7 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
             string_buffer_append(&(context->implementation_source), declaration.mangled_name);
             string_buffer_append(&(context->implementation_source), "(){");
 
-            for(size_t i = 0; i < declaration.function_definition.statement_count; i += 1) {
-                auto statement = declaration.function_definition.statements[i];
-
+            for(auto statement : declaration.function_definition.statements) {
                 if(!generate_statement(context, statement)) {
                     return false;
                 }
@@ -226,11 +214,11 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
     }
 }
 
-GenerateCSourceResult generate_c_source(Statement *top_level_statements, size_t top_level_statement_count) {
+GenerateCSourceResult generate_c_source(Array<Statement> top_level_statements) {
     List<Declaration> top_level_declarations{};
 
-    for(size_t i = 0; i < top_level_statement_count; i += 1) {
-        auto result = create_declaration(nullptr, top_level_statements[i]);
+    for(auto top_level_statement : top_level_statements) {
+        auto result = create_declaration(nullptr, top_level_statement);
 
         if(result.is_declaration) {
             append(&top_level_declarations, result.declaration);
@@ -244,15 +232,13 @@ GenerateCSourceResult generate_c_source(Statement *top_level_statements, size_t 
     auto previous_resolved_declaration_count = 0;
 
     while(true) {
-        for(size_t i = 0; i < top_level_declarations.count; i += 1) {
-            auto top_level_declaration = &(top_level_declarations[i]);
-
-            if(!top_level_declaration->type_resolved) {
-                auto result = resolve_declaration_type(*top_level_declaration, false);
+        for(auto &top_level_declaration : top_level_declarations) {
+            if(!top_level_declaration.type_resolved) {
+                auto result = resolve_declaration_type(top_level_declaration, false);
 
                 if(result.status) {
-                    top_level_declaration->type_resolved = true;
-                    top_level_declaration->type = result.type;
+                    top_level_declaration.type_resolved = true;
+                    top_level_declaration.type = result.type;
                 }
             }
         }

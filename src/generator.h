@@ -8,4 +8,4 @@ struct GenerateCSourceResult {
     char *source;
 };
 
-GenerateCSourceResult generate_c_source(Statement *top_level_statements, size_t top_level_statement_count);
+GenerateCSourceResult generate_c_source(Array<Statement> top_level_statements);

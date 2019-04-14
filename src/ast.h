@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "array.h"
 
 enum struct ExpressionType {
     NamedReference,
@@ -38,8 +39,7 @@ struct Statement {
         struct {
             const char *name;
 
-            Statement *statements;
-            size_t statement_count;
+            Array<Statement> statements;
         } function_definition;
 
         Expression expression;

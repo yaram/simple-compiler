@@ -8,8 +8,7 @@
 struct ParseSourceResult {
     bool status;
 
-    Statement *top_level_statements;
-    size_t top_level_statement_count;
+    Array<Statement> top_level_statements;
 };
 
 ParseSourceResult parse_source(const char *source_file_path, FILE *source_file);

@@ -48,14 +48,14 @@ void debug_print_statement_indent(Statement statement, unsigned int indentation_
             printf("statements: [");
             next_line(indentation_level + 2);
 
-            for(auto i = 0; i < statement.function_definition.statement_count; i += 1) {
+            for(auto i = 0; i < statement.function_definition.statements.count; i += 1) {
                 debug_print_statement_indent(statement.function_definition.statements[i], indentation_level + 2);
 
-                if(i != statement.function_definition.statement_count - 1) {
+                if(i != statement.function_definition.statements.count - 1) {
                     printf(",");
                 }
 
-                if(i != statement.function_definition.statement_count - 1) {
+                if(i != statement.function_definition.statements.count - 1) {
                     next_line(indentation_level + 2);
                 } else {
                     next_line(indentation_level + 1);

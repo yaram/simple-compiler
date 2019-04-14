@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.1)
 project(SimpleCompiler LANGUAGES CXX)
 
 add_executable(compiler
+    src/array.h
     src/list.h
 
     src/ast.h

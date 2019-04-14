@@ -305,8 +305,7 @@ ParseStatementResult parse_statement(Context *context) {
                 statement.type = StatementType::FunctionDefinition;
                 statement.function_definition = {
                     identifier,
-                    statements.elements,
-                    statements.count
+                    to_array(statements)
                 };
 
                 return {
@@ -460,7 +459,6 @@ ParseSourceResult parse_source(const char *source_file_path, FILE *source_file) 
 
     return {
         true,
-        top_level_statements.elements,
-        top_level_statements.count
+        to_array(top_level_statements)
     };
 }

@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include "array.h"
 
 template <typename T>
 struct List {
@@ -46,4 +47,12 @@ void append(List<T> *list, T element) {
     list->elements[list->count] = element;
 
     list->count += 1;
+}
+
+template <typename T>
+Array<T> to_array(List<T> list) {
+    return {
+        list.count,
+        list.elements
+    };
 }

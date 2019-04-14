@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    auto generator_result = generate_c_source(parser_result.top_level_statements, parser_result.top_level_statement_count);
+    auto generator_result = generate_c_source(parser_result.top_level_statements);
 
     if(!generator_result.status) {
         return EXIT_FAILURE;
