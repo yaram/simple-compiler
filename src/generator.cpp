@@ -48,13 +48,7 @@ struct Declaration {
     };
 };
 
-struct CreateDeclarationResult {
-    bool is_declaration;
-
-    Declaration declaration;
-};
-
-CreateDeclarationResult create_declaration(const char* parent_mangled_name, Statement statement) {
+Result<Declaration> create_declaration(const char* parent_mangled_name, Statement statement) {
     switch(statement.type) {
         case StatementType::FunctionDefinition: {
             List<Declaration> child_declarations{};
@@ -76,8 +70,8 @@ CreateDeclarationResult create_declaration(const char* parent_mangled_name, Stat
             for(auto child_statement : statement.function_definition.statements) {
                 auto result = create_declaration(mangled_name, child_statement);
 
-                if(result.is_declaration){
-                    append(&child_declarations, result.declaration);
+                if(result.status){
+                    append(&child_declarations, result.value);
                 } else {
                     append(&child_statements, child_statement);
                 }
@@ -112,13 +106,7 @@ struct DeclarationTypeResolutionContext {
     Array<Declaration> top_level_declarations;
 };
 
-struct ResolveDeclarationTypeResult {
-    bool status;
-
-    Type type;
-};
-
-ResolveDeclarationTypeResult resolve_declaration_type(Declaration declaration, bool print_errors) {
+Result<Type> resolve_declaration_type(Declaration declaration, bool print_errors) {
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
             auto child_declarations_resolved = true;
@@ -129,7 +117,7 @@ ResolveDeclarationTypeResult resolve_declaration_type(Declaration declaration, b
 
                     if(result.status) {
                         child_declaration.type_resolved = true;
-                        child_declaration.type = result.type;
+                        child_declaration.type = result.value;
                     } else {
                         child_declarations_resolved = false;
                     }
@@ -223,14 +211,14 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
     }
 }
 
-GenerateCSourceResult generate_c_source(Array<Statement> top_level_statements) {
+Result<char*> generate_c_source(Array<Statement> top_level_statements) {
     List<Declaration> top_level_declarations{};
 
     for(auto top_level_statement : top_level_statements) {
         auto result = create_declaration(nullptr, top_level_statement);
 
-        if(result.is_declaration) {
-            append(&top_level_declarations, result.declaration);
+        if(result.status) {
+            append(&top_level_declarations, result.value);
         } else {
             fprintf(stderr, "Only declarations are allowed in global scope");
 
@@ -247,7 +235,7 @@ GenerateCSourceResult generate_c_source(Array<Statement> top_level_statements) {
 
                 if(result.status) {
                     top_level_declaration.type_resolved = true;
-                    top_level_declaration.type = result.type;
+                    top_level_declaration.type = result.value;
                 }
             }
         }

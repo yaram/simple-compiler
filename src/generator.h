@@ -1,11 +1,6 @@
 #pragma once
 
 #include "ast.h"
+#include "result.h"
 
-struct GenerateCSourceResult {
-    bool status;
-
-    char *source;
-};
-
-GenerateCSourceResult generate_c_source(Array<Statement> top_level_statements);
+Result<char*> generate_c_source(Array<Statement> top_level_statements);

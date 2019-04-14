@@ -181,13 +181,7 @@ bool expect_character(Context *context, char expected_character) {
     return true;
 }
 
-struct ParseRightExpressionResult {
-    bool status;
-
-    Expression right_most_expression;
-};
-
-ParseRightExpressionResult parse_right_expressions(Context *context, Expression left_expression) {
+Result<Expression> parse_right_expressions(Context *context, Expression left_expression) {
     auto current_expression = left_expression;
 
     while(true) {
@@ -227,13 +221,7 @@ ParseRightExpressionResult parse_right_expressions(Context *context, Expression 
     };
 }
 
-struct ParseStatementResult {
-    bool status;
-
-    Statement statement;
-};
-
-ParseStatementResult parse_statement(Context *context) {
+Result<Statement> parse_statement(Context *context) {
     auto character = fgetc(context->source_file);
 
     if(isalpha(character)) {
@@ -294,7 +282,7 @@ ParseStatementResult parse_statement(Context *context) {
                         return { false };
                     }
 
-                    append(&statements, result.statement);
+                    append(&statements, result.value);
 
                     skip_whitespace(context);
                 }
@@ -341,7 +329,7 @@ ParseStatementResult parse_statement(Context *context) {
 
                 Statement statement;
                 statement.type = StatementType::Expression;
-                statement.expression = result.right_most_expression;
+                statement.expression = result.value;
 
                 return {
                     true,
@@ -433,7 +421,7 @@ ParseStatementResult parse_statement(Context *context) {
 
         Statement statement;
         statement.type = StatementType::Expression;
-        statement.expression = result.right_most_expression;
+        statement.expression = result.value;
 
         return {
             true,
@@ -450,7 +438,7 @@ ParseStatementResult parse_statement(Context *context) {
     }
 }
 
-ParseSourceResult parse_source(const char *source_file_path, FILE *source_file) {
+Result<Array<Statement>> parse_source(const char *source_file_path, FILE *source_file) {
     Context context{
         source_file_path,
         source_file,
@@ -476,7 +464,7 @@ ParseSourceResult parse_source(const char *source_file_path, FILE *source_file) 
             return { false };
         }
 
-        append(&top_level_statements, result.statement);
+        append(&top_level_statements, result.value);
 
         skip_whitespace(&context);
     }

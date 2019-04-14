@@ -27,7 +27,7 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    auto generator_result = generate_c_source(parser_result.top_level_statements);
+    auto generator_result = generate_c_source(parser_result.value);
 
     if(!generator_result.status) {
         return EXIT_FAILURE;
@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
 
     auto output_file = fopen("out.c", "w");
 
-    fprintf(output_file, "%s", generator_result.source);
+    fprintf(output_file, "%s", generator_result.value);
 
     fclose(output_file);
 

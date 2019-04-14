@@ -4,11 +4,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include "ast.h"
+#include "result.h"
 
-struct ParseSourceResult {
-    bool status;
-
-    Array<Statement> top_level_statements;
-};
-
-ParseSourceResult parse_source(const char *source_file_path, FILE *source_file);
+Result<Array<Statement>> parse_source(const char *source_file_path, FILE *source_file);
