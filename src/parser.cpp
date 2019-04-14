@@ -4,8 +4,6 @@
 #include <stdarg.h>
 #include "list.h"
 
-using namespace list;
-
 struct Context {
     const char *source_file_path;
 

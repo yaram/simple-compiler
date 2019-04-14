@@ -4,8 +4,6 @@
 #include "list.h"
 #include "types.h"
 
-using namespace list;
-
 void string_buffer_append(char **string_buffer, const char *string) {
     auto string_length = strlen(*string_buffer);
 
