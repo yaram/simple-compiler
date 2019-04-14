@@ -34,6 +34,7 @@ struct Declaration {
     DeclarationCategory category;
 
     const char *name;
+    const char *mangled_name;
 
     bool type_resolved;
     Type type;
@@ -55,15 +56,29 @@ struct CreateDeclarationResult {
     Declaration declaration;
 };
 
-CreateDeclarationResult create_declaration(Statement statement) {
+CreateDeclarationResult create_declaration(const char* parent_mangled_name, Statement statement) {
     switch(statement.type) {
         case StatementType::FunctionDefinition: {
             List<Declaration> child_declarations{};
             List<Statement> child_statements{};
 
+            const char* mangled_name;
+
+            if(parent_mangled_name == nullptr) {
+                mangled_name = statement.function_definition.name;
+            } else {
+                auto mangled_name_buffer = (char*)malloc(strlen(parent_mangled_name) + 1 + strlen(statement.function_definition.name) + 1);
+
+                strcpy(mangled_name_buffer, parent_mangled_name);
+                strcat(mangled_name_buffer, "@");
+                strcat(mangled_name_buffer, statement.function_definition.name);
+
+                mangled_name = mangled_name_buffer;
+            }
+
             for(size_t i = 0; i < statement.function_definition.statement_count; i += 1) {
                 auto child_statement = statement.function_definition.statements[i];
-                auto result = create_declaration(child_statement);
+                auto result = create_declaration(mangled_name, child_statement);
 
                 if(result.is_declaration){
                     append(&child_declarations, result.declaration);
@@ -74,7 +89,8 @@ CreateDeclarationResult create_declaration(Statement statement) {
 
             Declaration declaration {
                 DeclarationCategory::FunctionDefinition,
-                statement.function_definition.name
+                statement.function_definition.name,
+                mangled_name
             };
 
             declaration.function_definition = {
@@ -161,7 +177,7 @@ GenerateCSourceResult generate_c_source(Statement *top_level_statements, size_t 
     List<Declaration> top_level_declarations{};
 
     for(size_t i = 0; i < top_level_statement_count; i += 1) {
-        auto result = create_declaration(top_level_statements[i]);
+        auto result = create_declaration(nullptr, top_level_statements[i]);
 
         if(result.is_declaration) {
             append(&top_level_declarations, result.declaration);
