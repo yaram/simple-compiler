@@ -45,6 +45,30 @@ void debug_print_statement_indent(Statement statement, unsigned int indentation_
             printf("name: %s,", statement.function_definition.name);
             next_line(indentation_level + 1);
 
+            printf("parameters: {");
+            next_line(indentation_level + 2);
+
+            for(auto i = 0; i < statement.function_definition.parameters.count; i += 1) {
+                auto parameter = statement.function_definition.parameters[i];
+
+                printf("%s: ", parameter.name);
+
+                debug_print_expression_indent(parameter.type, indentation_level + 3);
+
+                if(i != statement.function_definition.parameters.count - 1) {
+                    printf(",");
+                }
+                
+                if(i != statement.function_definition.parameters.count - 1) {
+                    next_line(indentation_level + 2);
+                } else {
+                    next_line(indentation_level + 1);
+                }
+            }
+
+            printf("}");
+            next_line(indentation_level + 1);
+
             printf("statements: [");
             next_line(indentation_level + 2);
 

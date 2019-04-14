@@ -32,12 +32,19 @@ enum struct StatementType {
     Expression
 };
 
+struct FunctionParameter {
+    char *name;
+
+    Expression type;
+};
+
 struct Statement {
     StatementType type;
 
     union {
         struct {
             const char *name;
+            Array<FunctionParameter> parameters;
 
             Array<Statement> statements;
         } function_definition;
