@@ -352,28 +352,47 @@ ParseStatementResult parse_statement(Context *context) {
     } else if(isdigit(character) || character == '-') {
         context->character += 1;
 
-        const auto buffer_size = 32;
+        List<char> buffer{};
 
-        char buffer[buffer_size + 1];
+        append(&buffer, (char)character);
 
-        buffer[0] = character;
+        auto definitely_identifier = false;
+        auto definitely_numeric = false;
 
-        auto index = 1;
+        if(character == '-') {
+            definitely_numeric = true;
+        }
+
+        auto character_count = 1;
         while(true) {
-            if(index == buffer_size - 1) {
-                error(*context, "Integer literal too long");
-
-                return { false };
-            }
-
             auto character = fgetc(context->source_file);
 
             if(isdigit(character)) {
                 context->character += 1;
 
-                buffer[index] = (char)character;
+                if(definitely_identifier) {
+                    error(*context, "Expected a-z or A-Z, got '%c'", character);
 
-                index += 1;
+                    return { false };
+                }
+
+                append(&buffer, (char)character);
+
+                character_count += 1;
+            } else if(isalpha(character)) {
+                context->character += 1;
+
+                if(definitely_numeric) {
+                    error(*context, "Expected 0-9, got '%c'", character);
+
+                    return { false };
+                }
+
+                definitely_identifier = true;
+
+                append(&buffer, (char)character);
+
+                character_count += 1;
             } else {
                 ungetc(character, context->source_file);
 
@@ -381,19 +400,24 @@ ParseStatementResult parse_statement(Context *context) {
             }
         }
 
-        buffer[index] = 0;
+        append(&buffer, '\0');
 
-        auto value = strtoll(buffer, NULL, 10);
-
-        if((value == LLONG_MAX || value == LLONG_MIN) && errno == ERANGE) {
-            error(*context, "Integer literal out of range");
-
-            return { false };
-        }
-        
         Expression expression;
-        expression.type = ExpressionType::IntegerLiteral;
-        expression.integer_literal = value;
+        if(definitely_numeric || !definitely_numeric) {
+            auto value = strtoll(buffer.elements, NULL, 10);
+
+            if((value == LLONG_MAX || value == LLONG_MIN) && errno == ERANGE) {
+                error(*context, "Integer literal out of range");
+
+                return { false };
+            }
+
+            expression.type = ExpressionType::IntegerLiteral;
+            expression.integer_literal = value;
+        } else {
+            expression.type = ExpressionType::NamedReference;
+            expression.named_reference = buffer.elements;
+        }
 
         auto result = parse_right_expressions(context, expression);
 
