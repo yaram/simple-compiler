@@ -289,13 +289,9 @@ GenerateCSourceResult generate_c_source(Statement *top_level_statements, size_t 
     for(size_t i = 0; i < top_level_declarations.count; i += 1) {
         auto top_level_declaration = top_level_declarations.elements[i];
 
-        append(&(context.declaration_stack), top_level_declaration);
-
         if(!generate_declaration(&context, top_level_declaration)) {
             return { false };
         }
-
-        context.declaration_stack.count -= 1;
     }
 
     char *full_source{};
