@@ -12,7 +12,7 @@ struct List {
     T *elements;
 
     T &operator[](size_t index) {
-        return elements[i];
+        return elements[index];
     }
 };
 
@@ -23,7 +23,7 @@ T *begin(List<T> &list) {
 
 template <typename T>
 T *end(List<T> &list) {
-    return list.elements + sizeof(T) * (count - 1);
+    return list.elements + sizeof(T) * (list.count - 1);
 }
 
 template <typename T>
