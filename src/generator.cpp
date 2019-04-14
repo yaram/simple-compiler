@@ -67,7 +67,7 @@ CreateDeclarationResult create_declaration(const char* parent_mangled_name, Stat
             if(parent_mangled_name == nullptr) {
                 mangled_name = statement.function_definition.name;
             } else {
-                char *mangled_name_buffer;
+                char *mangled_name_buffer{};
 
                 string_buffer_append(&mangled_name_buffer, statement.function_definition.name);
                 string_buffer_append(&mangled_name_buffer, "@");
