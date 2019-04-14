@@ -17,5 +17,5 @@ T *begin(Array<T> &array) {
 
 template <typename T>
 T *end(Array<T> &array) {
-    return array.elements + sizeof(T) * array.count;
+    return array.elements + array.count;
 }
