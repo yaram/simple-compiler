@@ -290,8 +290,13 @@ GenerateCSourceResult generate_c_source(Statement *top_level_statements, size_t 
 
     char *full_source{};
 
-    string_buffer_append(&full_source, context.forward_declaration_source);
-    string_buffer_append(&full_source, context.implementation_source);
+    if(context.forward_declaration_source != nullptr) {
+        string_buffer_append(&full_source, context.forward_declaration_source);
+    }
+
+    if(context.implementation_source != nullptr) {
+        string_buffer_append(&full_source, context.implementation_source);
+    }
 
     return {
         true,
