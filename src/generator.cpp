@@ -67,11 +67,11 @@ CreateDeclarationResult create_declaration(const char* parent_mangled_name, Stat
             if(parent_mangled_name == nullptr) {
                 mangled_name = statement.function_definition.name;
             } else {
-                auto mangled_name_buffer = (char*)malloc(strlen(parent_mangled_name) + 1 + strlen(statement.function_definition.name) + 1);
+                char *mangled_name_buffer;
 
-                strcpy(mangled_name_buffer, parent_mangled_name);
-                strcat(mangled_name_buffer, "@");
-                strcat(mangled_name_buffer, statement.function_definition.name);
+                string_buffer_append(&mangled_name_buffer, parent_mangled_name);
+                string_buffer_append(&mangled_name_buffer, "@");
+                string_buffer_append(&mangled_name_buffer, statement.function_definition.name);
 
                 mangled_name = mangled_name_buffer;
             }
