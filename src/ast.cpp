@@ -44,41 +44,51 @@ void debug_print_statement_indent(Statement statement, unsigned int indentation_
             printf("name: %s,\n", statement.function_definition.name);
             
             indent(indentation_level + 1);
-            printf("parameters: {\n");
+            printf("parameters: {");
 
-            for(auto i = 0; i < statement.function_definition.parameters.count; i += 1) {
-                auto parameter = statement.function_definition.parameters[i];
+            if(statement.function_definition.parameters.count != 0) {
+                printf("\n");
 
-                indent(indentation_level + 2);
-                printf("%s: ", parameter.name);
+                for(auto i = 0; i < statement.function_definition.parameters.count; i += 1) {
+                    auto parameter = statement.function_definition.parameters[i];
 
-                debug_print_expression_indent(parameter.type, indentation_level + 2);
+                    indent(indentation_level + 2);
+                    printf("%s: ", parameter.name);
 
-                if(i != statement.function_definition.parameters.count - 1) {
-                    printf(",");
+                    debug_print_expression_indent(parameter.type, indentation_level + 2);
+
+                    if(i != statement.function_definition.parameters.count - 1) {
+                        printf(",");
+                    }
+
+                    printf("\n");
                 }
 
-                printf("\n");
+                indent(indentation_level + 1);
             }
-
-            indent(indentation_level + 1);
+            
             printf("}\n");
 
             indent(indentation_level + 1);
-            printf("statements: [\n");
+            printf("statements: [");
 
-            for(auto i = 0; i < statement.function_definition.statements.count; i += 1) {
-                indent(indentation_level + 2);
-                debug_print_statement_indent(statement.function_definition.statements[i], indentation_level + 2);
+            if(statement.function_definition.statements.count != 0) {
+                printf("\n");
 
-                if(i != statement.function_definition.statements.count - 1) {
-                    printf(",");
+                for(auto i = 0; i < statement.function_definition.statements.count; i += 1) {
+                    indent(indentation_level + 2);
+                    debug_print_statement_indent(statement.function_definition.statements[i], indentation_level + 2);
+
+                    if(i != statement.function_definition.statements.count - 1) {
+                        printf(",");
+                    }
+
+                    printf("\n");
                 }
 
-                printf("\n");
+                indent(indentation_level + 1);
             }
 
-            indent(indentation_level + 1);
             printf("]\n");
 
             indent(indentation_level);
