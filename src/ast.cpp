@@ -62,7 +62,7 @@ void debug_print_expression(Expression expression) {
 void debug_print_statement_indent(Statement statement, unsigned int indentation_level) {
     switch(statement.type) {
         case StatementType::FunctionDefinition: {
-            printf("FunctionDeclaration {\n");
+            printf("FunctionDefinition {\n");
 
             indent(indentation_level + 1);
             printf("name: %s,\n", statement.function_definition.name);
