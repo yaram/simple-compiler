@@ -24,6 +24,30 @@ void debug_print_expression_indent(Expression expression, unsigned int indentati
             printf("expression: ");
             debug_print_expression_indent(*(expression.function_call.expression), indentation_level + 1);
             printf("\n");
+            
+            indent(indentation_level + 1);
+            printf("parameters: [");
+
+            if(expression.function_call.parameters.count != 0) {
+                printf("\n");
+
+                for(auto i = 0; i < expression.function_call.parameters.count; i += 1) {
+                    auto parameter = expression.function_call.parameters[i];
+
+                    indent(indentation_level + 2);
+                    debug_print_expression_indent(parameter, indentation_level + 2);
+
+                    if(i != expression.function_call.parameters.count - 1) {
+                        printf(",");
+                    }
+
+                    printf("\n");
+                }
+
+                indent(indentation_level + 1); 
+            }
+            
+            printf("]\n");
 
             indent(indentation_level);
             printf("}");

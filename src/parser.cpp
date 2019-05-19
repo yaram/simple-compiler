@@ -181,6 +181,8 @@ bool expect_character(Context *context, char expected_character) {
     return true;
 }
 
+Result<Expression> parse_any_expression(Context *context);
+
 Result<Expression> parse_right_expressions(Context *context, Expression left_expression) {
     auto current_expression = left_expression;
 
@@ -194,10 +196,44 @@ Result<Expression> parse_right_expressions(Context *context, Expression left_exp
         if(character == '(') {
             skip_whitespace(context);
 
-            // TODO: Arguments
+            List<Expression> parameters{};
 
-            if(!expect_character(context, ')')){
-                return { false };
+            auto character = fgetc(context->source_file);
+
+            if(character == ')') {
+                context->character += 1;
+            } else {
+                ungetc(character, context->source_file);
+
+                while(true) {
+                    auto result = parse_any_expression(context);
+
+                    if(!result.status) {
+                        return { false };
+                    }
+
+                    append(&parameters, result.value);
+
+                    skip_whitespace(context);
+
+                    character = getc(context->source_file);
+
+                    if(character == ',') {
+                        context->character += 1;
+
+                        continue;
+                    } else if(character == ')') {
+                        context->character += 1;
+
+                        break;
+                    } else if(character == EOF) {
+                        error(*context, "Unexpected End of File");
+                    } else {
+                        error(*context, "Expected ',' or ')', got '%c'", character);
+
+                        return { false };
+                    }
+                }
             }
 
             auto function_expression = (Expression*)malloc(sizeof(Expression));
@@ -206,6 +242,7 @@ Result<Expression> parse_right_expressions(Context *context, Expression left_exp
             Expression expression;
             expression.type = ExpressionType::FunctionCall;
             expression.function_call.expression = function_expression;
+            expression.function_call.parameters = to_array(parameters);
 
             current_expression = expression;
         } else {

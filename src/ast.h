@@ -20,7 +20,7 @@ struct Expression {
         struct {
             Expression *expression;
 
-            // TODO: Arguments
+            Array<Expression> parameters;
         } function_call;
     };
 };
@@ -44,6 +44,7 @@ struct Statement {
     union {
         struct {
             const char *name;
+
             Array<FunctionParameter> parameters;
 
             Array<Statement> statements;
