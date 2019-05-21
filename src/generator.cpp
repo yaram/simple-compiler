@@ -242,14 +242,13 @@ Result<Type> resolve_declaration_type(Array<Declaration> top_level, List<Declara
             append(stack, declaration);
 
             for(auto &child_declaration : declaration.function_definition.declarations) {
-                if(!child_declaration.type_resolved) {
-                    auto result = resolve_declaration_type(top_level, stack, child_declaration, print_errors);
+                auto result = resolve_declaration_type(top_level, stack, child_declaration, print_errors);
 
-                    if(result.status) {
-                        child_declaration.type_resolved = true;
-                        child_declaration.type = result.value;
-                    }
+                if(result.status) {
+                    child_declaration.type_resolved = true;
+                    child_declaration.type = result.value;
                 }
+            }
             }
 
             stack->count -= 1;
@@ -464,13 +463,11 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
 
     while(true) {
         for(auto &top_level_declaration : top_level_declarations) {
-            if(!top_level_declaration.type_resolved) {
-                auto result = resolve_declaration_type(to_array(top_level_declarations), &declaration_stack, top_level_declaration, false);
+            auto result = resolve_declaration_type(to_array(top_level_declarations), &declaration_stack, top_level_declaration, false);
 
-                if(result.status) {
-                    top_level_declaration.type_resolved = true;
-                    top_level_declaration.type = result.value;
-                }
+            if(result.status) {
+                top_level_declaration.type_resolved = true;
+                top_level_declaration.type = result.value;
             }
         }
 
@@ -482,12 +479,10 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
 
         if(resolved_declaration_count == previous_resolved_declaration_count) {
             for(auto top_level_declaration : top_level_declarations) {
-                if(!top_level_declaration.type_resolved) {
-                    auto result = resolve_declaration_type(to_array(top_level_declarations), &declaration_stack, top_level_declaration, true);
+                auto result = resolve_declaration_type(to_array(top_level_declarations), &declaration_stack, top_level_declaration, true);
 
-                    if(!result.status) {
-                        return { false };
-                    }
+                if(!result.status) {
+                    return { false };
                 }
             }
 
