@@ -331,6 +331,8 @@ Result<Type> resolve_declaration_type(ConstantContext *context, Declaration decl
                 }
             }
 
+            context->declaration_stack.count -= 1;
+
             if(declaration.type_resolved) {
                 return {
                     true,
@@ -360,8 +362,6 @@ Result<Type> resolve_declaration_type(ConstantContext *context, Declaration decl
 
                     parameters[i] = result.value.value.type;
                 }
-
-                context->declaration_stack.count -= 1;
 
                 Type type;
                 type.category = TypeCategory::Function;
