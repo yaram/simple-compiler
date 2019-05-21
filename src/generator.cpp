@@ -437,26 +437,36 @@ bool generate_type(char **source, Type type) {
         } break;
 
         case TypeCategory::Integer: {
-            if(type.integer.is_signed) {
-                string_buffer_append(source, "signed ");
-            } else {
-                string_buffer_append(source, "unsigned ");
-            }
-
             switch(type.integer.size) {
                 case IntegerSize::Bit8: {
+                    if(type.integer.is_signed) {
+                        string_buffer_append(source, "signed ");
+                    }
+
                     string_buffer_append(source, "char");
                 } break;
 
                 case IntegerSize::Bit16: {
+                    if(!type.integer.is_signed) {
+                        string_buffer_append(source, "unsigned ");
+                    }
+
                     string_buffer_append(source, "short");
                 } break;
 
                 case IntegerSize::Bit32: {
+                    if(!type.integer.is_signed) {
+                        string_buffer_append(source, "unsigned ");
+                    }
+
                     string_buffer_append(source, "int");
                 } break;
 
                 case IntegerSize::Bit64: {
+                    if(!type.integer.is_signed) {
+                        string_buffer_append(source, "unsigned ");
+                    }
+
                     string_buffer_append(source, "long long");
                 } break;
 
