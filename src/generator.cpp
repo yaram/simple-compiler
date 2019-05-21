@@ -414,7 +414,7 @@ bool generate_constant_value(char **source, ConstantValue value) {
     }
 }
 
-bool generate_expression(GenerationContext *context, Expression expression) {
+Result<Type> generate_expression(GenerationContext *context, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             // TODO: Variable references
@@ -425,7 +425,16 @@ bool generate_expression(GenerationContext *context, Expression expression) {
                 return { false };
             }
 
-            return generate_constant_value(&(context->implementation_source), result.value);
+            auto generate_result = generate_constant_value(&(context->implementation_source), result.value);
+
+            if(!generate_result) {
+                return { false };
+            }
+
+            return {
+                true,
+                result.value.type
+            };
         } break;
 
         case ExpressionType::IntegerLiteral: {
@@ -435,19 +444,41 @@ bool generate_expression(GenerationContext *context, Expression expression) {
 
             string_buffer_append(&(context->implementation_source), buffer);
 
-            return true;
+            Type type;
+            type.category = TypeCategory::Integer;
+            type.integer = {
+                true,
+                IntegerSize::Bit64
+            };
+
+            return {
+                true,
+                type
+            };
         } break;
 
         case ExpressionType::FunctionCall: {
             auto result = generate_expression(context, *expression.function_call.expression);
 
-            if(!result) {
-                return false;
+            if(!result.status) {
+                return { false };
+            }
+
+            if(result.value.category != TypeCategory::Function) {
+                fprintf(stderr, "Cannot call a non-function");
+
+                return { false };
             }
 
             string_buffer_append(&(context->implementation_source), "()");
 
-            return true;
+            Type type;
+            type.category = TypeCategory::Void;
+
+            return { 
+                true,
+                type
+            };
         } break;
 
         default: {
@@ -461,7 +492,7 @@ bool generate_statement(GenerationContext *context, Statement statement) {
         case StatementType::Expression: {
             auto result = generate_expression(context, statement.expression);
 
-            if(!result) {
+            if(!result.status) {
                 return false;
             }
 
