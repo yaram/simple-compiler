@@ -27,48 +27,156 @@ void string_buffer_append(char **string_buffer, const char *string) {
 }
 
 enum struct DeclarationCategory {
-    FunctionDefinition
+    FunctionDefinition,
+    ConstantDefinition
 };
 
 struct Declaration {
     DeclarationCategory category;
 
     const char *name;
-    const char *mangled_name;
 
     bool type_resolved;
     Type type;
 
-    union{ 
+    union {
         struct {
+            const char *mangled_name;
+
             Array<Declaration> declarations;
 
             Array<Statement> statements;
         } function_definition;
+
+        Expression constant_definition;
     };
 };
 
-Result<Declaration> create_declaration(const char* parent_mangled_name, Statement statement) {
+Result<Declaration> lookup_declaration(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name) {
+    for(auto i = 0; i < declaration_stack.count; i++) {
+        auto parent_declaration = declaration_stack[declaration_stack.count - 1 - i];
+
+        switch(parent_declaration.category) {
+            case DeclarationCategory::FunctionDefinition: {
+                for(auto declaration : parent_declaration.function_definition.declarations) {
+                    if(declaration.type_resolved && strcmp(declaration.name, name) == 0) {
+                        return {
+                            true,
+                            declaration
+                        };
+                    }
+                }
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+    }
+
+    for(auto declaration : top_level_declarations) {
+        if(strcmp(declaration.name, name) == 0) {
+            return {
+                true,
+                declaration
+            };
+        }
+    }
+
+    return { false };
+}
+
+struct ConstantValue {
+    Type type;
+
+    union {
+        const char *function;
+
+        int64_t integer;
+    };
+};
+
+Result<ConstantValue> evaluate_constant_expression(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, Expression expression, bool print_errors) {
+    switch(expression.type) {
+        case ExpressionType::NamedReference: {
+            auto result = lookup_declaration(top_level_declarations, declaration_stack, expression.named_reference);
+
+            if(!result.status) {
+                if(print_errors) {
+                    fprintf(stderr, "Cannot find named reference %s\n", expression.named_reference);
+                }
+
+                return { false };
+            }
+
+            switch(result.value.category) {
+                case DeclarationCategory::FunctionDefinition: {
+                    ConstantValue value;
+                    value.type.category = TypeCategory::Function;
+                    value.function = result.value.function_definition.mangled_name;
+
+                    return {
+                        true,
+                        value
+                    };
+                } break;
+
+                case DeclarationCategory::ConstantDefinition: {
+                    auto expression_result = evaluate_constant_expression(top_level_declarations, declaration_stack, result.value.constant_definition, print_errors);
+
+                    if(!expression_result.status) {
+                        return { false };
+                    }
+
+                    return {
+                        true,
+                        expression_result.value
+                    };
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        case ExpressionType::IntegerLiteral: {
+            ConstantValue value;
+            value.type.category = TypeCategory::Integer;
+            value.type.integer.is_signed = true;
+            value.type.integer.size = IntegerSize::Bit64;
+            value.integer = expression.integer_literal;
+
+            return {
+                true,
+                value
+            };
+        } break;
+
+        case ExpressionType::FunctionCall: {
+            if(print_errors) {
+                fprintf(stderr, "Function calls not allowed in global context\n");
+            }
+
+            return { false };
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
+Result<Declaration> create_declaration(List<const char*> *name_stack, Statement statement) {
     switch(statement.type) {
         case StatementType::FunctionDefinition: {
             List<Declaration> child_declarations{};
             List<Statement> child_statements{};
 
-            const char* mangled_name;
-
-            if(parent_mangled_name == nullptr) {
-                mangled_name = statement.function_definition.name;
-            } else {
-                char *mangled_name_buffer{};
-
-                string_buffer_append(&mangled_name_buffer, statement.function_definition.name);
-                string_buffer_append(&mangled_name_buffer, parent_mangled_name);
-
-                mangled_name = mangled_name_buffer;
-            }
+            append(name_stack, statement.function_definition.name);
 
             for(auto child_statement : statement.function_definition.statements) {
-                auto result = create_declaration(mangled_name, child_statement);
+                auto result = create_declaration(name_stack, child_statement);
 
                 if(result.status){
                     append(&child_declarations, result.value);
@@ -77,16 +185,36 @@ Result<Declaration> create_declaration(const char* parent_mangled_name, Statemen
                 }
             }
 
-            Declaration declaration {
-                DeclarationCategory::FunctionDefinition,
-                statement.function_definition.name,
-                mangled_name
-            };
+            char* mangled_name{};
+
+            for(auto name : *name_stack) {
+                string_buffer_append(&mangled_name, name);
+            }
+
+            name_stack->count -= 1;
+
+            Declaration declaration;
+            declaration.category = DeclarationCategory::FunctionDefinition;
+            declaration.name = statement.function_definition.name;
 
             declaration.function_definition = {
+                mangled_name,
                 to_array(child_declarations),
                 to_array(child_statements)
             };
+
+            return {
+                true,
+                declaration
+            };
+        } break;
+
+        case StatementType::ConstantDefinition: {
+            Declaration declaration;
+            declaration.category = DeclarationCategory::ConstantDefinition;
+            declaration.name = statement.constant_definition.name;
+            
+            declaration.constant_definition = statement.constant_definition.expression;
 
             return {
                 true,
@@ -106,27 +234,23 @@ struct DeclarationTypeResolutionContext {
     Array<Declaration> top_level_declarations;
 };
 
-Result<Type> resolve_declaration_type(Declaration declaration, bool print_errors) {
+Result<Type> resolve_declaration_type(Array<Declaration> top_level, List<Declaration> *stack, Declaration declaration, bool print_errors) {
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
-            auto child_declarations_resolved = true;
+            append(stack, declaration);
 
             for(auto &child_declaration : declaration.function_definition.declarations) {
                 if(!child_declaration.type_resolved) {
-                    auto result = resolve_declaration_type(child_declaration, print_errors);
+                    auto result = resolve_declaration_type(top_level, stack, child_declaration, print_errors);
 
                     if(result.status) {
                         child_declaration.type_resolved = true;
                         child_declaration.type = result.value;
-                    } else {
-                        child_declarations_resolved = false;
                     }
                 }
             }
 
-            if(!child_declarations_resolved) {
-                return { false };
-            }
+            stack->count -= 1;
 
             Type type;
             type.category = TypeCategory::Function;
@@ -134,6 +258,19 @@ Result<Type> resolve_declaration_type(Declaration declaration, bool print_errors
             return {
                 true,
                 type
+            };
+        } break;
+
+        case DeclarationCategory::ConstantDefinition: {
+            auto result = evaluate_constant_expression(top_level, to_array(*stack), declaration.constant_definition, print_errors);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            return {
+                true,
+                result.value.type
             };
         } break;
 
@@ -165,6 +302,7 @@ struct GenerationContext {
     char *forward_declaration_source;
     char *implementation_source;
 
+    Array<Declaration> top_level_declarations;
     List<Declaration> declaration_stack;
 };
 
@@ -176,7 +314,7 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
             string_buffer_append(&(context->forward_declaration_source), "void ");
-            string_buffer_append(&(context->forward_declaration_source), declaration.mangled_name);
+            string_buffer_append(&(context->forward_declaration_source), declaration.function_definition.mangled_name);
             string_buffer_append(&(context->forward_declaration_source), "();");
 
             append(&(context->declaration_stack), declaration);
@@ -189,7 +327,7 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
 
             string_buffer_append(&(context->implementation_source), "void ");
 
-            string_buffer_append(&(context->implementation_source), declaration.mangled_name);
+            string_buffer_append(&(context->implementation_source), declaration.function_definition.mangled_name);
             string_buffer_append(&(context->implementation_source), "(){");
 
             for(auto statement : declaration.function_definition.statements) {
@@ -205,6 +343,14 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
             return true;
         } break;
 
+        case DeclarationCategory::ConstantDefinition: {
+            // Only do type checking. Constants have no run-time presence.
+
+            auto result = evaluate_constant_expression(context->top_level_declarations, to_array(context->declaration_stack), declaration.constant_definition, true);
+
+            return result.status;
+        } break;
+
         default: {
             abort();
         } break;
@@ -214,13 +360,15 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
 Result<char*> generate_c_source(Array<Statement> top_level_statements) {
     List<Declaration> top_level_declarations{};
 
+    List<const char*> name_stack{};
+
     for(auto top_level_statement : top_level_statements) {
-        auto result = create_declaration(nullptr, top_level_statement);
+        auto result = create_declaration(&name_stack, top_level_statement);
 
         if(result.status) {
             append(&top_level_declarations, result.value);
         } else {
-            fprintf(stderr, "Only declarations are allowed in global scope");
+            fprintf(stderr, "Only declarations are allowed in global scope\n");
 
             return { false };
         }
@@ -228,10 +376,12 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
 
     auto previous_resolved_declaration_count = 0;
 
+    auto declaration_stack = List<Declaration>{};
+
     while(true) {
         for(auto &top_level_declaration : top_level_declarations) {
             if(!top_level_declaration.type_resolved) {
-                auto result = resolve_declaration_type(top_level_declaration, false);
+                auto result = resolve_declaration_type(to_array(top_level_declarations), &declaration_stack, top_level_declaration, false);
 
                 if(result.status) {
                     top_level_declaration.type_resolved = true;
@@ -249,7 +399,7 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
         if(resolved_declaration_count == previous_resolved_declaration_count) {
             for(auto top_level_declaration : top_level_declarations) {
                 if(!top_level_declaration.type_resolved) {
-                    auto result = resolve_declaration_type(top_level_declaration, true);
+                    auto result = resolve_declaration_type(to_array(top_level_declarations), &declaration_stack, top_level_declaration, true);
 
                     if(!result.status) {
                         return { false };
@@ -263,7 +413,12 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
         previous_resolved_declaration_count = resolved_declaration_count;
     }
 
-    GenerationContext context{};
+    GenerationContext context{
+        nullptr,
+        nullptr,
+        to_array(top_level_declarations),
+        List<Declaration>{}
+    };
 
     for(auto top_level_declaration : top_level_declarations) {
         if(!generate_declaration(&context, top_level_declaration)) {
