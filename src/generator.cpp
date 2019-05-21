@@ -453,15 +453,15 @@ Result<Type> resolve_declaration_type(ConstantContext *context, Declaration decl
     }
 }
 
-int count_resolved_declarations(Declaration declaration) {
+int count_declarations(Declaration declaration, bool only_resolved) {
     auto resolved_declaration_count = 0;
 
-    if(declaration.type_resolved) {
+    if(!only_resolved || declaration.type_resolved) {
         resolved_declaration_count = 1;
     }
 
     for(auto child : get_declaration_children(declaration)) {
-        resolved_declaration_count += count_resolved_declarations(child);
+        resolved_declaration_count += count_declarations(child, only_resolved);
     }
 
     return resolved_declaration_count;
@@ -894,16 +894,21 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
         auto resolved_declaration_count = 0;
         
         for(auto top_level_declaration : top_level_declarations) {
-            resolved_declaration_count += count_resolved_declarations(top_level_declaration);
+            resolved_declaration_count += count_declarations(top_level_declaration, true);
         }
 
         if(resolved_declaration_count == previous_resolved_declaration_count) {
             for(auto top_level_declaration : top_level_declarations) {
-                auto result = resolve_declaration_type(&constant_context, top_level_declaration, true);
+                resolve_declaration_type(&constant_context, top_level_declaration, true);
+            }
 
-                if(!result.status) {
-                    return { false };
-                }
+            auto declaration_count = 0;
+            for(auto top_level_declaration : top_level_declarations) {
+                declaration_count += count_declarations(top_level_declaration, false);
+            }
+
+            if(declaration_count != resolved_declaration_count) {
+                return { false };
             }
 
             break;
