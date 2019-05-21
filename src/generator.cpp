@@ -89,36 +89,43 @@ Result<Declaration> lookup_declaration(Array<Declaration> top_level_declarations
     return { false };
 }
 
-struct ConstantValue {
+union ConstantValue {
+    const char *function;
+
+    int64_t integer;
+
     Type type;
-
-    union {
-        const char *function;
-
-        int64_t integer;
-
-        Type type_value;
-    };
 };
 
-Result<ConstantValue> evaluate_constant_expression(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, Expression expression, bool print_errors);
+struct ConstantExpressionValue {
+    Type type;
 
-Result<ConstantValue> resolve_constant_named_reference(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name, bool print_errors) {
+    ConstantValue value;
+};
+
+Result<ConstantExpressionValue> evaluate_constant_expression(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, Expression expression, bool print_errors);
+
+Result<ConstantExpressionValue> resolve_constant_named_reference(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name, bool print_errors) {
     auto result = lookup_declaration(top_level_declarations, declaration_stack, name);
 
     if(!result.status) {
         if(strcmp(name, "i64") == 0) {
+            Type type;
+            type.category = TypeCategory::Type;
+
             ConstantValue value;
-            value.type.category = TypeCategory::Type;
-            value.type_value.category = TypeCategory::Integer;
-            value.type_value.integer = {
+            value.type.category = TypeCategory::Integer;
+            value.type.integer = {
                 true,
                 IntegerSize::Bit64
             };
 
             return {
                 true,
-                value
+                {
+                    type,
+                    value
+                }
             };
         }
 
@@ -132,12 +139,14 @@ Result<ConstantValue> resolve_constant_named_reference(Array<Declaration> top_le
     switch(result.value.category) {
         case DeclarationCategory::FunctionDefinition: {
             ConstantValue value;
-            value.type = result.value.type;
             value.function = result.value.function_definition.mangled_name;
 
             return {
                 true,
-                value
+                {
+                    result.value.type,
+                    value
+                }
             };
         } break;
 
@@ -160,22 +169,27 @@ Result<ConstantValue> resolve_constant_named_reference(Array<Declaration> top_le
     }
 }
 
-Result<ConstantValue> evaluate_constant_expression(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, Expression expression, bool print_errors) {
+Result<ConstantExpressionValue> evaluate_constant_expression(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, Expression expression, bool print_errors) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             return resolve_constant_named_reference(top_level_declarations, declaration_stack, expression.named_reference, print_errors);
         } break;
 
         case ExpressionType::IntegerLiteral: {
+            Type type;
+            type.category = TypeCategory::Integer;
+            type.integer.is_signed = true;
+            type.integer.size = IntegerSize::Bit64;
+
             ConstantValue value;
-            value.type.category = TypeCategory::Integer;
-            value.type.integer.is_signed = true;
-            value.type.integer.size = IntegerSize::Bit64;
             value.integer = expression.integer_literal;
 
             return {
                 true,
-                value
+                {
+                    type,
+                    value
+                }
             };
         } break;
 
@@ -185,6 +199,40 @@ Result<ConstantValue> evaluate_constant_expression(Array<Declaration> top_level_
             }
 
             return { false };
+        } break;
+
+        case ExpressionType::Pointer: {
+            auto result = evaluate_constant_expression(top_level_declarations, declaration_stack, *(expression.pointer), print_errors);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            if(result.value.type.category != TypeCategory::Type) {
+                if(print_errors) {
+                    fprintf(stderr, "Cannot take pointers to constants\n");
+                }
+
+                return { false };
+            }
+
+            auto pointer_type = (Type*)malloc(sizeof(Type));
+            *pointer_type = result.value.value.type;
+
+            Type type;
+            type.category = TypeCategory::Type;
+
+            ConstantValue value;
+            value.type.category = TypeCategory::Pointer;
+            value.type.pointer = pointer_type;
+
+            return {
+                true,
+                {
+                    type,
+                    value
+                }
+            };
         } break;
 
         default: {
@@ -298,7 +346,7 @@ Result<Type> resolve_declaration_type(Array<Declaration> top_level, List<Declara
                 for(auto i = 0; i < declaration.function_definition.parameters.count; i += 1) {
                     auto result = evaluate_constant_expression(top_level, to_array(*stack), declaration.function_definition.parameters[i].type, print_errors);
 
-                    parameters[i] = result.value.type_value;
+                    parameters[i] = result.value.value.type;
                 }
 
                 stack->count -= 1;
@@ -419,14 +467,24 @@ bool generate_type(char **source, Type type) {
             return false;
         } break;
 
+        case TypeCategory::Pointer: {
+            if(!generate_type(source, *type.pointer)) {
+                return false;
+            }
+
+            string_buffer_append(source, "*");
+
+            return true;
+        } break;
+
         default: {
             abort();
         } break;
     }
 }
 
-bool generate_constant_value(char **source, ConstantValue value) {
-    switch(value.type.category) {
+bool generate_constant_value(char **source, Type type, ConstantValue value) {
+    switch(type.category) {
         case TypeCategory::Function: {
             string_buffer_append(source, value.function);
 
@@ -444,7 +502,7 @@ bool generate_constant_value(char **source, ConstantValue value) {
         } break;
 
         case TypeCategory::Type: {
-            return generate_type(source, value.type_value);
+            return generate_type(source, value.type);
         } break;
 
         case TypeCategory::Void: {
@@ -459,7 +517,14 @@ bool generate_constant_value(char **source, ConstantValue value) {
     }
 }
 
-Result<Type> generate_expression(GenerationContext *context, Expression expression) {
+struct ExpressionValue {
+    Type type;
+
+    bool is_constant;
+    ConstantValue constant_value;
+};
+
+Result<ExpressionValue> generate_expression(GenerationContext *context, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             // TODO: Variable references
@@ -470,15 +535,20 @@ Result<Type> generate_expression(GenerationContext *context, Expression expressi
                 return { false };
             }
 
-            auto generate_result = generate_constant_value(&(context->implementation_source), result.value);
+            auto generate_result = generate_constant_value(&(context->implementation_source), result.value.type, result.value.value);
 
             if(!generate_result) {
                 return { false };
             }
 
+            ExpressionValue value;
+            value.type = result.value.type;
+            value.is_constant = true;
+            value.constant_value = result.value.value;
+
             return {
                 true,
-                result.value.type
+                value
             };
         } break;
 
@@ -489,16 +559,18 @@ Result<Type> generate_expression(GenerationContext *context, Expression expressi
 
             string_buffer_append(&(context->implementation_source), buffer);
 
-            Type type;
-            type.category = TypeCategory::Integer;
-            type.integer = {
+            ExpressionValue value;
+            value.type.category = TypeCategory::Integer;
+            value.type.integer = {
                 true,
                 IntegerSize::Bit64
             };
+            value.is_constant = true;
+            value.constant_value.integer = expression.integer_literal;
 
             return {
                 true,
-                type
+                value
             };
         } break;
 
@@ -509,7 +581,7 @@ Result<Type> generate_expression(GenerationContext *context, Expression expressi
                 return { false };
             }
 
-            if(result.value.category != TypeCategory::Function) {
+            if(result.value.type.category != TypeCategory::Function) {
                 fprintf(stderr, "Cannot call a non-function\n");
 
                 return { false };
@@ -517,39 +589,74 @@ Result<Type> generate_expression(GenerationContext *context, Expression expressi
 
             string_buffer_append(&(context->implementation_source), "(");
 
-            if(expression.function_call.parameters.count != result.value.function.parameters.count) {
-                fprintf(stderr, "Incorrect number of parameters. Expected %d, got %d\n", result.value.function.parameters.count, expression.function_call.parameters.count);
+            if(expression.function_call.parameters.count != result.value.type.function.parameters.count) {
+                fprintf(stderr, "Incorrect number of parameters. Expected %d, got %d\n", result.value.type.function.parameters.count, expression.function_call.parameters.count);
 
                 return { false };
             }
 
-            for(auto i = 0; i < result.value.function.parameters.count; i += 1) {
+            for(auto i = 0; i < result.value.type.function.parameters.count; i += 1) {
                 auto parameter_result = generate_expression(context, expression.function_call.parameters[i]);
 
                 if(!parameter_result.status) {
                     return { false };
                 }
 
-                if(!types_equal(parameter_result.value, result.value.function.parameters[i])) {
+                if(!types_equal(parameter_result.value.type, result.value.type.function.parameters[i])) {
                     fprintf(stderr, "Incorrect parameter type for parameter %d\n", i);
 
                     return { false };
                 }
 
-                if(i != result.value.function.parameters.count - 1) {
+                if(i != result.value.type.function.parameters.count - 1) {
                     string_buffer_append(&(context->implementation_source), ",");
                 }
             }
 
             string_buffer_append(&(context->implementation_source), ")");
 
-            Type type;
-            type.category = TypeCategory::Void;
+            ExpressionValue value;
+            value.type.category = TypeCategory::Void;
+            value.is_constant = false;
 
             return { 
                 true,
-                type
+                value
             };
+        } break;
+
+        case ExpressionType::Pointer: {
+            auto result = generate_expression(context, *expression.pointer);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            if(result.value.is_constant) {
+                if(result.value.type.category != TypeCategory::Type) {
+                    fprintf(stderr, "Cannot take pointers to constants\n");
+
+                    return { false };
+                }
+
+                auto pointer_type = (Type*)malloc(sizeof(Type));
+                *pointer_type = result.value.constant_value.type;
+
+                ExpressionValue value;
+                value.type.category = TypeCategory::Type;
+                value.is_constant = true;
+                value.constant_value.type.category = TypeCategory::Pointer;
+                value.constant_value.type.pointer = pointer_type;
+
+                return {
+                    true,
+                    value
+                };
+            } else {
+                fprintf(stderr, "Taking pointers to runtime values not yet implemented\n");
+
+                return { false };
+            }
         } break;
 
         default: {

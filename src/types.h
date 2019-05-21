@@ -6,7 +6,8 @@ enum struct TypeCategory {
     Function,
     Integer,
     Type,
-    Void
+    Void,
+    Pointer
 };
 
 enum struct IntegerSize {
@@ -29,6 +30,8 @@ struct Type {
 
             IntegerSize size;
         } integer;
+
+        Type *pointer;
     };
 };
 
