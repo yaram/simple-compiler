@@ -2,7 +2,8 @@
 
 enum struct TypeCategory {
     Function,
-    Integer
+    Integer,
+    Type
 };
 
 enum struct IntegerSize {

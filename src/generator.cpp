@@ -93,6 +93,8 @@ struct ConstantValue {
         const char *function;
 
         int64_t integer;
+
+        Type type_value;
     };
 };
 
@@ -102,6 +104,21 @@ Result<ConstantValue> resolve_constant_named_reference(Array<Declaration> top_le
     auto result = lookup_declaration(top_level_declarations, declaration_stack, name);
 
     if(!result.status) {
+        if(strcmp(name, "i64") == 0) {
+            ConstantValue value;
+            value.type.category = TypeCategory::Type;
+            value.type_value.category = TypeCategory::Integer;
+            value.type_value.integer = {
+                true,
+                IntegerSize::Bit64
+            };
+
+            return {
+                true,
+                value
+            };
+        }
+
         if(print_errors) {
             fprintf(stderr, "Cannot find named reference %s\n", name);
         }
@@ -307,6 +324,56 @@ struct GenerationContext {
     List<Declaration> declaration_stack;
 };
 
+bool generate_type(char **source, Type type) {
+    switch(type.category) {
+        case TypeCategory::Function: {
+            fprintf(stderr, "Function values cannot exist at runtime\n");
+
+            return false;
+        } break;
+
+        case TypeCategory::Integer: {
+            if(type.integer.is_signed) {
+                string_buffer_append(source, "signed ");
+            } else {
+                string_buffer_append(source, "unsigned ");
+            }
+
+            switch(type.integer.size) {
+                case IntegerSize::Bit8: {
+                    string_buffer_append(source, "char");
+                } break;
+
+                case IntegerSize::Bit16: {
+                    string_buffer_append(source, "short");
+                } break;
+
+                case IntegerSize::Bit32: {
+                    string_buffer_append(source, "int");
+                } break;
+
+                case IntegerSize::Bit64: {
+                    string_buffer_append(source, "long long");
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        case TypeCategory::Type: {
+            fprintf(stderr, "Type values cannot exist at runtime\n");
+
+            return false;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 bool generate_constant_value(char **source, ConstantValue value) {
     switch(value.type.category) {
         case TypeCategory::Function: {
@@ -323,6 +390,10 @@ bool generate_constant_value(char **source, ConstantValue value) {
             string_buffer_append(source, buffer);
 
             return true;
+        } break;
+
+        case TypeCategory::Type: {
+            return generate_type(source, value.type_value);
         } break;
 
         default: {

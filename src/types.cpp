@@ -15,6 +15,10 @@ bool types_equal(Type a, Type b) {
             return a.integer.is_signed == b.integer.is_signed && a.integer.size == b.integer.size;
         } break;
 
+        case TypeCategory::Type: {
+            return true;
+        } break;
+
         default: {
             abort();
         } break;
