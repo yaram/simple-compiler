@@ -156,6 +156,34 @@ void debug_print_statement_indent(Statement statement, unsigned int indentation_
 
             debug_print_expression_indent(statement.expression, indentation_level);
         } break;
+
+        case StatementType::VariableDeclaration: {
+            printf("VariableDeclaration: {\n");
+
+            indent(indentation_level + 1);
+            printf("name: %s,\n", statement.variable_declaration.name);
+
+            if(statement.variable_declaration.has_type) {
+                indent(indentation_level + 1);
+                printf("type: ");
+
+                debug_print_expression_indent(statement.variable_declaration.type, indentation_level + 2);
+
+                printf("\n");
+            }
+
+            if(statement.variable_declaration.has_initializer) {
+                indent(indentation_level + 1);
+                printf("initializer: ");
+
+                debug_print_expression_indent(statement.variable_declaration.initializer, indentation_level + 2);
+
+                printf("\n");
+            }
+
+            indent(indentation_level);
+            printf("}");
+        } break;
     }
 }
 

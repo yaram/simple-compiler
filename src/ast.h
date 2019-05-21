@@ -33,7 +33,8 @@ void debug_print_expression(Expression expression);
 enum struct StatementType {
     FunctionDefinition,
     ConstantDefinition,
-    Expression
+    Expression,
+    VariableDeclaration
 };
 
 struct FunctionParameter {
@@ -64,6 +65,16 @@ struct Statement {
         } constant_definition;
 
         Expression expression;
+
+        struct {
+            const char *name;
+
+            bool has_type;
+            Expression type;
+
+            bool has_initializer;
+            Expression initializer;
+        } variable_declaration;
     };
 };
 
