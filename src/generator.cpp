@@ -112,14 +112,16 @@ struct ConstantExpressionValue {
     ConstantValue value;
 };
 
-struct GlobalType {
+struct GlobalConstant {
     const char *name;
 
     Type type;
+
+    ConstantValue value;
 };
 
 struct ConstantContext {
-    Array<GlobalType> global_types;
+    Array<GlobalConstant> global_constants;
 
     Array<Declaration> top_level_declarations;
 
@@ -132,19 +134,13 @@ Result<ConstantExpressionValue> resolve_constant_named_reference(ConstantContext
     auto result = lookup_declaration(context.top_level_declarations, to_array(context.declaration_stack), name);
 
     if(!result.status) {
-        for(auto global_type : context.global_types) {
-            if(strcmp(name, global_type.name) == 0) {
-                Type type;
-                type.category = TypeCategory::Type;
-
-                ConstantValue value;
-                value.type = global_type.type;
-
+        for(auto global_constant : context.global_constants) {
+            if(strcmp(name, global_constant.name) == 0) {
                 return {
                     true,
                     {
-                        type,
-                        value
+                        global_constant.type,
+                        global_constant.value
                     }
                 };
             }
@@ -834,15 +830,19 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
     }
 }
 
-inline GlobalType create_base_integer_type(const char *name, bool is_signed, IntegerSize size) {
+inline GlobalConstant create_base_integer_type(const char *name, bool is_signed, IntegerSize size) {
     Type type;
-    type.category = TypeCategory::Integer;
-    type.integer.is_signed = is_signed;
-    type.integer.size = size;
+    type.category = TypeCategory::Type;
+
+    ConstantValue value;
+    value.type.category = TypeCategory::Integer;
+    value.type.integer.is_signed = is_signed;
+    value.type.integer.size = size;
 
     return {
         name,
-        type
+        type,
+        value
     };
 }
 
@@ -865,21 +865,21 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
 
     auto previous_resolved_declaration_count = 0;
 
-    List<GlobalType> global_types{};
+    List<GlobalConstant> global_constants{};
 
-    append(&global_types, create_base_integer_type("u8", false, IntegerSize::Bit8));
-    append(&global_types, create_base_integer_type("u16", false, IntegerSize::Bit16));
-    append(&global_types, create_base_integer_type("u32", false, IntegerSize::Bit32));
-    append(&global_types, create_base_integer_type("u64", false, IntegerSize::Bit64));
+    append(&global_constants, create_base_integer_type("u8", false, IntegerSize::Bit8));
+    append(&global_constants, create_base_integer_type("u16", false, IntegerSize::Bit16));
+    append(&global_constants, create_base_integer_type("u32", false, IntegerSize::Bit32));
+    append(&global_constants, create_base_integer_type("u64", false, IntegerSize::Bit64));
 
-    append(&global_types, create_base_integer_type("i8", true, IntegerSize::Bit8));
-    append(&global_types, create_base_integer_type("i16", true, IntegerSize::Bit16));
-    append(&global_types, create_base_integer_type("i32", true, IntegerSize::Bit32));
-    append(&global_types, create_base_integer_type("i64", true, IntegerSize::Bit64));
+    append(&global_constants, create_base_integer_type("i8", true, IntegerSize::Bit8));
+    append(&global_constants, create_base_integer_type("i16", true, IntegerSize::Bit16));
+    append(&global_constants, create_base_integer_type("i32", true, IntegerSize::Bit32));
+    append(&global_constants, create_base_integer_type("i64", true, IntegerSize::Bit64));
 
     ConstantContext constant_context{};
 
-    constant_context.global_types = to_array(global_types);
+    constant_context.global_constants = to_array(global_constants);
 
     while(true) {
         for(auto &top_level_declaration : top_level_declarations) {
