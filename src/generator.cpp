@@ -103,30 +103,42 @@ struct ConstantExpressionValue {
     ConstantValue value;
 };
 
-Result<ConstantExpressionValue> evaluate_constant_expression(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, Expression expression, bool print_errors);
+struct GlobalType {
+    const char *name;
 
-Result<ConstantExpressionValue> resolve_constant_named_reference(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name, bool print_errors) {
-    auto result = lookup_declaration(top_level_declarations, declaration_stack, name);
+    Type type;
+};
+
+struct ConstantContext {
+    Array<GlobalType> global_types;
+
+    Array<Declaration> top_level_declarations;
+
+    List<Declaration> declaration_stack;
+};
+
+Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors);
+
+Result<ConstantExpressionValue> resolve_constant_named_reference(ConstantContext context, const char *name, bool print_errors) {
+    auto result = lookup_declaration(context.top_level_declarations, to_array(context.declaration_stack), name);
 
     if(!result.status) {
-        if(strcmp(name, "i64") == 0) {
-            Type type;
-            type.category = TypeCategory::Type;
+        for(auto global_type : context.global_types) {
+            if(strcmp(name, global_type.name) == 0) {
+                Type type;
+                type.category = TypeCategory::Type;
 
-            ConstantValue value;
-            value.type.category = TypeCategory::Integer;
-            value.type.integer = {
-                true,
-                IntegerSize::Bit64
-            };
+                ConstantValue value;
+                value.type = global_type.type;
 
-            return {
-                true,
-                {
-                    type,
-                    value
-                }
-            };
+                return {
+                    true,
+                    {
+                        type,
+                        value
+                    }
+                };
+            }
         }
 
         if(print_errors) {
@@ -151,7 +163,7 @@ Result<ConstantExpressionValue> resolve_constant_named_reference(Array<Declarati
         } break;
 
         case DeclarationCategory::ConstantDefinition: {
-            auto expression_result = evaluate_constant_expression(top_level_declarations, declaration_stack, result.value.constant_definition, print_errors);
+            auto expression_result = evaluate_constant_expression(context, result.value.constant_definition, print_errors);
 
             if(!expression_result.status) {
                 return { false };
@@ -169,10 +181,10 @@ Result<ConstantExpressionValue> resolve_constant_named_reference(Array<Declarati
     }
 }
 
-Result<ConstantExpressionValue> evaluate_constant_expression(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, Expression expression, bool print_errors) {
+Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
-            return resolve_constant_named_reference(top_level_declarations, declaration_stack, expression.named_reference, print_errors);
+            return resolve_constant_named_reference(context, expression.named_reference, print_errors);
         } break;
 
         case ExpressionType::IntegerLiteral: {
@@ -202,7 +214,7 @@ Result<ConstantExpressionValue> evaluate_constant_expression(Array<Declaration> 
         } break;
 
         case ExpressionType::Pointer: {
-            auto result = evaluate_constant_expression(top_level_declarations, declaration_stack, *(expression.pointer), print_errors);
+            auto result = evaluate_constant_expression(context, *(expression.pointer), print_errors);
 
             if(!result.status) {
                 return { false };
@@ -305,13 +317,13 @@ Result<Declaration> create_declaration(List<const char*> *name_stack, Statement 
     }
 }
 
-Result<Type> resolve_declaration_type(Array<Declaration> top_level, List<Declaration> *stack, Declaration declaration, bool print_errors) {
+Result<Type> resolve_declaration_type(ConstantContext *context, Declaration declaration, bool print_errors) {
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
-            append(stack, declaration);
+            append(&(context->declaration_stack), declaration);
 
             for(auto &child_declaration : declaration.function_definition.declarations) {
-                auto result = resolve_declaration_type(top_level, stack, child_declaration, print_errors);
+                auto result = resolve_declaration_type(context, child_declaration, print_errors);
 
                 if(result.status) {
                     child_declaration.type_resolved = true;
@@ -326,7 +338,7 @@ Result<Type> resolve_declaration_type(Array<Declaration> top_level, List<Declara
                 };
             } else {
                 for(auto parameter : declaration.function_definition.parameters) {
-                    auto result = evaluate_constant_expression(top_level, to_array(*stack), parameter.type, print_errors);
+                    auto result = evaluate_constant_expression(*context, parameter.type, print_errors);
 
                     if(!result.status) {
                         return { false };
@@ -344,12 +356,12 @@ Result<Type> resolve_declaration_type(Array<Declaration> top_level, List<Declara
                 auto parameters = (Type*)malloc(declaration.function_definition.parameters.count * sizeof(Type));
                 
                 for(auto i = 0; i < declaration.function_definition.parameters.count; i += 1) {
-                    auto result = evaluate_constant_expression(top_level, to_array(*stack), declaration.function_definition.parameters[i].type, print_errors);
+                    auto result = evaluate_constant_expression(*context, declaration.function_definition.parameters[i].type, print_errors);
 
                     parameters[i] = result.value.value.type;
                 }
 
-                stack->count -= 1;
+                context->declaration_stack.count -= 1;
 
                 Type type;
                 type.category = TypeCategory::Function;
@@ -372,7 +384,7 @@ Result<Type> resolve_declaration_type(Array<Declaration> top_level, List<Declara
                     declaration.type
                 };
             } else {
-                auto result = evaluate_constant_expression(top_level, to_array(*stack), declaration.constant_definition, print_errors);
+                auto result = evaluate_constant_expression(*context, declaration.constant_definition, print_errors);
 
                 if(!result.status) {
                     return { false };
@@ -413,8 +425,7 @@ struct GenerationContext {
     char *forward_declaration_source;
     char *implementation_source;
 
-    Array<Declaration> top_level_declarations;
-    List<Declaration> declaration_stack;
+    ConstantContext constant_context;
 };
 
 bool generate_type(char **source, Type type) {
@@ -529,7 +540,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
         case ExpressionType::NamedReference: {
             // TODO: Variable references
 
-            auto result = resolve_constant_named_reference(context->top_level_declarations, to_array(context->declaration_stack), expression.named_reference, true);
+            auto result = resolve_constant_named_reference(context->constant_context, expression.named_reference, true);
 
             if(!result.status) {
                 return { false };
@@ -722,7 +733,7 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
 
             string_buffer_append(&(context->forward_declaration_source), ";");
 
-            append(&(context->declaration_stack), declaration);
+            append(&(context->constant_context.declaration_stack), declaration);
 
             for(auto child_declaration : declaration.function_definition.declarations) {
                 if(!generate_declaration(context, child_declaration)) {
@@ -742,7 +753,7 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
                 }
             }
 
-            context->declaration_stack.count -= 1;
+            context->constant_context.declaration_stack.count -= 1;
 
             string_buffer_append(&(context->implementation_source), "}");
 
@@ -752,7 +763,7 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
         case DeclarationCategory::ConstantDefinition: {
             // Only do type checking. Constants have no run-time presence.
 
-            auto result = evaluate_constant_expression(context->top_level_declarations, to_array(context->declaration_stack), declaration.constant_definition, true);
+            auto result = evaluate_constant_expression(context->constant_context, declaration.constant_definition, true);
 
             return result.status;
         } break;
@@ -761,6 +772,18 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
             abort();
         } break;
     }
+}
+
+inline GlobalType create_base_integer_type(const char *name, bool is_signed, IntegerSize size) {
+    Type type;
+    type.category = TypeCategory::Integer;
+    type.integer.is_signed = is_signed;
+    type.integer.size = size;
+
+    return {
+        name,
+        type
+    };
 }
 
 Result<char*> generate_c_source(Array<Statement> top_level_statements) {
@@ -782,11 +805,25 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
 
     auto previous_resolved_declaration_count = 0;
 
-    auto declaration_stack = List<Declaration>{};
+    List<GlobalType> global_types{};
+
+    append(&global_types, create_base_integer_type("u8", false, IntegerSize::Bit8));
+    append(&global_types, create_base_integer_type("u16", false, IntegerSize::Bit16));
+    append(&global_types, create_base_integer_type("u32", false, IntegerSize::Bit32));
+    append(&global_types, create_base_integer_type("u64", false, IntegerSize::Bit64));
+
+    append(&global_types, create_base_integer_type("i8", true, IntegerSize::Bit8));
+    append(&global_types, create_base_integer_type("i16", true, IntegerSize::Bit16));
+    append(&global_types, create_base_integer_type("i32", true, IntegerSize::Bit32));
+    append(&global_types, create_base_integer_type("i64", true, IntegerSize::Bit64));
+
+    ConstantContext constant_context{};
+
+    constant_context.global_types = to_array(global_types);
 
     while(true) {
         for(auto &top_level_declaration : top_level_declarations) {
-            auto result = resolve_declaration_type(to_array(top_level_declarations), &declaration_stack, top_level_declaration, false);
+            auto result = resolve_declaration_type(&constant_context, top_level_declaration, false);
 
             if(result.status) {
                 top_level_declaration.type_resolved = true;
@@ -802,7 +839,7 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
 
         if(resolved_declaration_count == previous_resolved_declaration_count) {
             for(auto top_level_declaration : top_level_declarations) {
-                auto result = resolve_declaration_type(to_array(top_level_declarations), &declaration_stack, top_level_declaration, true);
+                auto result = resolve_declaration_type(&constant_context, top_level_declaration, true);
 
                 if(!result.status) {
                     return { false };
@@ -815,11 +852,10 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
         previous_resolved_declaration_count = resolved_declaration_count;
     }
 
-    GenerationContext context{
+    GenerationContext context {
         nullptr,
         nullptr,
-        to_array(top_level_declarations),
-        List<Declaration>{}
+        constant_context
     };
 
     for(auto top_level_declaration : top_level_declarations) {
