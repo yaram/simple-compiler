@@ -580,11 +580,19 @@ bool generate_constant_value(char **source, Type type, ConstantValue value) {
     }
 }
 
+enum struct ExpressionValueCategory {
+    Anonymous,
+    Constant
+};
+
 struct ExpressionValue {
+    ExpressionValueCategory category;
+
     Type type;
 
-    bool is_constant;
-    ConstantValue constant_value;
+    union {
+        ConstantValue constant;
+    };
 };
 
 Result<ExpressionValue> generate_expression(GenerationContext *context, Expression expression) {
@@ -605,9 +613,9 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
             }
 
             ExpressionValue value;
+            value.category = ExpressionValueCategory::Constant;
             value.type = result.value.type;
-            value.is_constant = true;
-            value.constant_value = result.value.value;
+            value.constant = result.value.value;
 
             return {
                 true,
@@ -623,13 +631,13 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
             string_buffer_append(&(context->implementation_source), buffer);
 
             ExpressionValue value;
+            value.category = ExpressionValueCategory::Constant;
             value.type.category = TypeCategory::Integer;
             value.type.integer = {
                 true,
                 IntegerSize::Bit64
             };
-            value.is_constant = true;
-            value.constant_value.integer = expression.integer_literal;
+            value.constant.integer = expression.integer_literal;
 
             return {
                 true,
@@ -679,8 +687,8 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
             string_buffer_append(&(context->implementation_source), ")");
 
             ExpressionValue value;
+            value.category = ExpressionValueCategory::Anonymous;
             value.type = *result.value.type.function.return_type;
-            value.is_constant = false;
 
             return { 
                 true,
@@ -695,7 +703,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
                 return { false };
             }
 
-            if(result.value.is_constant) {
+            if(result.value.category == ExpressionValueCategory::Constant) {
                 if(result.value.type.category != TypeCategory::Type) {
                     fprintf(stderr, "Cannot take pointers to constants\n");
 
@@ -703,13 +711,13 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
                 }
 
                 auto pointer_type = (Type*)malloc(sizeof(Type));
-                *pointer_type = result.value.constant_value.type;
+                *pointer_type = result.value.constant.type;
 
                 ExpressionValue value;
+                value.category = ExpressionValueCategory::Constant;
                 value.type.category = TypeCategory::Type;
-                value.is_constant = true;
-                value.constant_value.type.category = TypeCategory::Pointer;
-                value.constant_value.type.pointer = pointer_type;
+                value.constant.type.category = TypeCategory::Pointer;
+                value.constant.type.pointer = pointer_type;
 
                 return {
                     true,
