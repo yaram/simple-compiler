@@ -52,6 +52,12 @@ void debug_print_expression_indent(Expression expression, unsigned int indentati
             indent(indentation_level);
             printf("}");
         } break;
+
+        case ExpressionType::Pointer: {
+            printf("Pointer: ");
+
+            debug_print_expression_indent(*(expression.pointer), indentation_level + 1);
+        } break;
     }
 }
 

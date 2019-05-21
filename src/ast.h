@@ -6,7 +6,8 @@
 enum struct ExpressionType {
     NamedReference,
     IntegerLiteral,
-    FunctionCall
+    FunctionCall,
+    Pointer
 };
 
 struct Expression {
@@ -22,6 +23,8 @@ struct Expression {
 
             Array<Expression> parameters;
         } function_call;
+
+        Expression *pointer;
     };
 };
 

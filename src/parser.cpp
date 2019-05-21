@@ -373,12 +373,26 @@ Result<Expression> parse_any_expression(Context *context) {
         }
 
         expression = result.value;
+    } else if(character == '*') {
+        context->character += 1;
+
+        auto result = parse_any_expression(context);
+
+        if(!result.status) {
+            return { false };
+        }
+
+        auto pointer_expression = (Expression*)malloc(sizeof(Expression));
+        *pointer_expression = result.value;
+
+        expression.type = ExpressionType::Pointer;
+        expression.pointer = pointer_expression;
     } else if(character == EOF) {
         error(*context, "Unexpected End of File");
 
         return { false };
     } else {
-        error(*context, "Expected a-z, A-Z, 0-9 or '-'. Got '%c'", character);
+        error(*context, "Expected a-z, A-Z, 0-9, '-' or '*'. Got '%c'", character);
 
         return { false };
     }
@@ -614,12 +628,33 @@ Result<Statement> parse_statement(Context *context) {
             true,
             statement
         };
+    } else if(character == '*') {
+        context->character += 1;
+
+        auto result = parse_any_expression(context);
+
+        if(!result.status) {
+            return { false };
+        }
+
+        auto pointer_expression = (Expression*)malloc(sizeof(Expression));
+        *pointer_expression = result.value;
+
+        Statement statement;
+        statement.type = StatementType::Expression;
+        statement.expression.type = ExpressionType::Pointer;
+        statement.expression.pointer = pointer_expression;
+
+        return {
+            true,
+            statement
+        };
     } else if(character == EOF) {
         error(*context, "Unexpected End of File");
 
         return { false };
     } else {
-        error(*context, "Unexpected character '%c'", character);
+        error(*context, "Expected a-z, A-Z, '-' or '*'. Got '%c'", character);
 
         return { false };
     }
