@@ -373,8 +373,14 @@ Result<Expression> parse_any_expression(Context *context) {
         }
 
         expression = result.value;
+    } else if(character == EOF) {
+        error(*context, "Unexpected End of File");
+
+        return { false };
     } else {
-        ungetc(character, context->source_file);
+        error(*context, "Expected a-z, A-Z, 0-9 or '-'. Got '%c'", character);
+
+        return { false };
     }
 
     auto result = parse_right_expressions(context, expression);
