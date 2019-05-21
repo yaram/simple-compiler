@@ -19,6 +19,10 @@ bool types_equal(Type a, Type b) {
             return true;
         } break;
 
+        case TypeCategory::Void: {
+            return true;
+        }  break;
+
         default: {
             abort();
         } break;

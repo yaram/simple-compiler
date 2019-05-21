@@ -368,6 +368,12 @@ bool generate_type(char **source, Type type) {
             return false;
         } break;
 
+        case TypeCategory::Void: {
+            string_buffer_append(source, "void");
+
+            return false;
+        } break;
+
         default: {
             abort();
         } break;
@@ -394,6 +400,12 @@ bool generate_constant_value(char **source, ConstantValue value) {
 
         case TypeCategory::Type: {
             return generate_type(source, value.type_value);
+        } break;
+
+        case TypeCategory::Void: {
+            fprintf(stderr, "Void values cannot exist at runtime");
+
+            return false;
         } break;
 
         default: {

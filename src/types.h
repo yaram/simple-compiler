@@ -3,7 +3,8 @@
 enum struct TypeCategory {
     Function,
     Integer,
-    Type
+    Type,
+    Void
 };
 
 enum struct IntegerSize {
