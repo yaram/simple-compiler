@@ -23,6 +23,8 @@ struct Type {
     union {
         struct {
             Array<Type> parameters;
+
+            Type *return_type;
         } function;
 
         struct {

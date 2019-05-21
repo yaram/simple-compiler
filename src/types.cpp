@@ -18,7 +18,7 @@ bool types_equal(Type a, Type b) {
                 }
             }
 
-            return true;
+            return types_equal(*a.function.return_type, *b.function.return_type);
         } break;
         
         case TypeCategory::Integer: {

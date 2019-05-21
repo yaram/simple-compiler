@@ -46,6 +46,9 @@ struct Declaration {
 
             Array<FunctionParameter> parameters;
 
+            bool has_return_type;
+            Expression return_type;
+
             Array<Declaration> declarations;
 
             Array<Statement> statements;
@@ -287,6 +290,8 @@ Result<Declaration> create_declaration(List<const char*> *name_stack, Statement 
             declaration.function_definition = {
                 mangled_name,
                 statement.function_definition.parameters,
+                statement.function_definition.has_return_type,
+                statement.function_definition.return_type,
                 to_array(child_declarations),
                 to_array(child_statements)
             };
@@ -355,6 +360,27 @@ Result<Type> resolve_declaration_type(ConstantContext *context, Declaration decl
                     }
                 }
 
+                Type return_type;
+                if(declaration.function_definition.has_return_type) {
+                    auto result = evaluate_constant_expression(*context, declaration.function_definition.return_type, print_errors);
+
+                    if(!result.status) {
+                        return { false };
+                    }
+
+                    if(result.value.type.category != TypeCategory::Type) {
+                        if(print_errors) {
+                            fprintf(stderr, "Value is not a type\n");
+                        }
+
+                        return { false };
+                    }
+
+                    return_type = result.value.value.type;
+                } else {
+                    return_type.category = TypeCategory::Void;
+                }
+
                 auto parameters = (Type*)malloc(declaration.function_definition.parameters.count * sizeof(Type));
                 
                 for(auto i = 0; i < declaration.function_definition.parameters.count; i += 1) {
@@ -363,12 +389,16 @@ Result<Type> resolve_declaration_type(ConstantContext *context, Declaration decl
                     parameters[i] = result.value.value.type;
                 }
 
+                auto return_type_heap = (Type*)malloc(sizeof(Type));
+                *return_type_heap = return_type;
+
                 Type type;
                 type.category = TypeCategory::Function;
                 type.function.parameters = {
                     declaration.function_definition.parameters.count,
                     parameters
                 };
+                type.function.return_type = return_type_heap;
 
                 return {
                     true,
@@ -637,7 +667,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
             string_buffer_append(&(context->implementation_source), ")");
 
             ExpressionValue value;
-            value.type.category = TypeCategory::Void;
+            value.type = *result.value.type.function.return_type;
             value.is_constant = false;
 
             return { 
@@ -709,7 +739,9 @@ bool generate_statement(GenerationContext *context, Statement statement) {
 bool generate_function_signature(char **source, Declaration declaration) {
     assert(declaration.category == DeclarationCategory::FunctionDefinition);
 
-    string_buffer_append(source, "void ");
+    generate_type(source, *declaration.type.function.return_type);
+
+    string_buffer_append(source, " ");
     string_buffer_append(source, declaration.function_definition.mangled_name);
     string_buffer_append(source, "(");
     
