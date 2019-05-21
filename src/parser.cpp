@@ -476,6 +476,8 @@ Result<Statement> parse_statement(Context *context) {
                             if(character == ',') {
                                 context->character += 1;
 
+                                skip_whitespace(context);
+
                                 continue;
                             } else if(character == ')') {
                                 context->character += 1;
