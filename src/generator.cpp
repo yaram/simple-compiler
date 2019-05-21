@@ -58,25 +58,31 @@ struct Declaration {
     };
 };
 
+Array<Declaration> get_declaration_children(Declaration declaration) {
+    switch(declaration.category) {
+        case DeclarationCategory::FunctionDefinition: {
+            return declaration.function_definition.declarations;
+        } break;
+
+        case DeclarationCategory::ConstantDefinition: {
+            return Array<Declaration>{};
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 Result<Declaration> lookup_declaration(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name) {
     for(auto i = 0; i < declaration_stack.count; i++) {
-        auto parent_declaration = declaration_stack[declaration_stack.count - 1 - i];
-
-        switch(parent_declaration.category) {
-            case DeclarationCategory::FunctionDefinition: {
-                for(auto declaration : parent_declaration.function_definition.declarations) {
-                    if(declaration.type_resolved && strcmp(declaration.name, name) == 0) {
-                        return {
-                            true,
-                            declaration
-                        };
-                    }
-                }
-            } break;
-
-            default: {
-                abort();
-            } break;
+        for(auto child : get_declaration_children(declaration_stack[declaration_stack.count - 1 - i])) {
+            if(child.type_resolved && strcmp(child.name, name) == 0) {
+                return {
+                    true,
+                    child
+                };
+            }
         }
     }
 
@@ -323,27 +329,48 @@ Result<Declaration> create_declaration(List<const char*> *name_stack, Statement 
 }
 
 Result<Type> resolve_declaration_type(ConstantContext *context, Declaration declaration, bool print_errors) {
-    switch(declaration.category) {
-        case DeclarationCategory::FunctionDefinition: {
-            append(&(context->declaration_stack), declaration);
+    auto children = get_declaration_children(declaration);
 
-            for(auto &child_declaration : declaration.function_definition.declarations) {
-                auto result = resolve_declaration_type(context, child_declaration, print_errors);
+    if(children.count > 0) {
+        append(&(context->declaration_stack), declaration);
 
-                if(result.status) {
-                    child_declaration.type_resolved = true;
-                    child_declaration.type = result.value;
-                }
+        for(auto &child : children) {
+            auto result = resolve_declaration_type(context, child, print_errors);
+
+            if(result.status) {
+                child.type_resolved = true;
+                child.type = result.value;
             }
+        }
 
-            context->declaration_stack.count -= 1;
+        context->declaration_stack.count -= 1;
+    }
 
-            if(declaration.type_resolved) {
-                return {
-                    true,
-                    declaration.type
-                };
-            } else {
+    if(declaration.type_resolved) {
+        return {
+            true,
+            declaration.type
+        };
+    } else {
+        Array<Declaration> siblings;
+        if(context->declaration_stack.count == 0) {
+            siblings = context->top_level_declarations;
+        } else {
+            siblings = get_declaration_children(context->declaration_stack[context->declaration_stack.count - 1]);
+        }
+
+        for(auto sibling : siblings) {
+            if(sibling.type_resolved && strcmp(sibling.name, declaration.name) == 0) {
+                if(print_errors) {
+                    fprintf(stderr, "Duplicate declaration name %s\n", declaration.name);
+                }
+
+                return { false };
+            }
+        }
+
+        switch(declaration.category) {
+            case DeclarationCategory::FunctionDefinition: {
                 for(auto parameter : declaration.function_definition.parameters) {
                     auto result = evaluate_constant_expression(*context, parameter.type, print_errors);
 
@@ -404,16 +431,9 @@ Result<Type> resolve_declaration_type(ConstantContext *context, Declaration decl
                     true,
                     type
                 };
-            }
-        } break;
+            } break;
 
-        case DeclarationCategory::ConstantDefinition: {
-            if(declaration.type_resolved) {
-                return {
-                    true,
-                    declaration.type
-                };
-            } else {
+            case DeclarationCategory::ConstantDefinition: {
                 auto result = evaluate_constant_expression(*context, declaration.constant_definition, print_errors);
 
                 if(!result.status) {
@@ -424,12 +444,12 @@ Result<Type> resolve_declaration_type(ConstantContext *context, Declaration decl
                     true,
                     result.value.type
                 };
-            }
-        } break;
+            } break;
 
-        default: {
-            abort();
-        } break;
+            default: {
+                abort();
+            } break;
+        }
     }
 }
 
@@ -440,12 +460,8 @@ int count_resolved_declarations(Declaration declaration) {
         resolved_declaration_count = 1;
     }
 
-    switch(declaration.category) {
-        case DeclarationCategory::FunctionDefinition: {
-            for(auto child_declaration : declaration.function_definition.declarations) {
-                resolved_declaration_count += count_resolved_declarations(child_declaration);
-            }
-        } break;
+    for(auto child : get_declaration_children(declaration)) {
+        resolved_declaration_count += count_resolved_declarations(child);
     }
 
     return resolved_declaration_count;
@@ -767,6 +783,8 @@ bool generate_function_signature(char **source, Declaration declaration) {
 }
 
 bool generate_declaration(GenerationContext *context, Declaration declaration) {
+    assert(declaration.type_resolved);
+
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
             if(!generate_function_signature(&(context->forward_declaration_source), declaration)) {
