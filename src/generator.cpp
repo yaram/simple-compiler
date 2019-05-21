@@ -202,6 +202,7 @@ Result<Declaration> create_declaration(List<const char*> *name_stack, Statement 
             Declaration declaration;
             declaration.category = DeclarationCategory::FunctionDefinition;
             declaration.name = statement.function_definition.name;
+            declaration.type_resolved = false;
 
             declaration.function_definition = {
                 mangled_name,
@@ -219,6 +220,7 @@ Result<Declaration> create_declaration(List<const char*> *name_stack, Statement 
             Declaration declaration;
             declaration.category = DeclarationCategory::ConstantDefinition;
             declaration.name = statement.constant_definition.name;
+            declaration.type_resolved = false;
             
             declaration.constant_definition = statement.constant_definition.expression;
 
