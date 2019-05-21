@@ -96,48 +96,54 @@ struct ConstantValue {
     };
 };
 
-Result<ConstantValue> evaluate_constant_expression(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, Expression expression, bool print_errors) {
-    switch(expression.type) {
-        case ExpressionType::NamedReference: {
-            auto result = lookup_declaration(top_level_declarations, declaration_stack, expression.named_reference);
+Result<ConstantValue> evaluate_constant_expression(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, Expression expression, bool print_errors);
 
-            if(!result.status) {
-                if(print_errors) {
-                    fprintf(stderr, "Cannot find named reference %s\n", expression.named_reference);
-                }
+Result<ConstantValue> resolve_constant_named_reference(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name, bool print_errors) {
+    auto result = lookup_declaration(top_level_declarations, declaration_stack, name);
 
+    if(!result.status) {
+        if(print_errors) {
+            fprintf(stderr, "Cannot find named reference %s\n", name);
+        }
+
+        return { false };
+    }
+
+    switch(result.value.category) {
+        case DeclarationCategory::FunctionDefinition: {
+            ConstantValue value;
+            value.type.category = TypeCategory::Function;
+            value.function = result.value.function_definition.mangled_name;
+
+            return {
+                true,
+                value
+            };
+        } break;
+
+        case DeclarationCategory::ConstantDefinition: {
+            auto expression_result = evaluate_constant_expression(top_level_declarations, declaration_stack, result.value.constant_definition, print_errors);
+
+            if(!expression_result.status) {
                 return { false };
             }
 
-            switch(result.value.category) {
-                case DeclarationCategory::FunctionDefinition: {
-                    ConstantValue value;
-                    value.type.category = TypeCategory::Function;
-                    value.function = result.value.function_definition.mangled_name;
+            return {
+                true,
+                expression_result.value
+            };
+        } break;
 
-                    return {
-                        true,
-                        value
-                    };
-                } break;
+        default: {
+            abort();
+        } break;
+    }
+}
 
-                case DeclarationCategory::ConstantDefinition: {
-                    auto expression_result = evaluate_constant_expression(top_level_declarations, declaration_stack, result.value.constant_definition, print_errors);
-
-                    if(!expression_result.status) {
-                        return { false };
-                    }
-
-                    return {
-                        true,
-                        expression_result.value
-                    };
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
+Result<ConstantValue> evaluate_constant_expression(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, Expression expression, bool print_errors) {
+    switch(expression.type) {
+        case ExpressionType::NamedReference: {
+            return resolve_constant_named_reference(top_level_declarations, declaration_stack, expression.named_reference, print_errors);
         } break;
 
         case ExpressionType::IntegerLiteral: {
@@ -300,8 +306,90 @@ struct GenerationContext {
     List<Declaration> declaration_stack;
 };
 
+bool generate_constant_value(char **source, ConstantValue value) {
+    switch(value.type.category) {
+        case TypeCategory::Function: {
+            string_buffer_append(source, value.function);
+
+            return true;
+        } break;
+
+        case TypeCategory::Integer: {
+            char buffer[64];
+
+            sprintf(buffer, "%lld", value.integer);
+
+            string_buffer_append(source, buffer);
+
+            return true;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
+bool generate_expression(GenerationContext *context, Expression expression) {
+    switch(expression.type) {
+        case ExpressionType::NamedReference: {
+            // TODO: Variable references
+
+            auto result = resolve_constant_named_reference(context->top_level_declarations, to_array(context->declaration_stack), expression.named_reference, true);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            return generate_constant_value(&(context->implementation_source), result.value);
+        } break;
+
+        case ExpressionType::IntegerLiteral: {
+            char buffer[64];
+
+            sprintf(buffer, "%dll", expression.integer_literal);
+
+            string_buffer_append(&(context->implementation_source), buffer);
+
+            return true;
+        } break;
+
+        case ExpressionType::FunctionCall: {
+            auto result = generate_expression(context, *expression.function_call.expression);
+
+            if(!result) {
+                return false;
+            }
+
+            string_buffer_append(&(context->implementation_source), "()");
+
+            return true;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 bool generate_statement(GenerationContext *context, Statement statement) {
-    return true;
+    switch(statement.type) {
+        case StatementType::Expression: {
+            auto result = generate_expression(context, statement.expression);
+
+            if(!result) {
+                return false;
+            }
+
+            string_buffer_append(&(context->implementation_source), ";");
+
+            return true;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
 }
 
 bool generate_declaration(GenerationContext *context, Declaration declaration) {
