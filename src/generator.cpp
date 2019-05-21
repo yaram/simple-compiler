@@ -403,7 +403,7 @@ bool generate_constant_value(char **source, ConstantValue value) {
         } break;
 
         case TypeCategory::Void: {
-            fprintf(stderr, "Void values cannot exist at runtime");
+            fprintf(stderr, "Void values cannot exist at runtime\n");
 
             return false;
         } break;
@@ -465,7 +465,7 @@ Result<Type> generate_expression(GenerationContext *context, Expression expressi
             }
 
             if(result.value.category != TypeCategory::Function) {
-                fprintf(stderr, "Cannot call a non-function");
+                fprintf(stderr, "Cannot call a non-function\n");
 
                 return { false };
             }
