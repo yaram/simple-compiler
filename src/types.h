@@ -1,5 +1,7 @@
 #pragma once
 
+#include "array.h"
+
 enum struct TypeCategory {
     Function,
     Integer,
@@ -18,6 +20,10 @@ struct Type {
     TypeCategory category;
 
     union {
+        struct {
+            Array<Type> parameters;
+        } function;
+
         struct {
             bool is_signed;
 

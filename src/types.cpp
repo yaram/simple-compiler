@@ -8,6 +8,16 @@ bool types_equal(Type a, Type b) {
 
     switch(a.category) {
         case TypeCategory::Function: {
+            if(a.function.parameters.count != b.function.parameters.count) {
+                return false;
+            }
+
+            for(auto i = 0; i < a.function.parameters.count; i += 1) {
+                if(!types_equal(a.function.parameters[i], b.function.parameters[i])) {
+                    return false;
+                }
+            }
+
             return true;
         } break;
         

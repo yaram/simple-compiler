@@ -1,6 +1,7 @@
 #include "generator.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 #include "list.h"
 #include "types.h"
 
@@ -42,6 +43,8 @@ struct Declaration {
     union {
         struct {
             const char *mangled_name;
+
+            Array<FunctionParameter> parameters;
 
             Array<Declaration> declarations;
 
@@ -129,7 +132,7 @@ Result<ConstantValue> resolve_constant_named_reference(Array<Declaration> top_le
     switch(result.value.category) {
         case DeclarationCategory::FunctionDefinition: {
             ConstantValue value;
-            value.type.category = TypeCategory::Function;
+            value.type = result.value.type;
             value.function = result.value.function_definition.mangled_name;
 
             return {
@@ -223,6 +226,7 @@ Result<Declaration> create_declaration(List<const char*> *name_stack, Statement 
 
             declaration.function_definition = {
                 mangled_name,
+                statement.function_definition.parameters,
                 to_array(child_declarations),
                 to_array(child_statements)
             };
@@ -266,30 +270,71 @@ Result<Type> resolve_declaration_type(Array<Declaration> top_level, List<Declara
                     child_declaration.type = result.value;
                 }
             }
+
+            if(declaration.type_resolved) {
+                return {
+                    true,
+                    declaration.type
+                };
+            } else {
+                for(auto parameter : declaration.function_definition.parameters) {
+                    auto result = evaluate_constant_expression(top_level, to_array(*stack), parameter.type, print_errors);
+
+                    if(!result.status) {
+                        return { false };
+                    }
+                    
+                    if(result.value.type.category != TypeCategory::Type) {
+                        if(print_errors) {
+                            fprintf(stderr, "Value is not a type\n");
+                        }
+
+                        return { false };
+                    }
+                }
+
+                auto parameters = (Type*)malloc(declaration.function_definition.parameters.count * sizeof(Type));
+                
+                for(auto i = 0; i < declaration.function_definition.parameters.count; i += 1) {
+                    auto result = evaluate_constant_expression(top_level, to_array(*stack), declaration.function_definition.parameters[i].type, print_errors);
+
+                    parameters[i] = result.value.type_value;
+                }
+
+                stack->count -= 1;
+
+                Type type;
+                type.category = TypeCategory::Function;
+                type.function.parameters = {
+                    declaration.function_definition.parameters.count,
+                    parameters
+                };
+
+                return {
+                    true,
+                    type
+                };
             }
-
-            stack->count -= 1;
-
-            Type type;
-            type.category = TypeCategory::Function;
-
-            return {
-                true,
-                type
-            };
         } break;
 
         case DeclarationCategory::ConstantDefinition: {
-            auto result = evaluate_constant_expression(top_level, to_array(*stack), declaration.constant_definition, print_errors);
+            if(declaration.type_resolved) {
+                return {
+                    true,
+                    declaration.type
+                };
+            } else {
+                auto result = evaluate_constant_expression(top_level, to_array(*stack), declaration.constant_definition, print_errors);
 
-            if(!result.status) {
-                return { false };
+                if(!result.status) {
+                    return { false };
+                }
+
+                return {
+                    true,
+                    result.value.type
+                };
             }
-
-            return {
-                true,
-                result.value.type
-            };
         } break;
 
         default: {
@@ -470,7 +515,33 @@ Result<Type> generate_expression(GenerationContext *context, Expression expressi
                 return { false };
             }
 
-            string_buffer_append(&(context->implementation_source), "()");
+            string_buffer_append(&(context->implementation_source), "(");
+
+            if(expression.function_call.parameters.count != result.value.function.parameters.count) {
+                fprintf(stderr, "Incorrect number of parameters. Expected %d, got %d\n", result.value.function.parameters.count, expression.function_call.parameters.count);
+
+                return { false };
+            }
+
+            for(auto i = 0; i < result.value.function.parameters.count; i += 1) {
+                auto parameter_result = generate_expression(context, expression.function_call.parameters[i]);
+
+                if(!parameter_result.status) {
+                    return { false };
+                }
+
+                if(!types_equal(parameter_result.value, result.value.function.parameters[i])) {
+                    fprintf(stderr, "Incorrect parameter type for parameter %d\n", i);
+
+                    return { false };
+                }
+
+                if(i != result.value.function.parameters.count - 1) {
+                    string_buffer_append(&(context->implementation_source), ",");
+                }
+            }
+
+            string_buffer_append(&(context->implementation_source), ")");
 
             Type type;
             type.category = TypeCategory::Void;
@@ -507,12 +578,42 @@ bool generate_statement(GenerationContext *context, Statement statement) {
     }
 }
 
+bool generate_function_signature(char **source, Declaration declaration) {
+    assert(declaration.category == DeclarationCategory::FunctionDefinition);
+
+    string_buffer_append(source, "void ");
+    string_buffer_append(source, declaration.function_definition.mangled_name);
+    string_buffer_append(source, "(");
+    
+    for(auto i = 0; i < declaration.type.function.parameters.count; i += 1) {
+        auto result = generate_type(source, declaration.type.function.parameters[i]);
+
+        if(!result) {
+            return false;
+        }
+
+        string_buffer_append(source, " ");
+
+        string_buffer_append(source, declaration.function_definition.parameters[i].name);
+
+        if(i != declaration.function_definition.parameters.count - 1) {
+            string_buffer_append(source, ",");
+        }
+    }
+
+    string_buffer_append(source, ")");
+
+    return true;
+}
+
 bool generate_declaration(GenerationContext *context, Declaration declaration) {
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
-            string_buffer_append(&(context->forward_declaration_source), "void ");
-            string_buffer_append(&(context->forward_declaration_source), declaration.function_definition.mangled_name);
-            string_buffer_append(&(context->forward_declaration_source), "();");
+            if(!generate_function_signature(&(context->forward_declaration_source), declaration)) {
+                return false;
+            }
+
+            string_buffer_append(&(context->forward_declaration_source), ";");
 
             append(&(context->declaration_stack), declaration);
 
@@ -522,10 +623,11 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
                 }
             }
 
-            string_buffer_append(&(context->implementation_source), "void ");
+            if(!generate_function_signature(&(context->implementation_source), declaration)) {
+                return false;
+            }
 
-            string_buffer_append(&(context->implementation_source), declaration.function_definition.mangled_name);
-            string_buffer_append(&(context->implementation_source), "(){");
+            string_buffer_append(&(context->implementation_source), "{");
 
             for(auto statement : declaration.function_definition.statements) {
                 if(!generate_statement(context, statement)) {
