@@ -119,6 +119,23 @@ void debug_print_statement_indent(Statement statement, unsigned int indentation_
             printf("}");
         } break;
 
+        case StatementType::ConstantDefinition: {
+            printf("ConstantDefinition: {\n");
+
+            indent(indentation_level + 1);
+            printf("name: %s,\n", statement.constant_definition.name);
+
+            indent(indentation_level + 1);
+            printf("expression: ");
+
+            debug_print_expression_indent(statement.constant_definition.expression, indentation_level + 2);
+
+            printf("\n");
+
+            indent(indentation_level);
+            printf("}");
+        } break;
+
         case StatementType::Expression: {
             printf("Expression: ");
 

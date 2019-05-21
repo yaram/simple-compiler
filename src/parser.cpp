@@ -411,115 +411,137 @@ Result<Statement> parse_statement(Context *context) {
 
                 skip_whitespace(context);
 
-                // TODO: Other definitions
-
-                if(!expect_character(context, '(')){
-                    return { false };
-                }
-
-                skip_whitespace(context);
-
-                List<FunctionParameter> parameters{};
-                
                 auto character = fgetc(context->source_file);
 
-                if(character == ')') {
-                    context->character += 1;
-                } else {
-                    ungetc(character, context->source_file);
+                if(character == '(') {
+                    skip_whitespace(context);
+
+                    List<FunctionParameter> parameters{};
+                    
+                    auto character = fgetc(context->source_file);
+
+                    if(character == ')') {
+                        context->character += 1;
+                    } else {
+                        ungetc(character, context->source_file);
+
+                        while(true) {
+                            auto name = parse_identifier(context);
+
+                            skip_whitespace(context);
+
+                            if(!expect_character(context, ':')) {
+                                return { false };
+                            }
+
+                            skip_whitespace(context);
+
+                            auto result = parse_any_expression(context);
+
+                            if(!result.status) {
+                                return { false };
+                            }
+
+                            skip_whitespace(context);
+
+                            FunctionParameter parameter {
+                                name,
+                                result.value
+                            };
+
+                            append(&parameters, parameter);
+
+                            character = fgetc(context->source_file);
+
+                            if(character == ',') {
+                                context->character += 1;
+
+                                continue;
+                            } else if(character == ')') {
+                                context->character += 1;
+
+                                break;
+                            } else if(character == EOF) {
+                                error(*context, "Unexpected End of File");
+
+                                return { false };
+                            } else {
+                                error(*context, "Expected ',' or ')', got '%c'", character);
+
+                                return { false };
+                            }
+                        }
+                    }
+
+                    skip_whitespace(context);
+
+                    if(!expect_character(context, '{')){
+                        return { false };
+                    }
+
+                    skip_whitespace(context);
+
+                    List<Statement> statements{};
 
                     while(true) {
-                        auto name = parse_identifier(context);
+                        auto character = fgetc(context->source_file);
 
-                        skip_whitespace(context);
-
-                        if(!expect_character(context, ':')) {
-                            return { false };
+                        if(character == '}') {
+                            break;
+                        } else {
+                            ungetc(character, context->source_file);
                         }
 
-                        skip_whitespace(context);
-
-                        auto result = parse_any_expression(context);
+                        auto result = parse_statement(context);
 
                         if(!result.status) {
                             return { false };
                         }
 
+                        append(&statements, result.value);
+
                         skip_whitespace(context);
-
-                        FunctionParameter parameter {
-                            name,
-                            result.value
-                        };
-
-                        append(&parameters, parameter);
-
-                        character = fgetc(context->source_file);
-
-                        if(character == ',') {
-                            context->character += 1;
-
-                            continue;
-                        } else if(character == ')') {
-                            context->character += 1;
-
-                            break;
-                        } else if(character == EOF) {
-                            error(*context, "Unexpected End of File");
-
-                            return { false };
-                        } else {
-                            error(*context, "Expected ',' or ')', got '%c'", character);
-
-                            return { false };
-                        }
-                    }
-                }
-
-                skip_whitespace(context);
-
-                if(!expect_character(context, '{')){
-                    return { false };
-                }
-
-                skip_whitespace(context);
-
-                List<Statement> statements{};
-
-                while(true) {
-                    auto character = fgetc(context->source_file);
-
-                    if(character == '}') {
-                        break;
-                    } else {
-                        ungetc(character, context->source_file);
                     }
 
-                    auto result = parse_statement(context);
+                    // TODO: Return types
+
+                    Statement statement;
+                    statement.type = StatementType::FunctionDefinition;
+                    statement.function_definition = {
+                        identifier,
+                        to_array(parameters),
+                        to_array(statements)
+                    };
+
+                    return {
+                        true,
+                        statement
+                    };
+                } else {
+                    ungetc(character, context->source_file);
+
+                    auto result = parse_any_expression(context);
 
                     if(!result.status) {
                         return { false };
                     }
 
-                    append(&statements, result.value);
+                    if(!expect_character(context, ';')) {
+                        return { false };
+                    }
 
-                    skip_whitespace(context);
+                    Statement statement;
+                    statement.type = StatementType::ConstantDefinition;
+                    statement.constant_definition = {
+                        identifier,
+                        result.value
+                    };
+
+                    return {
+                        true,
+                        statement
+                    };
                 }
-
-                // TODO: Return types
-
-                Statement statement;
-                statement.type = StatementType::FunctionDefinition;
-                statement.function_definition = {
-                    identifier,
-                    to_array(parameters),
-                    to_array(statements)
-                };
-
-                return {
-                    true,
-                    statement
-                };
             } break;
 
             case EOF: {

@@ -29,6 +29,7 @@ void debug_print_expression(Expression expression);
 
 enum struct StatementType {
     FunctionDefinition,
+    ConstantDefinition,
     Expression
 };
 
@@ -49,6 +50,12 @@ struct Statement {
 
             Array<Statement> statements;
         } function_definition;
+
+        struct {
+            const char *name;
+
+            Expression expression;
+        } constant_definition;
 
         Expression expression;
     };
