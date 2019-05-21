@@ -497,7 +497,42 @@ Result<Statement> parse_statement(Context *context) {
 
                     skip_whitespace(context);
 
-                    if(!expect_character(context, '{')){
+                    character = fgetc(context->source_file);
+
+                    bool has_return_type;
+                    Expression return_type;
+                    if(character == '-') {
+                        context->character += 1;
+
+                        if(!expect_character(context, '>')) {
+                            return { false };
+                        }
+
+                        skip_whitespace(context);
+
+                        auto result = parse_any_expression(context);
+
+                        if(!result.status) {
+                            return { false };
+                        }
+
+                        skip_whitespace(context);
+                        
+                        if(!expect_character(context, '{')) {
+                            return { false };
+                        }
+
+                        has_return_type = true;
+                        return_type = result.value;
+                    } else if(character == '{') {
+                        has_return_type = false;
+                    } else if(character == EOF) {
+                        error(*context, "Unexpected End of File", character);
+
+                        return { false };
+                    } else {
+                        error(*context, "Expected '-' or '{', got '%c'", character);
+
                         return { false };
                     }
 
@@ -525,15 +560,16 @@ Result<Statement> parse_statement(Context *context) {
                         skip_whitespace(context);
                     }
 
-                    // TODO: Return types
-
                     Statement statement;
                     statement.type = StatementType::FunctionDefinition;
-                    statement.function_definition = {
-                        identifier,
-                        to_array(parameters),
-                        to_array(statements)
-                    };
+                    statement.function_definition.name = identifier;
+                    statement.function_definition.parameters = to_array(parameters);
+                    statement.function_definition.statements = to_array(statements);
+                    statement.function_definition.has_return_type = has_return_type;
+
+                    if(has_return_type) {
+                        statement.function_definition.return_type = return_type;
+                    }
 
                     return {
                         true,

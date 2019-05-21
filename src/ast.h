@@ -51,6 +51,9 @@ struct Statement {
 
             Array<FunctionParameter> parameters;
 
+            bool has_return_type;
+            Expression return_type;
+
             Array<Statement> statements;
         } function_definition;
 

@@ -99,6 +99,15 @@ void debug_print_statement_indent(Statement statement, unsigned int indentation_
             
             printf("}\n");
 
+            if(statement.function_definition.has_return_type) {
+                indent(indentation_level + 1);
+                printf("return_type: ");
+
+                debug_print_expression_indent(statement.function_definition.return_type, indentation_level + 1);
+            
+                printf("\n");
+            }
+
             indent(indentation_level + 1);
             printf("statements: [");
 
