@@ -228,12 +228,6 @@ Result<Declaration> create_declaration(List<const char*> *name_stack, Statement 
     }
 }
 
-struct DeclarationTypeResolutionContext {
-    List<Declaration> declaration_stack;
-
-    Array<Declaration> top_level_declarations;
-};
-
 Result<Type> resolve_declaration_type(Array<Declaration> top_level, List<Declaration> *stack, Declaration declaration, bool print_errors) {
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
