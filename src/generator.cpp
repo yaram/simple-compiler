@@ -626,7 +626,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
         case ExpressionType::IntegerLiteral: {
             char buffer[64];
 
-            sprintf(buffer, "%dll", expression.integer_literal);
+            sprintf(buffer, "%lld", expression.integer_literal);
 
             string_buffer_append(&(context->implementation_source), buffer);
 
