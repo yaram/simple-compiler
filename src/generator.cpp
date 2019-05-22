@@ -857,6 +857,36 @@ bool generate_statement(GenerationContext *context, Statement statement) {
             return true;
         } break;
 
+        case StatementType::Assignment: {
+            auto target_result = generate_expression(context, &(context->implementation_source), statement.assignment.target);
+
+            if(!target_result.status) {
+                return false;
+            }
+
+            if(target_result.value.category != ExpressionValueCategory::Assignable) {
+                fprintf(stderr, "Value is not assignable\n");
+
+                return false;
+            }
+
+            string_buffer_append(&(context->implementation_source), "=");
+
+            auto value_result = generate_expression(context, &(context->implementation_source), statement.assignment.value);
+
+            if(!value_result.status) {
+                return false;
+            }
+
+            if(!types_equal(target_result.value.type, value_result.value.type)) {
+                fprintf(stderr, "Assigning incorrect type\n");
+
+                return false;
+            }
+
+            string_buffer_append(&(context->implementation_source), ";");
+        } break;
+
         default: {
             abort();
         } break;
