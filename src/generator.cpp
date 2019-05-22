@@ -1020,7 +1020,7 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
         if(result.status) {
             append(&top_level_declarations, result.value);
         } else {
-            fprintf(stderr, "Only declarations are allowed in global scope\n");
+            fprintf(stderr, "Only constant declarations are allowed in global scope\n");
 
             return { false };
         }
