@@ -614,7 +614,8 @@ bool generate_constant_value(char **source, Type type, ConstantValue value) {
 
 enum struct ExpressionValueCategory {
     Anonymous,
-    Constant
+    Constant,
+    Assignable
 };
 
 struct ExpressionValue {
@@ -630,7 +631,22 @@ struct ExpressionValue {
 Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
-            // TODO: Variable references
+            for(auto i = 0; i < context->variable_context_stack.count; i++) {
+                for(auto variable : context->variable_context_stack[context->variable_context_stack.count - 1 - i]) {
+                    if(strcmp(variable.name, expression.named_reference) == 0) {
+                        ExpressionValue value;
+                        value.category = ExpressionValueCategory::Assignable;
+                        value.type = variable.type;
+
+                        string_buffer_append(source, variable.name);
+
+                        return {
+                            true,
+                            value
+                        };
+                    }
+                }
+            }
 
             auto result = resolve_constant_named_reference(context->constant_context, expression.named_reference, true);
 
