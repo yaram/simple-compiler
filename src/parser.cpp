@@ -750,9 +750,17 @@ Result<Statement> parse_statement(Context *context) {
     } else if(character == '*') {
         context->character += 1;
 
+        skip_whitespace(context);
+
         auto result = parse_any_expression(context);
 
         if(!result.status) {
+            return { false };
+        }
+
+        skip_whitespace(context);
+
+        if(!expect_character(context, ';')) {
             return { false };
         }
 
