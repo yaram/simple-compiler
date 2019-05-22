@@ -336,6 +336,91 @@ Result<Expression> parse_integer_literal_or_named_reference(Context *context) {
     };
 }
 
+Result<Expression> continue_parsing_string_literal(Context *context) {
+    List<char> buffer{};
+
+    while(true) {
+        auto character = fgetc(context->source_file);
+
+        auto done = false;
+        switch(character) {
+            case '\\': {
+                context->character += 1;
+
+                auto character = fgetc(context->source_file);
+
+                switch(character) {
+                    case '\\':
+                    case '"': {
+                        context->character += 1;
+
+                        append(&buffer, (char)character);
+                    } break;
+
+                    case '\n':
+                    case '\r': {
+                        error(*context, "Unexpected newline");
+
+                        return { false };
+                    } break;
+
+                    case EOF: {
+                        error(*context, "Unexpected End of File");
+
+                        return { false };
+                    } break;
+
+                    default: {
+                        error(*context, "Unknown escape code %c", character);
+
+                        return { false };
+                    } break;
+                }
+            } break;
+
+            case '"': {
+                context->character += 1;
+
+                done = true;
+            } break;
+
+            case '\n':
+            case '\r': {
+                error(*context, "Unexpected newline");
+
+                return { false };
+            } break;
+
+            case EOF: {
+                error(*context, "Unexpected End of File");
+
+                return { false };
+            } break;
+
+            default: {
+                context->character += 1;
+
+                append(&buffer, (char)character);
+            } break;
+        }
+
+        if(done) {
+            break;
+        }
+    }
+
+    append(&buffer, '\0');
+
+    Expression expression;
+    expression.type = ExpressionType::StringLiteral;
+    expression.string_literal = buffer.elements;
+
+    return {
+        true,
+        expression
+    };
+}
+
 Result<Expression> parse_any_expression(Context *context) {
     auto character = fgetc(context->source_file);
 
@@ -389,6 +474,16 @@ Result<Expression> parse_any_expression(Context *context) {
 
         expression.type = ExpressionType::Pointer;
         expression.pointer = pointer_expression;
+    } else if(character == '"') {
+        context->character += 1;
+
+        auto result = continue_parsing_string_literal(context);
+
+        if(!result.status) {
+            return { false };
+        }
+
+        expression = result.value;
     } else if(character == EOF) {
         error(*context, "Unexpected End of File");
 
@@ -409,6 +504,63 @@ Result<Expression> parse_any_expression(Context *context) {
         true,
         result.value,
     };
+}
+
+Result<Statement> parse_expression_statement_or_variable_assignment(Context *context, Expression expression) {
+    auto character = fgetc(context->source_file);
+
+    switch(character) {
+        case '=': {
+            context->character += 1;
+
+            skip_whitespace(context);
+
+            auto value_result = parse_any_expression(context);
+
+            if(!value_result.status) {
+                return { false };
+            }
+
+            skip_whitespace(context);
+
+            if(!expect_character(context, ';')) {
+                return { false };
+            }
+
+            Statement statement;
+            statement.type = StatementType::Assignment;
+            statement.assignment.target = expression;
+            statement.assignment.value = value_result.value;
+
+            return {
+                true,
+                statement
+            };
+        } break;
+        
+        case ';': {
+            context->character += 1;
+
+            Statement statement;
+            statement.type = StatementType::Expression;
+            statement.expression = expression;
+
+            return {
+                true,
+                statement
+            };
+        } break;
+        
+        case EOF: {
+            error(*context, "Unexpected End of File");
+
+            return { false };
+        } break;
+
+        default: {
+            error(*context, "Expected '=' or ';'. Got '%c'", character);
+        } break;
+    }
 }
 
 Result<Statement> parse_statement(Context *context) {
@@ -811,60 +963,16 @@ Result<Statement> parse_statement(Context *context) {
         
         skip_whitespace(context);
 
-        auto character = fgetc(context->source_file);
+        auto statement_result = parse_expression_statement_or_variable_assignment(context, right_result.value);
 
-        switch(character) {
-            case '=': {
-                context->character += 1;
-
-                skip_whitespace(context);
-
-                auto result = parse_any_expression(context);
-
-                if(!result.status) {
-                    return { false };
-                }
-
-                skip_whitespace(context);
-
-                if(!expect_character(context, ';')) {
-                    return { false };
-                }
-
-                Statement statement;
-                statement.type = StatementType::Assignment;
-                statement.assignment.target = right_result.value;
-                statement.assignment.value = result.value;
-
-                return {
-                    true,
-                    statement
-                };
-            } break;
-            
-            case ';': {
-                context->character += 1;
-
-                Statement statement;
-                statement.type = StatementType::Expression;
-                statement.expression = right_result.value;
-
-                return {
-                    true,
-                    statement
-                };
-            } break;
-            
-            case EOF: {
-                error(*context, "Unexpected End of File");
-
-                return { false };
-            } break;
-
-            default: {
-                error(*context, "Expected '=' or ';'. Got '%c'", character);
-            } break;
+        if(!statement_result.status) {
+            return { false };
         }
+
+        return {
+            true,
+            statement_result.value
+        };
     } else if(character == '*') {
         context->character += 1;
 
@@ -937,6 +1045,27 @@ Result<Statement> parse_statement(Context *context) {
                 error(*context, "Expected '=' or ';'. Got '%c'", character);
             } break;
         }
+    } else if(character == '"') {
+        context->character += 1;
+
+        auto result = continue_parsing_string_literal(context);
+
+        if(!result.status) {
+            return { false };
+        }
+        
+        skip_whitespace(context);
+
+        auto statement_result = parse_expression_statement_or_variable_assignment(context, result.value);
+
+        if(!statement_result.status) {
+            return { false };
+        }
+
+        return {
+            true,
+            statement_result.value
+        };
     } else if(character == EOF) {
         error(*context, "Unexpected End of File");
 

@@ -6,6 +6,7 @@
 enum struct ExpressionType {
     NamedReference,
     IntegerLiteral,
+    StringLiteral,
     FunctionCall,
     Pointer
 };
@@ -17,6 +18,8 @@ struct Expression {
         char *named_reference;
 
         int64_t integer_literal;
+
+        const char *string_literal;
 
         struct {
             Expression *expression;

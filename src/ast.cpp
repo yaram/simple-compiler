@@ -17,6 +17,10 @@ void debug_print_expression_indent(Expression expression, unsigned int indentati
             printf("IntegerLiteral: %llu", expression.integer_literal);
         } break;
 
+        case ExpressionType::StringLiteral: {
+            printf("StringLiteral: %s", expression.string_literal);
+        } break;
+
         case ExpressionType::FunctionCall: {
             printf("FunctionCall: {\n");
 
