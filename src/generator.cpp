@@ -1006,9 +1006,10 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
     append(&global_constants, create_base_integer_type("i32", true, IntegerSize::Bit32));
     append(&global_constants, create_base_integer_type("i64", true, IntegerSize::Bit64));
 
-    ConstantContext constant_context{};
-
-    constant_context.global_constants = to_array(global_constants);
+    ConstantContext constant_context {
+        to_array(global_constants),
+        to_array(top_level_declarations)
+    };
 
     while(true) {
         for(auto &top_level_declaration : top_level_declarations) {
