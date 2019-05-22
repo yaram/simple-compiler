@@ -1,13 +1,13 @@
 #include "ast.h"
 #include <stdio.h>
 
-void indent(unsigned int level) {
+static void indent(unsigned int level) {
     for(auto i = 0; i < level; i += 1) {
         printf("    ");
     }
 }
 
-void debug_print_expression_indent(Expression expression, unsigned int indentation_level) {
+static void debug_print_expression_indent(Expression expression, unsigned int indentation_level) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             printf("NamedReference: %s", expression.named_reference);
@@ -69,7 +69,7 @@ void debug_print_expression(Expression expression) {
     debug_print_expression_indent(expression, 0);
 }
 
-void debug_print_statement_indent(Statement statement, unsigned int indentation_level) {
+static void debug_print_statement_indent(Statement statement, unsigned int indentation_level) {
     switch(statement.type) {
         case StatementType::FunctionDefinition: {
             printf("FunctionDefinition {\n");

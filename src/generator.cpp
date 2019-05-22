@@ -5,7 +5,7 @@
 #include "list.h"
 #include "types.h"
 
-void string_buffer_append(char **string_buffer, const char *string) {
+static void string_buffer_append(char **string_buffer, const char *string) {
     auto string_length = strlen(string);
 
     if(*string_buffer == nullptr) {
@@ -58,7 +58,7 @@ struct Declaration {
     };
 };
 
-Array<Declaration> get_declaration_children(Declaration declaration) {
+static Array<Declaration> get_declaration_children(Declaration declaration) {
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
             return declaration.function_definition.declarations;
@@ -74,7 +74,7 @@ Array<Declaration> get_declaration_children(Declaration declaration) {
     }
 }
 
-Result<Declaration> lookup_declaration(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name) {
+static Result<Declaration> lookup_declaration(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name) {
     for(auto i = 0; i < declaration_stack.count; i++) {
         for(auto child : get_declaration_children(declaration_stack[declaration_stack.count - 1 - i])) {
             if(child.type_resolved && strcmp(child.name, name) == 0) {
@@ -128,9 +128,9 @@ struct ConstantContext {
     List<Declaration> declaration_stack;
 };
 
-Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors);
+static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors);
 
-Result<ConstantExpressionValue> resolve_constant_named_reference(ConstantContext context, const char *name, bool print_errors) {
+static Result<ConstantExpressionValue> resolve_constant_named_reference(ConstantContext context, const char *name, bool print_errors) {
     auto result = lookup_declaration(context.top_level_declarations, to_array(context.declaration_stack), name);
 
     if(!result.status) {
@@ -186,7 +186,7 @@ Result<ConstantExpressionValue> resolve_constant_named_reference(ConstantContext
     }
 }
 
-Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors) {
+static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             return resolve_constant_named_reference(context, expression.named_reference, print_errors);
@@ -257,7 +257,7 @@ Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext con
     }
 }
 
-Result<Type> evaluate_type_expression(ConstantContext context, Expression expression, bool print_errors) {
+static Result<Type> evaluate_type_expression(ConstantContext context, Expression expression, bool print_errors) {
     auto result = evaluate_constant_expression(context, expression, print_errors);
 
     if(!result.status) {
@@ -278,7 +278,7 @@ Result<Type> evaluate_type_expression(ConstantContext context, Expression expres
     };
 }
 
-Result<Declaration> create_declaration(List<const char*> *name_stack, Statement statement) {
+static Result<Declaration> create_declaration(List<const char*> *name_stack, Statement statement) {
     switch(statement.type) {
         case StatementType::FunctionDefinition: {
             List<Declaration> child_declarations{};
@@ -344,7 +344,7 @@ Result<Declaration> create_declaration(List<const char*> *name_stack, Statement 
     }
 }
 
-Result<Type> resolve_declaration_type(ConstantContext *context, Declaration declaration, bool print_errors) {
+static Result<Type> resolve_declaration_type(ConstantContext *context, Declaration declaration, bool print_errors) {
     auto children = get_declaration_children(declaration);
 
     if(children.count > 0) {
@@ -453,7 +453,7 @@ Result<Type> resolve_declaration_type(ConstantContext *context, Declaration decl
     }
 }
 
-int count_declarations(Declaration declaration, bool only_resolved) {
+static int count_declarations(Declaration declaration, bool only_resolved) {
     auto resolved_declaration_count = 0;
 
     if(!only_resolved || declaration.type_resolved) {
@@ -482,7 +482,7 @@ struct GenerationContext {
     List<List<Variable>> variable_context_stack;
 };
 
-bool add_new_variable(GenerationContext *context, const char *name, Type type) {
+static bool add_new_variable(GenerationContext *context, const char *name, Type type) {
     auto variable_context = &(context->variable_context_stack[context->variable_context_stack.count - 1]);
 
     for(auto variable : *variable_context) {
@@ -501,7 +501,7 @@ bool add_new_variable(GenerationContext *context, const char *name, Type type) {
     return true;
 }
 
-bool generate_type(char **source, Type type) {
+static bool generate_type(char **source, Type type) {
     switch(type.category) {
         case TypeCategory::Function: {
             fprintf(stderr, "Function values cannot exist at runtime\n");
@@ -579,7 +579,7 @@ bool generate_type(char **source, Type type) {
     }
 }
 
-bool generate_constant_value(char **source, Type type, ConstantValue value) {
+static bool generate_constant_value(char **source, Type type, ConstantValue value) {
     switch(type.category) {
         case TypeCategory::Function: {
             string_buffer_append(source, value.function);
@@ -629,7 +629,7 @@ struct ExpressionValue {
     };
 };
 
-Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression) {
+static Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             for(auto i = 0; i < context->variable_context_stack.count; i++) {
@@ -782,7 +782,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, char **s
     }
 }
 
-bool generate_statement(GenerationContext *context, Statement statement) {
+static bool generate_statement(GenerationContext *context, Statement statement) {
     switch(statement.type) {
         case StatementType::Expression: {
             auto result = generate_expression(context, &(context->implementation_source), statement.expression);
@@ -897,7 +897,7 @@ bool generate_statement(GenerationContext *context, Statement statement) {
     }
 }
 
-bool generate_function_signature(char **source, Declaration declaration) {
+static bool generate_function_signature(char **source, Declaration declaration) {
     assert(declaration.category == DeclarationCategory::FunctionDefinition);
 
     generate_type(source, *declaration.type.function.return_type);
@@ -927,7 +927,7 @@ bool generate_function_signature(char **source, Declaration declaration) {
     return true;
 }
 
-bool generate_declaration(GenerationContext *context, Declaration declaration) {
+static bool generate_declaration(GenerationContext *context, Declaration declaration) {
     assert(declaration.type_resolved);
 
     switch(declaration.category) {

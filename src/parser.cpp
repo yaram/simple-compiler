@@ -13,7 +13,7 @@ struct Context {
     unsigned int character;
 };
 
-void error(Context context, const char *format, ...) {
+static void error(Context context, const char *format, ...) {
     va_list arguments;
     va_start(arguments, format);
 
@@ -24,7 +24,7 @@ void error(Context context, const char *format, ...) {
     va_end(arguments);
 }
 
-void skip_whitespace(Context *context) {
+static void skip_whitespace(Context *context) {
     while(true){
         auto character = fgetc(context->source_file);
 
@@ -141,7 +141,7 @@ void skip_whitespace(Context *context) {
     }
 }
 
-char *parse_identifier(Context *context) {
+static char *parse_identifier(Context *context) {
     List<char> buffer{};
 
     while(true) {
@@ -161,7 +161,7 @@ char *parse_identifier(Context *context) {
     }
 }
 
-bool expect_character(Context *context, char expected_character) {
+static bool expect_character(Context *context, char expected_character) {
     auto character = fgetc(context->source_file);
 
     if(character == EOF) {
@@ -181,9 +181,9 @@ bool expect_character(Context *context, char expected_character) {
     return true;
 }
 
-Result<Expression> parse_any_expression(Context *context);
+static Result<Expression> parse_any_expression(Context *context);
 
-Result<Expression> parse_right_expressions(Context *context, Expression left_expression) {
+static Result<Expression> parse_right_expressions(Context *context, Expression left_expression) {
     auto current_expression = left_expression;
 
     while(true) {
@@ -260,7 +260,7 @@ Result<Expression> parse_right_expressions(Context *context, Expression left_exp
     };
 }
 
-Result<Expression> parse_any_expression(Context *context) {
+static Result<Expression> parse_any_expression(Context *context) {
     auto character = fgetc(context->source_file);
 
     Expression expression;
@@ -470,7 +470,7 @@ Result<Expression> parse_any_expression(Context *context) {
     };
 }
 
-Result<Statement> parse_expression_statement_or_variable_assignment(Context *context, Expression expression) {
+static Result<Statement> parse_expression_statement_or_variable_assignment(Context *context, Expression expression) {
     auto character = fgetc(context->source_file);
 
     switch(character) {
@@ -527,7 +527,7 @@ Result<Statement> parse_expression_statement_or_variable_assignment(Context *con
     }
 }
 
-Result<Statement> parse_statement(Context *context) {
+static Result<Statement> parse_statement(Context *context) {
     auto character = fgetc(context->source_file);
 
     if(isalpha(character)) {
