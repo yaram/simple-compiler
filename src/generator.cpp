@@ -258,6 +258,27 @@ Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext con
     }
 }
 
+Result<Type> evaluate_type_expression(ConstantContext context, Expression expression, bool print_errors) {
+    auto result = evaluate_constant_expression(context, expression, print_errors);
+
+    if(!result.status) {
+        return { false };
+    }
+
+    if(result.value.type.category != TypeCategory::Type) {
+        if(print_errors) {
+            fprintf(stderr, "Value is not a type\n");
+        }
+
+        return { false };
+    }
+
+    return {
+        true,
+        result.value.value.type
+    };
+}
+
 Result<Declaration> create_declaration(List<const char*> *name_stack, Statement statement) {
     switch(statement.type) {
         case StatementType::FunctionDefinition: {
@@ -368,38 +389,22 @@ Result<Type> resolve_declaration_type(ConstantContext *context, Declaration decl
         switch(declaration.category) {
             case DeclarationCategory::FunctionDefinition: {
                 for(auto parameter : declaration.function_definition.parameters) {
-                    auto result = evaluate_constant_expression(*context, parameter.type, print_errors);
+                    auto result = evaluate_type_expression(*context, parameter.type, print_errors);
 
                     if(!result.status) {
-                        return { false };
-                    }
-                    
-                    if(result.value.type.category != TypeCategory::Type) {
-                        if(print_errors) {
-                            fprintf(stderr, "Value is not a type\n");
-                        }
-
                         return { false };
                     }
                 }
 
                 Type return_type;
                 if(declaration.function_definition.has_return_type) {
-                    auto result = evaluate_constant_expression(*context, declaration.function_definition.return_type, print_errors);
+                    auto result = evaluate_type_expression(*context, declaration.function_definition.return_type, print_errors);
 
                     if(!result.status) {
                         return { false };
                     }
 
-                    if(result.value.type.category != TypeCategory::Type) {
-                        if(print_errors) {
-                            fprintf(stderr, "Value is not a type\n");
-                        }
-
-                        return { false };
-                    }
-
-                    return_type = result.value.value.type;
+                    return_type = result.value;
                 } else {
                     return_type.category = TypeCategory::Void;
                 }
@@ -407,9 +412,9 @@ Result<Type> resolve_declaration_type(ConstantContext *context, Declaration decl
                 auto parameters = (Type*)malloc(declaration.function_definition.parameters.count * sizeof(Type));
                 
                 for(auto i = 0; i < declaration.function_definition.parameters.count; i += 1) {
-                    auto result = evaluate_constant_expression(*context, declaration.function_definition.parameters[i].type, print_errors);
+                    auto result = evaluate_type_expression(*context, declaration.function_definition.parameters[i].type, print_errors);
 
-                    parameters[i] = result.value.value.type;
+                    parameters[i] = result.value;
                 }
 
                 auto return_type_heap = (Type*)malloc(sizeof(Type));
@@ -595,7 +600,7 @@ struct ExpressionValue {
     };
 };
 
-Result<ExpressionValue> generate_expression(GenerationContext *context, Expression expression) {
+Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             // TODO: Variable references
@@ -606,7 +611,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
                 return { false };
             }
 
-            auto generate_result = generate_constant_value(&(context->implementation_source), result.value.type, result.value.value);
+            auto generate_result = generate_constant_value(source, result.value.type, result.value.value);
 
             if(!generate_result) {
                 return { false };
@@ -628,7 +633,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
 
             sprintf(buffer, "%lld", expression.integer_literal);
 
-            string_buffer_append(&(context->implementation_source), buffer);
+            string_buffer_append(source, buffer);
 
             ExpressionValue value;
             value.category = ExpressionValueCategory::Constant;
@@ -646,7 +651,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
         } break;
 
         case ExpressionType::FunctionCall: {
-            auto result = generate_expression(context, *expression.function_call.expression);
+            auto result = generate_expression(context, source, *expression.function_call.expression);
 
             if(!result.status) {
                 return { false };
@@ -658,7 +663,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
                 return { false };
             }
 
-            string_buffer_append(&(context->implementation_source), "(");
+            string_buffer_append(source, "(");
 
             if(expression.function_call.parameters.count != result.value.type.function.parameters.count) {
                 fprintf(stderr, "Incorrect number of parameters. Expected %d, got %d\n", result.value.type.function.parameters.count, expression.function_call.parameters.count);
@@ -667,7 +672,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
             }
 
             for(auto i = 0; i < result.value.type.function.parameters.count; i += 1) {
-                auto parameter_result = generate_expression(context, expression.function_call.parameters[i]);
+                auto parameter_result = generate_expression(context, source, expression.function_call.parameters[i]);
 
                 if(!parameter_result.status) {
                     return { false };
@@ -680,11 +685,11 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
                 }
 
                 if(i != result.value.type.function.parameters.count - 1) {
-                    string_buffer_append(&(context->implementation_source), ",");
+                    string_buffer_append(source, ",");
                 }
             }
 
-            string_buffer_append(&(context->implementation_source), ")");
+            string_buffer_append(source, ")");
 
             ExpressionValue value;
             value.category = ExpressionValueCategory::Anonymous;
@@ -697,7 +702,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
         } break;
 
         case ExpressionType::Pointer: {
-            auto result = generate_expression(context, *expression.pointer);
+            auto result = generate_expression(context, source, *expression.pointer);
 
             if(!result.status) {
                 return { false };
@@ -739,10 +744,65 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, Expressi
 bool generate_statement(GenerationContext *context, Statement statement) {
     switch(statement.type) {
         case StatementType::Expression: {
-            auto result = generate_expression(context, statement.expression);
+            auto result = generate_expression(context, &(context->implementation_source), statement.expression);
 
             if(!result.status) {
                 return false;
+            }
+
+            string_buffer_append(&(context->implementation_source), ";");
+
+            return true;
+        } break;
+
+        case StatementType::VariableDeclaration: {
+            Type type;
+            if(statement.variable_declaration.has_type) {
+                auto result = evaluate_type_expression(context->constant_context, statement.variable_declaration.type, true);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                type = result.value;
+            }
+
+            Type initialzer_type;
+            char *initializer_source{};
+            if(statement.variable_declaration.has_initializer) {
+                auto result = generate_expression(context, &initializer_source, statement.variable_declaration.initializer);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                initialzer_type = result.value.type;
+            }
+
+            assert(statement.variable_declaration.has_initializer || statement.variable_declaration.has_type);
+
+            if(statement.variable_declaration.has_initializer && statement.variable_declaration.has_type) {
+                if(!types_equal(type, initialzer_type)) {
+                    fprintf(stderr, "Initializer type does not match variable type\n");
+
+                    return { false };
+                }
+            } else if(statement.variable_declaration.has_initializer) {
+                type = initialzer_type;
+            }
+
+            if(!generate_type(&(context->implementation_source), type)) {
+                return false;
+            }
+
+            string_buffer_append(&(context->implementation_source), " ");
+
+            string_buffer_append(&(context->implementation_source), statement.variable_declaration.name);
+
+            if(statement.variable_declaration.has_initializer) {
+                string_buffer_append(&(context->implementation_source), "=");
+
+                string_buffer_append(&(context->implementation_source), initializer_source);
             }
 
             string_buffer_append(&(context->implementation_source), ";");
