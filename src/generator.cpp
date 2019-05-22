@@ -468,12 +468,39 @@ int count_declarations(Declaration declaration, bool only_resolved) {
     return resolved_declaration_count;
 }
 
+struct Variable {
+    const char *name;
+
+    Type type;
+};
+
 struct GenerationContext {
     char *forward_declaration_source;
     char *implementation_source;
 
     ConstantContext constant_context;
+
+    List<List<Variable>> variable_context_stack;
 };
+
+bool add_new_variable(GenerationContext *context, const char *name, Type type) {
+    auto variable_context = &(context->variable_context_stack[context->variable_context_stack.count - 1]);
+
+    for(auto variable : *variable_context) {
+        if(strcmp(variable.name, name) == 0) {
+            fprintf(stderr, "Duplicate variable name %s\n", name);
+
+            return false;
+        }
+    }
+
+    append(variable_context, Variable{
+        name,
+        type
+    });
+
+    return true;
+}
 
 bool generate_type(char **source, Type type) {
     switch(type.category) {
@@ -791,6 +818,10 @@ bool generate_statement(GenerationContext *context, Statement statement) {
                 type = initialzer_type;
             }
 
+            if(!add_new_variable(context, statement.variable_declaration.name, type)) {
+                return false;
+            }
+
             if(!generate_type(&(context->implementation_source), type)) {
                 return false;
             }
@@ -851,6 +882,8 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
 
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
+            assert(declaration.type.category == TypeCategory::Function);
+
             if(!generate_function_signature(&(context->forward_declaration_source), declaration)) {
                 return false;
             }
@@ -871,11 +904,23 @@ bool generate_declaration(GenerationContext *context, Declaration declaration) {
 
             string_buffer_append(&(context->implementation_source), "{");
 
+            append(&(context->variable_context_stack), List<Variable>{});
+
+            assert(declaration.type.function.parameters.count == declaration.function_definition.parameters.count);
+
+            for(auto i = 0; i < declaration.type.function.parameters.count; i += 1) {
+                if(!add_new_variable(context, declaration.function_definition.parameters[i].name, declaration.type.function.parameters[i])) {
+                    return false;
+                }
+            }
+
             for(auto statement : declaration.function_definition.statements) {
                 if(!generate_statement(context, statement)) {
                     return false;
                 }
             }
+
+            context->variable_context_stack.count -= 1;
 
             context->constant_context.declaration_stack.count -= 1;
 
