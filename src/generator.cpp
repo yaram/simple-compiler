@@ -985,11 +985,8 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
         previous_resolved_declaration_count = resolved_declaration_count;
     }
 
-    GenerationContext context {
-        nullptr,
-        nullptr,
-        constant_context
-    };
+    GenerationContext context{};
+    context.constant_context = constant_context;
 
     for(auto top_level_declaration : top_level_declarations) {
         if(!generate_declaration(&context, top_level_declaration)) {
