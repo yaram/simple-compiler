@@ -34,7 +34,8 @@ enum struct StatementType {
     FunctionDefinition,
     ConstantDefinition,
     Expression,
-    VariableDeclaration
+    VariableDeclaration,
+    Assignment
 };
 
 struct FunctionParameter {
@@ -75,6 +76,12 @@ struct Statement {
             bool has_initializer;
             Expression initializer;
         } variable_declaration;
+
+        struct {
+            Expression target;
+
+            Expression value;
+        } assignment;
     };
 };
 

@@ -184,6 +184,27 @@ void debug_print_statement_indent(Statement statement, unsigned int indentation_
             indent(indentation_level);
             printf("}");
         } break;
+
+        case StatementType::Assignment: {
+            printf("Assignment: {\n");
+            
+            indent(indentation_level + 1);
+            printf("target: ");
+
+            debug_print_expression_indent(statement.assignment.target, indentation_level + 2);
+
+            printf("\n");
+            
+            indent(indentation_level + 1);
+            printf("value: ");
+
+            debug_print_expression_indent(statement.assignment.value, indentation_level + 2);
+
+            printf("\n");
+
+            indent(indentation_level);
+            printf("}");
+        } break;
     }
 }
 
