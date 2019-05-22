@@ -221,6 +221,8 @@ Result<Expression> parse_right_expressions(Context *context, Expression left_exp
                     if(character == ',') {
                         context->character += 1;
 
+                        skip_whitespace(context);
+
                         continue;
                     } else if(character == ')') {
                         context->character += 1;
