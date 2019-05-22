@@ -14,7 +14,7 @@ enum struct IntegerSize {
     Bit8,
     Bit16,
     Bit32,
-    Bit64,
+    Bit64
 };
 
 struct Type {
@@ -28,6 +28,8 @@ struct Type {
         } function;
 
         struct {
+            bool determined;
+
             bool is_signed;
 
             IntegerSize size;

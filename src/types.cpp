@@ -22,7 +22,7 @@ bool types_equal(Type a, Type b) {
         } break;
         
         case TypeCategory::Integer: {
-            return a.integer.is_signed == b.integer.is_signed && a.integer.size == b.integer.size;
+            return !a.integer.determined || !b.integer.determined || (a.integer.is_signed == b.integer.is_signed && a.integer.size == b.integer.size);
         } break;
 
         case TypeCategory::Type: {

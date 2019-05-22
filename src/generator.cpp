@@ -195,8 +195,7 @@ Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext con
         case ExpressionType::IntegerLiteral: {
             Type type;
             type.category = TypeCategory::Integer;
-            type.integer.is_signed = true;
-            type.integer.size = IntegerSize::Bit64;
+            type.integer.determined = false;
 
             ConstantValue value;
             value.integer = expression.integer_literal;
@@ -511,6 +510,8 @@ bool generate_type(char **source, Type type) {
         } break;
 
         case TypeCategory::Integer: {
+            assert(type.integer.determined);
+
             switch(type.integer.size) {
                 case IntegerSize::Bit8: {
                     if(type.integer.is_signed) {
@@ -681,10 +682,7 @@ Result<ExpressionValue> generate_expression(GenerationContext *context, char **s
             ExpressionValue value;
             value.category = ExpressionValueCategory::Constant;
             value.type.category = TypeCategory::Integer;
-            value.type.integer = {
-                true,
-                IntegerSize::Bit64
-            };
+            value.type.integer.determined = false;
             value.constant.integer = expression.integer_literal;
 
             return {
@@ -832,6 +830,12 @@ bool generate_statement(GenerationContext *context, Statement statement) {
                 }
             } else if(statement.variable_declaration.has_initializer) {
                 type = initialzer_type;
+
+                if(type.category == TypeCategory::Integer && !type.integer.determined) {
+                    type.integer.determined = true;
+                    type.integer.is_signed = true;
+                    type.integer.size = IntegerSize::Bit64;
+                }
             }
 
             if(!add_new_variable(context, statement.variable_declaration.name, type)) {
