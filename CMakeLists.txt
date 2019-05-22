@@ -5,6 +5,7 @@ project(SimpleCompiler LANGUAGES CXX)
 add_executable(compiler
     src/array.h
     src/list.h
+    src/result.h
 
     src/ast.h
     src/ast.cpp
