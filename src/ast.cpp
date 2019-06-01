@@ -28,6 +28,23 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             printf("}");
         } break;
 
+        case ExpressionType::IndexReference: {
+            printf("IndexReference: {\n");
+
+            indent(indentation_level + 1);
+            printf("expression: ");
+            debug_print_expression_indent(*(expression.index_reference.expression), indentation_level + 1);
+            printf("\n");
+
+            indent(indentation_level + 1);
+            printf("index: ");
+            debug_print_expression_indent(*(expression.index_reference.index), indentation_level + 1);
+            printf("\n");
+
+            indent(indentation_level);
+            printf("}");
+        } break;
+
         case ExpressionType::IntegerLiteral: {
             printf("IntegerLiteral: %lld", expression.integer_literal);
         } break;

@@ -6,6 +6,7 @@
 enum struct ExpressionType {
     NamedReference,
     MemberReference,
+    IndexReference,
     IntegerLiteral,
     StringLiteral,
     FunctionCall,
@@ -23,6 +24,12 @@ struct Expression {
 
             const char *name;
         } member_reference;
+
+        struct {
+            Expression *expression;
+
+            Expression *index;
+        } index_reference;
 
         int64_t integer_literal;
 

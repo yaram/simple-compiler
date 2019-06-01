@@ -259,6 +259,32 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
             current_expression.type = ExpressionType::MemberReference;
             current_expression.member_reference.expression = expression;
             current_expression.member_reference.name = name;
+        } else if(character == '[') {
+            context->character += 1;
+
+            skip_whitespace(context);
+
+            auto result = parse_any_expression(context);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            skip_whitespace(context);
+
+            if(!expect_character(context, ']')) {
+                return { false };
+            }
+
+            auto expression = (Expression*)malloc(sizeof(Expression));
+            *expression = current_expression;
+
+            auto index = (Expression*)malloc(sizeof(Expression));
+            *index = result.value;
+
+            current_expression.type = ExpressionType::IndexReference;
+            current_expression.index_reference.expression = expression;
+            current_expression.index_reference.index = index;
         } else {
             ungetc(character, context->source_file);
 
