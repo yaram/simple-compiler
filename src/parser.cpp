@@ -251,14 +251,28 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
 
             skip_whitespace(context);
 
-            auto name = parse_identifier(context);
+            auto character = fgetc(context->source_file);
 
-            auto expression = (Expression*)malloc(sizeof(Expression));
-            *expression = current_expression;
+            if(isalnum(character)) {
+                ungetc(character, context->source_file);
 
-            current_expression.type = ExpressionType::MemberReference;
-            current_expression.member_reference.expression = expression;
-            current_expression.member_reference.name = name;
+                auto name = parse_identifier(context);
+
+                auto expression = (Expression*)malloc(sizeof(Expression));
+                *expression = current_expression;
+
+                current_expression.type = ExpressionType::MemberReference;
+                current_expression.member_reference.expression = expression;
+                current_expression.member_reference.name = name;
+            } else if(character == EOF) {
+                error(*context, "Unexpected End of File");
+
+                return { false };
+            } else {
+                error(*context, "Expected a-z, A-Z or 0-9. Got '%c'", character);
+
+                return { false };
+            }
         } else if(character == '[') {
             context->character += 1;
 
