@@ -549,6 +549,8 @@ static bool generate_type(char **source, Type type) {
                     abort();
                 } break;
             }
+
+            return true;
         } break;
 
         case TypeCategory::Type: {
@@ -889,6 +891,8 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
             }
 
             string_buffer_append(&(context->implementation_source), ";");
+
+            return true;
         } break;
 
         default: {

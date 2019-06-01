@@ -535,6 +535,8 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
         default: {
             error(*context, "Expected '=' or ';'. Got '%c'", character);
+
+            return { false };
         } break;
     }
 }
