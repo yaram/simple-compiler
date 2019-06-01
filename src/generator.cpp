@@ -562,7 +562,7 @@ static bool generate_type(char **source, Type type) {
         case TypeCategory::Void: {
             string_buffer_append(source, "void");
 
-            return false;
+            return true;
         } break;
 
         case TypeCategory::Pointer: {
