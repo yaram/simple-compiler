@@ -191,9 +191,9 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
 
         auto character = fgetc(context->source_file);
 
-        context->character += 1;
-
         if(character == '(') {
+            context->character += 1;
+            
             skip_whitespace(context);
 
             List<Expression> parameters{};
