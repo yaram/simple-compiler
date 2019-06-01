@@ -94,6 +94,12 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
             debug_print_expression_indent(*(expression.pointer), indentation_level + 1);
         } break;
+
+        case ExpressionType::ArrayType: {
+            printf("ArrayType: ");
+
+            debug_print_expression_indent(*(expression.array_type), indentation_level + 1);
+        } break;
     }
 }
 

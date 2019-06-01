@@ -10,7 +10,8 @@ enum struct ExpressionType {
     IntegerLiteral,
     StringLiteral,
     FunctionCall,
-    Pointer
+    Pointer,
+    ArrayType
 };
 
 struct Expression {
@@ -42,6 +43,8 @@ struct Expression {
         } function_call;
 
         Expression *pointer;
+
+        Expression *array_type;
     };
 };
 

@@ -264,27 +264,41 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
 
             skip_whitespace(context);
 
-            auto result = parse_any_expression(context);
+            auto character = fgetc(context->source_file);
 
-            if(!result.status) {
-                return { false };
+            if(character == ']') {
+                context->character += 1;
+
+                auto expression = (Expression*)malloc(sizeof(Expression));
+                *expression = current_expression;
+
+                current_expression.type = ExpressionType::ArrayType;
+                current_expression.array_type = expression;
+            } else {
+                ungetc(character, context->source_file);
+
+                auto result = parse_any_expression(context);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                skip_whitespace(context);
+
+                if(!expect_character(context, ']')) {
+                    return { false };
+                }
+
+                auto expression = (Expression*)malloc(sizeof(Expression));
+                *expression = current_expression;
+
+                auto index = (Expression*)malloc(sizeof(Expression));
+                *index = result.value;
+
+                current_expression.type = ExpressionType::IndexReference;
+                current_expression.index_reference.expression = expression;
+                current_expression.index_reference.index = index;
             }
-
-            skip_whitespace(context);
-
-            if(!expect_character(context, ']')) {
-                return { false };
-            }
-
-            auto expression = (Expression*)malloc(sizeof(Expression));
-            *expression = current_expression;
-
-            auto index = (Expression*)malloc(sizeof(Expression));
-            *index = result.value;
-
-            current_expression.type = ExpressionType::IndexReference;
-            current_expression.index_reference.expression = expression;
-            current_expression.index_reference.index = index;
         } else {
             ungetc(character, context->source_file);
 
