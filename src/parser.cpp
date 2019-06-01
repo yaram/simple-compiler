@@ -156,9 +156,11 @@ static char *parse_identifier(Context *context) {
 
             append(&buffer, '\0');
 
-            return buffer.elements;
+            break;
         }
     }
+
+    return buffer.elements;
 }
 
 static bool expect_character(Context *context, char expected_character) {
@@ -238,15 +240,25 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
                 }
             }
 
-            auto function_expression = (Expression*)malloc(sizeof(Expression));
-            *function_expression = current_expression;
+            auto expression = (Expression*)malloc(sizeof(Expression));
+            *expression = current_expression;
 
-            Expression expression;
-            expression.type = ExpressionType::FunctionCall;
-            expression.function_call.expression = function_expression;
-            expression.function_call.parameters = to_array(parameters);
+            current_expression.type = ExpressionType::FunctionCall;
+            current_expression.function_call.expression = expression;
+            current_expression.function_call.parameters = to_array(parameters);
+        } else if(character == '.') {
+            context->character += 1;
 
-            current_expression = expression;
+            skip_whitespace(context);
+
+            auto name = parse_identifier(context);
+
+            auto expression = (Expression*)malloc(sizeof(Expression));
+            *expression = current_expression;
+
+            current_expression.type = ExpressionType::MemberReference;
+            current_expression.member_reference.expression = expression;
+            current_expression.member_reference.name = name;
         } else {
             ungetc(character, context->source_file);
 

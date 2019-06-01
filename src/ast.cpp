@@ -13,6 +13,21 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             printf("NamedReference: %s", expression.named_reference);
         } break;
 
+        case ExpressionType::MemberReference: {
+            printf("MemberReference: {\n");
+
+            indent(indentation_level + 1);
+            printf("expression: ");
+            debug_print_expression_indent(*(expression.member_reference.expression), indentation_level + 1);
+            printf("\n");
+
+            indent(indentation_level + 1);
+            printf("name: %s\n", expression.member_reference.name);
+
+            indent(indentation_level);
+            printf("}");
+        } break;
+
         case ExpressionType::IntegerLiteral: {
             printf("IntegerLiteral: %lld", expression.integer_literal);
         } break;
