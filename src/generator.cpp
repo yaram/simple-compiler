@@ -811,7 +811,17 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
         } break;
 
         case TypeCategory::Array: {
-            string_buffer_append(source, "{");
+            auto result = maybe_register_array_type(context, *type.array);
+
+            if(!result.status) {
+                return false;
+            }
+
+            string_buffer_append(source, "(struct ");
+
+            string_buffer_append(source, result.value);
+
+            string_buffer_append(source, "){");
 
             char buffer[64];
 
