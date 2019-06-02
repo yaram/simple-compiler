@@ -220,6 +220,9 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
     while(true) {
         skip_whitespace(context);
 
+        auto first_line = context->line;
+        auto first_character = context->character;
+
         auto character = fgetc(context->source_file);
 
         if(character == '(') {
@@ -273,6 +276,9 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
             *expression = current_expression;
 
             current_expression.type = ExpressionType::FunctionCall;
+            current_expression.source_file_path = context->source_file_path;
+            current_expression.line = first_line;
+            current_expression.character = first_character;
             current_expression.function_call.expression = expression;
             current_expression.function_call.parameters = to_array(parameters);
         } else if(character == '.') {
@@ -291,6 +297,9 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
                 *expression = current_expression;
 
                 current_expression.type = ExpressionType::MemberReference;
+                current_expression.source_file_path = context->source_file_path;
+                current_expression.line = first_line;
+                current_expression.character = first_character;
                 current_expression.member_reference.expression = expression;
                 current_expression.member_reference.name = name;
             } else if(character == EOF) {
@@ -316,6 +325,9 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
                 *expression = current_expression;
 
                 current_expression.type = ExpressionType::ArrayType;
+                current_expression.source_file_path = context->source_file_path;
+                current_expression.line = first_line;
+                current_expression.character = first_character;
                 current_expression.array_type = expression;
             } else {
                 ungetc(character, context->source_file);
@@ -339,6 +351,9 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
                 *index = result.value;
 
                 current_expression.type = ExpressionType::IndexReference;
+                current_expression.source_file_path = context->source_file_path;
+                current_expression.line = first_line;
+                current_expression.character = first_character;
                 current_expression.index_reference.expression = expression;
                 current_expression.index_reference.index = index;
             }
@@ -356,6 +371,9 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
 }
 
 static Result<Expression> parse_any_expression(Context *context) {
+    auto first_line = context->line;
+    auto first_character = context->character;
+
     auto character = fgetc(context->source_file);
 
     Expression expression;
@@ -569,6 +587,10 @@ static Result<Expression> parse_any_expression(Context *context) {
         return { false };
     }
 
+    expression.source_file_path = context->source_file_path;
+    expression.line = first_line;
+    expression.character = first_character;
+
     auto result = parse_right_expressions(context, expression);
 
     if(!result.status) {
@@ -582,6 +604,9 @@ static Result<Expression> parse_any_expression(Context *context) {
 }
 
 static Result<Statement> parse_expression_statement_or_variable_assignment(Context *context, Expression expression) {
+    auto first_line = context->line;
+    auto first_character = context->character;
+
     auto character = fgetc(context->source_file);
 
     switch(character) {
@@ -604,6 +629,9 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
             Statement statement;
             statement.type = StatementType::Assignment;
+            statement.source_file_path = context->source_file_path;
+            statement.line = first_line;
+            statement.character = first_character;
             statement.assignment.target = expression;
             statement.assignment.value = value_result.value;
 
@@ -618,6 +646,9 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
             Statement statement;
             statement.type = StatementType::Expression;
+            statement.source_file_path = context->source_file_path;
+            statement.line = first_line;
+            statement.character = first_character;
             statement.expression = expression;
 
             return {
@@ -641,6 +672,9 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 }
 
 static Result<Statement> parse_statement(Context *context) {
+    auto first_line = context->line;
+    auto first_character = context->character;
+
     auto character = fgetc(context->source_file);
 
     if(isalpha(character)) {
@@ -849,6 +883,9 @@ static Result<Statement> parse_statement(Context *context) {
 
                         Statement statement;
                         statement.type = StatementType::FunctionDeclaration;
+                        statement.source_file_path = context->source_file_path;
+                        statement.line = first_line;
+                        statement.character = first_character;
                         statement.function_declaration.name = identifier;
                         statement.function_declaration.parameters = to_array(parameters);
                         statement.function_declaration.has_return_type = has_return_type;
@@ -881,6 +918,9 @@ static Result<Statement> parse_statement(Context *context) {
 
                         Statement statement;
                         statement.type = StatementType::ConstantDefinition;
+                        statement.source_file_path = context->source_file_path;
+                        statement.line = first_line;
+                        statement.character = first_character;
                         statement.constant_definition = {
                             identifier,
                             result.value
@@ -954,6 +994,9 @@ static Result<Statement> parse_statement(Context *context) {
 
                     Statement statement;
                     statement.type = StatementType::VariableDeclaration;
+                    statement.source_file_path = context->source_file_path;
+                    statement.line = first_line;
+                    statement.character = first_character;
                     statement.variable_declaration.name = identifier;
                     statement.variable_declaration.has_type = has_type;
                     statement.variable_declaration.has_initializer = has_initializer;
@@ -996,6 +1039,9 @@ static Result<Statement> parse_statement(Context *context) {
 
                 Statement statement;
                 statement.type = StatementType::Assignment;
+                statement.source_file_path = context->source_file_path;
+                statement.line = first_line;
+                statement.character = first_character;
                 statement.assignment.target = target;
                 statement.assignment.value = result.value;
 
@@ -1015,6 +1061,9 @@ static Result<Statement> parse_statement(Context *context) {
                 ungetc(character, context->source_file);
 
                 Expression expression;
+                expression.source_file_path = context->source_file_path;
+                expression.line = first_line;
+                expression.character = first_character;
                 expression.type = ExpressionType::NamedReference;
                 expression.named_reference = identifier;
 

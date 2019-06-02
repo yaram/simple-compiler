@@ -8,6 +8,8 @@ static void indent(unsigned int level) {
 }
 
 static void debug_print_expression_indent(Expression expression, unsigned int indentation_level) {
+    printf("%s(%u:%u): ", expression.source_file_path, expression.line, expression.character);
+
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             printf("NamedReference: %s", expression.named_reference);
@@ -108,6 +110,8 @@ void debug_print_expression(Expression expression) {
 }
 
 static void debug_print_statement_indent(Statement statement, unsigned int indentation_level) {
+    printf("%s(%u:%u): ", statement.source_file_path, statement.line, statement.character);
+
     switch(statement.type) {
         case StatementType::FunctionDeclaration: {
             printf("FunctionDeclaration {\n");

@@ -17,6 +17,11 @@ enum struct ExpressionType {
 struct Expression {
     ExpressionType type;
 
+    const char *source_file_path;
+
+    unsigned int line;
+    unsigned int character;
+
     union {
         char *named_reference;
 
@@ -66,6 +71,11 @@ struct FunctionParameter {
 
 struct Statement {
     StatementType type;
+
+    const char *source_file_path;
+
+    unsigned int line;
+    unsigned int character;
 
     union {
         struct {
