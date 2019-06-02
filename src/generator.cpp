@@ -1279,11 +1279,7 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
             return { false };
         }
 
-        string_buffer_append(&full_source, " elements;}");
-
-        string_buffer_append(&full_source, array_type.mangled_name);
-
-        string_buffer_append(&full_source, ";");
+        string_buffer_append(&full_source, " *elements;};");
     }
 
     if(context.forward_declaration_source != nullptr) {
