@@ -36,7 +36,7 @@ enum struct DeclarationCategory {
 struct Declaration {
     DeclarationCategory category;
 
-    const char *name;
+    Identifier name;
 
     bool type_resolved;
     Type type;
@@ -89,7 +89,7 @@ static Array<Declaration> get_declaration_children(Declaration declaration) {
 static Result<Declaration> lookup_declaration(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name) {
     for(auto i = 0; i < declaration_stack.count; i++) {
         for(auto child : get_declaration_children(declaration_stack[declaration_stack.count - 1 - i])) {
-            if(child.type_resolved && strcmp(child.name, name) == 0) {
+            if(child.type_resolved && strcmp(child.name.text, name) == 0) {
                 return {
                     true,
                     child
@@ -99,7 +99,7 @@ static Result<Declaration> lookup_declaration(Array<Declaration> top_level_decla
     }
 
     for(auto declaration : top_level_declarations) {
-        if(strcmp(declaration.name, name) == 0) {
+        if(strcmp(declaration.name.text, name) == 0) {
             return {
                 true,
                 declaration
@@ -144,12 +144,12 @@ struct ConstantContext {
 
 static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors);
 
-static Result<ConstantExpressionValue> resolve_constant_named_reference(ConstantContext context, const char *name, bool print_errors) {
-    auto result = lookup_declaration(context.top_level_declarations, to_array(context.declaration_stack), name);
+static Result<ConstantExpressionValue> resolve_constant_named_reference(ConstantContext context, Identifier name, bool print_errors) {
+    auto result = lookup_declaration(context.top_level_declarations, to_array(context.declaration_stack), name.text);
 
     if(!result.status) {
         for(auto global_constant : context.global_constants) {
-            if(strcmp(name, global_constant.name) == 0) {
+            if(strcmp(name.text, global_constant.name) == 0) {
                 return {
                     true,
                     {
@@ -183,7 +183,7 @@ static Result<ConstantExpressionValue> resolve_constant_named_reference(Constant
 
         case DeclarationCategory::ExternalFunction: {
             ConstantValue value;
-            value.function = result.value.name;
+            value.function = result.value.name.text;
 
             return {
                 true,
@@ -236,7 +236,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                 return { false };
             }
 
-            if(strcmp(expression.member_reference.name, "length") == 0) {
+            if(strcmp(expression.member_reference.name.text, "length") == 0) {
                 Type type;
                 type.category = TypeCategory::Integer;
                 type.integer.determined = true;
@@ -253,7 +253,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                         value
                     }
                 };
-            } else if(strcmp(expression.member_reference.name, "pointer") == 0) {
+            } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
                 if(print_errors) {
                     fprintf(stderr, "Cannot access array pointer in constant context\n");
                 }
@@ -488,7 +488,7 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
                 List<Declaration> child_declarations{};
                 List<Statement> child_statements{};
 
-                append(name_stack, statement.function_declaration.name);
+                append(name_stack, statement.function_declaration.name.text);
 
                 for(auto child_statement : statement.function_declaration.statements) {
                     auto result = create_declaration(name_stack, child_statement);
@@ -581,7 +581,7 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
         }
 
         for(auto sibling : siblings) {
-            if(sibling.type_resolved && strcmp(sibling.name, declaration.name) == 0) {
+            if(sibling.type_resolved && strcmp(sibling.name.text, declaration.name.text) == 0) {
                 if(print_errors) {
                     fprintf(stderr, "Duplicate declaration name %s\n", declaration.name);
                 }
@@ -720,7 +720,7 @@ static int count_declarations(Declaration declaration, bool only_resolved) {
 }
 
 struct Variable {
-    const char *name;
+    Identifier name;
 
     Type type;
 };
@@ -766,11 +766,11 @@ static bool register_global_name(GenerationContext *context, const char *name) {
     return true;
 }
 
-static bool add_new_variable(GenerationContext *context, const char *name, Type type) {
+static bool add_new_variable(GenerationContext *context, Identifier name, Type type) {
     auto variable_context = &(context->variable_context_stack[context->variable_context_stack.count - 1]);
 
     for(auto variable : *variable_context) {
-        if(strcmp(variable.name, name) == 0) {
+        if(strcmp(variable.name.text, name.text) == 0) {
             fprintf(stderr, "Duplicate variable name %s\n", name);
 
             return false;
@@ -1031,12 +1031,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
         case ExpressionType::NamedReference: {
             for(auto i = 0; i < context->variable_context_stack.count; i++) {
                 for(auto variable : context->variable_context_stack[context->variable_context_stack.count - 1 - i]) {
-                    if(strcmp(variable.name, expression.named_reference) == 0) {
+                    if(strcmp(variable.name.text, expression.named_reference.text) == 0) {
                         ExpressionValue value;
                         value.category = ExpressionValueCategory::Assignable;
                         value.type = variable.type;
 
-                        string_buffer_append(source, variable.name);
+                        string_buffer_append(source, variable.name.text);
 
                         return {
                             true,
@@ -1086,7 +1086,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 return { false };
             }
 
-            if(strcmp(expression.member_reference.name, "length") == 0) {
+            if(strcmp(expression.member_reference.name.text, "length") == 0) {
                 string_buffer_append(source, ".length");
 
                 ExpressionValue value;
@@ -1100,7 +1100,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     true,
                     value
                 };
-            } else if(strcmp(expression.member_reference.name, "pointer") == 0) {
+            } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
                 string_buffer_append(source, ".pointer");
 
                 ExpressionValue value;
@@ -1431,7 +1431,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
 
             string_buffer_append(&(context->implementation_source), " ");
 
-            string_buffer_append(&(context->implementation_source), statement.variable_declaration.name);
+            string_buffer_append(&(context->implementation_source), statement.variable_declaration.name.text);
 
             if(statement.variable_declaration.has_initializer) {
                 string_buffer_append(&(context->implementation_source), "=");
@@ -1498,7 +1498,7 @@ static bool generate_function_signature(GenerationContext *context, char **sourc
 
         string_buffer_append(source, " ");
 
-        string_buffer_append(source, parameters[i].name);
+        string_buffer_append(source, parameters[i].name.text);
 
         if(i != type.function.parameters.count - 1) {
             string_buffer_append(source, ",");
@@ -1581,14 +1581,14 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
         case DeclarationCategory::ExternalFunction: {
             assert(declaration.type.category == TypeCategory::Function);
 
-            if(!register_global_name(context, declaration.name)) {
+            if(!register_global_name(context, declaration.name.text)) {
                 return false;
             }
 
             if(!generate_function_signature(
                 context,
                 &(context->forward_declaration_source),
-                declaration.name,
+                declaration.name.text,
                 declaration.type,
                 declaration.external_function.parameters.elements
             )){

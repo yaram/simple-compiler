@@ -7,12 +7,17 @@ static void indent(unsigned int level) {
     }
 }
 
+static void debug_print_indentifier(Identifier identifier) {
+    printf("%s(%u:%u): %s", identifier.source_file_path, identifier.line, identifier.character, identifier.text);
+}
+
 static void debug_print_expression_indent(Expression expression, unsigned int indentation_level) {
     printf("%s(%u:%u): ", expression.source_file_path, expression.line, expression.character);
 
     switch(expression.type) {
         case ExpressionType::NamedReference: {
-            printf("NamedReference: %s", expression.named_reference);
+            printf("NamedReference: ");
+            debug_print_indentifier(expression.named_reference);
         } break;
 
         case ExpressionType::MemberReference: {
@@ -24,7 +29,9 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             printf("\n");
 
             indent(indentation_level + 1);
-            printf("name: %s\n", expression.member_reference.name);
+            printf("name: ");
+            debug_print_indentifier(expression.member_reference.name);
+            printf("\n");
 
             indent(indentation_level);
             printf("}");
@@ -61,7 +68,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             indent(indentation_level + 1);
             printf("expression: ");
             debug_print_expression_indent(*(expression.function_call.expression), indentation_level + 1);
-            printf("\n");
+            printf(",\n");
             
             indent(indentation_level + 1);
             printf("parameters: [");
@@ -117,7 +124,9 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             printf("FunctionDeclaration {\n");
 
             indent(indentation_level + 1);
-            printf("name: %s,\n", statement.function_declaration.name);
+            printf("name: ");
+            debug_print_indentifier(statement.function_declaration.name);
+            printf(",\n");
             
             indent(indentation_level + 1);
             printf("parameters: {");
@@ -129,7 +138,8 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
                     auto parameter = statement.function_declaration.parameters[i];
 
                     indent(indentation_level + 2);
-                    printf("%s: ", parameter.name);
+                    debug_print_indentifier(parameter.name);
+                    printf(": ");
 
                     debug_print_expression_indent(parameter.type, indentation_level + 2);
 
@@ -193,7 +203,9 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             printf("ConstantDefinition: {\n");
 
             indent(indentation_level + 1);
-            printf("name: %s,\n", statement.constant_definition.name);
+            printf("name: ", statement.constant_definition.name);
+            debug_print_indentifier(statement.constant_definition.name);
+            printf(",\n");
 
             indent(indentation_level + 1);
             printf("expression: ");
@@ -216,7 +228,9 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             printf("VariableDeclaration: {\n");
 
             indent(indentation_level + 1);
-            printf("name: %s,\n", statement.variable_declaration.name);
+            printf("name: ");
+            debug_print_indentifier(statement.variable_declaration.name);
+            printf(",\n");
 
             if(statement.variable_declaration.has_type) {
                 indent(indentation_level + 1);

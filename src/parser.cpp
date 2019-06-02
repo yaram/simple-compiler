@@ -170,7 +170,10 @@ static void skip_whitespace(Context *context) {
     }
 }
 
-static char *parse_identifier(Context *context) {
+static Identifier parse_identifier(Context *context) {
+    auto first_line = context->line;
+    auto first_character = context->character;
+
     List<char> buffer{};
 
     while(true) {
@@ -189,7 +192,12 @@ static char *parse_identifier(Context *context) {
         }
     }
 
-    return buffer.elements;
+    return {
+        buffer.elements,
+        context->source_file_path,
+        first_line,
+        first_character
+    };
 }
 
 static bool expect_character(Context *context, char expected_character) {
@@ -401,7 +409,12 @@ static Result<Expression> parse_any_expression(Context *context) {
         append(&buffer, '\0');
 
         expression.type = ExpressionType::NamedReference;
-        expression.named_reference = buffer.elements;
+        expression.named_reference = {
+            buffer.elements,
+            context->source_file_path,
+            first_line,
+            first_character
+        };
     } else if(isdigit(character) || character == '-'){
         auto definitely_identifier = false;
         auto definitely_numeric = false;
@@ -466,7 +479,12 @@ static Result<Expression> parse_any_expression(Context *context) {
             expression.integer_literal = value;
         } else {
             expression.type = ExpressionType::NamedReference;
-            expression.named_reference = buffer.elements;
+            expression.named_reference = {
+                buffer.elements,
+                context->source_file_path,
+                first_line,
+                first_character
+            };
         }
     } else if(character == '*') {
         context->character += 1;
@@ -801,7 +819,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                                 auto identifier = parse_identifier(context);
 
-                                if(strcmp(identifier, "extern") != 0) {
+                                if(strcmp(identifier.text, "extern") != 0) {
                                     error(*context, "Expected 'extern' or '{', got '%s'", identifier);
 
                                     return { false };
@@ -826,7 +844,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                             auto identifier = parse_identifier(context);
 
-                            if(strcmp(identifier, "extern") != 0) {
+                            if(strcmp(identifier.text, "extern") != 0) {
                                 error(*context, "Expected 'extern', '-' or '{', got '%s'", identifier);
 
                                 return { false };

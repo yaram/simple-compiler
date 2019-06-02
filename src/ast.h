@@ -3,6 +3,15 @@
 #include <stdint.h>
 #include "array.h"
 
+struct Identifier {
+    const char *text;
+
+    const char *source_file_path;
+
+    unsigned int line;
+    unsigned int character;
+};
+
 enum struct ExpressionType {
     NamedReference,
     MemberReference,
@@ -23,12 +32,12 @@ struct Expression {
     unsigned int character;
 
     union {
-        char *named_reference;
+        Identifier named_reference;
 
         struct {
             Expression *expression;
 
-            const char *name;
+            Identifier name;
         } member_reference;
 
         struct {
@@ -64,7 +73,7 @@ enum struct StatementType {
 };
 
 struct FunctionParameter {
-    char *name;
+    Identifier name;
 
     Expression type;
 };
@@ -79,7 +88,7 @@ struct Statement {
 
     union {
         struct {
-            const char *name;
+            Identifier name;
 
             Array<FunctionParameter> parameters;
 
@@ -92,7 +101,7 @@ struct Statement {
         } function_declaration;
 
         struct {
-            const char *name;
+            Identifier name;
 
             Expression expression;
         } constant_definition;
@@ -100,7 +109,7 @@ struct Statement {
         Expression expression;
 
         struct {
-            const char *name;
+            Identifier name;
 
             bool has_type;
             Expression type;
