@@ -1004,36 +1004,66 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
         } break;
 
         case ExpressionType::Pointer: {
-            auto result = generate_expression(context, source, *expression.pointer);
+            char *buffer{};
+
+            auto result = generate_expression(context, &buffer, *expression.pointer);
 
             if(!result.status) {
                 return { false };
             }
 
-            if(result.value.category == ExpressionValueCategory::Constant) {
-                if(result.value.type.category != TypeCategory::Type) {
-                    fprintf(stderr, "Cannot take pointers to constants\n");
+            switch(result.value.category) {
+                case ExpressionValueCategory::Anonymous: {
+                    fprintf(stderr, "Cannot take pointers anonymous values\n");
 
                     return { false };
-                }
+                } break;
 
-                auto pointer_type = (Type*)malloc(sizeof(Type));
-                *pointer_type = result.value.constant.type;
+                case ExpressionValueCategory::Constant: {
+                    if(result.value.type.category != TypeCategory::Type) {
+                        fprintf(stderr, "Cannot take pointers to constants\n");
 
-                ExpressionValue value;
-                value.category = ExpressionValueCategory::Constant;
-                value.type.category = TypeCategory::Type;
-                value.constant.type.category = TypeCategory::Pointer;
-                value.constant.type.pointer = pointer_type;
+                        return { false };
+                    }
 
-                return {
-                    true,
-                    value
-                };
-            } else {
-                fprintf(stderr, "Taking pointers to runtime values not yet implemented\n");
+                    string_buffer_append(source, buffer);
 
-                return { false };
+                    auto pointer_type = (Type*)malloc(sizeof(Type));
+                    *pointer_type = result.value.constant.type;
+
+                    ExpressionValue value;
+                    value.category = ExpressionValueCategory::Constant;
+                    value.type.category = TypeCategory::Type;
+                    value.constant.type.category = TypeCategory::Pointer;
+                    value.constant.type.pointer = pointer_type;
+
+                    return {
+                        true,
+                        value
+                    };
+                } break;
+                
+                case ExpressionValueCategory::Assignable: {
+                    string_buffer_append(source, "&");
+                    string_buffer_append(source, buffer);
+
+                    auto pointer_type = (Type*)malloc(sizeof(Type));
+                    *pointer_type = result.value.type;
+
+                    ExpressionValue value;
+                    value.category = ExpressionValueCategory::Anonymous;
+                    value.type.category = TypeCategory::Pointer;
+                    value.type.pointer = pointer_type;
+
+                    return {
+                        true,
+                        value
+                    };
+                } break;
+
+                default: {
+                    abort();
+                } break;
             }
         } break;
 
