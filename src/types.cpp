@@ -37,6 +37,10 @@ bool types_equal(Type a, Type b) {
             return types_equal(*a.pointer, *b.pointer);
         } break;
 
+        case TypeCategory::Array: {
+            return types_equal(*a.array, *b.array);
+        } break;
+
         default: {
             abort();
         } break;

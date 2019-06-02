@@ -186,6 +186,8 @@ static Result<ConstantExpressionValue> resolve_constant_named_reference(Constant
     }
 }
 
+static Result<Type> evaluate_type_expression(ConstantContext context, Expression expression, bool print_errors);
+
 static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
@@ -248,6 +250,27 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                     type,
                     value
                 }
+            };
+        } break;
+        
+        case ExpressionType::ArrayType: {
+            auto result = evaluate_type_expression(context, *expression.array_type, true);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            auto array_type = (Type*)malloc(sizeof(Type));
+            *array_type = result.value;
+
+            ConstantExpressionValue value;
+            value.type.category = TypeCategory::Type;
+            value.value.type.category = TypeCategory::Array;
+            value.value.type.array = array_type;
+
+            return {
+                true,
+                value
             };
         } break;
 
@@ -473,6 +496,12 @@ struct Variable {
     Type type;
 };
 
+struct ArrayType {
+    const char *mangled_name;
+
+    Type type;
+};
+
 struct GenerationContext {
     char *forward_declaration_source;
     char *implementation_source;
@@ -480,6 +509,8 @@ struct GenerationContext {
     ConstantContext constant_context;
 
     List<List<Variable>> variable_context_stack;
+
+    List<ArrayType> array_types;
 };
 
 static bool add_new_variable(GenerationContext *context, const char *name, Type type) {
@@ -501,7 +532,68 @@ static bool add_new_variable(GenerationContext *context, const char *name, Type 
     return true;
 }
 
-static bool generate_type(char **source, Type type) {
+static Result<const char *> maybe_register_array_type(GenerationContext *context, Type type) {
+    auto array_types = &(context->array_types);
+
+    for(auto array_type : *array_types) {
+        if(types_equal(array_type.type, type)) {
+            return {
+                true,
+                array_type.mangled_name
+            };
+        }
+    }
+
+    switch(type.category) {
+        case TypeCategory::Function:
+        case TypeCategory::Type:
+        case TypeCategory::Void: {
+            return { false };
+        } break;
+
+        case TypeCategory::Integer: {
+            assert(type.integer.determined);
+        } break;
+
+        case TypeCategory::Pointer: {
+            
+        } break;
+
+        case TypeCategory::Array: {
+            auto result = maybe_register_array_type(context, *type.array);
+
+            if(!result.status) {
+                return { false };
+            }
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+
+    char *mangled_name_buffer{};
+
+    string_buffer_append(&mangled_name_buffer, "_");
+
+    char number_buffer[32];
+
+    sprintf(number_buffer, "%d", array_types->count);
+
+    string_buffer_append(&mangled_name_buffer, number_buffer);
+
+    append(array_types, ArrayType {
+        mangled_name_buffer,
+        type
+    });
+
+    return {
+        true,
+        mangled_name_buffer
+    };
+}
+
+static bool generate_type(GenerationContext *context, char **source, Type type) {
     switch(type.category) {
         case TypeCategory::Function: {
             fprintf(stderr, "Function values cannot exist at runtime\n");
@@ -566,11 +658,24 @@ static bool generate_type(char **source, Type type) {
         } break;
 
         case TypeCategory::Pointer: {
-            if(!generate_type(source, *type.pointer)) {
+            if(!generate_type(context, source, *type.pointer)) {
                 return false;
             }
 
             string_buffer_append(source, "*");
+
+            return true;
+        } break;
+
+        case TypeCategory::Array: {
+            auto result = maybe_register_array_type(context, *type.array);
+
+            if(!result.status) {
+                return false;
+            }
+
+            string_buffer_append(source, "struct ");
+            string_buffer_append(source, result.value);
 
             return true;
         } break;
@@ -581,7 +686,7 @@ static bool generate_type(char **source, Type type) {
     }
 }
 
-static bool generate_constant_value(char **source, Type type, ConstantValue value) {
+static bool generate_constant_value(GenerationContext *context, char **source, Type type, ConstantValue value) {
     switch(type.category) {
         case TypeCategory::Function: {
             string_buffer_append(source, value.function);
@@ -600,7 +705,7 @@ static bool generate_constant_value(char **source, Type type, ConstantValue valu
         } break;
 
         case TypeCategory::Type: {
-            return generate_type(source, value.type);
+            return generate_type(context, source, value.type);
         } break;
 
         case TypeCategory::Void: {
@@ -657,7 +762,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 return { false };
             }
 
-            auto generate_result = generate_constant_value(source, result.value.type, result.value.value);
+            auto generate_result = generate_constant_value(context, source, result.value.type, result.value.value);
 
             if(!generate_result) {
                 return { false };
@@ -778,6 +883,28 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
         } break;
 
+        case ExpressionType::ArrayType: {
+            auto result = evaluate_type_expression(context->constant_context, *expression.array_type, true);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            auto array_type = (Type*)malloc(sizeof(Type));
+            *array_type = result.value;
+
+            ExpressionValue value;
+            value.category = ExpressionValueCategory::Constant;
+            value.type.category = TypeCategory::Type;
+            value.constant.type.category = TypeCategory::Array;
+            value.constant.type.array = array_type;
+
+            return {
+                true,
+                value
+            };
+        } break;
+
         default: {
             abort();
         } break;
@@ -844,7 +971,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                 return false;
             }
 
-            if(!generate_type(&(context->implementation_source), type)) {
+            if(!generate_type(context, &(context->implementation_source), type)) {
                 return false;
             }
 
@@ -901,17 +1028,17 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
     }
 }
 
-static bool generate_function_signature(char **source, Declaration declaration) {
+static bool generate_function_signature(GenerationContext *context, char **source, Declaration declaration) {
     assert(declaration.category == DeclarationCategory::FunctionDefinition);
 
-    generate_type(source, *declaration.type.function.return_type);
+    generate_type(context, source, *declaration.type.function.return_type);
 
     string_buffer_append(source, " ");
     string_buffer_append(source, declaration.function_definition.mangled_name);
     string_buffer_append(source, "(");
     
     for(auto i = 0; i < declaration.type.function.parameters.count; i += 1) {
-        auto result = generate_type(source, declaration.type.function.parameters[i]);
+        auto result = generate_type(context, source, declaration.type.function.parameters[i]);
 
         if(!result) {
             return false;
@@ -938,7 +1065,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
         case DeclarationCategory::FunctionDefinition: {
             assert(declaration.type.category == TypeCategory::Function);
 
-            if(!generate_function_signature(&(context->forward_declaration_source), declaration)) {
+            if(!generate_function_signature(context, &(context->forward_declaration_source), declaration)) {
                 return false;
             }
 
@@ -952,7 +1079,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
                 }
             }
 
-            if(!generate_function_signature(&(context->implementation_source), declaration)) {
+            if(!generate_function_signature(context, &(context->implementation_source), declaration)) {
                 return false;
             }
 
@@ -1095,6 +1222,24 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
     }
 
     char *full_source{};
+
+    for(auto array_type : context.array_types) {
+        string_buffer_append(&full_source, "struct ");
+
+        string_buffer_append(&full_source, array_type.mangled_name);
+
+        string_buffer_append(&full_source, "{long long int length;");
+
+        if(!generate_type(&context, &full_source, array_type.type)) {
+            return { false };
+        }
+
+        string_buffer_append(&full_source, " elements;}");
+
+        string_buffer_append(&full_source, array_type.mangled_name);
+
+        string_buffer_append(&full_source, ";");
+    }
 
     if(context.forward_declaration_source != nullptr) {
         string_buffer_append(&full_source, context.forward_declaration_source);
