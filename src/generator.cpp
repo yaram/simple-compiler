@@ -745,12 +745,28 @@ struct GenerationContext {
 
     ConstantContext constant_context;
 
+    List<const char*> global_names;
+
     List<List<Variable>> variable_context_stack;
 
     List<ArrayType> array_types;
 
     List<ArrayConstant> array_constants;
 };
+
+static bool register_global_name(GenerationContext *context, const char *name) {
+    for(auto global_name : context->global_names) {
+        if(strcmp(global_name, name) == 0) {
+            fprintf(stderr, "Duplicate global name %s\n", name);
+
+            return false;
+        }
+    }
+
+    append(&(context->global_names), name);
+
+    return true;
+}
 
 static bool add_new_variable(GenerationContext *context, const char *name, Type type) {
     auto variable_context = &(context->variable_context_stack[context->variable_context_stack.count - 1]);
@@ -1505,6 +1521,10 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
         case DeclarationCategory::FunctionDefinition: {
             assert(declaration.type.category == TypeCategory::Function);
 
+            if(!register_global_name(context, declaration.function_definition.mangled_name)) {
+                return false;
+            }
+
             if(!generate_function_signature(
                 context,
                 &(context->forward_declaration_source),
@@ -1564,6 +1584,10 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
         
         case DeclarationCategory::ExternalFunction: {
             assert(declaration.type.category == TypeCategory::Function);
+
+            if(!register_global_name(context, declaration.name)) {
+                return false;
+            }
 
             if(!generate_function_signature(
                 context,
