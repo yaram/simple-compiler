@@ -194,6 +194,12 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             return resolve_constant_named_reference(context, expression.named_reference, print_errors);
         } break;
 
+        case ExpressionType::IndexReference: {
+            fprintf(stderr, "Indexing not allowed in a constant context\n");
+
+            return { false };
+        } break;
+
         case ExpressionType::IntegerLiteral: {
             Type type;
             type.category = TypeCategory::Integer;
@@ -772,6 +778,45 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             value.category = ExpressionValueCategory::Constant;
             value.type = result.value.type;
             value.constant = result.value.value;
+
+            return {
+                true,
+                value
+            };
+        } break;
+
+        case ExpressionType::IndexReference: {
+            auto expression_result = generate_expression(context, source, *expression.index_reference.expression);
+
+            if(!expression_result.status) {
+                return { false };
+            }
+
+            if(expression_result.value.type.category != TypeCategory::Array) {
+                fprintf(stderr, "Cannot index a non-array\n");
+
+                return { false };
+            }
+
+            string_buffer_append(source, "[");
+
+            auto index_result = generate_expression(context, source, *expression.index_reference.index);
+
+            if(!index_result.status) {
+                return { false };
+            }
+
+            if(index_result.value.type.category != TypeCategory::Integer) {
+                fprintf(stderr, "Array index not an integer");
+
+                return { false };
+            }
+
+            string_buffer_append(source, "]");
+
+            ExpressionValue value;
+            value.category = ExpressionValueCategory::Assignable;
+            value.type = *expression_result.value.type.array;
 
             return {
                 true,
