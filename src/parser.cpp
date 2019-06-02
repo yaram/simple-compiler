@@ -60,6 +60,35 @@ static void skip_whitespace(Context *context) {
 
                 if(character == '/') {
                     context->character += 1;
+
+                    while(true) {
+                        auto character = fgetc(context->source_file);
+
+                        if(character == '\r') {
+                            auto character = fgetc(context->source_file);
+
+                            if(character == '\n') {
+                                context->line += 1;
+                                context->character = 1;
+                            } else {
+                                ungetc(character, context->source_file);
+
+                                context->line += 1;
+                                context->character = 1;
+                            }
+
+                            break;
+                        } else if(character == '\n') {
+                            context->line += 1;
+                            context->character = 1;
+
+                            break;
+                        } else if(character == EOF) {
+                            ungetc(character, context->source_file);
+                        } else {
+                            context->character += 1;
+                        }
+                    }
                 } else if(character == '*') {
                     context->character += 1;
 
