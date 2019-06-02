@@ -34,7 +34,7 @@ struct Expression {
 
         int64_t integer_literal;
 
-        const char *string_literal;
+        Array<char> string_literal;
 
         struct {
             Expression *expression;

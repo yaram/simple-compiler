@@ -50,7 +50,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
         } break;
 
         case ExpressionType::StringLiteral: {
-            printf("StringLiteral: %s", expression.string_literal);
+            printf("StringLiteral: %.*s", expression.string_literal.count, expression.string_literal.elements);
         } break;
 
         case ExpressionType::FunctionCall: {

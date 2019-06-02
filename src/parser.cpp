@@ -539,10 +539,8 @@ static Result<Expression> parse_any_expression(Context *context) {
             }
         }
 
-        append(&buffer, '\0');
-
         expression.type = ExpressionType::StringLiteral;
-        expression.string_literal = buffer.elements;
+        expression.string_literal = to_array(buffer);
     } else if(character == EOF) {
         error(*context, "Unexpected End of File");
 

@@ -354,17 +354,15 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             type.category = TypeCategory::Array;
             type.array = array_type;
 
-            auto length = strlen(expression.string_literal);
+            auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * expression.string_literal.count);
 
-            auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * length);
-
-            for(size_t i = 0; i < length; i += 1) {
+            for(size_t i = 0; i < expression.string_literal.count; i += 1) {
                 characters[i].integer = expression.string_literal[i];
             }
 
             ConstantValue value;
             value.array = {
-                length,
+                expression.string_literal.count,
                 characters
             };
 
@@ -1192,11 +1190,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 IntegerSize::Bit8
             };
 
-            auto length = strlen(expression.string_literal);
+            auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * expression.string_literal.count);
 
-            auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * length);
-
-            for(size_t i = 0; i < length; i += 1) {
+            for(size_t i = 0; i < expression.string_literal.count; i += 1) {
                 characters[i].integer = expression.string_literal[i];
             }
 
@@ -1205,7 +1201,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             value.type.category = TypeCategory::Array;
             value.type.array = array_type;
             value.constant.array = {
-                length,
+                expression.string_literal.count,
                 characters
             };
 
