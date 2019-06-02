@@ -859,7 +859,11 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
         } break;
 
         case ExpressionType::IndexReference: {
+            string_buffer_append(source, "(");
+
             auto expression_result = generate_expression(context, source, *expression.index_reference.expression);
+
+            string_buffer_append(source, ")");
 
             if(!expression_result.status) {
                 return { false };
@@ -953,7 +957,11 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
         } break;
 
         case ExpressionType::FunctionCall: {
+            string_buffer_append(source, "(");
+
             auto result = generate_expression(context, source, *expression.function_call.expression);
+
+            string_buffer_append(source, ")");
 
             if(!result.status) {
                 return { false };
@@ -1044,8 +1052,11 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 } break;
                 
                 case ExpressionValueCategory::Assignable: {
-                    string_buffer_append(source, "&");
+                    string_buffer_append(source, "&(");
+
                     string_buffer_append(source, buffer);
+
+                    string_buffer_append(source, ")");
 
                     auto pointer_type = (Type*)malloc(sizeof(Type));
                     *pointer_type = result.value.type;
