@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <stdarg.h>
 #include "list.h"
 #include "types.h"
 
@@ -25,6 +26,18 @@ static void string_buffer_append(char **string_buffer, const char *string) {
 
         *string_buffer = new_string_buffer;
     }
+}
+
+template <typename T>
+static void error(T node, const char *format, ...) {
+    va_list arguments;
+    va_start(arguments, format);
+
+    fprintf(stderr, "%s(%d:%d): ", node.source_file_path, node.line, node.character);
+    vfprintf(stderr, format, arguments);
+    fprintf(stderr, "\n");
+
+    va_end(arguments);
 }
 
 enum struct DeclarationCategory {
@@ -161,7 +174,7 @@ static Result<ConstantExpressionValue> resolve_constant_named_reference(Constant
         }
 
         if(print_errors) {
-            fprintf(stderr, "Cannot find named reference %s\n", name);
+            error(name, "Cannot find named reference %s", name.text);
         }
 
         return { false };
@@ -230,7 +243,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
             if(result.value.type.category != TypeCategory::Array) {
                 if(print_errors) {
-                    fprintf(stderr, "This type has no members\n");
+                    error(*expression.member_reference.expression, "This type has no members");
                 }
 
                 return { false };
@@ -255,13 +268,13 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                 };
             } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Cannot access array pointer in constant context\n");
+                    error(expression.member_reference.name, "Cannot access array pointer in constant context");
                 }
 
                 return { false };
             } else {
                 if(print_errors) {
-                    fprintf(stderr, "No member with name %s\n", expression.member_reference.name);
+                    error(expression.member_reference.name, "No member with name %s", expression.member_reference.name.text);
                 }
 
                 return { false };
@@ -277,7 +290,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
             if(expression_result.value.type.category != TypeCategory::Array) {
                 if(print_errors) {
-                    fprintf(stderr, "Cannot index a non-array\n");
+                    error(*expression.index_reference.expression, "Cannot index a non-array");
                 }
 
                 return { false };
@@ -291,7 +304,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
             if(index_result.value.type.category != TypeCategory::Integer) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index not an integer\n");
+                    error(*expression.index_reference.index, "Array index not an integer");
                 }
 
                 return { false };
@@ -299,7 +312,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
             if(index_result.value.type.integer.is_signed && index_result.value.value.integer < 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index out of bounds\n");
+                    error(*expression.index_reference.index, "Array index out of bounds");
                 }
 
                 return { false };
@@ -309,7 +322,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
             if(index >= expression_result.value.value.array.count) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index out of bounds\n");
+                    error(*expression.index_reference.index, "Array index out of bounds");
                 }
 
                 return { false };
@@ -377,7 +390,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
         case ExpressionType::FunctionCall: {
             if(print_errors) {
-                fprintf(stderr, "Function calls not allowed in global context\n");
+                error(expression, "Function calls not allowed in global context");
             }
 
             return { false };
@@ -392,7 +405,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
             if(result.value.type.category != TypeCategory::Type) {
                 if(print_errors) {
-                    fprintf(stderr, "Cannot take pointers to constants\n");
+                    error(*expression.pointer, "Cannot take pointers to constants");
                 }
 
                 return { false };
@@ -453,7 +466,7 @@ static Result<Type> evaluate_type_expression(ConstantContext context, Expression
 
     if(result.value.type.category != TypeCategory::Type) {
         if(print_errors) {
-            fprintf(stderr, "Value is not a type\n");
+            error(expression, "Value is not a type");
         }
 
         return { false };
@@ -583,7 +596,8 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
         for(auto sibling : siblings) {
             if(sibling.type_resolved && strcmp(sibling.name.text, declaration.name.text) == 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Duplicate declaration name %s\n", declaration.name);
+                    error(declaration.name, "Duplicate declaration name %s", declaration.name.text);
+                    error(sibling.name, "Original declared here");
                 }
 
                 return { false };
@@ -771,7 +785,8 @@ static bool add_new_variable(GenerationContext *context, Identifier name, Type t
 
     for(auto variable : *variable_context) {
         if(strcmp(variable.name.text, name.text) == 0) {
-            fprintf(stderr, "Duplicate variable name %s\n", name);
+            error(name, "Duplicate variable name %s", name.text);
+            error(variable.name, "Original declared here");
 
             return false;
         }
@@ -1081,7 +1096,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
 
             if(result.value.type.category != TypeCategory::Array) {
-                fprintf(stderr, "This type has no members\n");
+                error(*expression.member_reference.expression, "This type has no members");
 
                 return { false };
             }
@@ -1113,7 +1128,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     value
                 };
             } else {
-                fprintf(stderr, "No member with name %s\n", expression.member_reference.name);
+                error(expression.member_reference.name, "No member with name %s", expression.member_reference.name.text);
 
                 return { false };
             }
@@ -1131,7 +1146,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
 
             if(expression_result.value.type.category != TypeCategory::Array) {
-                fprintf(stderr, "Cannot index a non-array\n");
+                error(*expression.index_reference.expression, "Cannot index a non-array");
 
                 return { false };
             }
@@ -1145,7 +1160,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
 
             if(index_result.value.type.category != TypeCategory::Integer) {
-                fprintf(stderr, "Array index not an integer");
+                error(*expression.index_reference.index, "Array index not an integer");
 
                 return { false };
             }
@@ -1227,7 +1242,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
 
             if(result.value.type.category != TypeCategory::Function) {
-                fprintf(stderr, "Cannot call a non-function\n");
+                error(*expression.function_call.expression, "Cannot call a non-function");
 
                 return { false };
             }
@@ -1235,7 +1250,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             string_buffer_append(source, "(");
 
             if(expression.function_call.parameters.count != result.value.type.function.parameters.count) {
-                fprintf(stderr, "Incorrect number of parameters. Expected %d, got %d\n", result.value.type.function.parameters.count, expression.function_call.parameters.count);
+                error(expression, "Incorrect number of parameters. Expected %d, got %d", result.value.type.function.parameters.count, expression.function_call.parameters.count);
 
                 return { false };
             }
@@ -1248,7 +1263,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 }
 
                 if(!types_equal(parameter_result.value.type, result.value.type.function.parameters[i])) {
-                    fprintf(stderr, "Incorrect parameter type for parameter %d\n", i);
+                    error(expression.function_call.parameters[i], "Incorrect parameter type for parameter %d", i);
 
                     return { false };
                 }
@@ -1281,14 +1296,14 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
             switch(result.value.category) {
                 case ExpressionValueCategory::Anonymous: {
-                    fprintf(stderr, "Cannot take pointers anonymous values\n");
+                    error(*expression.pointer, "Cannot take pointers anonymous values");
 
                     return { false };
                 } break;
 
                 case ExpressionValueCategory::Constant: {
                     if(result.value.type.category != TypeCategory::Type) {
-                        fprintf(stderr, "Cannot take pointers to constants\n");
+                        error(*expression.pointer, "Cannot take pointers to constants");
 
                         return { false };
                     }
@@ -1407,7 +1422,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
 
             if(statement.variable_declaration.has_initializer && statement.variable_declaration.has_type) {
                 if(!types_equal(type, initialzer_type)) {
-                    fprintf(stderr, "Initializer type does not match variable type\n");
+                    error(statement.variable_declaration.initializer, "Initializer type does not match variable type");
 
                     return { false };
                 }
@@ -1452,7 +1467,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
             }
 
             if(target_result.value.category != ExpressionValueCategory::Assignable) {
-                fprintf(stderr, "Value is not assignable\n");
+                error(statement.assignment.target, "Value is not assignable");
 
                 return false;
             }
@@ -1466,7 +1481,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
             }
 
             if(!types_equal(target_result.value.type, value_result.value.type)) {
-                fprintf(stderr, "Assigning incorrect type\n");
+                error(statement.assignment.value, "Assigning incorrect type");
 
                 return false;
             }
@@ -1641,7 +1656,7 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
         if(result.status) {
             append(&top_level_declarations, result.value);
         } else {
-            fprintf(stderr, "Only constant declarations are allowed in global scope\n");
+            error(top_level_statement, "Only constant declarations are allowed in global scope");
 
             return { false };
         }
