@@ -196,6 +196,53 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             return resolve_constant_named_reference(context, expression.named_reference, print_errors);
         } break;
 
+        case ExpressionType::MemberReference: {
+            auto result = evaluate_constant_expression(context, *expression.member_reference.expression, print_errors);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            if(result.value.type.category != TypeCategory::Array) {
+                if(print_errors) {
+                    fprintf(stderr, "This type has no members\n");
+                }
+
+                return { false };
+            }
+
+            if(strcmp(expression.member_reference.name, "length") == 0) {
+                Type type;
+                type.category = TypeCategory::Integer;
+                type.integer.determined = true;
+                type.integer.is_signed = false;
+                type.integer.size = IntegerSize::Bit64;
+
+                ConstantValue value;
+                value.integer = result.value.value.array.count;
+
+                return {
+                    true,
+                    {
+                        type,
+                        value
+                    }
+                };
+            } else if(strcmp(expression.member_reference.name, "pointer") == 0) {
+                if(print_errors) {
+                    fprintf(stderr, "Cannot access array pointer in constant context\n");
+                }
+
+                return { false };
+            } else {
+                if(print_errors) {
+                    fprintf(stderr, "No member with name %s\n", expression.member_reference.name);
+                }
+
+                return { false };
+            }
+        } break;
+
         case ExpressionType::IndexReference: {
             auto expression_result = evaluate_constant_expression(context, *expression.index_reference.expression, print_errors);
 
@@ -918,6 +965,56 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             };
         } break;
 
+        case ExpressionType::MemberReference: {
+            string_buffer_append(source, "(");
+
+            auto result = generate_expression(context, source, *expression.member_reference.expression);
+
+            string_buffer_append(source, ")");
+
+            if(!result.status) {
+                return { false };
+            }
+
+            if(result.value.type.category != TypeCategory::Array) {
+                fprintf(stderr, "This type has no members\n");
+
+                return { false };
+            }
+
+            if(strcmp(expression.member_reference.name, "length") == 0) {
+                string_buffer_append(source, ".length");
+
+                ExpressionValue value;
+                value.category = ExpressionValueCategory::Anonymous;
+                value.type.category = TypeCategory::Integer;
+                value.type.integer.determined = true;
+                value.type.integer.is_signed = false;
+                value.type.integer.size = IntegerSize::Bit64;
+
+                return {
+                    true,
+                    value
+                };
+            } else if(strcmp(expression.member_reference.name, "pointer") == 0) {
+                string_buffer_append(source, ".pointer");
+
+                ExpressionValue value;
+                value.category = ExpressionValueCategory::Anonymous;
+                value.type.category = TypeCategory::Pointer;
+                value.type.pointer = result.value.type.array;
+
+                return {
+                    true,
+                    value
+                };
+            } else {
+                fprintf(stderr, "No member with name %s\n", expression.member_reference.name);
+
+                return { false };
+            }
+        } break;
+
         case ExpressionType::IndexReference: {
             string_buffer_append(source, "(");
 
@@ -1489,7 +1586,7 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
             return { false };
         }
 
-        string_buffer_append(&full_source, " *elements;};");
+        string_buffer_append(&full_source, " *pointer;};");
     }
 
     for(auto i = 0; i < context.array_constants.count; i += 1) {
