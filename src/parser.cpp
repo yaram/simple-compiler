@@ -487,6 +487,12 @@ static Result<Expression> parse_any_expression(Context *context) {
                             append(&buffer, (char)character);
                         } break;
 
+                        case '0': {
+                            context->character += 1;
+
+                            append(&buffer, '\0');
+                        } break;
+
                         case '\n':
                         case '\r': {
                             error(*context, "Unexpected newline");
