@@ -51,7 +51,7 @@ struct Expression {
 void debug_print_expression(Expression expression);
 
 enum struct StatementType {
-    FunctionDefinition,
+    FunctionDeclaration,
     ConstantDefinition,
     Expression,
     VariableDeclaration,
@@ -76,8 +76,10 @@ struct Statement {
             bool has_return_type;
             Expression return_type;
 
+            bool is_external;
+
             Array<Statement> statements;
-        } function_definition;
+        } function_declaration;
 
         struct {
             const char *name;

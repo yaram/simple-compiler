@@ -688,6 +688,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                         character = fgetc(context->source_file);
 
+                        bool is_external;
                         bool has_return_type;
                         Expression return_type;
                         if(character == '-') {
@@ -705,59 +706,115 @@ static Result<Statement> parse_statement(Context *context) {
                                 return { false };
                             }
 
+                            has_return_type = true;
+                            return_type = result.value;
+
                             skip_whitespace(context);
                             
-                            if(!expect_character(context, '{')) {
+                            auto character = fgetc(context->source_file);
+
+                            if(character == '{') {
+                                context->character += 1;
+
+                                is_external = false;
+                            } else if(isalpha(character)) {
+                                ungetc(character, context->source_file);
+
+                                auto identifier = parse_identifier(context);
+
+                                if(strcmp(identifier, "extern") != 0) {
+                                    error(*context, "Expected 'extern', '-' or '{', got '%s'", identifier);
+
+                                    return { false };
+                                }
+
+                                if(!expect_character(context, ';')) {
+                                    return { false };
+                                }
+
+                                is_external = true;
+                            } else if(character == EOF) {
+                                error(*context, "Unexpected End of File", character);
+
+                                return { false };
+                            } else {
+                                error(*context, "Expected 'extern', '-' or '{', got '%c'", character);
+
+                                return { false };
+                            }
+                        } else if(isalpha(character)) {
+                            ungetc(character, context->source_file);
+
+                            auto identifier = parse_identifier(context);
+
+                            if(strcmp(identifier, "extern") != 0) {
+                                error(*context, "Expected 'extern', '-' or '{', got '%s'", identifier);
+
                                 return { false };
                             }
 
-                            has_return_type = true;
-                            return_type = result.value;
+                            if(!expect_character(context, ';')) {
+                                return { false };
+                            }
+
+                            is_external = true;
+                            has_return_type = false;
                         } else if(character == '{') {
+                            context->character += 1;
+
                             has_return_type = false;
                         } else if(character == EOF) {
                             error(*context, "Unexpected End of File", character);
 
                             return { false };
                         } else {
-                            error(*context, "Expected '-' or '{', got '%c'", character);
+                            error(*context, "Expected 'extern', '-' or '{', got '%c'", character);
 
                             return { false };
                         }
 
                         skip_whitespace(context);
 
-                        List<Statement> statements{};
+                        Array<Statement> statements;
+                        if(!is_external) {
+                            List<Statement> statement_list{};
 
-                        while(true) {
-                            auto character = fgetc(context->source_file);
+                            while(true) {
+                                auto character = fgetc(context->source_file);
 
-                            if(character == '}') {
-                                break;
-                            } else {
-                                ungetc(character, context->source_file);
+                                if(character == '}') {
+                                    break;
+                                } else {
+                                    ungetc(character, context->source_file);
+                                }
+
+                                auto result = parse_statement(context);
+
+                                if(!result.status) {
+                                    return { false };
+                                }
+
+                                append(&statement_list, result.value);
+
+                                skip_whitespace(context);
                             }
 
-                            auto result = parse_statement(context);
-
-                            if(!result.status) {
-                                return { false };
-                            }
-
-                            append(&statements, result.value);
-
-                            skip_whitespace(context);
+                            statements = to_array(statement_list);
                         }
 
                         Statement statement;
-                        statement.type = StatementType::FunctionDefinition;
-                        statement.function_definition.name = identifier;
-                        statement.function_definition.parameters = to_array(parameters);
-                        statement.function_definition.statements = to_array(statements);
-                        statement.function_definition.has_return_type = has_return_type;
+                        statement.type = StatementType::FunctionDeclaration;
+                        statement.function_declaration.name = identifier;
+                        statement.function_declaration.parameters = to_array(parameters);
+                        statement.function_declaration.has_return_type = has_return_type;
+                        statement.function_declaration.is_external = is_external;
 
                         if(has_return_type) {
-                            statement.function_definition.return_type = return_type;
+                            statement.function_declaration.return_type = return_type;
+                        }
+
+                        if(!is_external) {
+                            statement.function_declaration.statements = statements;
                         }
 
                         return {

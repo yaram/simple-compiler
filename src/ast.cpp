@@ -109,27 +109,27 @@ void debug_print_expression(Expression expression) {
 
 static void debug_print_statement_indent(Statement statement, unsigned int indentation_level) {
     switch(statement.type) {
-        case StatementType::FunctionDefinition: {
-            printf("FunctionDefinition {\n");
+        case StatementType::FunctionDeclaration: {
+            printf("FunctionDeclaration {\n");
 
             indent(indentation_level + 1);
-            printf("name: %s,\n", statement.function_definition.name);
+            printf("name: %s,\n", statement.function_declaration.name);
             
             indent(indentation_level + 1);
             printf("parameters: {");
 
-            if(statement.function_definition.parameters.count != 0) {
+            if(statement.function_declaration.parameters.count != 0) {
                 printf("\n");
 
-                for(auto i = 0; i < statement.function_definition.parameters.count; i += 1) {
-                    auto parameter = statement.function_definition.parameters[i];
+                for(auto i = 0; i < statement.function_declaration.parameters.count; i += 1) {
+                    auto parameter = statement.function_declaration.parameters[i];
 
                     indent(indentation_level + 2);
                     printf("%s: ", parameter.name);
 
                     debug_print_expression_indent(parameter.type, indentation_level + 2);
 
-                    if(i != statement.function_definition.parameters.count - 1) {
+                    if(i != statement.function_declaration.parameters.count - 1) {
                         printf(",");
                     }
 
@@ -141,36 +141,45 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             
             printf("}\n");
 
-            if(statement.function_definition.has_return_type) {
+            if(statement.function_declaration.has_return_type) {
                 indent(indentation_level + 1);
                 printf("return_type: ");
 
-                debug_print_expression_indent(statement.function_definition.return_type, indentation_level + 1);
+                debug_print_expression_indent(statement.function_declaration.return_type, indentation_level + 1);
             
                 printf("\n");
             }
 
             indent(indentation_level + 1);
-            printf("statements: [");
+            printf("is_external: ");
 
-            if(statement.function_definition.statements.count != 0) {
-                printf("\n");
-
-                for(auto i = 0; i < statement.function_definition.statements.count; i += 1) {
-                    indent(indentation_level + 2);
-                    debug_print_statement_indent(statement.function_definition.statements[i], indentation_level + 2);
-
-                    if(i != statement.function_definition.statements.count - 1) {
-                        printf(",");
-                    }
-
-                    printf("\n");
-                }
+            if(statement.function_declaration.is_external) {
+                printf("true\n");
+            } else {
+                printf("false\n");
 
                 indent(indentation_level + 1);
-            }
+                printf("statements: [");
 
-            printf("]\n");
+                if(statement.function_declaration.statements.count != 0) {
+                    printf("\n");
+
+                    for(auto i = 0; i < statement.function_declaration.statements.count; i += 1) {
+                        indent(indentation_level + 2);
+                        debug_print_statement_indent(statement.function_declaration.statements[i], indentation_level + 2);
+
+                        if(i != statement.function_declaration.statements.count - 1) {
+                            printf(",");
+                        }
+
+                        printf("\n");
+                    }
+
+                    indent(indentation_level + 1);
+                }
+
+                printf("]\n");
+            }
 
             indent(indentation_level);
             printf("}");
