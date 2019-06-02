@@ -487,6 +487,18 @@ static Result<Expression> parse_any_expression(Context *context) {
                             append(&buffer, (char)character);
                         } break;
 
+                        case 'r': {
+                            context->character += 1;
+
+                            append(&buffer, '\r');
+                        } break;
+
+                        case 'n': {
+                            context->character += 1;
+
+                            append(&buffer, '\n');
+                        } break;
+
                         case '0': {
                             context->character += 1;
 
