@@ -12,6 +12,14 @@ struct Identifier {
     unsigned int character;
 };
 
+enum struct BinaryOperator {
+    Addition,
+    Subtraction,
+    Multiplication,
+    Division,
+    Modulo
+};
+
 enum struct ExpressionType {
     NamedReference,
     MemberReference,
@@ -19,6 +27,7 @@ enum struct ExpressionType {
     IntegerLiteral,
     StringLiteral,
     FunctionCall,
+    BinaryOperation,
     Pointer,
     ArrayType
 };
@@ -55,6 +64,14 @@ struct Expression {
 
             Array<Expression> parameters;
         } function_call;
+
+        struct {
+            BinaryOperator binary_operator;
+
+            Expression *left;
+
+            Expression *right;
+        } binary_operation;
 
         Expression *pointer;
 

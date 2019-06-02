@@ -98,6 +98,48 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             printf("}");
         } break;
 
+        case ExpressionType::BinaryOperation: {
+            printf("BinaryOperation: {\n");
+
+            indent(indentation_level + 1);
+            printf("operation: ");
+            switch(expression.binary_operation.binary_operator) {
+                case BinaryOperator::Addition: {
+                    printf("Addition");
+                } break;
+                
+                case BinaryOperator::Subtraction: {
+                    printf("Subtraction");
+                } break;
+                
+                case BinaryOperator::Multiplication: {
+                    printf("Multiplication");
+                } break;
+                
+                case BinaryOperator::Division: {
+                    printf("Division");
+                } break;
+
+                case BinaryOperator::Modulo: {
+                    printf("Modulo");
+                } break;
+            }
+            printf(",\n");
+
+            indent(indentation_level + 1);
+            printf("left: ");
+            debug_print_expression_indent(*expression.binary_operation.left, indentation_level + 1);
+            printf(",\n");
+
+            indent(indentation_level + 1);
+            printf("right: ");
+            debug_print_expression_indent(*expression.binary_operation.right, indentation_level + 1);
+            printf(",\n");
+            
+            indent(indentation_level);
+            printf("}");
+        } break;
+
         case ExpressionType::Pointer: {
             printf("Pointer: ");
 

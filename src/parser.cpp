@@ -2,7 +2,9 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include <assert.h>
 #include "list.h"
+#include "util.h"
 
 struct Context {
     const char *source_file_path;
@@ -220,12 +222,394 @@ static bool expect_character(Context *context, char expected_character) {
     return true;
 }
 
-static Result<Expression> parse_any_expression(Context *context);
+enum struct OperationType {
+    Addition,
+    Subtraction,
+    Multiplication,
+    Division,
+    Modulo,
+    MemberReference,
+    IndexReference,
+    FunctionCall,
+    Pointer,
+    ArrayType
+};
 
-static Result<Expression> parse_right_expressions(Context *context, Expression left_expression) {
-    auto current_expression = left_expression;
+unsigned int operation_precedences[] = {
+    0,
+    0,
+    1,
+    1,
+    1,
+    2,
+    2,
+    2,
+    2,
+    2
+};
+
+struct Operation {
+    OperationType type;
+
+    const char *source_file_path;
+
+    unsigned int line;
+    unsigned int character;
+
+    union {
+        Identifier member_reference;
+
+        Expression index_reference;
+
+        Array<Expression> function_call;
+    };
+};
+
+static void apply_operation(List<Expression> *expression_stack, Operation operation) {
+    Expression expression;
+    expression.source_file_path = operation.source_file_path;
+    expression.line = operation.line;
+    expression.character = operation.character;
+
+    switch(operation.type) {
+        case OperationType::Addition:
+        case OperationType::Subtraction:
+        case OperationType::Multiplication:
+        case OperationType::Division:
+        case OperationType::Modulo: {
+            expression.type = ExpressionType::BinaryOperation;
+
+            expression.binary_operation.right = heapify(take_last(expression_stack));
+            expression.binary_operation.left = heapify(take_last(expression_stack));
+
+            switch(operation.type) {
+                case OperationType::Addition: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Addition;
+                } break;
+
+                case OperationType::Subtraction: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Subtraction;
+                } break;
+
+                case OperationType::Multiplication: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Multiplication;
+                } break;
+
+                case OperationType::Division: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Division;
+                } break;
+
+                case OperationType::Modulo: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Modulo;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        case OperationType::MemberReference: {
+            expression.type = ExpressionType::MemberReference;
+
+            expression.member_reference = {
+                heapify(take_last(expression_stack)),
+                operation.member_reference
+            };
+        } break;
+
+        case OperationType::IndexReference: {
+            expression.type = ExpressionType::IndexReference;
+
+            expression.index_reference = {
+                heapify(take_last(expression_stack)),
+                heapify(operation.index_reference)
+            };
+        } break;
+
+        case OperationType::FunctionCall: {
+            expression.type = ExpressionType::FunctionCall;
+
+            expression.function_call = {
+                heapify(take_last(expression_stack)),
+                operation.function_call
+            };
+        } break;
+
+        case OperationType::Pointer: {
+            expression.type = ExpressionType::Pointer;
+
+            expression.pointer = heapify(take_last(expression_stack));
+        } break;
+
+        case OperationType::ArrayType: {
+            expression.type = ExpressionType::ArrayType;
+
+            expression.array_type = heapify(take_last(expression_stack));
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+
+    append(expression_stack, expression);
+}
+
+static Result<Expression> parse_expression(Context *context);
+
+static Result<Expression> parse_right_expressions(Context *context, List<Operation> *operation_stack, List<Expression> *expression_stack) {
+    auto expect_non_left_recursive = expression_stack->count == 0;
 
     while(true) {
+        if(expect_non_left_recursive) {
+            skip_whitespace(context);
+
+            auto first_line = context->line;
+            auto first_character = context->character;
+
+            auto character = fgetc(context->source_file);
+
+            // Parse non-left-recursive expressions first
+            if(isalpha(character)) {
+                context->character += 1;
+
+                List<char> buffer{};
+
+                append(&buffer, (char)character);
+
+                while(true) {
+                    auto character = fgetc(context->source_file);
+
+                    if(isalnum(character)) {
+                        context->character += 1;
+
+                        append(&buffer, (char)character);
+                    } else {
+                        ungetc(character, context->source_file);
+
+                        break;
+                    }
+                }
+
+                append(&buffer, '\0');
+
+                Expression expression;
+                expression.type = ExpressionType::NamedReference;
+                expression.source_file_path = context->source_file_path,
+                expression.line = first_line;
+                expression.character = first_character;
+                expression.named_reference = {
+                    buffer.elements,
+                    context->source_file_path,
+                    first_line,
+                    first_character
+                };
+
+                append(expression_stack, expression);
+            } else if(isdigit(character) || character == '-'){
+                auto definitely_identifier = false;
+                auto definitely_numeric = false;
+
+                if(character == '-') {
+                    definitely_numeric = true;
+                }
+
+                context->character += 1;
+
+                List<char> buffer{};
+
+                append(&buffer, (char)character);
+
+                auto character_count = 1;
+                while(true) {
+                    auto character = fgetc(context->source_file);
+
+                    if(isdigit(character)) {
+                        context->character += 1;
+
+                        if(definitely_identifier) {
+                            error(*context, "Expected a-z or A-Z, got '%c'", character);
+
+                            return { false };
+                        }
+
+                        append(&buffer, (char)character);
+
+                        character_count += 1;
+                    } else if(isalpha(character)) {
+                        context->character += 1;
+
+                        if(definitely_numeric) {
+                            error(*context, "Expected 0-9, got '%c'", character);
+
+                            return { false };
+                        }
+
+                        definitely_identifier = true;
+
+                        append(&buffer, (char)character);
+                    } else {
+                        ungetc(character, context->source_file);
+
+                        break;
+                    }
+                }
+
+                append(&buffer, '\0');
+
+                Expression expression;
+                expression.source_file_path = context->source_file_path;
+                expression.line = first_line;
+                expression.character = first_character;
+
+                if(definitely_numeric || !definitely_identifier) {
+                    auto value = strtoll(buffer.elements, NULL, 10);
+
+                    if((value == LLONG_MAX || value == LLONG_MIN) && errno == ERANGE) {
+                        error(*context, "Integer literal out of range");
+
+                        return { false };
+                    }
+
+                    expression.type = ExpressionType::IntegerLiteral;
+                    expression.integer_literal = value;
+                } else {
+                    expression.type = ExpressionType::NamedReference;
+                    expression.named_reference = {
+                        buffer.elements,
+                        context->source_file_path,
+                        first_line,
+                        first_character
+                    };
+                }
+
+                append(expression_stack, expression);
+            } else if(character == '*') {
+                context->character += 1;
+
+                Operation operation;
+                operation.source_file_path = context->source_file_path;
+                operation.line = first_line;
+                operation.character = first_character;
+                operation.type = OperationType::Pointer;
+
+                append(operation_stack, operation);
+
+                // Unary operators are always followed by a non-left-recursive expression, so skip the left-recursive parsing below
+                continue;
+            } else if(character == '"') {
+                context->character += 1;
+
+                List<char> buffer{};
+
+                while(true) {
+                    auto character = fgetc(context->source_file);
+
+                    auto done = false;
+                    switch(character) {
+                        case '\\': {
+                            context->character += 1;
+
+                            auto character = fgetc(context->source_file);
+
+                            switch(character) {
+                                case '\\':
+                                case '"': {
+                                    context->character += 1;
+
+                                    append(&buffer, (char)character);
+                                } break;
+
+                                case 'r': {
+                                    context->character += 1;
+
+                                    append(&buffer, '\r');
+                                } break;
+
+                                case 'n': {
+                                    context->character += 1;
+
+                                    append(&buffer, '\n');
+                                } break;
+
+                                case '0': {
+                                    context->character += 1;
+
+                                    append(&buffer, '\0');
+                                } break;
+
+                                case '\n':
+                                case '\r': {
+                                    error(*context, "Unexpected newline");
+
+                                    return { false };
+                                } break;
+
+                                case EOF: {
+                                    error(*context, "Unexpected End of File");
+
+                                    return { false };
+                                } break;
+
+                                default: {
+                                    error(*context, "Unknown escape code %c", character);
+
+                                    return { false };
+                                } break;
+                            }
+                        } break;
+
+                        case '"': {
+                            context->character += 1;
+
+                            done = true;
+                        } break;
+
+                        case '\n':
+                        case '\r': {
+                            error(*context, "Unexpected newline");
+
+                            return { false };
+                        } break;
+
+                        case EOF: {
+                            error(*context, "Unexpected End of File");
+
+                            return { false };
+                        } break;
+
+                        default: {
+                            context->character += 1;
+
+                            append(&buffer, (char)character);
+                        } break;
+                    }
+
+                    if(done) {
+                        break;
+                    }
+                }
+
+                Expression expression;
+                expression.source_file_path = context->source_file_path;
+                expression.line = first_line;
+                expression.character = first_character;
+                expression.type = ExpressionType::StringLiteral;
+                expression.string_literal = to_array(buffer);
+
+                append(expression_stack, expression);
+            } else if(character == EOF) {
+                error(*context, "Unexpected End of File");
+
+                return { false };
+            } else {
+                error(*context, "Expected a-z, A-Z, 0-9, '-' or '*'. Got '%c'", character);
+
+                return { false };
+            }
+        }
+
         skip_whitespace(context);
 
         auto first_line = context->line;
@@ -233,6 +617,12 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
 
         auto character = fgetc(context->source_file);
 
+        Operation operation;
+        operation.source_file_path = context->source_file_path;
+        operation.line = first_line;
+        operation.character = first_character;
+
+        // Parse left-recursive expressions (e.g. binary operators) after parsing all adjacent non-left-recursive expressions
         if(character == '(') {
             context->character += 1;
             
@@ -248,7 +638,7 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
                 ungetc(character, context->source_file);
 
                 while(true) {
-                    auto result = parse_any_expression(context);
+                    auto result = parse_expression(context);
 
                     if(!result.status) {
                         return { false };
@@ -280,15 +670,10 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
                 }
             }
 
-            auto expression = (Expression*)malloc(sizeof(Expression));
-            *expression = current_expression;
+            operation.type = OperationType::FunctionCall;
+            operation.function_call = to_array(parameters);
 
-            current_expression.type = ExpressionType::FunctionCall;
-            current_expression.source_file_path = context->source_file_path;
-            current_expression.line = first_line;
-            current_expression.character = first_character;
-            current_expression.function_call.expression = expression;
-            current_expression.function_call.parameters = to_array(parameters);
+            expect_non_left_recursive = false;
         } else if(character == '.') {
             context->character += 1;
 
@@ -301,15 +686,10 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
 
                 auto name = parse_identifier(context);
 
-                auto expression = (Expression*)malloc(sizeof(Expression));
-                *expression = current_expression;
+                operation.type = OperationType::MemberReference;
+                operation.member_reference = name;
 
-                current_expression.type = ExpressionType::MemberReference;
-                current_expression.source_file_path = context->source_file_path;
-                current_expression.line = first_line;
-                current_expression.character = first_character;
-                current_expression.member_reference.expression = expression;
-                current_expression.member_reference.name = name;
+                expect_non_left_recursive = false;
             } else if(character == EOF) {
                 error(*context, "Unexpected End of File");
 
@@ -329,18 +709,12 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
             if(character == ']') {
                 context->character += 1;
 
-                auto expression = (Expression*)malloc(sizeof(Expression));
-                *expression = current_expression;
-
-                current_expression.type = ExpressionType::ArrayType;
-                current_expression.source_file_path = context->source_file_path;
-                current_expression.line = first_line;
-                current_expression.character = first_character;
-                current_expression.array_type = expression;
+                operation.type = OperationType::ArrayType;
+                expect_non_left_recursive = false;
             } else {
                 ungetc(character, context->source_file);
 
-                auto result = parse_any_expression(context);
+                auto result = parse_expression(context);
 
                 if(!result.status) {
                     return { false };
@@ -352,273 +726,76 @@ static Result<Expression> parse_right_expressions(Context *context, Expression l
                     return { false };
                 }
 
-                auto expression = (Expression*)malloc(sizeof(Expression));
-                *expression = current_expression;
+                operation.type = OperationType::IndexReference;
+                operation.index_reference = result.value;
 
-                auto index = (Expression*)malloc(sizeof(Expression));
-                *index = result.value;
-
-                current_expression.type = ExpressionType::IndexReference;
-                current_expression.source_file_path = context->source_file_path;
-                current_expression.line = first_line;
-                current_expression.character = first_character;
-                current_expression.index_reference.expression = expression;
-                current_expression.index_reference.index = index;
+                expect_non_left_recursive = false;
             }
+        } else if(character == '+') {
+            operation.type = OperationType::Addition;
+
+            expect_non_left_recursive = true;
+        } else if(character == '-') {
+            operation.type = OperationType::Subtraction;
+
+            expect_non_left_recursive = true;
+        } else if(character == '*') {
+            operation.type = OperationType::Multiplication;
+
+            expect_non_left_recursive = true;
+        } else if(character == '/') {
+            operation.type = OperationType::Division;
+
+            expect_non_left_recursive = true;
+        } else if(character == '%') {
+            operation.type = OperationType::Modulo;
+
+            expect_non_left_recursive = true;
         } else {
             ungetc(character, context->source_file);
 
             break;
         }
-    }
 
-    return { 
-        true,
-        current_expression
-    };
-}
-
-static Result<Expression> parse_any_expression(Context *context) {
-    auto first_line = context->line;
-    auto first_character = context->character;
-
-    auto character = fgetc(context->source_file);
-
-    Expression expression;
-    if(isalpha(character)) {
-        context->character += 1;
-
-        List<char> buffer{};
-
-        append(&buffer, (char)character);
-
+        // Meat of the precedence sorting
         while(true) {
-            auto character = fgetc(context->source_file);
+            if(operation_stack->count == 0) {
+                append(operation_stack, operation);
 
-            if(isalnum(character)) {
-                context->character += 1;
-
-                append(&buffer, (char)character);
+                break;
             } else {
-                ungetc(character, context->source_file);
+                auto last_operation = (*operation_stack)[operation_stack->count - 1];
 
-                break;
-            }
-        }
+                if(operation_precedences[(int)operation.type] > operation_precedences[(int)last_operation.type]) {
+                    append(operation_stack, operation);
 
-        append(&buffer, '\0');
-
-        expression.type = ExpressionType::NamedReference;
-        expression.named_reference = {
-            buffer.elements,
-            context->source_file_path,
-            first_line,
-            first_character
-        };
-    } else if(isdigit(character) || character == '-'){
-        auto definitely_identifier = false;
-        auto definitely_numeric = false;
-
-        if(character == '-') {
-            definitely_numeric = true;
-        }
-
-        context->character += 1;
-
-        List<char> buffer{};
-
-        append(&buffer, (char)character);
-
-        auto character_count = 1;
-        while(true) {
-            auto character = fgetc(context->source_file);
-
-            if(isdigit(character)) {
-                context->character += 1;
-
-                if(definitely_identifier) {
-                    error(*context, "Expected a-z or A-Z, got '%c'", character);
-
-                    return { false };
+                    break;
+                } else {
+                    apply_operation(expression_stack, take_last(operation_stack));
                 }
-
-                append(&buffer, (char)character);
-
-                character_count += 1;
-            } else if(isalpha(character)) {
-                context->character += 1;
-
-                if(definitely_numeric) {
-                    error(*context, "Expected 0-9, got '%c'", character);
-
-                    return { false };
-                }
-
-                definitely_identifier = true;
-
-                append(&buffer, (char)character);
-            } else {
-                ungetc(character, context->source_file);
-
-                break;
             }
         }
-
-        append(&buffer, '\0');
-
-        if(definitely_numeric || !definitely_identifier) {
-            auto value = strtoll(buffer.elements, NULL, 10);
-
-            if((value == LLONG_MAX || value == LLONG_MIN) && errno == ERANGE) {
-                error(*context, "Integer literal out of range");
-
-                return { false };
-            }
-
-            expression.type = ExpressionType::IntegerLiteral;
-            expression.integer_literal = value;
-        } else {
-            expression.type = ExpressionType::NamedReference;
-            expression.named_reference = {
-                buffer.elements,
-                context->source_file_path,
-                first_line,
-                first_character
-            };
-        }
-    } else if(character == '*') {
-        context->character += 1;
-
-        auto result = parse_any_expression(context);
-
-        if(!result.status) {
-            return { false };
-        }
-
-        auto pointer_expression = (Expression*)malloc(sizeof(Expression));
-        *pointer_expression = result.value;
-
-        expression.type = ExpressionType::Pointer;
-        expression.pointer = pointer_expression;
-    } else if(character == '"') {
-        context->character += 1;
-
-        List<char> buffer{};
-
-        while(true) {
-            auto character = fgetc(context->source_file);
-
-            auto done = false;
-            switch(character) {
-                case '\\': {
-                    context->character += 1;
-
-                    auto character = fgetc(context->source_file);
-
-                    switch(character) {
-                        case '\\':
-                        case '"': {
-                            context->character += 1;
-
-                            append(&buffer, (char)character);
-                        } break;
-
-                        case 'r': {
-                            context->character += 1;
-
-                            append(&buffer, '\r');
-                        } break;
-
-                        case 'n': {
-                            context->character += 1;
-
-                            append(&buffer, '\n');
-                        } break;
-
-                        case '0': {
-                            context->character += 1;
-
-                            append(&buffer, '\0');
-                        } break;
-
-                        case '\n':
-                        case '\r': {
-                            error(*context, "Unexpected newline");
-
-                            return { false };
-                        } break;
-
-                        case EOF: {
-                            error(*context, "Unexpected End of File");
-
-                            return { false };
-                        } break;
-
-                        default: {
-                            error(*context, "Unknown escape code %c", character);
-
-                            return { false };
-                        } break;
-                    }
-                } break;
-
-                case '"': {
-                    context->character += 1;
-
-                    done = true;
-                } break;
-
-                case '\n':
-                case '\r': {
-                    error(*context, "Unexpected newline");
-
-                    return { false };
-                } break;
-
-                case EOF: {
-                    error(*context, "Unexpected End of File");
-
-                    return { false };
-                } break;
-
-                default: {
-                    context->character += 1;
-
-                    append(&buffer, (char)character);
-                } break;
-            }
-
-            if(done) {
-                break;
-            }
-        }
-
-        expression.type = ExpressionType::StringLiteral;
-        expression.string_literal = to_array(buffer);
-    } else if(character == EOF) {
-        error(*context, "Unexpected End of File");
-
-        return { false };
-    } else {
-        error(*context, "Expected a-z, A-Z, 0-9, '-' or '*'. Got '%c'", character);
-
-        return { false };
     }
 
-    expression.source_file_path = context->source_file_path;
-    expression.line = first_line;
-    expression.character = first_character;
-
-    auto result = parse_right_expressions(context, expression);
-
-    if(!result.status) {
-        return { false };
+    // Apply the remaining operations
+    while(operation_stack->count != 0) {
+        apply_operation(expression_stack, take_last(operation_stack));
     }
+
+    assert(expression_stack->count == 1);
 
     return {
         true,
-        result.value,
+        (*expression_stack)[0]
     };
+}
+
+static Result<Expression> parse_expression(Context *context) {
+    List<Operation> operation_stack{};
+
+    List<Expression> expression_stack{};
+
+    return parse_right_expressions(context, &operation_stack, &expression_stack);
 }
 
 static Result<Statement> parse_expression_statement_or_variable_assignment(Context *context, Expression expression) {
@@ -633,7 +810,7 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
             skip_whitespace(context);
 
-            auto value_result = parse_any_expression(context);
+            auto value_result = parse_expression(context);
 
             if(!value_result.status) {
                 return { false };
@@ -742,7 +919,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                                 skip_whitespace(context);
 
-                                auto result = parse_any_expression(context);
+                                auto result = parse_expression(context);
 
                                 if(!result.status) {
                                     return { false };
@@ -797,7 +974,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                             skip_whitespace(context);
 
-                            auto result = parse_any_expression(context);
+                            auto result = parse_expression(context);
 
                             if(!result.status) {
                                 return { false };
@@ -924,7 +1101,7 @@ static Result<Statement> parse_statement(Context *context) {
                     } else {
                         ungetc(character, context->source_file);
 
-                        auto result = parse_any_expression(context);
+                        auto result = parse_expression(context);
 
                         if(!result.status) {
                             return { false };
@@ -961,7 +1138,7 @@ static Result<Statement> parse_statement(Context *context) {
                     if(character != '=') {
                         ungetc(character, context->source_file);
 
-                        auto result = parse_any_expression(context);
+                        auto result = parse_expression(context);
 
                         if(!result.status) {
                             return { false };
@@ -984,7 +1161,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                         skip_whitespace(context);
 
-                        auto result = parse_any_expression(context);
+                        auto result = parse_expression(context);
 
                         if(!result.status) {
                             return { false };
@@ -1045,7 +1222,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                 skip_whitespace(context);
 
-                auto result = parse_any_expression(context);
+                auto result = parse_expression(context);
 
                 if(!result.status) {
                     return { false };
@@ -1087,7 +1264,12 @@ static Result<Statement> parse_statement(Context *context) {
                 expression.type = ExpressionType::NamedReference;
                 expression.named_reference = identifier;
 
-                auto result = parse_right_expressions(context, expression);
+                List<Operation> operation_stack{};
+                List<Expression> expression_stack{};
+
+                append(&expression_stack, expression);
+
+                auto result = parse_right_expressions(context, &operation_stack, &expression_stack);
 
                 if(!result.status) {
                     return { false };
@@ -1110,7 +1292,7 @@ static Result<Statement> parse_statement(Context *context) {
     } else {
         ungetc(character, context->source_file);
 
-        auto expression_result = parse_any_expression(context);
+        auto expression_result = parse_expression(context);
 
         if(!expression_result.status) {
             return { false };

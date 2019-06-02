@@ -50,6 +50,17 @@ void append(List<T> *list, T element) {
 }
 
 template <typename T>
+T take_last(List<T> *list) {
+    assert(list->count != 0);
+
+    auto last_element = list->elements[list->count - 1];
+
+    list->count -= 1;
+
+    return last_element;
+}
+
+template <typename T>
 Array<T> to_array(List<T> list) {
     return {
         list.count,
