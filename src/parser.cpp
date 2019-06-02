@@ -768,7 +768,7 @@ static Result<Statement> parse_statement(Context *context) {
                                 auto identifier = parse_identifier(context);
 
                                 if(strcmp(identifier, "extern") != 0) {
-                                    error(*context, "Expected 'extern', '-' or '{', got '%s'", identifier);
+                                    error(*context, "Expected 'extern' or '{', got '%s'", identifier);
 
                                     return { false };
                                 }
@@ -783,7 +783,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                                 return { false };
                             } else {
-                                error(*context, "Expected 'extern', '-' or '{', got '%c'", character);
+                                error(*context, "Expected 'extern' or '{', got '%c'", character);
 
                                 return { false };
                             }
@@ -1039,6 +1039,8 @@ static Result<Statement> parse_statement(Context *context) {
             } break;
         }
     } else {
+        ungetc(character, context->source_file);
+
         auto expression_result = parse_any_expression(context);
 
         if(!expression_result.status) {
