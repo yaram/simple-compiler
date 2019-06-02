@@ -621,6 +621,8 @@ static Result<Statement> parse_statement(Context *context) {
                     auto character = fgetc(context->source_file);
 
                     if(character == '(') {
+                        context->character += 1;
+
                         skip_whitespace(context);
 
                         List<FunctionParameter> parameters{};
