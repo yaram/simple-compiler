@@ -197,9 +197,59 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
         } break;
 
         case ExpressionType::IndexReference: {
-            fprintf(stderr, "Indexing not allowed in a constant context\n");
+            auto expression_result = evaluate_constant_expression(context, *expression.index_reference.expression, print_errors);
 
-            return { false };
+            if(!expression_result.status) {
+                return { false };
+            }
+
+            if(expression_result.value.type.category != TypeCategory::Array) {
+                if(print_errors) {
+                    fprintf(stderr, "Cannot index a non-array\n");
+                }
+
+                return { false };
+            }
+
+            auto index_result = evaluate_constant_expression(context, *expression.index_reference.index, print_errors);
+
+            if(!index_result.status) {
+                return { false };
+            }
+
+            if(index_result.value.type.category != TypeCategory::Integer) {
+                if(print_errors) {
+                    fprintf(stderr, "Array index not an integer\n");
+                }
+
+                return { false };
+            }
+
+            if(index_result.value.type.integer.is_signed && index_result.value.value.integer < 0) {
+                if(print_errors) {
+                    fprintf(stderr, "Array index out of bounds\n");
+                }
+
+                return { false };
+            }
+
+            auto index = (size_t)index_result.value.value.integer;
+
+            if(index >= expression_result.value.value.array.count) {
+                if(print_errors) {
+                    fprintf(stderr, "Array index out of bounds\n");
+                }
+
+                return { false };
+            }
+
+            return {
+                true,
+                {
+                    *expression_result.value.type.array,
+                    expression_result.value.value.array[index]
+                }
+            };
         } break;
 
         case ExpressionType::IntegerLiteral: {
