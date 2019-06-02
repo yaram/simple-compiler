@@ -104,6 +104,8 @@ union ConstantValue {
     int64_t integer;
 
     Type type;
+
+    Array<ConstantValue> array;
 };
 
 struct ConstantExpressionValue {
@@ -207,6 +209,42 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
             ConstantValue value;
             value.integer = expression.integer_literal;
+
+            return {
+                true,
+                {
+                    type,
+                    value
+                }
+            };
+        } break;
+
+        case ExpressionType::StringLiteral: {            
+            auto array_type = (Type*)malloc(sizeof(Type));
+            array_type->category = TypeCategory::Integer;
+            array_type->integer = {
+                true,
+                false,
+                IntegerSize::Bit8
+            };
+
+            Type type;
+            type.category = TypeCategory::Array;
+            type.array = array_type;
+
+            auto length = strlen(expression.string_literal);
+
+            auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * length);
+
+            for(size_t i = 0; i < length; i += 1) {
+                characters[i].integer = expression.string_literal[i];
+            }
+
+            ConstantValue value;
+            value.array = {
+                length,
+                characters
+            };
 
             return {
                 true,
@@ -508,6 +546,12 @@ struct ArrayType {
     Type type;
 };
 
+struct ArrayConstant {
+    Type type;
+
+    Array<ConstantValue> elements;
+};
+
 struct GenerationContext {
     char *forward_declaration_source;
     char *implementation_source;
@@ -517,6 +561,8 @@ struct GenerationContext {
     List<List<Variable>> variable_context_stack;
 
     List<ArrayType> array_types;
+
+    List<ArrayConstant> array_constants;
 };
 
 static bool add_new_variable(GenerationContext *context, const char *name, Type type) {
@@ -580,7 +626,7 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
 
     char *mangled_name_buffer{};
 
-    string_buffer_append(&mangled_name_buffer, "_");
+    string_buffer_append(&mangled_name_buffer, "_array_type_");
 
     char number_buffer[32];
 
@@ -714,6 +760,33 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
             return generate_type(context, source, value.type);
         } break;
 
+        case TypeCategory::Array: {
+            string_buffer_append(source, "{");
+
+            char buffer[64];
+
+            sprintf(buffer, "%d", value.array.count);
+
+            string_buffer_append(source, buffer);
+
+            string_buffer_append(source, ",");
+
+            string_buffer_append(source, "_array_constant_");
+
+            sprintf(buffer, "%d", context->array_constants.count);
+
+            string_buffer_append(source, buffer);
+
+            string_buffer_append(source, "}");
+
+            append(&(context->array_constants), ArrayConstant {
+                *type.array,
+                value.array
+            });
+
+            return true;
+        } break;
+
         case TypeCategory::Void: {
             fprintf(stderr, "Void values cannot exist at runtime\n");
 
@@ -836,6 +909,42 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             value.type.category = TypeCategory::Integer;
             value.type.integer.determined = false;
             value.constant.integer = expression.integer_literal;
+
+            return {
+                true,
+                value
+            };
+        } break;
+
+        case ExpressionType::StringLiteral: {            
+            auto array_type = (Type*)malloc(sizeof(Type));
+            array_type->category = TypeCategory::Integer;
+            array_type->integer = {
+                true,
+                false,
+                IntegerSize::Bit8
+            };
+
+            auto length = strlen(expression.string_literal);
+
+            auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * length);
+
+            for(size_t i = 0; i < length; i += 1) {
+                characters[i].integer = expression.string_literal[i];
+            }
+
+            ExpressionValue value;
+            value.category = ExpressionValueCategory::Constant;
+            value.type.category = TypeCategory::Array;
+            value.type.array = array_type;
+            value.constant.array = {
+                length,
+                characters
+            };
+
+            if(!generate_constant_value(context, source, value.type, value.constant)) {
+                return { false };
+            }
 
             return {
                 true,
@@ -1280,6 +1389,44 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
         }
 
         string_buffer_append(&full_source, " *elements;};");
+    }
+
+    for(auto i = 0; i < context.array_constants.count; i += 1) {
+        auto array_constant = context.array_constants[i];
+
+        if(!generate_type(&context, &full_source, array_constant.type)) {
+            return { false };
+        }
+
+        string_buffer_append(&full_source, " _array_constant_");
+
+        char buffer[32];
+
+        sprintf(buffer, "%d", i);
+
+        string_buffer_append(&full_source, buffer);
+
+        string_buffer_append(&full_source, "[");
+
+        sprintf(buffer, "%llu", array_constant.elements.count);
+
+        string_buffer_append(&full_source, buffer);
+
+        string_buffer_append(&full_source, "]");
+        
+        string_buffer_append(&full_source, "={");
+
+        for(size_t j = 0; j < array_constant.elements.count; j += 1) {
+            if(!generate_constant_value(&context, &full_source, array_constant.type, array_constant.elements[j])) {
+                return { false };
+            }
+
+            if(j != array_constant.elements.count - 1) {
+                string_buffer_append(&full_source, ",");
+            }
+        }
+
+        string_buffer_append(&full_source, "};");
     }
 
     if(context.forward_declaration_source != nullptr) {
