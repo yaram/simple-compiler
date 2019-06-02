@@ -999,6 +999,8 @@ static Result<Statement> parse_statement(Context *context) {
                             return { false };
                         }
                     } else if(character == ';') {
+                        context->character += 1;
+
                         has_initializer = false;
                     } else if(character == EOF) {
                         error(*context, "Unexpected End of File");
