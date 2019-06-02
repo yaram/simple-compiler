@@ -29,6 +29,7 @@ static void string_buffer_append(char **string_buffer, const char *string) {
 
 enum struct DeclarationCategory {
     FunctionDefinition,
+    ExternalFunction,
     ConstantDefinition
 };
 
@@ -54,6 +55,13 @@ struct Declaration {
             Array<Statement> statements;
         } function_definition;
 
+        struct {
+            Array<FunctionParameter> parameters;
+
+            bool has_return_type;
+            Expression return_type;
+        } external_function;
+
         Expression constant_definition;
     };
 };
@@ -62,6 +70,10 @@ static Array<Declaration> get_declaration_children(Declaration declaration) {
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
             return declaration.function_definition.declarations;
+        } break;
+
+        case DeclarationCategory::ExternalFunction: {
+            return Array<Declaration>{};
         } break;
 
         case DeclarationCategory::ConstantDefinition: {
@@ -159,6 +171,19 @@ static Result<ConstantExpressionValue> resolve_constant_named_reference(Constant
         case DeclarationCategory::FunctionDefinition: {
             ConstantValue value;
             value.function = result.value.function_definition.mangled_name;
+
+            return {
+                true,
+                {
+                    result.value.type,
+                    value
+                }
+            };
+        } break;
+
+        case DeclarationCategory::ExternalFunction: {
+            ConstantValue value;
+            value.function = result.value.name;
 
             return {
                 true,
@@ -444,48 +469,66 @@ static Result<Type> evaluate_type_expression(ConstantContext context, Expression
 
 static Result<Declaration> create_declaration(List<const char*> *name_stack, Statement statement) {
     switch(statement.type) {
-        case StatementType::FunctionDefinition: {
-            List<Declaration> child_declarations{};
-            List<Statement> child_statements{};
+        case StatementType::FunctionDeclaration: {
+            if(statement.function_declaration.is_external) {
+                Declaration declaration;
+                declaration.category = DeclarationCategory::ExternalFunction;
+                declaration.name = statement.function_declaration.name;
+                declaration.type_resolved = false;
 
-            append(name_stack, statement.function_definition.name);
+                declaration.external_function = {
+                    statement.function_declaration.parameters,
+                    statement.function_declaration.has_return_type,
+                    statement.function_declaration.return_type
+                };
 
-            for(auto child_statement : statement.function_definition.statements) {
-                auto result = create_declaration(name_stack, child_statement);
+                return {
+                    true,
+                    declaration
+                };
+            } else {
+                List<Declaration> child_declarations{};
+                List<Statement> child_statements{};
 
-                if(result.status){
-                    append(&child_declarations, result.value);
-                } else {
-                    append(&child_statements, child_statement);
+                append(name_stack, statement.function_declaration.name);
+
+                for(auto child_statement : statement.function_declaration.statements) {
+                    auto result = create_declaration(name_stack, child_statement);
+
+                    if(result.status){
+                        append(&child_declarations, result.value);
+                    } else {
+                        append(&child_statements, child_statement);
+                    }
                 }
+
+                char* mangled_name{};
+
+                for(auto name : *name_stack) {
+                    string_buffer_append(&mangled_name, name);
+                }
+
+                name_stack->count -= 1;
+                
+                Declaration declaration;
+                declaration.category = DeclarationCategory::FunctionDefinition;
+                declaration.name = statement.function_declaration.name;
+                declaration.type_resolved = false;
+
+                declaration.function_definition = {
+                    mangled_name,
+                    statement.function_declaration.parameters,
+                    statement.function_declaration.has_return_type,
+                    statement.function_declaration.return_type,
+                    to_array(child_declarations),
+                    to_array(child_statements)
+                };
+
+                return {
+                    true,
+                    declaration
+                };
             }
-
-            char* mangled_name{};
-
-            for(auto name : *name_stack) {
-                string_buffer_append(&mangled_name, name);
-            }
-
-            name_stack->count -= 1;
-
-            Declaration declaration;
-            declaration.category = DeclarationCategory::FunctionDefinition;
-            declaration.name = statement.function_definition.name;
-            declaration.type_resolved = false;
-
-            declaration.function_definition = {
-                mangled_name,
-                statement.function_definition.parameters,
-                statement.function_definition.has_return_type,
-                statement.function_definition.return_type,
-                to_array(child_declarations),
-                to_array(child_statements)
-            };
-
-            return {
-                true,
-                declaration
-            };
         } break;
 
         case StatementType::ConstantDefinition: {
@@ -587,6 +630,53 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
                 type.category = TypeCategory::Function;
                 type.function.parameters = {
                     declaration.function_definition.parameters.count,
+                    parameters
+                };
+                type.function.return_type = return_type_heap;
+
+                return {
+                    true,
+                    type
+                };
+            } break;
+
+            case DeclarationCategory::ExternalFunction: {
+                for(auto parameter : declaration.external_function.parameters) {
+                    auto result = evaluate_type_expression(*context, parameter.type, print_errors);
+
+                    if(!result.status) {
+                        return { false };
+                    }
+                }
+
+                Type return_type;
+                if(declaration.external_function.has_return_type) {
+                    auto result = evaluate_type_expression(*context, declaration.external_function.return_type, print_errors);
+
+                    if(!result.status) {
+                        return { false };
+                    }
+
+                    return_type = result.value;
+                } else {
+                    return_type.category = TypeCategory::Void;
+                }
+
+                auto parameters = (Type*)malloc(declaration.external_function.parameters.count * sizeof(Type));
+                
+                for(auto i = 0; i < declaration.external_function.parameters.count; i += 1) {
+                    auto result = evaluate_type_expression(*context, declaration.external_function.parameters[i].type, print_errors);
+
+                    parameters[i] = result.value;
+                }
+
+                auto return_type_heap = (Type*)malloc(sizeof(Type));
+                *return_type_heap = return_type;
+
+                Type type;
+                type.category = TypeCategory::Function;
+                type.function.parameters = {
+                    declaration.external_function.parameters.count,
                     parameters
                 };
                 type.function.return_type = return_type_heap;
@@ -1380,17 +1470,15 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
     }
 }
 
-static bool generate_function_signature(GenerationContext *context, char **source, Declaration declaration) {
-    assert(declaration.category == DeclarationCategory::FunctionDefinition);
-
-    generate_type(context, source, *declaration.type.function.return_type);
+static bool generate_function_signature(GenerationContext *context, char **source, const char *name, Type type, FunctionParameter *parameters) {
+    generate_type(context, source, *type.function.return_type);
 
     string_buffer_append(source, " ");
-    string_buffer_append(source, declaration.function_definition.mangled_name);
+    string_buffer_append(source, name);
     string_buffer_append(source, "(");
     
-    for(auto i = 0; i < declaration.type.function.parameters.count; i += 1) {
-        auto result = generate_type(context, source, declaration.type.function.parameters[i]);
+    for(auto i = 0; i < type.function.parameters.count; i += 1) {
+        auto result = generate_type(context, source, type.function.parameters[i]);
 
         if(!result) {
             return false;
@@ -1398,9 +1486,9 @@ static bool generate_function_signature(GenerationContext *context, char **sourc
 
         string_buffer_append(source, " ");
 
-        string_buffer_append(source, declaration.function_definition.parameters[i].name);
+        string_buffer_append(source, parameters[i].name);
 
-        if(i != declaration.function_definition.parameters.count - 1) {
+        if(i != type.function.parameters.count - 1) {
             string_buffer_append(source, ",");
         }
     }
@@ -1417,7 +1505,13 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
         case DeclarationCategory::FunctionDefinition: {
             assert(declaration.type.category == TypeCategory::Function);
 
-            if(!generate_function_signature(context, &(context->forward_declaration_source), declaration)) {
+            if(!generate_function_signature(
+                context,
+                &(context->forward_declaration_source),
+                declaration.function_definition.mangled_name,
+                declaration.type,
+                declaration.function_definition.parameters.elements
+            )){
                 return false;
             }
 
@@ -1431,7 +1525,13 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
                 }
             }
 
-            if(!generate_function_signature(context, &(context->implementation_source), declaration)) {
+            if(!generate_function_signature(
+                context,
+                &(context->implementation_source),
+                declaration.function_definition.mangled_name,
+                declaration.type,
+                declaration.function_definition.parameters.elements
+            )){
                 return false;
             }
 
@@ -1458,6 +1558,24 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
             context->constant_context.declaration_stack.count -= 1;
 
             string_buffer_append(&(context->implementation_source), "}");
+
+            return true;
+        } break;
+        
+        case DeclarationCategory::ExternalFunction: {
+            assert(declaration.type.category == TypeCategory::Function);
+
+            if(!generate_function_signature(
+                context,
+                &(context->forward_declaration_source),
+                declaration.name,
+                declaration.type,
+                declaration.external_function.parameters.elements
+            )){
+                return false;
+            }
+
+            string_buffer_append(&(context->forward_declaration_source), ";");
 
             return true;
         } break;
