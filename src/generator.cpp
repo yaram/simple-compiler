@@ -309,6 +309,14 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
                 return { false };
             }
+            
+            if(!index_result.value.type.integer.determined) {
+                index_result.value.type.integer = {
+                    true,
+                    true,
+                    IntegerSize::Bit64
+                };
+            }
 
             if(index_result.value.type.integer.is_signed && index_result.value.value.integer < 0) {
                 if(print_errors) {
@@ -1164,6 +1172,14 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
                 return { false };
             }
+            
+            if(!index_result.value.type.integer.determined) {
+                index_result.value.type.integer = {
+                    true,
+                    true,
+                    IntegerSize::Bit64
+                };
+            }
 
             string_buffer_append(source, "]");
 
@@ -1262,7 +1278,14 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     return { false };
                 }
 
-                if(!types_equal(parameter_result.value.type, result.value.type.function.parameters[i])) {
+                if(
+                    !(
+                        parameter_result.value.type.category == TypeCategory::Integer &&
+                        result.value.type.function.parameters[i].category == TypeCategory::Integer &&
+                        !parameter_result.value.type.integer.determined
+                    ) &&
+                    !types_equal(parameter_result.value.type, result.value.type.function.parameters[i])
+                ) {
                     error(expression.function_call.parameters[i], "Incorrect parameter type for parameter %d", i);
 
                     return { false };
@@ -1421,12 +1444,19 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
             assert(statement.variable_declaration.has_initializer || statement.variable_declaration.has_type);
 
             if(statement.variable_declaration.has_initializer && statement.variable_declaration.has_type) {
-                if(!types_equal(type, initialzer_type)) {
+                if(
+                    !(
+                        type.category == TypeCategory::Integer &&
+                        initialzer_type.category == TypeCategory::Integer &&
+                        !initialzer_type.integer.determined
+                    ) &&
+                    !types_equal(type, initialzer_type)
+                ) {
                     error(statement.variable_declaration.initializer, "Initializer type does not match variable type");
 
                     return { false };
                 }
-            } else if(statement.variable_declaration.has_initializer) {
+            } else if(statement.variable_declaration.has_initializer) { // && !statement.variable_declaration.has_type) verified by the assert above
                 type = initialzer_type;
 
                 if(type.category == TypeCategory::Integer && !type.integer.determined) {
@@ -1479,8 +1509,15 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
             if(!value_result.status) {
                 return false;
             }
-
-            if(!types_equal(target_result.value.type, value_result.value.type)) {
+            
+            if(
+                !(
+                    target_result.value.type.category == TypeCategory::Integer &&
+                    value_result.value.type.category == TypeCategory::Integer &&
+                    !value_result.value.type.integer.determined
+                ) &&
+                !types_equal(target_result.value.type, value_result.value.type)
+            ) {
                 error(statement.assignment.value, "Assigning incorrect type");
 
                 return false;
@@ -1635,8 +1672,11 @@ inline GlobalConstant create_base_integer_type(const char *name, bool is_signed,
 
     ConstantValue value;
     value.type.category = TypeCategory::Integer;
-    value.type.integer.is_signed = is_signed;
-    value.type.integer.size = size;
+    value.type.integer = {
+        true,
+        is_signed,
+        size
+    };
 
     return {
         name,

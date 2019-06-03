@@ -1,5 +1,6 @@
 #include "types.h"
 #include <stdlib.h>
+#include <assert.h>
 
 bool types_equal(Type a, Type b) {
     if(a.category != b.category) {
@@ -22,7 +23,9 @@ bool types_equal(Type a, Type b) {
         } break;
         
         case TypeCategory::Integer: {
-            return !a.integer.determined || !b.integer.determined || (a.integer.is_signed == b.integer.is_signed && a.integer.size == b.integer.size);
+            assert(a.integer.determined && b.integer.determined);
+
+            return (a.integer.is_signed == b.integer.is_signed && a.integer.size == b.integer.size);
         } break;
 
         case TypeCategory::Type: {
