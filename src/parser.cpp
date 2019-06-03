@@ -1036,6 +1036,7 @@ static Result<Statement> parse_statement(Context *context) {
                         } else if(character == '{') {
                             context->character += 1;
 
+                            is_external = false;
                             has_return_type = false;
                         } else if(character == EOF) {
                             error(*context, "Unexpected End of File", character);
