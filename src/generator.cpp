@@ -1870,6 +1870,8 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     string_buffer_append(&(context->implementation_source), statement.variable_declaration.name.text);
 
                     string_buffer_append(&(context->implementation_source), ";");
+
+                    return true;
                 } break;
                 
                 case VariableDeclarationType::TypeElided: {
@@ -1901,6 +1903,8 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     string_buffer_append(&(context->implementation_source), initializer_source);
 
                     string_buffer_append(&(context->implementation_source), ";");
+
+                    return true;
                 } break;
                 
                 case VariableDeclarationType::FullySpecified: {
@@ -1948,6 +1952,8 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     string_buffer_append(&(context->implementation_source), initializer_source);
 
                     string_buffer_append(&(context->implementation_source), ";");
+
+                    return true;
                 } break;
 
                 default: {
