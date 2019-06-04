@@ -1616,20 +1616,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     abort();
                 } break;
             }
-
-            string_buffer_append(source, "(");
-
-            
-
-            string_buffer_append(source, ")");
-
-            
-
-            
-
-            
-
-            
         } break;
 
         case ExpressionType::IntegerLiteral: {
