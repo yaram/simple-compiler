@@ -126,7 +126,19 @@ static Result<Declaration> lookup_declaration(Array<Declaration> top_level_decla
 union ConstantValue {
     const char *function;
 
-    int64_t integer;
+    union {
+        int64_t undetermined;
+
+        uint8_t unsigned_8;
+        uint16_t unsigned_16;
+        uint32_t unsigned_32;
+        uint64_t unsigned_64;
+
+        int8_t signed_8;
+        int16_t signed_16;
+        int32_t signed_32;
+        int64_t signed_64;
+    } integer;
 
     Type type;
 
@@ -252,12 +264,10 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             if(strcmp(expression.member_reference.name.text, "length") == 0) {
                 Type type;
                 type.category = TypeCategory::Integer;
-                type.integer.determined = true;
-                type.integer.is_signed = false;
-                type.integer.size = IntegerSize::Bit64;
+                type.integer = IntegerType::Unsigned64;
 
                 ConstantValue value;
-                value.integer = result.value.value.array.count;
+                value.integer.unsigned_64 = result.value.value.array.count;
 
                 return {
                     true,
@@ -309,28 +319,91 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
                 return { false };
             }
-            
-            if(!index_result.value.type.integer.determined) {
-                index_result.value.type.integer = {
-                    true,
-                    true,
-                    IntegerSize::Bit64
-                };
+
+            size_t index;
+            switch(index_result.value.type.integer) {
+                case IntegerType::Undetermined: {
+                    if(index_result.value.value.integer.undetermined < 0) {
+                        error(*expression.index_reference.index, "Array index %lld out of bounds", index_result.value.value.integer.undetermined);
+
+                        return { false };
+                    }
+
+                    index = (size_t)index_result.value.value.integer.undetermined;
+                } break;
+                
+                case IntegerType::Unsigned8: {
+                    index = (size_t)index_result.value.value.integer.unsigned_8;
+                } break;
+                
+                case IntegerType::Unsigned16: {
+                    index = (size_t)index_result.value.value.integer.unsigned_16;
+                } break;
+                
+                case IntegerType::Unsigned32: {
+                    index = (size_t)index_result.value.value.integer.unsigned_32;
+                } break;
+                
+                case IntegerType::Unsigned64: {
+                    index = (size_t)index_result.value.value.integer.unsigned_64;
+                } break;
+                
+                case IntegerType::Signed8: {
+                    if(index_result.value.value.integer.signed_8 < 0) {
+                        if(print_errors) {
+                            error(*expression.index_reference.index, "Array index %hhd out of bounds", index_result.value.value.integer.signed_8);
+                        }
+
+                        return { false };
+                    }
+
+                    index = (size_t)index_result.value.value.integer.signed_8;
+                } break;
+                
+                case IntegerType::Signed16: {
+                    if(index_result.value.value.integer.signed_16 < 0) {
+                        if(print_errors) {
+                            error(*expression.index_reference.index, "Array index %hd out of bounds", index_result.value.value.integer.signed_16);
+                        }
+
+                        return { false };
+                    }
+
+                    index = (size_t)index_result.value.value.integer.signed_16;
+                } break;
+                
+                case IntegerType::Signed32: {
+                    if(index_result.value.value.integer.signed_32 < 0) {
+                        if(print_errors) {
+                            error(*expression.index_reference.index, "Array index %d out of bounds", index_result.value.value.integer.signed_32);
+                        }
+
+                        return { false };
+                    }
+
+                    index = (size_t)index_result.value.value.integer.signed_32;
+                } break;
+                
+                case IntegerType::Signed64: {
+                    if(index_result.value.value.integer.signed_64 < 0) {
+                        if(print_errors) {
+                            error(*expression.index_reference.index, "Array index %lld out of bounds", index_result.value.value.integer.signed_64);
+                        }
+
+                        return { false };
+                    }
+
+                    index = (size_t)index_result.value.value.integer.signed_64;
+                } break;
+
+                default: {
+                    abort();
+                } break;
             }
-
-            if(index_result.value.type.integer.is_signed && index_result.value.value.integer < 0) {
-                if(print_errors) {
-                    error(*expression.index_reference.index, "Array index out of bounds");
-                }
-
-                return { false };
-            }
-
-            auto index = (size_t)index_result.value.value.integer;
 
             if(index >= expression_result.value.value.array.count) {
                 if(print_errors) {
-                    error(*expression.index_reference.index, "Array index out of bounds");
+                    error(*expression.index_reference.index, "Array index %llu out of bounds", index);
                 }
 
                 return { false };
@@ -348,10 +421,10 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
         case ExpressionType::IntegerLiteral: {
             Type type;
             type.category = TypeCategory::Integer;
-            type.integer.determined = false;
+            type.integer = IntegerType::Undetermined;
 
             ConstantValue value;
-            value.integer = expression.integer_literal;
+            value.integer.undetermined = expression.integer_literal;
 
             return {
                 true,
@@ -365,11 +438,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
         case ExpressionType::StringLiteral: {            
             auto array_type = (Type*)malloc(sizeof(Type));
             array_type->category = TypeCategory::Integer;
-            array_type->integer = {
-                true,
-                false,
-                IntegerSize::Bit8
-            };
+            array_type->integer = IntegerType::Unsigned8;
 
             Type type;
             type.category = TypeCategory::Array;
@@ -378,7 +447,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * expression.string_literal.count);
 
             for(size_t i = 0; i < expression.string_literal.count; i += 1) {
-                characters[i].integer = expression.string_literal[i];
+                characters[i].integer.unsigned_8 = expression.string_literal[i];
             }
 
             ConstantValue value;
@@ -828,7 +897,7 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
         } break;
 
         case TypeCategory::Integer: {
-            assert(type.integer.determined);
+            assert(type.integer != IntegerType::Undetermined);
         } break;
 
         case TypeCategory::Pointer: {
@@ -869,6 +938,50 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
     };
 }
 
+static void generate_integer_type(char **source, IntegerType type) {
+    switch(type) {
+        case IntegerType::Undetermined: {
+            abort();
+        } break;
+
+        case IntegerType::Unsigned8: {
+            string_buffer_append(source, "char");
+        } break;
+
+        case IntegerType::Unsigned16: {
+            string_buffer_append(source, "unsigned short");
+        } break;
+
+        case IntegerType::Unsigned32: {
+            string_buffer_append(source, "unsigned int");
+        } break;
+
+        case IntegerType::Unsigned64: {
+            string_buffer_append(source, "unsigned long long");
+        } break;
+
+        case IntegerType::Signed8: {
+            string_buffer_append(source, "signed char");
+        } break;
+
+        case IntegerType::Signed16: {
+            string_buffer_append(source, "short");
+        } break;
+
+        case IntegerType::Signed32: {
+            string_buffer_append(source, "int");
+        } break;
+
+        case IntegerType::Signed64: {
+            string_buffer_append(source, "long long");
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 static bool generate_type(GenerationContext *context, char **source, Type type) {
     switch(type.category) {
         case TypeCategory::Function: {
@@ -878,45 +991,7 @@ static bool generate_type(GenerationContext *context, char **source, Type type) 
         } break;
 
         case TypeCategory::Integer: {
-            assert(type.integer.determined);
-
-            switch(type.integer.size) {
-                case IntegerSize::Bit8: {
-                    if(type.integer.is_signed) {
-                        string_buffer_append(source, "signed ");
-                    }
-
-                    string_buffer_append(source, "char");
-                } break;
-
-                case IntegerSize::Bit16: {
-                    if(!type.integer.is_signed) {
-                        string_buffer_append(source, "unsigned ");
-                    }
-
-                    string_buffer_append(source, "short");
-                } break;
-
-                case IntegerSize::Bit32: {
-                    if(!type.integer.is_signed) {
-                        string_buffer_append(source, "unsigned ");
-                    }
-
-                    string_buffer_append(source, "int");
-                } break;
-
-                case IntegerSize::Bit64: {
-                    if(!type.integer.is_signed) {
-                        string_buffer_append(source, "unsigned ");
-                    }
-
-                    string_buffer_append(source, "long long");
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
+            generate_integer_type(source, type.integer);
 
             return true;
         } break;
@@ -973,7 +1048,47 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
         case TypeCategory::Integer: {
             char buffer[64];
 
-            sprintf(buffer, "%lld", value.integer);
+            switch(type.integer) {
+                case IntegerType::Undetermined: {
+                    sprintf(buffer, "%lld", value.integer.undetermined);
+                } break;
+
+                case IntegerType::Unsigned8: {
+                    sprintf(buffer, "%hhu", value.integer.unsigned_8);
+                } break;
+
+                case IntegerType::Unsigned16: {
+                    sprintf(buffer, "%hu", value.integer.unsigned_16);
+                } break;
+
+                case IntegerType::Unsigned32: {
+                    sprintf(buffer, "%u", value.integer.unsigned_32);
+                } break;
+
+                case IntegerType::Unsigned64: {
+                    sprintf(buffer, "%llu", value.integer.unsigned_64);
+                } break;
+
+                case IntegerType::Signed8: {
+                    sprintf(buffer, "%hhd", value.integer.signed_8);
+                } break;
+
+                case IntegerType::Signed16: {
+                    sprintf(buffer, "%hd", value.integer.signed_16);
+                } break;
+
+                case IntegerType::Signed32: {
+                    sprintf(buffer, "%d", value.integer.signed_32);
+                } break;
+
+                case IntegerType::Signed64: {
+                    sprintf(buffer, "%lld", value.integer.signed_64);
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
 
             string_buffer_append(source, buffer);
 
@@ -1115,9 +1230,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 ExpressionValue value;
                 value.category = ExpressionValueCategory::Anonymous;
                 value.type.category = TypeCategory::Integer;
-                value.type.integer.determined = true;
-                value.type.integer.is_signed = false;
-                value.type.integer.size = IntegerSize::Bit64;
+                value.type.integer = IntegerType::Unsigned64;
 
                 return {
                     true,
@@ -1172,14 +1285,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
                 return { false };
             }
-            
-            if(!index_result.value.type.integer.determined) {
-                index_result.value.type.integer = {
-                    true,
-                    true,
-                    IntegerSize::Bit64
-                };
-            }
 
             string_buffer_append(source, "]");
 
@@ -1203,8 +1308,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             ExpressionValue value;
             value.category = ExpressionValueCategory::Constant;
             value.type.category = TypeCategory::Integer;
-            value.type.integer.determined = false;
-            value.constant.integer = expression.integer_literal;
+            value.type.integer = IntegerType::Undetermined;
 
             return {
                 true,
@@ -1215,16 +1319,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
         case ExpressionType::StringLiteral: {            
             auto array_type = (Type*)malloc(sizeof(Type));
             array_type->category = TypeCategory::Integer;
-            array_type->integer = {
-                true,
-                false,
-                IntegerSize::Bit8
-            };
+            array_type->integer = IntegerType::Unsigned8;
 
             auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * expression.string_literal.count);
 
             for(size_t i = 0; i < expression.string_literal.count; i += 1) {
-                characters[i].integer = expression.string_literal[i];
+                characters[i].integer.unsigned_8 = expression.string_literal[i];
             }
 
             ExpressionValue value;
@@ -1272,24 +1372,35 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
 
             for(auto i = 0; i < result.value.type.function.parameters.count; i += 1) {
-                auto parameter_result = generate_expression(context, source, expression.function_call.parameters[i]);
+                char *parameter_source{};
+
+                auto parameter_result = generate_expression(context, &parameter_source, expression.function_call.parameters[i]);
 
                 if(!parameter_result.status) {
                     return { false };
                 }
 
                 if(
-                    !(
-                        parameter_result.value.type.category == TypeCategory::Integer &&
-                        result.value.type.function.parameters[i].category == TypeCategory::Integer &&
-                        !parameter_result.value.type.integer.determined
-                    ) &&
-                    !types_equal(parameter_result.value.type, result.value.type.function.parameters[i])
+                    parameter_result.value.type.category == TypeCategory::Integer &&
+                    result.value.type.function.parameters[i].category == TypeCategory::Integer &&
+                    parameter_result.value.type.integer == IntegerType::Undetermined
                 ) {
+                    string_buffer_append(source, "(");
+
+                    generate_integer_type(source, result.value.type.function.parameters[i].integer);
+
+                    string_buffer_append(source, ")");
+                } else if(!types_equal(parameter_result.value.type, result.value.type.function.parameters[i])) {
                     error(expression.function_call.parameters[i], "Incorrect parameter type for parameter %d", i);
 
                     return { false };
                 }
+
+                string_buffer_append(source, "(");
+
+                string_buffer_append(source, parameter_source);
+
+                string_buffer_append(source, ")");
 
                 if(i != result.value.type.function.parameters.count - 1) {
                     string_buffer_append(source, ",");
@@ -1441,36 +1552,42 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                 initialzer_type = result.value.type;
             }
 
-            assert(statement.variable_declaration.has_initializer || statement.variable_declaration.has_type);
-
+            Type final_type;
             if(statement.variable_declaration.has_initializer && statement.variable_declaration.has_type) {
                 if(
-                    !(
-                        type.category == TypeCategory::Integer &&
-                        initialzer_type.category == TypeCategory::Integer &&
-                        !initialzer_type.integer.determined
-                    ) &&
-                    !types_equal(type, initialzer_type)
+                    type.category == TypeCategory::Integer &&
+                    initialzer_type.category == TypeCategory::Integer &&
+                    initialzer_type.integer == IntegerType::Undetermined
                 ) {
-                    error(statement.variable_declaration.initializer, "Initializer type does not match variable type");
+                    final_type.category = TypeCategory::Integer;
+                    final_type.integer = IntegerType::Signed64;
+                } else {
+                    if(!types_equal(type, initialzer_type)) {
+                        error(statement.variable_declaration.initializer, "Initializer type does not match variable type");
 
-                    return { false };
-                }
-            } else if(statement.variable_declaration.has_initializer) { // && !statement.variable_declaration.has_type) verified by the assert above
-                type = initialzer_type;
+                        return { false };
+                    }
 
-                if(type.category == TypeCategory::Integer && !type.integer.determined) {
-                    type.integer.determined = true;
-                    type.integer.is_signed = true;
-                    type.integer.size = IntegerSize::Bit64;
+                    final_type = type;
                 }
+            } else if(statement.variable_declaration.has_initializer) {
+                if(initialzer_type.category == TypeCategory::Integer && initialzer_type.integer == IntegerType::Undetermined) {
+                    final_type.category = TypeCategory::Integer;
+                    final_type.integer = IntegerType::Signed64;
+                } else {
+                    final_type = initialzer_type;
+                }
+            } else if(statement.variable_declaration.has_type) {
+                final_type = type;
+            } else {
+                abort();
             }
 
-            if(!add_new_variable(context, statement.variable_declaration.name, type)) {
+            if(!add_new_variable(context, statement.variable_declaration.name, final_type)) {
                 return false;
             }
 
-            if(!generate_type(context, &(context->implementation_source), type)) {
+            if(!generate_type(context, &(context->implementation_source), final_type)) {
                 return false;
             }
 
@@ -1514,7 +1631,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                 !(
                     target_result.value.type.category == TypeCategory::Integer &&
                     value_result.value.type.category == TypeCategory::Integer &&
-                    !value_result.value.type.integer.determined
+                    value_result.value.type.integer == IntegerType::Undetermined
                 ) &&
                 !types_equal(target_result.value.type, value_result.value.type)
             ) {
@@ -1666,17 +1783,13 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
     }
 }
 
-inline GlobalConstant create_base_integer_type(const char *name, bool is_signed, IntegerSize size) {
+inline GlobalConstant create_base_integer_type(const char *name, IntegerType integer_type) {
     Type type;
     type.category = TypeCategory::Type;
 
     ConstantValue value;
     value.type.category = TypeCategory::Integer;
-    value.type.integer = {
-        true,
-        is_signed,
-        size
-    };
+    value.type.integer = integer_type;
 
     return {
         name,
@@ -1706,15 +1819,15 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
 
     List<GlobalConstant> global_constants{};
 
-    append(&global_constants, create_base_integer_type("u8", false, IntegerSize::Bit8));
-    append(&global_constants, create_base_integer_type("u16", false, IntegerSize::Bit16));
-    append(&global_constants, create_base_integer_type("u32", false, IntegerSize::Bit32));
-    append(&global_constants, create_base_integer_type("u64", false, IntegerSize::Bit64));
+    append(&global_constants, create_base_integer_type("u8", IntegerType::Unsigned8));
+    append(&global_constants, create_base_integer_type("u16", IntegerType::Unsigned16));
+    append(&global_constants, create_base_integer_type("u32", IntegerType::Unsigned32));
+    append(&global_constants, create_base_integer_type("u64", IntegerType::Unsigned64));
 
-    append(&global_constants, create_base_integer_type("i8", true, IntegerSize::Bit8));
-    append(&global_constants, create_base_integer_type("i16", true, IntegerSize::Bit16));
-    append(&global_constants, create_base_integer_type("i32", true, IntegerSize::Bit32));
-    append(&global_constants, create_base_integer_type("i64", true, IntegerSize::Bit64));
+    append(&global_constants, create_base_integer_type("i8", IntegerType::Signed8));
+    append(&global_constants, create_base_integer_type("i16", IntegerType::Signed16));
+    append(&global_constants, create_base_integer_type("i32", IntegerType::Signed32));
+    append(&global_constants, create_base_integer_type("i64", IntegerType::Signed64));
 
     ConstantContext constant_context {
         to_array(global_constants),

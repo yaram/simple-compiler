@@ -11,11 +11,16 @@ enum struct TypeCategory {
     Array
 };
 
-enum struct IntegerSize {
-    Bit8,
-    Bit16,
-    Bit32,
-    Bit64
+enum struct IntegerType {
+    Undetermined,
+    Unsigned8,
+    Unsigned16,
+    Unsigned32,
+    Unsigned64,
+    Signed8,
+    Signed16,
+    Signed32,
+    Signed64
 };
 
 struct Type {
@@ -28,13 +33,7 @@ struct Type {
             Type *return_type;
         } function;
 
-        struct {
-            bool determined;
-
-            bool is_signed;
-
-            IntegerSize size;
-        } integer;
+        IntegerType integer;
 
         Type *pointer;
 

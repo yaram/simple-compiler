@@ -23,9 +23,9 @@ bool types_equal(Type a, Type b) {
         } break;
         
         case TypeCategory::Integer: {
-            assert(a.integer.determined && b.integer.determined);
+            assert(a.integer != IntegerType::Undetermined && b.integer != IntegerType::Undetermined);
 
-            return (a.integer.is_signed == b.integer.is_signed && a.integer.size == b.integer.size);
+            return a.integer == b.integer;
         } break;
 
         case TypeCategory::Type: {
