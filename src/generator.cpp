@@ -1379,12 +1379,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 return { false };
             }
 
-            auto generate_result = generate_constant_value(context, source, result.value.type, result.value.value);
-
-            if(!generate_result) {
-                return { false };
-            }
-
             ExpressionValue value;
             value.category = ExpressionValueCategory::Constant;
             value.type = result.value.type;
