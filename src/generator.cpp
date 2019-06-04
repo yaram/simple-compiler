@@ -1909,29 +1909,24 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                         return { false };
                     }
 
-                    Type actual_type;
                     if(
-                        type_result.value.category == TypeCategory::Integer &&
-                        initializer_result.value.type.category == TypeCategory::Integer &&
-                        initializer_result.value.type.integer == IntegerType::Undetermined
+                        !(
+                            type_result.value.category == TypeCategory::Integer &&
+                            initializer_result.value.type.category == TypeCategory::Integer &&
+                            initializer_result.value.type.integer == IntegerType::Undetermined
+                        ) &&
+                        !types_equal(type_result.value, initializer_result.value.type)
                     ) {
-                        actual_type.category = TypeCategory::Integer;
-                        actual_type.integer = IntegerType::Signed64;
-                    } else {
-                        if(!types_equal(type_result.value, initializer_result.value.type)) {
-                            error(statement.variable_declaration.fully_specified.initializer, "Initializer type does not match variable type");
+                        error(statement.assignment.value, "Assigning incorrect type");
 
-                            return { false };
-                        }
-
-                        actual_type = type_result.value;
+                        return false;
                     }
 
-                    if(!add_new_variable(context, statement.variable_declaration.name, actual_type)) {
+                    if(!add_new_variable(context, statement.variable_declaration.name, type_result.value)) {
                         return { false };
                     }
 
-                    if(!generate_type(context, &(context->implementation_source), actual_type)) {
+                    if(!generate_type(context, &(context->implementation_source), type_result.value)) {
                         return { false };
                     }
 
