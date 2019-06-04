@@ -1841,6 +1841,10 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                         return { false };
                     }
 
+                    if(!add_new_variable(context, statement.variable_declaration.name, result.value)) {
+                        return { false };
+                    }
+
                     if(!generate_type(context, &(context->implementation_source), result.value)) {
                         return { false };
                     }
@@ -1868,6 +1872,10 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                         actual_type.integer = IntegerType::Signed64;
                     } else {
                         actual_type = result.value.type;
+                    }
+
+                    if(!add_new_variable(context, statement.variable_declaration.name, actual_type)) {
+                        return { false };
                     }
                     
                     if(!generate_type(context, &(context->implementation_source), actual_type)) {
@@ -1917,6 +1925,10 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                         }
 
                         actual_type = type_result.value;
+                    }
+
+                    if(!add_new_variable(context, statement.variable_declaration.name, actual_type)) {
+                        return { false };
                     }
 
                     if(!generate_type(context, &(context->implementation_source), actual_type)) {
