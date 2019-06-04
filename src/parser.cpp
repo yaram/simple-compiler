@@ -56,12 +56,10 @@ static void skip_whitespace(Context *context) {
             } break;
 
             case '/': {
-                context->character += 1;
+                auto next_character = fgetc(context->source_file);
 
-                auto character = fgetc(context->source_file);
-
-                if(character == '/') {
-                    context->character += 1;
+                if(next_character == '/') {
+                    context->character += 2;
 
                     while(true) {
                         auto character = fgetc(context->source_file);
@@ -91,7 +89,7 @@ static void skip_whitespace(Context *context) {
                             context->character += 1;
                         }
                     }
-                } else if(character == '*') {
+                } else if(next_character == '*') {
                     context->character += 1;
 
                     unsigned int depth = 1;
@@ -157,6 +155,7 @@ static void skip_whitespace(Context *context) {
                         }
                     }
                 } else {
+                    ungetc(next_character, context->source_file);
                     ungetc(character, context->source_file);
 
                     return;
