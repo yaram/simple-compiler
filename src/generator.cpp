@@ -1654,7 +1654,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
         case ExpressionType::FunctionCall: {
             string_buffer_append(source, "(");
 
-            auto result = generate_expression(context, source, *expression.function_call.expression);
+            auto result = generate_runtime_expression(context, source, *expression.function_call.expression);
 
             string_buffer_append(source, ")");
 
