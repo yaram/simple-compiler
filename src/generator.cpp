@@ -145,6 +145,79 @@ union ConstantValue {
     Array<ConstantValue> array;
 };
 
+static bool constant_values_deep_equal(Type type, ConstantValue a, ConstantValue b) {
+    switch(type.category) {
+        case TypeCategory::Function: {
+            return strcmp(a.function, b.function) == 0;
+        } break;
+
+        case TypeCategory::Integer: {
+            switch(type.integer) {
+                case IntegerType::Unsigned8: {
+                    return a.integer.unsigned_8 == b.integer.unsigned_8;
+                } break;
+
+                case IntegerType::Unsigned16: {
+                    return a.integer.unsigned_16 == b.integer.unsigned_16;
+                } break;
+
+                case IntegerType::Unsigned32: {
+                    return a.integer.unsigned_32 == b.integer.unsigned_32;
+                } break;
+
+                case IntegerType::Unsigned64: {
+                    return a.integer.unsigned_64 == b.integer.unsigned_64;
+                } break;
+                
+                case IntegerType::Signed8: {
+                    return a.integer.signed_8 == b.integer.signed_8;
+                } break;
+
+                case IntegerType::Signed16: {
+                    return a.integer.signed_16 == b.integer.signed_16;
+                } break;
+
+                case IntegerType::Signed32: {
+                    return a.integer.signed_32 == b.integer.signed_32;
+                } break;
+
+                case IntegerType::Signed64: {
+                    return a.integer.signed_64 == b.integer.signed_64;
+                } break;
+
+                case IntegerType::Undetermined:
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        case TypeCategory::Type: {
+            return types_equal(a.type, b.type);
+        } break;
+
+        case TypeCategory::Array: {
+            if(a.array.count != b.array.count) {
+                return false;
+            }
+
+            for(size_t i = 0; i < a.array.count; i += 1) {
+                if(!constant_values_deep_equal(*type.array, a.array[i], b.array[i])) {
+                    return false;
+                }
+            }
+
+            return true;
+        } break;
+
+        case TypeCategory::Void:
+        case TypeCategory::Pointer:
+        default: {
+            abort();
+        } break;
+    }
+}
+
 struct ConstantExpressionValue {
     Type type;
 
@@ -238,6 +311,104 @@ static Result<ConstantExpressionValue> resolve_constant_named_reference(Constant
     }
 }
 
+static Result<ConstantValue> evaluate_constant_array_index(Array<ConstantValue> array, IntegerType index_type, ConstantValue index_value, bool print_errors) {
+    size_t index;
+    switch(index_type) {
+        case IntegerType::Undetermined: {
+            if(index_value.integer.undetermined < 0) {
+                if(print_errors) {
+                    fprintf(stderr, "Array index %lld out of bounds", index_value.integer.undetermined);
+                }
+
+                return { false };
+            }
+
+            index = (size_t)index_value.integer.undetermined;
+        } break;
+        
+        case IntegerType::Unsigned8: {
+            index = (size_t)index_value.integer.unsigned_8;
+        } break;
+        
+        case IntegerType::Unsigned16: {
+            index = (size_t)index_value.integer.unsigned_16;
+        } break;
+        
+        case IntegerType::Unsigned32: {
+            index = (size_t)index_value.integer.unsigned_32;
+        } break;
+        
+        case IntegerType::Unsigned64: {
+            index = (size_t)index_value.integer.unsigned_64;
+        } break;
+        
+        case IntegerType::Signed8: {
+            if(index_value.integer.signed_8 < 0) {
+                if(print_errors) {
+                    fprintf(stderr, "Array index %hhd out of bounds", index_value.integer.signed_8);
+                }
+
+                return { false };
+            }
+
+            index = (size_t)index_value.integer.signed_8;
+        } break;
+        
+        case IntegerType::Signed16: {
+            if(index_value.integer.signed_16 < 0) {
+                if(print_errors) {
+                    fprintf(stderr, "Array index %hd out of bounds", index_value.integer.signed_16);
+                }
+
+                return { false };
+            }
+
+            index = (size_t)index_value.integer.signed_16;
+        } break;
+        
+        case IntegerType::Signed32: {
+            if(index_value.integer.signed_32 < 0) {
+                if(print_errors) {
+                    fprintf(stderr, "Array index %d out of bounds", index_value.integer.signed_32);
+                }
+
+                return { false };
+            }
+
+            index = (size_t)index_value.integer.signed_32;
+        } break;
+        
+        case IntegerType::Signed64: {
+            if(index_value.integer.signed_64 < 0) {
+                if(print_errors) {
+                    fprintf(stderr, "Array index %lld out of bounds", index_value.integer.signed_64);
+                }
+
+                return { false };
+            }
+
+            index = (size_t)index_value.integer.signed_64;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+
+    if(index >= array.count) {
+        if(print_errors) {
+            fprintf(stderr, "Array index %llu out of bounds", index);
+        }
+
+        return { false };
+    }
+
+    return {
+        true,
+        array[index]
+    };
+}
+
 static Result<Type> evaluate_type_expression(ConstantContext context, Expression expression, bool print_errors);
 
 static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors) {
@@ -320,92 +491,9 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                 return { false };
             }
 
-            size_t index;
-            switch(index_result.value.type.integer) {
-                case IntegerType::Undetermined: {
-                    if(index_result.value.value.integer.undetermined < 0) {
-                        error(*expression.index_reference.index, "Array index %lld out of bounds", index_result.value.value.integer.undetermined);
+            auto result = evaluate_constant_array_index(expression_result.value.value.array, index_result.value.type.integer, index_result.value.value, print_errors);
 
-                        return { false };
-                    }
-
-                    index = (size_t)index_result.value.value.integer.undetermined;
-                } break;
-                
-                case IntegerType::Unsigned8: {
-                    index = (size_t)index_result.value.value.integer.unsigned_8;
-                } break;
-                
-                case IntegerType::Unsigned16: {
-                    index = (size_t)index_result.value.value.integer.unsigned_16;
-                } break;
-                
-                case IntegerType::Unsigned32: {
-                    index = (size_t)index_result.value.value.integer.unsigned_32;
-                } break;
-                
-                case IntegerType::Unsigned64: {
-                    index = (size_t)index_result.value.value.integer.unsigned_64;
-                } break;
-                
-                case IntegerType::Signed8: {
-                    if(index_result.value.value.integer.signed_8 < 0) {
-                        if(print_errors) {
-                            error(*expression.index_reference.index, "Array index %hhd out of bounds", index_result.value.value.integer.signed_8);
-                        }
-
-                        return { false };
-                    }
-
-                    index = (size_t)index_result.value.value.integer.signed_8;
-                } break;
-                
-                case IntegerType::Signed16: {
-                    if(index_result.value.value.integer.signed_16 < 0) {
-                        if(print_errors) {
-                            error(*expression.index_reference.index, "Array index %hd out of bounds", index_result.value.value.integer.signed_16);
-                        }
-
-                        return { false };
-                    }
-
-                    index = (size_t)index_result.value.value.integer.signed_16;
-                } break;
-                
-                case IntegerType::Signed32: {
-                    if(index_result.value.value.integer.signed_32 < 0) {
-                        if(print_errors) {
-                            error(*expression.index_reference.index, "Array index %d out of bounds", index_result.value.value.integer.signed_32);
-                        }
-
-                        return { false };
-                    }
-
-                    index = (size_t)index_result.value.value.integer.signed_32;
-                } break;
-                
-                case IntegerType::Signed64: {
-                    if(index_result.value.value.integer.signed_64 < 0) {
-                        if(print_errors) {
-                            error(*expression.index_reference.index, "Array index %lld out of bounds", index_result.value.value.integer.signed_64);
-                        }
-
-                        return { false };
-                    }
-
-                    index = (size_t)index_result.value.value.integer.signed_64;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            if(index >= expression_result.value.value.array.count) {
-                if(print_errors) {
-                    error(*expression.index_reference.index, "Array index %llu out of bounds", index);
-                }
-
+            if(!result.status) {
                 return { false };
             }
 
@@ -413,7 +501,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                 true,
                 {
                     *expression_result.value.type.array,
-                    expression_result.value.value.array[index]
+                    result.value
                 }
             };
         } break;
@@ -877,6 +965,64 @@ static bool add_new_variable(GenerationContext *context, Identifier name, Type t
     return true;
 }
 
+static Result<const char *> maybe_register_array_constant(GenerationContext *context, Type type, Array<ConstantValue> value) {
+    for(auto i = 0; i < context->array_constants.count; i += 1) {
+        auto array_constant = context->array_constants[i];
+
+        if(!types_equal(array_constant.type, type)) {
+            continue;
+        }
+
+        if(array_constant.elements.count != value.count) {
+            continue;
+        }
+
+        auto equal = true;
+        for(size_t j = 0; j < value.count; j += 1) {
+            if(!constant_values_deep_equal(type, array_constant.elements[j], value[j])) {
+                equal = false;
+
+                break;
+            }
+        }
+
+        if(equal) {
+            char *mangled_name{};
+
+            string_buffer_append(&mangled_name, "_array_constant_");
+
+            char buffer[32];
+            sprintf(buffer, "%d", i);
+
+            string_buffer_append(&mangled_name, buffer);
+
+            return {
+                true,
+                mangled_name
+            };
+        }
+    }
+
+    char *mangled_name{};
+
+    string_buffer_append(&mangled_name, "_array_constant_");
+
+    char buffer[32];
+    sprintf(buffer, "%d", context->array_constants.count);
+
+    string_buffer_append(&mangled_name, buffer);
+
+    append(&(context->array_constants), ArrayConstant {
+        type,
+        value
+    });
+
+    return {
+        true,
+        mangled_name
+    };
+}
+
 static Result<const char *> maybe_register_array_type(GenerationContext *context, Type type) {
     auto array_types = &(context->array_types);
 
@@ -1096,19 +1242,27 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
         } break;
 
         case TypeCategory::Type: {
-            return generate_type(context, source, value.type);
+            fprintf(stderr, "Type values cannot exist at runtime\n");
+
+            return false;
         } break;
 
         case TypeCategory::Array: {
-            auto result = maybe_register_array_type(context, *type.array);
+            auto type_result = maybe_register_array_type(context, *type.array);
 
-            if(!result.status) {
+            if(!type_result.status) {
+                return false;
+            }
+
+            auto constant_result = maybe_register_array_constant(context, *type.array, value.array);
+
+            if(!constant_result.status) {
                 return false;
             }
 
             string_buffer_append(source, "(struct ");
 
-            string_buffer_append(source, result.value);
+            string_buffer_append(source, type_result.value);
 
             string_buffer_append(source, "){");
 
@@ -1120,11 +1274,7 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
 
             string_buffer_append(source, ",");
 
-            string_buffer_append(source, "_array_constant_");
-
-            sprintf(buffer, "%d", context->array_constants.count);
-
-            string_buffer_append(source, buffer);
+            string_buffer_append(source, constant_result.value);
 
             string_buffer_append(source, "}");
 
@@ -1163,6 +1313,45 @@ struct ExpressionValue {
         ConstantValue constant;
     };
 };
+
+static Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression);
+
+static Result<ExpressionValue> generate_runtime_expression(GenerationContext *context, char **source, Expression expression) {
+    auto result = generate_expression(context, source, expression);
+
+    if(!result.status) {
+        return { false };
+    }
+
+    switch(result.value.category) {
+        case ExpressionValueCategory::Anonymous:
+        case ExpressionValueCategory::Assignable: {
+            return {
+                true,
+                result.value
+            };
+        } break;
+
+        case ExpressionValueCategory::Constant: {
+            if(!generate_constant_value(context, source, result.value.type, result.value.constant)) {
+                return { false };
+            }
+
+            ExpressionValue value;
+            value.category = ExpressionValueCategory::Anonymous;
+            value.type = result.value.type;
+
+            return {
+                true,
+                value
+            };
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
 
 static Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression) {
     switch(expression.type) {
@@ -1208,11 +1397,8 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
         } break;
 
         case ExpressionType::MemberReference: {
-            string_buffer_append(source, "(");
-
-            auto result = generate_expression(context, source, *expression.member_reference.expression);
-
-            string_buffer_append(source, ")");
+            char *expression_source{};
+            auto result = generate_expression(context, &expression_source, *expression.member_reference.expression);
 
             if(!result.status) {
                 return { false };
@@ -1225,29 +1411,88 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
 
             if(strcmp(expression.member_reference.name.text, "length") == 0) {
-                string_buffer_append(source, ".length");
+                switch(result.value.category) {
+                    case ExpressionValueCategory::Anonymous:
+                    case ExpressionValueCategory::Assignable: {
+                        string_buffer_append(source, "(");
 
-                ExpressionValue value;
-                value.category = ExpressionValueCategory::Anonymous;
-                value.type.category = TypeCategory::Integer;
-                value.type.integer = IntegerType::Unsigned64;
+                        string_buffer_append(source, expression_source);
 
-                return {
-                    true,
-                    value
-                };
+                        string_buffer_append(source, ").length");
+
+                        ExpressionValue value;
+                        value.category = ExpressionValueCategory::Anonymous;
+                        value.type.category = TypeCategory::Integer;
+                        value.type.integer = IntegerType::Unsigned64;
+
+                        return {
+                            true,
+                            value
+                        };
+                    } break;
+
+                    case ExpressionValueCategory::Constant: {
+                        ExpressionValue value;
+                        value.category = ExpressionValueCategory::Constant;
+                        value.type.category = TypeCategory::Integer;
+                        value.type.integer = IntegerType::Unsigned64;
+                        value.constant.integer.unsigned_64 = result.value.constant.array.count;
+
+                        return {
+                            true,
+                            value
+                        };
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
             } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
-                string_buffer_append(source, ".pointer");
+                switch(result.value.category) {
+                    case ExpressionValueCategory::Anonymous:
+                    case ExpressionValueCategory::Assignable: {
+                        string_buffer_append(source, "(");
 
-                ExpressionValue value;
-                value.category = ExpressionValueCategory::Anonymous;
-                value.type.category = TypeCategory::Pointer;
-                value.type.pointer = result.value.type.array;
+                        string_buffer_append(source, expression_source);
 
-                return {
-                    true,
-                    value
-                };
+                        string_buffer_append(source, ").pointer");
+
+                        ExpressionValue value;
+                        value.category = ExpressionValueCategory::Anonymous;
+                        value.type.category = TypeCategory::Pointer;
+                        value.type.pointer = result.value.type.array;
+
+                        return {
+                            true,
+                            value
+                        };
+                    } break;
+
+                    case ExpressionValueCategory::Constant: {
+                        auto constant_result = maybe_register_array_constant(context, *result.value.type.array, result.value.constant.array);
+
+                        if(!constant_result.status) {
+                            return { false };
+                        }
+
+                        string_buffer_append(source, constant_result.value);
+
+                        ExpressionValue value;
+                        value.category = ExpressionValueCategory::Anonymous;
+                        value.type.category = TypeCategory::Pointer;
+                        value.type.pointer = result.value.type.array;
+
+                        return {
+                            true,
+                            value
+                        };
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
             } else {
                 error(expression.member_reference.name, "No member with name %s", expression.member_reference.name.text);
 
@@ -1256,59 +1501,143 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
         } break;
 
         case ExpressionType::IndexReference: {
-            string_buffer_append(source, "(");
-
-            auto expression_result = generate_expression(context, source, *expression.index_reference.expression);
-
-            string_buffer_append(source, ")");
-
-            if(!expression_result.status) {
+            char *expression_source{};
+            auto result = generate_expression(context, &expression_source, *expression.index_reference.expression);
+            
+            if(!result.status) {
                 return { false };
             }
 
-            if(expression_result.value.type.category != TypeCategory::Array) {
+            if(result.value.type.category != TypeCategory::Array) {
                 error(*expression.index_reference.expression, "Cannot index a non-array");
 
                 return { false };
             }
 
-            string_buffer_append(source, "[");
+            switch(result.value.category) {
+                case ExpressionValueCategory::Anonymous:
+                case ExpressionValueCategory::Assignable: {
+                    string_buffer_append(source, "(");
 
-            auto index_result = generate_expression(context, source, *expression.index_reference.index);
+                    string_buffer_append(source, expression_source);
 
-            if(!index_result.status) {
-                return { false };
+                    string_buffer_append(source, ")");
+
+                    string_buffer_append(source, "[");
+
+                    auto index_result = generate_runtime_expression(context, source, *expression.index_reference.index);
+
+                    if(!index_result.status) {
+                        return { false };
+                    }
+
+                    if(index_result.value.type.category != TypeCategory::Integer) {
+                        error(*expression.index_reference.index, "Array index not an integer");
+
+                        return { false };
+                    }
+
+                    string_buffer_append(source, "]");
+                    
+                    ExpressionValue value;
+                    value.category = ExpressionValueCategory::Assignable;
+                    value.type = *result.value.type.array;
+
+                    return {
+                        true,
+                        value
+                    };
+                } break;
+
+                case ExpressionValueCategory::Constant: {
+                    char *index_source{};
+                    auto index_result = generate_expression(context, &index_source, *expression.index_reference.index);
+
+                    if(!index_result.status) {
+                        return { false };
+                    }
+                    
+                    if(index_result.value.type.category != TypeCategory::Integer) {
+                        error(*expression.index_reference.index, "Array index not an integer");
+
+                        return { false };
+                    }
+
+                    switch(index_result.value.category) {
+                        case ExpressionValueCategory::Anonymous:
+                        case ExpressionValueCategory::Assignable: {
+                            string_buffer_append(source, "(");
+
+                            string_buffer_append(source, expression_source);
+
+                            string_buffer_append(source, ")");
+
+                            string_buffer_append(source, "[");
+
+                            string_buffer_append(source, index_source);
+
+                            string_buffer_append(source, "]");
+                            
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Assignable;
+                            value.type = *result.value.type.array;
+
+                            return {
+                                true,
+                                value
+                            };
+                        } break;
+
+                        case ExpressionValueCategory::Constant: {
+                            auto array_value = evaluate_constant_array_index(result.value.constant.array, index_result.value.type.integer, index_result.value.constant, true);
+
+                            if(!array_value.status) {
+                                return { false };
+                            }
+                            
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Constant;
+                            value.type = *result.value.type.array;
+                            value.constant = array_value.value;
+
+                            return {
+                                true,
+                                value
+                            };
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } break;
+
+                default: {
+                    abort();
+                } break;
             }
 
-            if(index_result.value.type.category != TypeCategory::Integer) {
-                error(*expression.index_reference.index, "Array index not an integer");
+            string_buffer_append(source, "(");
 
-                return { false };
-            }
+            
 
-            string_buffer_append(source, "]");
+            string_buffer_append(source, ")");
 
-            ExpressionValue value;
-            value.category = ExpressionValueCategory::Assignable;
-            value.type = *expression_result.value.type.array;
+            
 
-            return {
-                true,
-                value
-            };
+            
+
+            
+
+            
         } break;
 
         case ExpressionType::IntegerLiteral: {
-            char buffer[64];
-
-            sprintf(buffer, "%lld", expression.integer_literal);
-
-            string_buffer_append(source, buffer);
-
             ExpressionValue value;
             value.category = ExpressionValueCategory::Constant;
             value.type.category = TypeCategory::Integer;
             value.type.integer = IntegerType::Undetermined;
+            value.constant.integer.undetermined = expression.integer_literal;
 
             return {
                 true,
@@ -1335,10 +1664,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 expression.string_literal.count,
                 characters
             };
-
-            if(!generate_constant_value(context, source, value.type, value.constant)) {
-                return { false };
-            }
 
             return {
                 true,
@@ -1373,8 +1698,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
             for(auto i = 0; i < result.value.type.function.parameters.count; i += 1) {
                 char *parameter_source{};
-
-                auto parameter_result = generate_expression(context, &parameter_source, expression.function_call.parameters[i]);
+                auto parameter_result = generate_runtime_expression(context, &parameter_source, expression.function_call.parameters[i]);
 
                 if(!parameter_result.status) {
                     return { false };
@@ -1550,7 +1874,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                 
                 case VariableDeclarationType::TypeElided: {
                     char *initializer_source{};
-                    auto result = generate_expression(context, &initializer_source, statement.variable_declaration.type_elided);
+                    auto result = generate_runtime_expression(context, &initializer_source, statement.variable_declaration.type_elided);
 
                     if(!result.status) {
                         return { false };
@@ -1587,7 +1911,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     }
 
                     char *initializer_source{};
-                    auto initializer_result = generate_expression(context, &initializer_source, statement.variable_declaration.fully_specified.initializer);
+                    auto initializer_result = generate_runtime_expression(context, &initializer_source, statement.variable_declaration.fully_specified.initializer);
 
                     if(!initializer_result.status) {
                         return { false };
@@ -1647,7 +1971,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
 
             string_buffer_append(&(context->implementation_source), "=");
 
-            auto value_result = generate_expression(context, &(context->implementation_source), statement.assignment.value);
+            auto value_result = generate_runtime_expression(context, &(context->implementation_source), statement.assignment.value);
 
             if(!value_result.status) {
                 return false;
