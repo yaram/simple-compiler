@@ -409,6 +409,259 @@ static Result<ConstantValue> evaluate_constant_array_index(Array<ConstantValue> 
     };
 }
 
+template <typename T>
+static T perform_binary_integer_operation(BinaryOperator binary_operator, T left, T right) {
+    switch(binary_operator) {
+        case BinaryOperator::Addition: {
+            return left + right;
+        } break;
+        
+        case BinaryOperator::Subtraction: {
+            return left - right;
+        } break;
+        
+        case BinaryOperator::Multiplication: {
+            return left * right;
+        } break;
+        
+        case BinaryOperator::Division: {
+            return left / right;
+        } break;
+        
+        case BinaryOperator::Modulo: {
+            return left % right;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
+static Result<ConstantExpressionValue> evaluate_constant_binary_integer_operation(BinaryOperator binary_operator, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value, bool print_errors) {
+    IntegerType result_type;
+    ConstantValue result_value;
+    if(left_type == IntegerType::Undetermined && right_type == IntegerType::Undetermined) {
+        result_type = IntegerType::Undetermined;
+        result_value.integer.undetermined = perform_binary_integer_operation(
+            binary_operator,
+            left_value.integer.undetermined,
+            right_value.integer.undetermined
+        );
+    } else {
+        if(left_type != IntegerType::Undetermined) {
+            result_type = left_type;
+        } else if(right_type != IntegerType::Undetermined) {
+            result_type = right_type;
+        } else {
+            if(left_type != right_type) {
+                if(print_errors) {
+                    fprintf(stderr, "Mismatched types for binary operation\n");
+                }
+
+                return { false };
+            }
+
+            result_type = left_type;
+        }
+
+        switch(result_type) {
+            case IntegerType::Unsigned8: {
+                uint8_t left;
+                if(left_type == IntegerType::Undetermined) {
+                    left = (uint8_t)left_value.integer.undetermined;
+                } else {
+                    left = left_value.integer.unsigned_8;
+                }
+
+                uint8_t right;
+                if(right_type == IntegerType::Undetermined) {
+                    right = (uint8_t)right_value.integer.undetermined;
+                } else {
+                    right = right_value.integer.unsigned_8;
+                }
+
+                result_value.integer.unsigned_8 = perform_binary_integer_operation(
+                    binary_operator,
+                    left,
+                    right
+                );
+            } break;
+
+            case IntegerType::Unsigned16: {
+                uint16_t left;
+                if(left_type == IntegerType::Undetermined) {
+                    left = (uint16_t)left_value.integer.undetermined;
+                } else {
+                    left = left_value.integer.unsigned_16;
+                }
+
+                uint16_t right;
+                if(right_type == IntegerType::Undetermined) {
+                    right = (uint16_t)right_value.integer.undetermined;
+                } else {
+                    right = right_value.integer.unsigned_16;
+                }
+
+                result_value.integer.unsigned_16 = perform_binary_integer_operation(
+                    binary_operator,
+                    left,
+                    right
+                );
+            } break;
+
+            case IntegerType::Unsigned32: {
+                uint32_t left;
+                if(left_type == IntegerType::Undetermined) {
+                    left = (uint32_t)left_value.integer.undetermined;
+                } else {
+                    left = left_value.integer.unsigned_32;
+                }
+
+                uint32_t right;
+                if(right_type == IntegerType::Undetermined) {
+                    right = (uint32_t)right_value.integer.undetermined;
+                } else {
+                    right = right_value.integer.unsigned_32;
+                }
+
+                result_value.integer.unsigned_32 = perform_binary_integer_operation(
+                    binary_operator,
+                    left,
+                    right
+                );
+            } break;
+
+            case IntegerType::Unsigned64: {
+                uint64_t left;
+                if(left_type == IntegerType::Undetermined) {
+                    left = (uint64_t)left_value.integer.undetermined;
+                } else {
+                    left = left_value.integer.unsigned_64;
+                }
+
+                uint64_t right;
+                if(right_type == IntegerType::Undetermined) {
+                    right = (uint64_t)right_value.integer.undetermined;
+                } else {
+                    right = right_value.integer.unsigned_64;
+                }
+
+                result_value.integer.unsigned_64 = perform_binary_integer_operation(
+                    binary_operator,
+                    left,
+                    right
+                );
+            } break;
+            
+            case IntegerType::Signed8: {
+                int8_t left;
+                if(left_type == IntegerType::Undetermined) {
+                    left = (int8_t)left_value.integer.undetermined;
+                } else {
+                    left = left_value.integer.signed_8;
+                }
+
+                int8_t right;
+                if(right_type == IntegerType::Undetermined) {
+                    right = (int8_t)right_value.integer.undetermined;
+                } else {
+                    right = right_value.integer.signed_8;
+                }
+
+                result_value.integer.signed_8 = perform_binary_integer_operation(
+                    binary_operator,
+                    left,
+                    right
+                );
+            } break;
+
+            case IntegerType::Signed16: {
+                int16_t left;
+                if(left_type == IntegerType::Undetermined) {
+                    left = (int16_t)left_value.integer.undetermined;
+                } else {
+                    left = left_value.integer.signed_16;
+                }
+
+                int16_t right;
+                if(right_type == IntegerType::Undetermined) {
+                    right = (int16_t)right_value.integer.undetermined;
+                } else {
+                    right = right_value.integer.signed_16;
+                }
+
+                result_value.integer.signed_16 = perform_binary_integer_operation(
+                    binary_operator,
+                    left,
+                    right
+                );
+            } break;
+
+            case IntegerType::Signed32: {
+                int32_t left;
+                if(left_type == IntegerType::Undetermined) {
+                    left = (int32_t)left_value.integer.undetermined;
+                } else {
+                    left = left_value.integer.signed_32;
+                }
+
+                int32_t right;
+                if(right_type == IntegerType::Undetermined) {
+                    right = (int32_t)right_value.integer.undetermined;
+                } else {
+                    right = right_value.integer.signed_32;
+                }
+
+                result_value.integer.signed_32 = perform_binary_integer_operation(
+                    binary_operator,
+                    left,
+                    right
+                );
+            } break;
+
+            case IntegerType::Signed64: {
+                int64_t left;
+                if(left_type == IntegerType::Undetermined) {
+                    left = (int64_t)left_value.integer.undetermined;
+                } else {
+                    left = left_value.integer.signed_64;
+                }
+
+                int64_t right;
+                if(right_type == IntegerType::Undetermined) {
+                    right = (int64_t)right_value.integer.undetermined;
+                } else {
+                    right = right_value.integer.signed_64;
+                }
+
+                result_value.integer.signed_64 = perform_binary_integer_operation(
+                    binary_operator,
+                    left,
+                    right
+                );
+            } break;
+
+            case IntegerType::Undetermined:
+            default: {
+                abort();
+            } break;
+        }
+    }
+
+    Type type;
+    type.category = TypeCategory::Integer;
+    type.integer = result_type;
+
+    return {
+        true,
+        {
+            type,
+            result_value
+        }
+    };
+}
+
 static Result<Type> evaluate_type_expression(ConstantContext context, Expression expression, bool print_errors);
 
 static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors) {
@@ -559,6 +812,50 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             }
 
             return { false };
+        } break;
+
+        case ExpressionType::BinaryOperation: {
+            auto left_result = evaluate_constant_expression(context, *expression.binary_operation.left, print_errors);
+
+            if(!left_result.status) {
+                return { false };
+            }
+
+            if(left_result.value.type.category != TypeCategory::Integer) {
+                error(*expression.binary_operation.left, "Cannot apply binary operation to non-integers");
+
+                return { false };
+            }
+
+            auto right_result = evaluate_constant_expression(context, *expression.binary_operation.right, print_errors);
+
+            if(!right_result.status) {
+                return { false };
+            }
+            
+            if(right_result.value.type.category != TypeCategory::Integer) {
+                error(*expression.binary_operation.right, "Cannot apply binary operation to non-integers");
+
+                return { false };
+            }
+
+            auto result = evaluate_constant_binary_integer_operation(
+                expression.binary_operation.binary_operator,
+                left_result.value.type.integer,
+                left_result.value.value,
+                right_result.value.type.integer,
+                right_result.value.value,
+                print_errors
+            );
+
+            if(!result.status) {
+                return { false };
+            }
+
+            return {
+                true,
+                result.value
+            };
         } break;
 
         case ExpressionType::Pointer: {
@@ -1721,6 +2018,168 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 true,
                 value
             };
+        } break;
+
+        case ExpressionType::BinaryOperation: {
+            char *left_source{};
+            auto left_result = generate_expression(context, &left_source, *expression.binary_operation.left);
+
+            if(!left_result.status) {
+                return { false };
+            }
+
+            if(left_result.value.type.category != TypeCategory::Integer) {
+                error(*expression.binary_operation.left, "Cannot apply binary operation to non-integers");
+
+                return { false };
+            }
+
+            char *right_source{};
+            auto right_result = generate_expression(context, &right_source, *expression.binary_operation.right);
+
+            if(!right_result.status) {
+                return { false };
+            }
+            
+            if(right_result.value.type.category != TypeCategory::Integer) {
+                error(*expression.binary_operation.right, "Cannot apply binary operation to non-integers");
+
+                return { false };
+            }
+
+            if(left_result.value.category == ExpressionValueCategory::Constant && right_result.value.category == ExpressionValueCategory::Constant) {
+                auto result = evaluate_constant_binary_integer_operation(
+                    expression.binary_operation.binary_operator,
+                    left_result.value.type.integer,
+                    left_result.value.constant,
+                    right_result.value.type.integer,
+                    right_result.value.constant,
+                    true
+                );
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                ExpressionValue value;
+                value.category = ExpressionValueCategory::Constant;
+                value.type = result.value.type;
+                value.constant = result.value.value;
+
+                return {
+                    true,
+                    value
+                };
+            } else {
+                IntegerType result_type;
+                if(left_result.value.type.integer != IntegerType::Undetermined && right_result.value.type.integer != IntegerType::Undetermined) {
+                    if(left_result.value.type.integer != right_result.value.type.integer) {
+                        error(expression, "Mismatched types for binary operation");
+
+                        return { false };
+                    }
+
+                    result_type = left_result.value.type.integer;
+                } else if(left_result.value.type.integer != IntegerType::Undetermined) {
+                    result_type = left_result.value.type.integer;
+                } else {
+                    result_type = right_result.value.type.integer;
+                }
+
+                if(left_result.value.type.integer == IntegerType::Undetermined) {
+                    string_buffer_append(source, "(");
+
+                    generate_integer_type(source, result_type);
+
+                    string_buffer_append(source, ")");
+                }
+
+                string_buffer_append(source, "(");
+
+                switch(left_result.value.category) {
+                    case ExpressionValueCategory::Anonymous:
+                    case ExpressionValueCategory::Assignable: {
+                        string_buffer_append(source, left_source);
+                    } break;
+
+                    case ExpressionValueCategory::Constant: {
+                        if(!generate_constant_value(context, source, left_result.value.type, left_result.value.constant)) {
+                            return { false };
+                        }
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                string_buffer_append(source, ")");
+
+                switch(expression.binary_operation.binary_operator) {
+                    case BinaryOperator::Addition: {
+                        string_buffer_append(source, "+");
+                    } break;
+                    
+                    case BinaryOperator::Subtraction: {
+                        string_buffer_append(source, "-");
+                    } break;
+                    
+                    case BinaryOperator::Multiplication: {
+                        string_buffer_append(source, "*");
+                    } break;
+                    
+                    case BinaryOperator::Division: {
+                        string_buffer_append(source, "/");
+                    } break;
+                    
+                    case BinaryOperator::Modulo: {
+                        string_buffer_append(source, "%");
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                if(right_result.value.type.integer == IntegerType::Undetermined) {
+                    string_buffer_append(source, "(");
+
+                    generate_integer_type(source, result_type);
+
+                    string_buffer_append(source, ")");
+                }
+
+                string_buffer_append(source, "(");
+
+                switch(right_result.value.category) {
+                    case ExpressionValueCategory::Anonymous:
+                    case ExpressionValueCategory::Assignable: {
+                        string_buffer_append(source, right_source);
+                    } break;
+
+                    case ExpressionValueCategory::Constant: {
+                        if(!generate_constant_value(context, source, right_result.value.type, right_result.value.constant)) {
+                            return { false };
+                        }
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                string_buffer_append(source, ")");
+
+                ExpressionValue value;
+                value.category = ExpressionValueCategory::Anonymous;
+                value.type.category = TypeCategory::Integer;
+                value.type.integer = result_type;
+
+                return {
+                    true,
+                    value
+                };
+            }
         } break;
 
         case ExpressionType::Pointer: {
