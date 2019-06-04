@@ -233,12 +233,49 @@ struct GlobalConstant {
 };
 
 struct ConstantContext {
+    IntegerType unsigned_size_integer_type;
+    IntegerType signed_size_integer_type;
+    IntegerType default_integer_type;
+
     Array<GlobalConstant> global_constants;
 
     Array<Declaration> top_level_declarations;
 
     List<Declaration> declaration_stack;
 };
+
+static ConstantValue compiler_size_to_native_size(ConstantContext context, size_t size) {
+    ConstantValue value;
+
+    switch(context.unsigned_size_integer_type) {
+        case IntegerType::Unsigned8: {
+            value.integer.unsigned_8 = (uint64_t)size;
+        } break;
+        
+        case IntegerType::Unsigned16: {
+            value.integer.unsigned_16 = (uint64_t)size;
+        } break;
+        
+        case IntegerType::Unsigned32: {
+            value.integer.unsigned_32 = (uint64_t)size;
+        } break;
+        
+        case IntegerType::Unsigned64: {
+            value.integer.unsigned_64 = (uint64_t)size;
+        } break;
+
+        case IntegerType::Undetermined:
+        case IntegerType::Signed8:
+        case IntegerType::Signed16:
+        case IntegerType::Signed32:
+        case IntegerType::Signed64:
+        default: {
+            abort();
+        } break;
+    }
+
+    return value;
+}
 
 static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors);
 
@@ -688,10 +725,9 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             if(strcmp(expression.member_reference.name.text, "length") == 0) {
                 Type type;
                 type.category = TypeCategory::Integer;
-                type.integer = IntegerType::Unsigned64;
+                type.integer = context.unsigned_size_integer_type;
 
-                ConstantValue value;
-                value.integer.unsigned_64 = result.value.value.array.count;
+                auto value = compiler_size_to_native_size(context, result.value.value.array.count);
 
                 return {
                     true,
@@ -1714,7 +1750,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                         ExpressionValue value;
                         value.category = ExpressionValueCategory::Anonymous;
                         value.type.category = TypeCategory::Integer;
-                        value.type.integer = IntegerType::Unsigned64;
+                        value.type.integer = context->constant_context.unsigned_size_integer_type;
 
                         return {
                             true,
@@ -1726,8 +1762,8 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                         ExpressionValue value;
                         value.category = ExpressionValueCategory::Constant;
                         value.type.category = TypeCategory::Integer;
-                        value.type.integer = IntegerType::Unsigned64;
-                        value.constant.integer.unsigned_64 = result.value.constant.array.count;
+                        value.type.integer = context->constant_context.unsigned_size_integer_type;
+                        value.constant = compiler_size_to_native_size(context->constant_context, result.value.constant.array.count);
 
                         return {
                             true,
@@ -2328,7 +2364,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     Type actual_type;
                     if(result.value.type.category == TypeCategory::Integer && result.value.type.integer == IntegerType::Undetermined) {
                         actual_type.category = TypeCategory::Integer;
-                        actual_type.integer = IntegerType::Signed64;
+                        actual_type.integer = context->constant_context.default_integer_type;
                     } else {
                         actual_type = result.value.type;
                     }
@@ -2621,6 +2657,9 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
 
     List<GlobalConstant> global_constants{};
 
+    auto unsigned_size_integer_type = IntegerType::Unsigned64;
+    auto signed_size_integer_type = IntegerType::Signed64;
+
     append(&global_constants, create_base_integer_type("u8", IntegerType::Unsigned8));
     append(&global_constants, create_base_integer_type("u16", IntegerType::Unsigned16));
     append(&global_constants, create_base_integer_type("u32", IntegerType::Unsigned32));
@@ -2631,7 +2670,13 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
     append(&global_constants, create_base_integer_type("i32", IntegerType::Signed32));
     append(&global_constants, create_base_integer_type("i64", IntegerType::Signed64));
 
+    append(&global_constants, create_base_integer_type("usize", unsigned_size_integer_type));
+    append(&global_constants, create_base_integer_type("isize", signed_size_integer_type));
+
     ConstantContext constant_context {
+        unsigned_size_integer_type,
+        signed_size_integer_type,
+        signed_size_integer_type,
         to_array(global_constants),
         to_array(top_level_declarations)
     };
