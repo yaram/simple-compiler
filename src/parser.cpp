@@ -476,6 +476,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                     expression.integer_literal = value;
                 } else {
                     expression.type = ExpressionType::NamedReference;
+                    expression.source_file_path = context->source_file_path;
+                    expression.line = first_line;
+                    expression.character = first_character;
                     expression.named_reference = {
                         buffer.elements,
                         context->source_file_path,
@@ -1228,6 +1231,9 @@ static Result<Statement> parse_statement(Context *context) {
 
                 Expression target;
                 target.type = ExpressionType::NamedReference;
+                target.source_file_path = context->source_file_path;
+                target.line = identifier.line;
+                target.character = identifier.character;
                 target.named_reference = identifier;
 
                 skip_whitespace(context);
