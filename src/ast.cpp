@@ -274,22 +274,40 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             debug_print_indentifier(statement.variable_declaration.name);
             printf(",\n");
 
-            if(statement.variable_declaration.has_type) {
-                indent(indentation_level + 1);
-                printf("type: ");
+            switch(statement.variable_declaration.type) {
+                case VariableDeclarationType::Uninitialized: {
+                    indent(indentation_level + 1);
+                    printf("type: ");
 
-                debug_print_expression_indent(statement.variable_declaration.type, indentation_level + 2);
+                    debug_print_expression_indent(statement.variable_declaration.uninitialized, indentation_level + 2);
 
-                printf("\n");
-            }
+                    printf("\n");
+                } break;
+                
+                case VariableDeclarationType::TypeElided: {
+                    indent(indentation_level + 1);
+                    printf("initializer: ");
 
-            if(statement.variable_declaration.has_initializer) {
-                indent(indentation_level + 1);
-                printf("initializer: ");
+                    debug_print_expression_indent(statement.variable_declaration.type_elided, indentation_level + 2);
 
-                debug_print_expression_indent(statement.variable_declaration.initializer, indentation_level + 2);
+                    printf("\n");
+                } break;
+                
+                case VariableDeclarationType::FullySpecified: {
+                    indent(indentation_level + 1);
+                    printf("type: ");
 
-                printf("\n");
+                    debug_print_expression_indent(statement.variable_declaration.fully_specified.type, indentation_level + 2);
+
+                    printf("\n");
+                    
+                    indent(indentation_level + 1);
+                    printf("initializer: ");
+
+                    debug_print_expression_indent(statement.variable_declaration.fully_specified.initializer, indentation_level + 2);
+
+                    printf("\n");
+                } break;
             }
 
             indent(indentation_level);

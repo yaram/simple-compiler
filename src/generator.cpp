@@ -1529,81 +1529,107 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
         } break;
 
         case StatementType::VariableDeclaration: {
-            Type type;
-            if(statement.variable_declaration.has_type) {
-                auto result = evaluate_type_expression(context->constant_context, statement.variable_declaration.type, true);
+            switch(statement.variable_declaration.type) {
+                case VariableDeclarationType::Uninitialized: {
+                    auto result = evaluate_type_expression(context->constant_context, statement.variable_declaration.uninitialized, true);
 
-                if(!result.status) {
-                    return { false };
-                }
-
-                type = result.value;
-            }
-
-            Type initialzer_type;
-            char *initializer_source{};
-            if(statement.variable_declaration.has_initializer) {
-                auto result = generate_expression(context, &initializer_source, statement.variable_declaration.initializer);
-
-                if(!result.status) {
-                    return { false };
-                }
-
-                initialzer_type = result.value.type;
-            }
-
-            Type final_type;
-            if(statement.variable_declaration.has_initializer && statement.variable_declaration.has_type) {
-                if(
-                    type.category == TypeCategory::Integer &&
-                    initialzer_type.category == TypeCategory::Integer &&
-                    initialzer_type.integer == IntegerType::Undetermined
-                ) {
-                    final_type.category = TypeCategory::Integer;
-                    final_type.integer = IntegerType::Signed64;
-                } else {
-                    if(!types_equal(type, initialzer_type)) {
-                        error(statement.variable_declaration.initializer, "Initializer type does not match variable type");
-
+                    if(!result.status) {
                         return { false };
                     }
 
-                    final_type = type;
-                }
-            } else if(statement.variable_declaration.has_initializer) {
-                if(initialzer_type.category == TypeCategory::Integer && initialzer_type.integer == IntegerType::Undetermined) {
-                    final_type.category = TypeCategory::Integer;
-                    final_type.integer = IntegerType::Signed64;
-                } else {
-                    final_type = initialzer_type;
-                }
-            } else if(statement.variable_declaration.has_type) {
-                final_type = type;
-            } else {
-                abort();
+                    if(!generate_type(context, &(context->implementation_source), result.value)) {
+                        return { false };
+                    }
+
+                    string_buffer_append(&(context->implementation_source), " ");
+
+                    string_buffer_append(&(context->implementation_source), statement.variable_declaration.name.text);
+
+                    string_buffer_append(&(context->implementation_source), ";");
+                } break;
+                
+                case VariableDeclarationType::TypeElided: {
+                    char *initializer_source{};
+                    auto result = generate_expression(context, &initializer_source, statement.variable_declaration.type_elided);
+
+                    if(!result.status) {
+                        return { false };
+                    }
+
+                    Type actual_type;
+                    if(result.value.type.category == TypeCategory::Integer && result.value.type.integer == IntegerType::Undetermined) {
+                        actual_type.category = TypeCategory::Integer;
+                        actual_type.integer = IntegerType::Signed64;
+                    } else {
+                        actual_type = result.value.type;
+                    }
+                    
+                    if(!generate_type(context, &(context->implementation_source), actual_type)) {
+                        return { false };
+                    }
+
+                    string_buffer_append(&(context->implementation_source), " ");
+
+                    string_buffer_append(&(context->implementation_source), statement.variable_declaration.name.text);
+                    
+                    string_buffer_append(&(context->implementation_source), "=");
+
+                    string_buffer_append(&(context->implementation_source), initializer_source);
+
+                    string_buffer_append(&(context->implementation_source), ";");
+                } break;
+                
+                case VariableDeclarationType::FullySpecified: {
+                    auto type_result = evaluate_type_expression(context->constant_context, statement.variable_declaration.fully_specified.type, true);
+
+                    if(!type_result.status) {
+                        return { false };
+                    }
+
+                    char *initializer_source{};
+                    auto initializer_result = generate_expression(context, &initializer_source, statement.variable_declaration.fully_specified.initializer);
+
+                    if(!initializer_result.status) {
+                        return { false };
+                    }
+
+                    Type actual_type;
+                    if(
+                        type_result.value.category == TypeCategory::Integer &&
+                        initializer_result.value.type.category == TypeCategory::Integer &&
+                        initializer_result.value.type.integer == IntegerType::Undetermined
+                    ) {
+                        actual_type.category = TypeCategory::Integer;
+                        actual_type.integer = IntegerType::Signed64;
+                    } else {
+                        if(!types_equal(type_result.value, initializer_result.value.type)) {
+                            error(statement.variable_declaration.fully_specified.initializer, "Initializer type does not match variable type");
+
+                            return { false };
+                        }
+
+                        actual_type = type_result.value;
+                    }
+
+                    if(!generate_type(context, &(context->implementation_source), actual_type)) {
+                        return { false };
+                    }
+
+                    string_buffer_append(&(context->implementation_source), " ");
+
+                    string_buffer_append(&(context->implementation_source), statement.variable_declaration.name.text);
+                    
+                    string_buffer_append(&(context->implementation_source), "=");
+
+                    string_buffer_append(&(context->implementation_source), initializer_source);
+
+                    string_buffer_append(&(context->implementation_source), ";");
+                } break;
+
+                default: {
+                    abort();
+                } break;
             }
-
-            if(!add_new_variable(context, statement.variable_declaration.name, final_type)) {
-                return false;
-            }
-
-            if(!generate_type(context, &(context->implementation_source), final_type)) {
-                return false;
-            }
-
-            string_buffer_append(&(context->implementation_source), " ");
-
-            string_buffer_append(&(context->implementation_source), statement.variable_declaration.name.text);
-
-            if(statement.variable_declaration.has_initializer) {
-                string_buffer_append(&(context->implementation_source), "=");
-
-                string_buffer_append(&(context->implementation_source), initializer_source);
-            }
-
-            string_buffer_append(&(context->implementation_source), ";");
-
-            return true;
         } break;
 
         case StatementType::Assignment: {

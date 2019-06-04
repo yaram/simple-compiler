@@ -1196,15 +1196,24 @@ static Result<Statement> parse_statement(Context *context) {
                     statement.line = first_line;
                     statement.character = first_character;
                     statement.variable_declaration.name = identifier;
-                    statement.variable_declaration.has_type = has_type;
-                    statement.variable_declaration.has_initializer = has_initializer;
 
-                    if(has_type) {
-                        statement.variable_declaration.type = type;
-                    }
+                    if(has_type && has_initializer) {
+                        statement.variable_declaration.type = VariableDeclarationType::FullySpecified;
 
-                    if(has_initializer) {
-                        statement.variable_declaration.initializer = initializer;
+                        statement.variable_declaration.fully_specified = {
+                            type,
+                            initializer
+                        };
+                    } else if(has_type) {
+                        statement.variable_declaration.type = VariableDeclarationType::Uninitialized;
+
+                        statement.variable_declaration.uninitialized = type;
+                    } else if(has_initializer) {
+                        statement.variable_declaration.type = VariableDeclarationType::TypeElided;
+
+                        statement.variable_declaration.type_elided = initializer;
+                    } else {
+                        abort();
                     }
 
                     return {

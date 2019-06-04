@@ -95,6 +95,12 @@ struct FunctionParameter {
     Expression type;
 };
 
+enum struct VariableDeclarationType {
+    Uninitialized,
+    TypeElided,
+    FullySpecified
+};
+
 struct Statement {
     StatementType type;
 
@@ -126,13 +132,21 @@ struct Statement {
         Expression expression;
 
         struct {
+            VariableDeclarationType type;
+
             Identifier name;
 
-            bool has_type;
-            Expression type;
+            union {
+                Expression uninitialized;
 
-            bool has_initializer;
-            Expression initializer;
+                Expression type_elided;
+
+                struct {
+                    Expression type;
+
+                    Expression initializer;
+                } fully_specified;
+            };
         } variable_declaration;
 
         struct {
