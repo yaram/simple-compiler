@@ -774,22 +774,32 @@ static Result<Expression> parse_right_expressions(Context *context, List<Express
                 expect_non_left_recursive = false;
             }
         } else if(character == '+') {
+            context->character += 1;
+
             operation.type = OperationType::Addition;
 
             expect_non_left_recursive = true;
         } else if(character == '-') {
+            context->character += 1;
+
             operation.type = OperationType::Subtraction;
 
             expect_non_left_recursive = true;
         } else if(character == '*') {
+            context->character += 1;
+
             operation.type = OperationType::Multiplication;
 
             expect_non_left_recursive = true;
         } else if(character == '/') {
+            context->character += 1;
+
             operation.type = OperationType::Division;
 
             expect_non_left_recursive = true;
         } else if(character == '%') {
+            context->character += 1;
+
             operation.type = OperationType::Modulo;
 
             expect_non_left_recursive = true;
