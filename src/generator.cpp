@@ -1060,8 +1060,15 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
             };
         } break;
 
-        default: {
+        case StatementType::Expression:
+        case StatementType::VariableDeclaration:
+        case StatementType::Assignment:
+        case StatementType::LoneIf: {
             return { false };
+        }
+
+        default: {
+            abort();
         } break;
     }
 }
@@ -2499,6 +2506,40 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
             }
 
             string_buffer_append(&(context->implementation_source), ";");
+
+            return true;
+        } break;
+
+        case StatementType::LoneIf: {
+            string_buffer_append(&(context->implementation_source), "if(");
+
+            auto result = generate_runtime_expression(context, &(context->implementation_source), statement.lone_if.condition);
+
+            if(!result.status) {
+                return false;
+            }
+
+            string_buffer_append(&(context->implementation_source), ")");
+
+            if(result.value.type.category != TypeCategory::Boolean) {
+                error(statement.lone_if.condition, "Non-boolean if statement condition");
+
+                return false;
+            }
+
+            append(&(context->variable_context_stack), List<Variable>{});
+
+            string_buffer_append(&(context->implementation_source), "{");
+
+            for(auto child_statement : statement.lone_if.statements) {
+                if(!generate_statement(context, child_statement)) {
+                    return { false };
+                }
+            }
+
+            string_buffer_append(&(context->implementation_source), "}");
+
+            context->variable_context_stack.count -= 1;
 
             return true;
         } break;
