@@ -900,38 +900,67 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             };
         } break;
 
-        case ExpressionType::Pointer: {
-            auto result = evaluate_constant_expression(context, *(expression.pointer), print_errors);
-
+        case ExpressionType::PrefixOperation: {
+            auto result = evaluate_constant_expression(context, *expression.prefix_operation.expression, print_errors);
+            
             if(!result.status) {
                 return { false };
             }
 
-            if(result.value.type.category != TypeCategory::Type) {
-                if(print_errors) {
-                    error(*expression.pointer, "Cannot take pointers to constants");
-                }
+            switch(expression.prefix_operation.prefix_operator) {
+                case PrefixOperator::Pointer: {
+                    if(result.value.type.category != TypeCategory::Type) {
+                        if(print_errors) {
+                            error(*expression.prefix_operation.expression, "Cannot take pointers to constants");
+                        }
 
-                return { false };
+                        return { false };
+                    }
+
+                    auto pointer_type = (Type*)malloc(sizeof(Type));
+                    *pointer_type = result.value.value.type;
+
+                    Type type;
+                    type.category = TypeCategory::Type;
+
+                    ConstantValue value;
+                    value.type.category = TypeCategory::Pointer;
+                    value.type.pointer = pointer_type;
+
+                    return {
+                        true,
+                        {
+                            type,
+                            value
+                        }
+                    };
+                } break;
+
+                case PrefixOperator::BooleanInvert: {
+                    if(result.value.type.category != TypeCategory::Boolean) {
+                        if(print_errors) {
+                            error(*expression.prefix_operation.expression, "Cannot do boolean inversion on non-boolean");
+                        }
+
+                        return { false };
+                    }
+
+                    ConstantValue value;
+                    value.boolean = !result.value.value.boolean;
+
+                    return {
+                        true,
+                        {
+                            result.value.type,
+                            value
+                        }
+                    };
+                } break;
+
+                default: {
+                    abort();
+                } break;
             }
-
-            auto pointer_type = (Type*)malloc(sizeof(Type));
-            *pointer_type = result.value.value.type;
-
-            Type type;
-            type.category = TypeCategory::Type;
-
-            ConstantValue value;
-            value.type.category = TypeCategory::Pointer;
-            value.type.pointer = pointer_type;
-
-            return {
-                true,
-                {
-                    type,
-                    value
-                }
-            };
         } break;
         
         case ExpressionType::ArrayType: {
@@ -2245,60 +2274,106 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
         } break;
 
-        case ExpressionType::Pointer: {
+        case ExpressionType::PrefixOperation: {
             char *buffer{};
 
-            auto result = generate_expression(context, &buffer, *expression.pointer);
+            auto result = generate_expression(context, &buffer, *expression.prefix_operation.expression);
 
             if(!result.status) {
                 return { false };
             }
 
-            switch(result.value.category) {
-                case ExpressionValueCategory::Anonymous: {
-                    error(*expression.pointer, "Cannot take pointers anonymous values");
+            switch(expression.prefix_operation.prefix_operator) {
+                case PrefixOperator::Pointer: {
+                    switch(result.value.category) {
+                        case ExpressionValueCategory::Anonymous: {
+                            error(*expression.prefix_operation.expression, "Cannot take pointers anonymous values");
 
-                    return { false };
+                            return { false };
+                        } break;
+
+                        case ExpressionValueCategory::Constant: {
+                            if(result.value.type.category != TypeCategory::Type) {
+                                error(*expression.prefix_operation.expression, "Cannot take pointers to constants");
+
+                                return { false };
+                            }
+
+                            string_buffer_append(source, buffer);
+
+                            auto pointer_type = (Type*)malloc(sizeof(Type));
+                            *pointer_type = result.value.constant.type;
+
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Constant;
+                            value.type.category = TypeCategory::Type;
+                            value.constant.type.category = TypeCategory::Pointer;
+                            value.constant.type.pointer = pointer_type;
+
+                            return {
+                                true,
+                                value
+                            };
+                        } break;
+                        
+                        case ExpressionValueCategory::Assignable: {
+                            string_buffer_append(source, "&(");
+
+                            string_buffer_append(source, buffer);
+
+                            string_buffer_append(source, ")");
+
+                            auto pointer_type = (Type*)malloc(sizeof(Type));
+                            *pointer_type = result.value.type;
+
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Anonymous;
+                            value.type.category = TypeCategory::Pointer;
+                            value.type.pointer = pointer_type;
+
+                            return {
+                                true,
+                                value
+                            };
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
                 } break;
-
-                case ExpressionValueCategory::Constant: {
-                    if(result.value.type.category != TypeCategory::Type) {
-                        error(*expression.pointer, "Cannot take pointers to constants");
+                
+                case PrefixOperator::BooleanInvert: {
+                    if(result.value.type.category != TypeCategory::Boolean) {
+                        error(*expression.prefix_operation.expression, "Cannot do boolean inversion on non-boolean");
 
                         return { false };
                     }
 
-                    string_buffer_append(source, buffer);
-
-                    auto pointer_type = (Type*)malloc(sizeof(Type));
-                    *pointer_type = result.value.constant.type;
-
                     ExpressionValue value;
-                    value.category = ExpressionValueCategory::Constant;
-                    value.type.category = TypeCategory::Type;
-                    value.constant.type.category = TypeCategory::Pointer;
-                    value.constant.type.pointer = pointer_type;
+                    value.type.category = TypeCategory::Boolean;
 
-                    return {
-                        true,
-                        value
-                    };
-                } break;
-                
-                case ExpressionValueCategory::Assignable: {
-                    string_buffer_append(source, "&(");
+                    switch(result.value.category) {
+                        case ExpressionValueCategory::Anonymous:
+                        case ExpressionValueCategory::Assignable: {
+                            string_buffer_append(source, "!(");
 
-                    string_buffer_append(source, buffer);
+                            string_buffer_append(source, buffer);
 
-                    string_buffer_append(source, ")");
+                            string_buffer_append(source, ")");
 
-                    auto pointer_type = (Type*)malloc(sizeof(Type));
-                    *pointer_type = result.value.type;
+                            value.category = ExpressionValueCategory::Anonymous;
+                        } break;
+                        
+                        case ExpressionValueCategory::Constant: {
+                            value.category = ExpressionValueCategory::Constant;
+                            value.constant.boolean = !result.value.constant.boolean;
+                        } break;
 
-                    ExpressionValue value;
-                    value.category = ExpressionValueCategory::Anonymous;
-                    value.type.category = TypeCategory::Pointer;
-                    value.type.pointer = pointer_type;
+                        default: {
+                            abort();
+                        } break;
+                    }
 
                     return {
                         true,
@@ -2311,6 +2386,18 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 } break;
             }
         } break;
+
+        /*case ExpressionType::Pointer: {
+            char *buffer{};
+
+            auto result = generate_expression(context, &buffer, *expression.pointer);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            
+        } break;*/
 
         case ExpressionType::ArrayType: {
             auto result = evaluate_type_expression(context->constant_context, *expression.array_type, true);
