@@ -1519,6 +1519,8 @@ static bool generate_type(GenerationContext *context, char **source, Type type) 
 
         case TypeCategory::Boolean: {
             string_buffer_append(source, "_Bool");
+
+            return true;
         } break;
 
         case TypeCategory::Type: {
