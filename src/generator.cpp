@@ -5,6 +5,7 @@
 #include <stdarg.h>
 #include "list.h"
 #include "types.h"
+#include "util.h"
 
 static void string_buffer_append(char **string_buffer, const char *string) {
     auto string_length = strlen(string);
@@ -819,13 +820,13 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
         } break;
 
         case ExpressionType::StringLiteral: {            
-            auto array_type = (Type*)malloc(sizeof(Type));
-            array_type->category = TypeCategory::Integer;
-            array_type->integer = IntegerType::Unsigned8;
+            Type array_type;
+            array_type.category = TypeCategory::Integer;
+            array_type.integer = IntegerType::Unsigned8;
 
             Type type;
             type.category = TypeCategory::Array;
-            type.array = array_type;
+            type.array = heapify(array_type);
 
             auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * expression.string_literal.count);
 
@@ -917,15 +918,12 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                         return { false };
                     }
 
-                    auto pointer_type = (Type*)malloc(sizeof(Type));
-                    *pointer_type = result.value.value.type;
-
                     Type type;
                     type.category = TypeCategory::Type;
 
                     ConstantValue value;
                     value.type.category = TypeCategory::Pointer;
-                    value.type.pointer = pointer_type;
+                    value.type.pointer = heapify(result.value.value.type);
 
                     return {
                         true,
@@ -970,13 +968,10 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                 return { false };
             }
 
-            auto array_type = (Type*)malloc(sizeof(Type));
-            *array_type = result.value;
-
             ConstantExpressionValue value;
             value.type.category = TypeCategory::Type;
             value.value.type.category = TypeCategory::Array;
-            value.value.type.array = array_type;
+            value.value.type.array = heapify(result.value);
 
             return {
                 true,
@@ -1175,16 +1170,13 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
                     parameters[i] = result.value;
                 }
 
-                auto return_type_heap = (Type*)malloc(sizeof(Type));
-                *return_type_heap = return_type;
-
                 Type type;
                 type.category = TypeCategory::Function;
                 type.function.parameters = {
                     declaration.function_definition.parameters.count,
                     parameters
                 };
-                type.function.return_type = return_type_heap;
+                type.function.return_type = heapify(return_type);
 
                 return {
                     true,
@@ -1222,16 +1214,13 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
                     parameters[i] = result.value;
                 }
 
-                auto return_type_heap = (Type*)malloc(sizeof(Type));
-                *return_type_heap = return_type;
-
                 Type type;
                 type.category = TypeCategory::Function;
                 type.function.parameters = {
                     declaration.external_function.parameters.count,
                     parameters
                 };
-                type.function.return_type = return_type_heap;
+                type.function.return_type = heapify(return_type);
 
                 return {
                     true,
@@ -2016,21 +2005,21 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             };
         } break;
 
-        case ExpressionType::StringLiteral: {            
-            auto array_type = (Type*)malloc(sizeof(Type));
-            array_type->category = TypeCategory::Integer;
-            array_type->integer = IntegerType::Unsigned8;
-
+        case ExpressionType::StringLiteral: {
             auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * expression.string_literal.count);
 
             for(size_t i = 0; i < expression.string_literal.count; i += 1) {
                 characters[i].integer.unsigned_8 = expression.string_literal[i];
             }
 
+            Type array_type;
+            array_type.category = TypeCategory::Integer;
+            array_type.integer = IntegerType::Unsigned8;
+
             ExpressionValue value;
             value.category = ExpressionValueCategory::Constant;
             value.type.category = TypeCategory::Array;
-            value.type.array = array_type;
+            value.type.array = heapify(array_type);
             value.constant.array = {
                 expression.string_literal.count,
                 characters
@@ -2303,14 +2292,11 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
                             string_buffer_append(source, buffer);
 
-                            auto pointer_type = (Type*)malloc(sizeof(Type));
-                            *pointer_type = result.value.constant.type;
-
                             ExpressionValue value;
                             value.category = ExpressionValueCategory::Constant;
                             value.type.category = TypeCategory::Type;
                             value.constant.type.category = TypeCategory::Pointer;
-                            value.constant.type.pointer = pointer_type;
+                            value.constant.type.pointer = heapify(result.value.constant.type);
 
                             return {
                                 true,
@@ -2325,13 +2311,10 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
                             string_buffer_append(source, ")");
 
-                            auto pointer_type = (Type*)malloc(sizeof(Type));
-                            *pointer_type = result.value.type;
-
                             ExpressionValue value;
                             value.category = ExpressionValueCategory::Anonymous;
                             value.type.category = TypeCategory::Pointer;
-                            value.type.pointer = pointer_type;
+                            value.type.pointer = heapify(result.value.type);
 
                             return {
                                 true,
@@ -2408,14 +2391,11 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 return { false };
             }
 
-            auto array_type = (Type*)malloc(sizeof(Type));
-            *array_type = result.value;
-
             ExpressionValue value;
             value.category = ExpressionValueCategory::Constant;
             value.type.category = TypeCategory::Type;
             value.constant.type.category = TypeCategory::Array;
-            value.constant.type.array = array_type;
+            value.constant.type.array = heapify(result.value);
 
             return {
                 true,
