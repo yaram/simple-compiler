@@ -148,7 +148,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             printf("}");
         } break;
 
-        case ExpressionType::PrefixOperation: {
+        case ExpressionType::UnaryOperation: {
             printf("UnaryOperation: {\n");
 
             indent(indentation_level + 1);

@@ -834,7 +834,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             };
         } break;
 
-        case ExpressionType::PrefixOperation: {
+        case ExpressionType::UnaryOperation: {
             auto result = evaluate_constant_expression(context, *expression.unary_operation.expression, print_errors);
             
             if(!result.status) {
@@ -2198,7 +2198,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
         } break;
 
-        case ExpressionType::PrefixOperation: {
+        case ExpressionType::UnaryOperation: {
             char *buffer{};
 
             auto result = generate_expression(context, &buffer, *expression.unary_operation.expression);

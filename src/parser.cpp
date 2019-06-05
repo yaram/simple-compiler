@@ -349,7 +349,7 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
         } break;
 
         case OperationType::Pointer: {
-            expression.type = ExpressionType::PrefixOperation;
+            expression.type = ExpressionType::UnaryOperation;
 
             expression.unary_operation = {
                 UnaryOperator::Pointer,
@@ -358,7 +358,7 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
         } break;
 
         case OperationType::BooleanInvert: {
-            expression.type = ExpressionType::PrefixOperation;
+            expression.type = ExpressionType::UnaryOperation;
 
             expression.unary_operation = {
                 UnaryOperator::BooleanInvert,

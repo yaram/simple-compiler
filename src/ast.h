@@ -35,7 +35,7 @@ enum struct ExpressionType {
     StringLiteral,
     FunctionCall,
     BinaryOperation,
-    PrefixOperation,
+    UnaryOperation,
     ArrayType
 };
 
