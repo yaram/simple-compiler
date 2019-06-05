@@ -22,7 +22,7 @@ enum struct BinaryOperator {
     NotEqual
 };
 
-enum struct PrefixOperator {
+enum struct UnaryOperator {
     Pointer,
     BooleanInvert
 };
@@ -81,10 +81,10 @@ struct Expression {
         } binary_operation;
 
         struct {
-            PrefixOperator prefix_operator;
+            UnaryOperator unary_operator;
 
             Expression *expression;
-        } prefix_operation;
+        } unary_operation;
 
         Expression *array_type;
     };

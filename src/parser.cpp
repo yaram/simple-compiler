@@ -351,8 +351,8 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
         case OperationType::Pointer: {
             expression.type = ExpressionType::PrefixOperation;
 
-            expression.prefix_operation = {
-                PrefixOperator::Pointer,
+            expression.unary_operation = {
+                UnaryOperator::Pointer,
                 heapify(take_last(expression_stack))
             };
         } break;
@@ -360,8 +360,8 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
         case OperationType::BooleanInvert: {
             expression.type = ExpressionType::PrefixOperation;
 
-            expression.prefix_operation = {
-                PrefixOperator::BooleanInvert,
+            expression.unary_operation = {
+                UnaryOperator::BooleanInvert,
                 heapify(take_last(expression_stack))
             };
         } break;

@@ -902,17 +902,17 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
         } break;
 
         case ExpressionType::PrefixOperation: {
-            auto result = evaluate_constant_expression(context, *expression.prefix_operation.expression, print_errors);
+            auto result = evaluate_constant_expression(context, *expression.unary_operation.expression, print_errors);
             
             if(!result.status) {
                 return { false };
             }
 
-            switch(expression.prefix_operation.prefix_operator) {
-                case PrefixOperator::Pointer: {
+            switch(expression.unary_operation.unary_operator) {
+                case UnaryOperator::Pointer: {
                     if(result.value.type.category != TypeCategory::Type) {
                         if(print_errors) {
-                            error(*expression.prefix_operation.expression, "Cannot take pointers to constants");
+                            error(*expression.unary_operation.expression, "Cannot take pointers to constants");
                         }
 
                         return { false };
@@ -934,10 +934,10 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                     };
                 } break;
 
-                case PrefixOperator::BooleanInvert: {
+                case UnaryOperator::BooleanInvert: {
                     if(result.value.type.category != TypeCategory::Boolean) {
                         if(print_errors) {
-                            error(*expression.prefix_operation.expression, "Cannot do boolean inversion on non-boolean");
+                            error(*expression.unary_operation.expression, "Cannot do boolean inversion on non-boolean");
                         }
 
                         return { false };
@@ -2268,24 +2268,24 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
         case ExpressionType::PrefixOperation: {
             char *buffer{};
 
-            auto result = generate_expression(context, &buffer, *expression.prefix_operation.expression);
+            auto result = generate_expression(context, &buffer, *expression.unary_operation.expression);
 
             if(!result.status) {
                 return { false };
             }
 
-            switch(expression.prefix_operation.prefix_operator) {
-                case PrefixOperator::Pointer: {
+            switch(expression.unary_operation.unary_operator) {
+                case UnaryOperator::Pointer: {
                     switch(result.value.category) {
                         case ExpressionValueCategory::Anonymous: {
-                            error(*expression.prefix_operation.expression, "Cannot take pointers anonymous values");
+                            error(*expression.unary_operation.expression, "Cannot take pointers anonymous values");
 
                             return { false };
                         } break;
 
                         case ExpressionValueCategory::Constant: {
                             if(result.value.type.category != TypeCategory::Type) {
-                                error(*expression.prefix_operation.expression, "Cannot take pointers to constants");
+                                error(*expression.unary_operation.expression, "Cannot take pointers to constants");
 
                                 return { false };
                             }
@@ -2328,9 +2328,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     }
                 } break;
                 
-                case PrefixOperator::BooleanInvert: {
+                case UnaryOperator::BooleanInvert: {
                     if(result.value.type.category != TypeCategory::Boolean) {
-                        error(*expression.prefix_operation.expression, "Cannot do boolean inversion on non-boolean");
+                        error(*expression.unary_operation.expression, "Cannot do boolean inversion on non-boolean");
 
                         return { false };
                     }

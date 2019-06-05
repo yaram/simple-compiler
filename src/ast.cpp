@@ -149,16 +149,16 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
         } break;
 
         case ExpressionType::PrefixOperation: {
-            printf("PrefixOperation: {\n");
+            printf("UnaryOperation: {\n");
 
             indent(indentation_level + 1);
             printf("operation: ");
-            switch(expression.prefix_operation.prefix_operator) {
-                case PrefixOperator::Pointer: {
+            switch(expression.unary_operation.unary_operator) {
+                case UnaryOperator::Pointer: {
                     printf("Pointer");
                 } break;
                 
-                case PrefixOperator::BooleanInvert: {
+                case UnaryOperator::BooleanInvert: {
                     printf("BooleanInvert");
                 } break;
             }
@@ -166,7 +166,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
             indent(indentation_level + 1);
             printf("expression: ");
-            debug_print_expression_indent(*(expression.prefix_operation.expression), indentation_level + 1);
+            debug_print_expression_indent(*(expression.unary_operation.expression), indentation_level + 1);
             printf("\n");
 
             indent(indentation_level);
