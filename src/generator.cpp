@@ -127,19 +127,7 @@ static Result<Declaration> lookup_declaration(Array<Declaration> top_level_decla
 union ConstantValue {
     const char *function;
 
-    union {
-        int64_t undetermined;
-
-        uint8_t unsigned_8;
-        uint16_t unsigned_16;
-        uint32_t unsigned_32;
-        uint64_t unsigned_64;
-
-        int8_t signed_8;
-        int16_t signed_16;
-        int32_t signed_32;
-        int64_t signed_64;
-    } integer;
+    uint64_t integer;
 
     bool boolean;
 
@@ -157,35 +145,35 @@ static bool constant_values_deep_equal(Type type, ConstantValue a, ConstantValue
         case TypeCategory::Integer: {
             switch(type.integer) {
                 case IntegerType::Unsigned8: {
-                    return a.integer.unsigned_8 == b.integer.unsigned_8;
+                    return (uint8_t)a.integer == (uint8_t)b.integer;
                 } break;
 
                 case IntegerType::Unsigned16: {
-                    return a.integer.unsigned_16 == b.integer.unsigned_16;
+                    return (uint16_t)a.integer == (uint16_t)b.integer;
                 } break;
 
                 case IntegerType::Unsigned32: {
-                    return a.integer.unsigned_32 == b.integer.unsigned_32;
+                    return (uint32_t)a.integer == (uint32_t)b.integer;
                 } break;
 
                 case IntegerType::Unsigned64: {
-                    return a.integer.unsigned_64 == b.integer.unsigned_64;
+                    return a.integer == b.integer;
                 } break;
-                
+
                 case IntegerType::Signed8: {
-                    return a.integer.signed_8 == b.integer.signed_8;
+                    return (int8_t)a.integer == (int8_t)b.integer;
                 } break;
 
                 case IntegerType::Signed16: {
-                    return a.integer.signed_16 == b.integer.signed_16;
+                    return (int16_t)a.integer == (int16_t)b.integer;
                 } break;
 
                 case IntegerType::Signed32: {
-                    return a.integer.signed_32 == b.integer.signed_32;
+                    return (int32_t)a.integer == (int32_t)b.integer;
                 } break;
 
                 case IntegerType::Signed64: {
-                    return a.integer.signed_64 == b.integer.signed_64;
+                    return (int64_t)a.integer == (int64_t)b.integer;
                 } break;
 
                 case IntegerType::Undetermined:
@@ -256,19 +244,19 @@ static ConstantValue compiler_size_to_native_size(ConstantContext context, size_
 
     switch(context.unsigned_size_integer_type) {
         case IntegerType::Unsigned8: {
-            value.integer.unsigned_8 = (uint8_t)size;
+            value.integer = (uint8_t)size;
         } break;
         
         case IntegerType::Unsigned16: {
-            value.integer.unsigned_16 = (uint16_t)size;
+            value.integer = (uint16_t)size;
         } break;
         
         case IntegerType::Unsigned32: {
-            value.integer.unsigned_32 = (uint32_t)size;
+            value.integer = (uint32_t)size;
         } break;
         
         case IntegerType::Unsigned64: {
-            value.integer.unsigned_64 = (uint64_t)size;
+            value.integer = (uint64_t)size;
         } break;
 
         case IntegerType::Undetermined:
@@ -359,79 +347,79 @@ static Result<ConstantValue> evaluate_constant_array_index(Array<ConstantValue> 
     size_t index;
     switch(index_type) {
         case IntegerType::Undetermined: {
-            if(index_value.integer.undetermined < 0) {
+            if((int64_t)index_value.integer < 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %lld out of bounds", index_value.integer.undetermined);
+                    fprintf(stderr, "Array index %lld out of bounds", (int64_t)index_value.integer);
                 }
 
                 return { false };
             }
 
-            index = (size_t)index_value.integer.undetermined;
+            index = (size_t)(int64_t)index_value.integer;
         } break;
         
         case IntegerType::Unsigned8: {
-            index = (size_t)index_value.integer.unsigned_8;
+            index = (size_t)(uint8_t)index_value.integer;
         } break;
         
         case IntegerType::Unsigned16: {
-            index = (size_t)index_value.integer.unsigned_16;
+            index = (size_t)(uint16_t)index_value.integer;
         } break;
         
         case IntegerType::Unsigned32: {
-            index = (size_t)index_value.integer.unsigned_32;
+            index = (size_t)(uint32_t)index_value.integer;
         } break;
         
         case IntegerType::Unsigned64: {
-            index = (size_t)index_value.integer.unsigned_64;
+            index = (size_t)(uint64_t)index_value.integer;
         } break;
         
         case IntegerType::Signed8: {
-            if(index_value.integer.signed_8 < 0) {
+            if((int8_t)index_value.integer < 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %hhd out of bounds", index_value.integer.signed_8);
+                    fprintf(stderr, "Array index %hhd out of bounds", (int8_t)index_value.integer);
                 }
 
                 return { false };
             }
 
-            index = (size_t)index_value.integer.signed_8;
+            index = (size_t)(int8_t)index_value.integer;
         } break;
         
         case IntegerType::Signed16: {
-            if(index_value.integer.signed_16 < 0) {
+            if((int16_t)index_value.integer < 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %hd out of bounds", index_value.integer.signed_16);
+                    fprintf(stderr, "Array index %hd out of bounds", (int16_t)index_value.integer);
                 }
 
                 return { false };
             }
 
-            index = (size_t)index_value.integer.signed_16;
+            index = (size_t)(int16_t)index_value.integer;
         } break;
         
         case IntegerType::Signed32: {
-            if(index_value.integer.signed_32 < 0) {
+            if((int32_t)index_value.integer < 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %d out of bounds", index_value.integer.signed_32);
+                    fprintf(stderr, "Array index %d out of bounds", (int32_t)index_value.integer);
                 }
 
                 return { false };
             }
 
-            index = (size_t)index_value.integer.signed_32;
+            index = (size_t)(int32_t)index_value.integer;
         } break;
         
         case IntegerType::Signed64: {
-            if(index_value.integer.signed_64 < 0) {
+            if((int64_t)index_value.integer < 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %lld out of bounds", index_value.integer.signed_64);
+                    fprintf(stderr, "Array index %lld out of bounds", (int64_t)index_value.integer);
                 }
 
                 return { false };
             }
 
-            index = (size_t)index_value.integer.signed_64;
+            index = (size_t)(int64_t)index_value.integer;
         } break;
 
         default: {
@@ -454,49 +442,88 @@ static Result<ConstantValue> evaluate_constant_array_index(Array<ConstantValue> 
 }
 
 template <typename T>
-static T perform_binary_integer_operation(BinaryOperator binary_operator, T left, T right) {
+static ConstantExpressionValue perform_constant_integer_binary_operation(BinaryOperator binary_operator, IntegerType type, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value) {
+    T left;
+    if(left_type == IntegerType::Undetermined) {
+        left = (T)(int64_t)left_value.integer;
+    } else {
+        left = (T)left_value.integer;
+    }
+
+    T right;
+    if(right_type == IntegerType::Undetermined) {
+        right = (T)(int64_t)right_value.integer;
+    } else {
+        right = (T)right_value.integer;
+    }
+
+    Type result_type;
+    ConstantValue result_value;
     switch(binary_operator) {
         case BinaryOperator::Addition: {
-            return left + right;
+            result_value.integer = (uint64_t)(left + right);
+
+            result_type.category = TypeCategory::Integer;
+            result_type.integer = type;
         } break;
         
         case BinaryOperator::Subtraction: {
-            return left - right;
+            result_value.integer = (uint64_t)(left - right);
+
+            result_type.category = TypeCategory::Integer;
+            result_type.integer = type;
         } break;
         
         case BinaryOperator::Multiplication: {
-            return left * right;
+            result_value.integer = (uint64_t)(left * right);
+
+            result_type.category = TypeCategory::Integer;
+            result_type.integer = type;
         } break;
         
         case BinaryOperator::Division: {
-            return left / right;
+            result_value.integer = (uint64_t)(left / right);
+
+            result_type.category = TypeCategory::Integer;
+            result_type.integer = type;
         } break;
         
         case BinaryOperator::Modulo: {
-            return left % right;
+            result_value.integer = (uint64_t)(left % right);
+
+            result_type.category = TypeCategory::Integer;
+            result_type.integer = type;
         } break;
 
         default: {
             abort();
         } break;
     }
+
+    return {
+        result_type,
+        result_value
+    };
 }
 
-static Result<ConstantExpressionValue> evaluate_constant_binary_integer_operation(BinaryOperator binary_operator, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value, bool print_errors) {
-    IntegerType result_type;
-    ConstantValue result_value;
+static Result<ConstantExpressionValue> evaluate_constant_integer_binary_operation(BinaryOperator binary_operator, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value, bool print_errors) {
+    ConstantExpressionValue result;
+
     if(left_type == IntegerType::Undetermined && right_type == IntegerType::Undetermined) {
-        result_type = IntegerType::Undetermined;
-        result_value.integer.undetermined = perform_binary_integer_operation(
+        result = perform_constant_integer_binary_operation<int64_t>(
             binary_operator,
-            left_value.integer.undetermined,
-            right_value.integer.undetermined
+            IntegerType::Undetermined,
+            left_type,
+            left_value,
+            right_type,
+            right_value
         );
     } else {
+        IntegerType type;
         if(left_type != IntegerType::Undetermined) {
-            result_type = left_type;
+            type = left_type;
         } else if(right_type != IntegerType::Undetermined) {
-            result_type = right_type;
+            type = right_type;
         } else {
             if(left_type != right_type) {
                 if(print_errors) {
@@ -506,183 +533,96 @@ static Result<ConstantExpressionValue> evaluate_constant_binary_integer_operatio
                 return { false };
             }
 
-            result_type = left_type;
+            type = left_type;
         }
 
-        switch(result_type) {
+        ConstantExpressionValue result;
+        switch(type) {
             case IntegerType::Unsigned8: {
-                uint8_t left;
-                if(left_type == IntegerType::Undetermined) {
-                    left = (uint8_t)left_value.integer.undetermined;
-                } else {
-                    left = left_value.integer.unsigned_8;
-                }
-
-                uint8_t right;
-                if(right_type == IntegerType::Undetermined) {
-                    right = (uint8_t)right_value.integer.undetermined;
-                } else {
-                    right = right_value.integer.unsigned_8;
-                }
-
-                result_value.integer.unsigned_8 = perform_binary_integer_operation(
+                result = perform_constant_integer_binary_operation<uint8_t>(
                     binary_operator,
-                    left,
-                    right
+                    type,
+                    left_type,
+                    left_value,
+                    right_type,
+                    right_value
                 );
             } break;
 
             case IntegerType::Unsigned16: {
-                uint16_t left;
-                if(left_type == IntegerType::Undetermined) {
-                    left = (uint16_t)left_value.integer.undetermined;
-                } else {
-                    left = left_value.integer.unsigned_16;
-                }
-
-                uint16_t right;
-                if(right_type == IntegerType::Undetermined) {
-                    right = (uint16_t)right_value.integer.undetermined;
-                } else {
-                    right = right_value.integer.unsigned_16;
-                }
-
-                result_value.integer.unsigned_16 = perform_binary_integer_operation(
+                result = perform_constant_integer_binary_operation<uint16_t>(
                     binary_operator,
-                    left,
-                    right
+                    type,
+                    left_type,
+                    left_value,
+                    right_type,
+                    right_value
                 );
             } break;
 
             case IntegerType::Unsigned32: {
-                uint32_t left;
-                if(left_type == IntegerType::Undetermined) {
-                    left = (uint32_t)left_value.integer.undetermined;
-                } else {
-                    left = left_value.integer.unsigned_32;
-                }
-
-                uint32_t right;
-                if(right_type == IntegerType::Undetermined) {
-                    right = (uint32_t)right_value.integer.undetermined;
-                } else {
-                    right = right_value.integer.unsigned_32;
-                }
-
-                result_value.integer.unsigned_32 = perform_binary_integer_operation(
+                result = perform_constant_integer_binary_operation<uint32_t>(
                     binary_operator,
-                    left,
-                    right
+                    type,
+                    left_type,
+                    left_value,
+                    right_type,
+                    right_value
                 );
             } break;
 
             case IntegerType::Unsigned64: {
-                uint64_t left;
-                if(left_type == IntegerType::Undetermined) {
-                    left = (uint64_t)left_value.integer.undetermined;
-                } else {
-                    left = left_value.integer.unsigned_64;
-                }
-
-                uint64_t right;
-                if(right_type == IntegerType::Undetermined) {
-                    right = (uint64_t)right_value.integer.undetermined;
-                } else {
-                    right = right_value.integer.unsigned_64;
-                }
-
-                result_value.integer.unsigned_64 = perform_binary_integer_operation(
+                result = perform_constant_integer_binary_operation<uint64_t>(
                     binary_operator,
-                    left,
-                    right
+                    type,
+                    left_type,
+                    left_value,
+                    right_type,
+                    right_value
                 );
             } break;
-            
+
             case IntegerType::Signed8: {
-                int8_t left;
-                if(left_type == IntegerType::Undetermined) {
-                    left = (int8_t)left_value.integer.undetermined;
-                } else {
-                    left = left_value.integer.signed_8;
-                }
-
-                int8_t right;
-                if(right_type == IntegerType::Undetermined) {
-                    right = (int8_t)right_value.integer.undetermined;
-                } else {
-                    right = right_value.integer.signed_8;
-                }
-
-                result_value.integer.signed_8 = perform_binary_integer_operation(
+                result = perform_constant_integer_binary_operation<int8_t>(
                     binary_operator,
-                    left,
-                    right
+                    type,
+                    left_type,
+                    left_value,
+                    right_type,
+                    right_value
                 );
             } break;
 
             case IntegerType::Signed16: {
-                int16_t left;
-                if(left_type == IntegerType::Undetermined) {
-                    left = (int16_t)left_value.integer.undetermined;
-                } else {
-                    left = left_value.integer.signed_16;
-                }
-
-                int16_t right;
-                if(right_type == IntegerType::Undetermined) {
-                    right = (int16_t)right_value.integer.undetermined;
-                } else {
-                    right = right_value.integer.signed_16;
-                }
-
-                result_value.integer.signed_16 = perform_binary_integer_operation(
+                result = perform_constant_integer_binary_operation<int16_t>(
                     binary_operator,
-                    left,
-                    right
+                    type,
+                    left_type,
+                    left_value,
+                    right_type,
+                    right_value
                 );
             } break;
 
             case IntegerType::Signed32: {
-                int32_t left;
-                if(left_type == IntegerType::Undetermined) {
-                    left = (int32_t)left_value.integer.undetermined;
-                } else {
-                    left = left_value.integer.signed_32;
-                }
-
-                int32_t right;
-                if(right_type == IntegerType::Undetermined) {
-                    right = (int32_t)right_value.integer.undetermined;
-                } else {
-                    right = right_value.integer.signed_32;
-                }
-
-                result_value.integer.signed_32 = perform_binary_integer_operation(
+                result = perform_constant_integer_binary_operation<int32_t>(
                     binary_operator,
-                    left,
-                    right
+                    type,
+                    left_type,
+                    left_value,
+                    right_type,
+                    right_value
                 );
             } break;
 
             case IntegerType::Signed64: {
-                int64_t left;
-                if(left_type == IntegerType::Undetermined) {
-                    left = (int64_t)left_value.integer.undetermined;
-                } else {
-                    left = left_value.integer.signed_64;
-                }
-
-                int64_t right;
-                if(right_type == IntegerType::Undetermined) {
-                    right = (int64_t)right_value.integer.undetermined;
-                } else {
-                    right = right_value.integer.signed_64;
-                }
-
-                result_value.integer.signed_64 = perform_binary_integer_operation(
+                result = perform_constant_integer_binary_operation<int64_t>(
                     binary_operator,
-                    left,
-                    right
+                    type,
+                    left_type,
+                    left_value,
+                    right_type,
+                    right_value
                 );
             } break;
 
@@ -693,16 +633,9 @@ static Result<ConstantExpressionValue> evaluate_constant_binary_integer_operatio
         }
     }
 
-    Type type;
-    type.category = TypeCategory::Integer;
-    type.integer = result_type;
-
     return {
         true,
-        {
-            type,
-            result_value
-        }
+        result
     };
 }
 
@@ -808,7 +741,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             type.integer = IntegerType::Undetermined;
 
             ConstantValue value;
-            value.integer.undetermined = expression.integer_literal;
+            value.integer = expression.integer_literal;
 
             return {
                 true,
@@ -831,7 +764,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * expression.string_literal.count);
 
             for(size_t i = 0; i < expression.string_literal.count; i += 1) {
-                characters[i].integer.unsigned_8 = expression.string_literal[i];
+                characters[i].integer = expression.string_literal[i];
             }
 
             ConstantValue value;
@@ -882,7 +815,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                 return { false };
             }
 
-            auto result = evaluate_constant_binary_integer_operation(
+            auto result = evaluate_constant_integer_binary_operation(
                 expression.binary_operation.binary_operator,
                 left_result.value.type.integer,
                 left_result.value.value,
@@ -1566,39 +1499,39 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
 
             switch(type.integer) {
                 case IntegerType::Undetermined: {
-                    sprintf(buffer, "%lld", value.integer.undetermined);
+                    sprintf(buffer, "%lld", (int64_t)value.integer);
                 } break;
 
                 case IntegerType::Unsigned8: {
-                    sprintf(buffer, "%hhu", value.integer.unsigned_8);
+                    sprintf(buffer, "%hhu", (uint8_t)value.integer);
                 } break;
 
                 case IntegerType::Unsigned16: {
-                    sprintf(buffer, "%hu", value.integer.unsigned_16);
+                    sprintf(buffer, "%hu", (uint16_t)value.integer);
                 } break;
 
                 case IntegerType::Unsigned32: {
-                    sprintf(buffer, "%u", value.integer.unsigned_32);
+                    sprintf(buffer, "%u", (uint32_t)value.integer);
                 } break;
 
                 case IntegerType::Unsigned64: {
-                    sprintf(buffer, "%llu", value.integer.unsigned_64);
+                    sprintf(buffer, "%llu", (uint64_t)value.integer);
                 } break;
 
                 case IntegerType::Signed8: {
-                    sprintf(buffer, "%hhd", value.integer.signed_8);
+                    sprintf(buffer, "%hhd", (int8_t)value.integer);
                 } break;
 
                 case IntegerType::Signed16: {
-                    sprintf(buffer, "%hd", value.integer.signed_16);
+                    sprintf(buffer, "%hd", (int16_t)value.integer);
                 } break;
 
                 case IntegerType::Signed32: {
-                    sprintf(buffer, "%d", value.integer.signed_32);
+                    sprintf(buffer, "%d", (int32_t)value.integer);
                 } break;
 
                 case IntegerType::Signed64: {
-                    sprintf(buffer, "%lld", value.integer.signed_64);
+                    sprintf(buffer, "%lld", (int64_t)value.integer);
                 } break;
 
                 default: {
@@ -1997,7 +1930,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             value.category = ExpressionValueCategory::Constant;
             value.type.category = TypeCategory::Integer;
             value.type.integer = IntegerType::Undetermined;
-            value.constant.integer.undetermined = expression.integer_literal;
+            value.constant.integer = expression.integer_literal;
 
             return {
                 true,
@@ -2009,7 +1942,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * expression.string_literal.count);
 
             for(size_t i = 0; i < expression.string_literal.count; i += 1) {
-                characters[i].integer.unsigned_8 = expression.string_literal[i];
+                characters[i].integer = expression.string_literal[i];
             }
 
             Type array_type;
@@ -2131,7 +2064,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
 
             if(left_result.value.category == ExpressionValueCategory::Constant && right_result.value.category == ExpressionValueCategory::Constant) {
-                auto result = evaluate_constant_binary_integer_operation(
+                auto result = evaluate_constant_integer_binary_operation(
                     expression.binary_operation.binary_operator,
                     left_result.value.type.integer,
                     left_result.value.constant,
