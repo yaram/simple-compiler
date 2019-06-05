@@ -2305,18 +2305,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
         } break;
 
-        /*case ExpressionType::Pointer: {
-            char *buffer{};
-
-            auto result = generate_expression(context, &buffer, *expression.pointer);
-
-            if(!result.status) {
-                return { false };
-            }
-
-            
-        } break;*/
-
         case ExpressionType::ArrayType: {
             auto result = evaluate_type_expression(context->constant_context, *expression.array_type, true);
 
