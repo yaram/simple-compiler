@@ -334,6 +334,43 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             indent(indentation_level);
             printf("}");
         } break;
+
+        case StatementType::LoneIf: {
+            printf("LoneIf: {\n");
+
+            indent(indentation_level + 1);
+            printf("condition: ");
+
+            debug_print_expression_indent(statement.lone_if.condition, indentation_level + 2);
+
+            printf("\n");
+
+            indent(indentation_level + 1);
+            printf("statements: [");
+
+            if(statement.lone_if.statements.count != 0) {
+                printf("\n");
+
+                for(auto i = 0; i < statement.lone_if.statements.count; i += 1) {
+                    indent(indentation_level + 2);
+
+                    debug_print_statement_indent(statement.lone_if.statements[i], indentation_level + 2);
+
+                    if(i != statement.lone_if.statements.count - 1) {
+                        printf(",");
+                    }
+
+                    printf("\n");
+                }
+
+                indent(indentation_level + 1);
+            }
+
+            printf("]\n");
+
+            indent(indentation_level);
+            printf("}");
+        } break;
     }
 }
 

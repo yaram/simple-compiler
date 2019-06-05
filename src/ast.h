@@ -86,7 +86,8 @@ enum struct StatementType {
     ConstantDefinition,
     Expression,
     VariableDeclaration,
-    Assignment
+    Assignment,
+    LoneIf
 };
 
 struct FunctionParameter {
@@ -154,6 +155,12 @@ struct Statement {
 
             Expression value;
         } assignment;
+
+        struct {
+            Expression condition;
+
+            Array<Statement> statements;
+        } lone_if;
     };
 };
 

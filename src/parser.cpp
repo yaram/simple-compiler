@@ -1039,83 +1039,87 @@ static Result<Statement> parse_statement(Context *context) {
 
         skip_whitespace(context);
 
-        auto character = fgetc(context->source_file);
+        if(strcmp(identifier.text, "if") == 0) {
+            auto result = parse_expression(context);
 
-        switch(character) {
-            case ':': {
-                context->character += 1;
+            if(!result.status) {
+                return { false };
+            }
+
+            skip_whitespace(context);
+
+            if(!expect_character(context, '{')) {
+                return { false };
+            }
+
+            List<Statement> statements{};
+
+            while(true) {
+                skip_whitespace(context);
 
                 auto character = fgetc(context->source_file);
 
-                if(character == ':') {
-                    context->character += 1;
+                if(character == '}') {
+                    break;
+                } else {
+                    ungetc(character, context->source_file);
+                }
 
-                    skip_whitespace(context);
+                auto result = parse_statement(context);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                append(&statements, result.value);
+            }
+
+            Statement statement;
+            statement.type = StatementType::LoneIf;
+            statement.source_file_path = context->source_file_path;
+            statement.line = result.value.line;
+            statement.character = result.value.character;
+            statement.lone_if.condition = result.value;
+            statement.lone_if.statements = to_array(statements);
+
+            return {
+                true,
+                statement
+            };
+        } else {
+            auto character = fgetc(context->source_file);
+
+            switch(character) {
+                case ':': {
+                    context->character += 1;
 
                     auto character = fgetc(context->source_file);
 
-                    if(character == '(') {
+                    if(character == ':') {
                         context->character += 1;
 
                         skip_whitespace(context);
 
                         auto character = fgetc(context->source_file);
 
-                        if(isalpha(character)) {
-                            ungetc(character, context->source_file);
-
-                            auto first_identifier = parse_identifier(context);
+                        if(character == '(') {
+                            context->character += 1;
 
                             skip_whitespace(context);
 
                             auto character = fgetc(context->source_file);
 
-                            if(character == ':') {
-                                context->character += 1;
+                            if(isalpha(character)) {
+                                ungetc(character, context->source_file);
+
+                                auto first_identifier = parse_identifier(context);
 
                                 skip_whitespace(context);
 
-                                auto result = parse_expression(context);
+                                auto character = fgetc(context->source_file);
 
-                                if(!result.status) {
-                                    return { false };
-                                }
-
-                                List<FunctionParameter> parameters{};
-
-                                append(&parameters, FunctionParameter {
-                                    first_identifier,
-                                    result.value
-                                });
-
-                                while(true) {
-                                    auto character = fgetc(context->source_file);
-
-                                    if(character == ',') {
-                                        context->character += 1;
-
-                                        skip_whitespace(context);
-                                    } else if(character == ')') {
-                                        context->character += 1;
-
-                                        break;
-                                    } else if(character == EOF) {
-                                        error(*context, "Unexpected End of File");
-
-                                        return { false };
-                                    } else {
-                                        error(*context, "Expected ',' or ')', got '%c'", character);
-
-                                        return { false };
-                                    }
-
-                                    auto name = parse_identifier(context);
-
-                                    skip_whitespace(context);
-
-                                    if(!expect_character(context, ':')) {
-                                        return { false };
-                                    }
+                                if(character == ':') {
+                                    context->character += 1;
 
                                     skip_whitespace(context);
 
@@ -1125,46 +1129,142 @@ static Result<Statement> parse_statement(Context *context) {
                                         return { false };
                                     }
 
+                                    List<FunctionParameter> parameters{};
+
+                                    append(&parameters, FunctionParameter {
+                                        first_identifier,
+                                        result.value
+                                    });
+
+                                    while(true) {
+                                        auto character = fgetc(context->source_file);
+
+                                        if(character == ',') {
+                                            context->character += 1;
+
+                                            skip_whitespace(context);
+                                        } else if(character == ')') {
+                                            context->character += 1;
+
+                                            break;
+                                        } else if(character == EOF) {
+                                            error(*context, "Unexpected End of File");
+
+                                            return { false };
+                                        } else {
+                                            error(*context, "Expected ',' or ')', got '%c'", character);
+
+                                            return { false };
+                                        }
+
+                                        auto name = parse_identifier(context);
+
+                                        skip_whitespace(context);
+
+                                        if(!expect_character(context, ':')) {
+                                            return { false };
+                                        }
+
+                                        skip_whitespace(context);
+
+                                        auto result = parse_expression(context);
+
+                                        if(!result.status) {
+                                            return { false };
+                                        }
+
+                                        skip_whitespace(context);
+
+                                        FunctionParameter parameter {
+                                            name,
+                                            result.value
+                                        };
+
+                                        append(&parameters, parameter);
+                                    }
+
                                     skip_whitespace(context);
 
-                                    FunctionParameter parameter {
-                                        name,
-                                        result.value
+                                    return continue_parsing_function_declaration(context, identifier, to_array(parameters));
+                                } else {
+                                    ungetc(character, context->source_file);
+
+                                    skip_whitespace(context);
+
+                                    Expression expression;
+                                    expression.type = ExpressionType::NamedReference;
+                                    expression.source_file_path = context->source_file_path;
+                                    expression.line = first_identifier.line;
+                                    expression.character = first_identifier.character;
+                                    expression.named_reference = first_identifier;
+
+                                    List<Expression> sub_expression_stack{};
+
+                                    append(&sub_expression_stack, expression);
+
+                                    auto result = parse_right_expressions(context, &sub_expression_stack);
+
+                                    if(!result.status) {
+                                        return { false };
+                                    }
+
+                                    skip_whitespace(context);
+
+                                    if(!expect_character(context, ')')) {
+                                        return { false };
+                                    }
+
+                                    List<Expression> expression_stack{};
+
+                                    append(&expression_stack, result.value);
+
+                                    auto right_result = parse_right_expressions(context, &expression_stack);
+
+                                    if(!right_result.status) {
+                                        return { false };
+                                    }
+
+                                    if(!expect_character(context, ';')) {
+                                        return { false };
+                                    }
+
+                                    Statement statement;
+                                    statement.type = StatementType::ConstantDefinition;
+                                    statement.source_file_path = context->source_file_path;
+                                    statement.line = first_line;
+                                    statement.character = first_character;
+                                    statement.constant_definition = {
+                                        identifier,
+                                        right_result.value
                                     };
 
-                                    append(&parameters, parameter);
+                                    return {
+                                        true,
+                                        statement
+                                    };
                                 }
+                            } else if(character == ')') {
+                                context->character += 1;
 
                                 skip_whitespace(context);
 
-                                return continue_parsing_function_declaration(context, identifier, to_array(parameters));
+                                return continue_parsing_function_declaration(context, identifier, Array<FunctionParameter>{});
                             } else {
                                 ungetc(character, context->source_file);
 
                                 skip_whitespace(context);
 
-                                Expression expression;
-                                expression.type = ExpressionType::NamedReference;
-                                expression.source_file_path = context->source_file_path;
-                                expression.line = first_identifier.line;
-                                expression.character = first_identifier.character;
-                                expression.named_reference = first_identifier;
-
-                                List<Expression> sub_expression_stack{};
-
-                                append(&sub_expression_stack, expression);
-
-                                auto result = parse_right_expressions(context, &sub_expression_stack);
+                                auto result = parse_expression(context);
 
                                 if(!result.status) {
                                     return { false };
                                 }
 
-                                skip_whitespace(context);
-
                                 if(!expect_character(context, ')')) {
                                     return { false };
                                 }
+
+                                skip_whitespace(context);
 
                                 List<Expression> expression_stack{};
 
@@ -1195,36 +1295,12 @@ static Result<Statement> parse_statement(Context *context) {
                                     statement
                                 };
                             }
-                        } else if(character == ')') {
-                            context->character += 1;
-
-                            skip_whitespace(context);
-
-                            return continue_parsing_function_declaration(context, identifier, Array<FunctionParameter>{});
                         } else {
                             ungetc(character, context->source_file);
-
-                            skip_whitespace(context);
 
                             auto result = parse_expression(context);
 
                             if(!result.status) {
-                                return { false };
-                            }
-
-                            if(!expect_character(context, ')')) {
-                                return { false };
-                            }
-
-                            skip_whitespace(context);
-
-                            List<Expression> expression_stack{};
-
-                            append(&expression_stack, result.value);
-
-                            auto right_result = parse_right_expressions(context, &expression_stack);
-
-                            if(!right_result.status) {
                                 return { false };
                             }
 
@@ -1239,7 +1315,7 @@ static Result<Statement> parse_statement(Context *context) {
                             statement.character = first_character;
                             statement.constant_definition = {
                                 identifier,
-                                right_result.value
+                                result.value
                             };
 
                             return {
@@ -1250,204 +1326,177 @@ static Result<Statement> parse_statement(Context *context) {
                     } else {
                         ungetc(character, context->source_file);
 
-                        auto result = parse_expression(context);
+                        skip_whitespace(context);
 
-                        if(!result.status) {
-                            return { false };
+                        auto character = fgetc(context->source_file);
+
+                        bool has_type;
+                        Expression type;
+                        if(character != '=') {
+                            ungetc(character, context->source_file);
+
+                            auto result = parse_expression(context);
+
+                            if(!result.status) {
+                                return { false };
+                            }
+
+                            has_type = true;
+                            type = result.value;
+
+                            skip_whitespace(context);
+
+                            character = fgetc(context->source_file);
+                        } else {
+                            has_type = false;
                         }
 
-                        if(!expect_character(context, ';')) {
+                        bool has_initializer;
+                        Expression initializer;
+                        if(character == '=') {
+                            context->character += 1;
+
+                            skip_whitespace(context);
+
+                            auto result = parse_expression(context);
+
+                            if(!result.status) {
+                                return { false };
+                            }
+
+                            has_initializer = true;
+                            initializer = result.value;
+
+                            skip_whitespace(context);
+
+                            if(!expect_character(context, ';')) {
+                                return { false };
+                            }
+                        } else if(character == ';') {
+                            context->character += 1;
+
+                            has_initializer = false;
+                        } else if(character == EOF) {
+                            error(*context, "Unexpected End of File");
+
+                            return { false };
+                        } else {
+                            error(*context, "Expected '=' or ';', got '%c'", character);
+
                             return { false };
                         }
 
                         Statement statement;
-                        statement.type = StatementType::ConstantDefinition;
+                        statement.type = StatementType::VariableDeclaration;
                         statement.source_file_path = context->source_file_path;
                         statement.line = first_line;
                         statement.character = first_character;
-                        statement.constant_definition = {
-                            identifier,
-                            result.value
-                        };
+                        statement.variable_declaration.name = identifier;
+
+                        if(has_type && has_initializer) {
+                            statement.variable_declaration.type = VariableDeclarationType::FullySpecified;
+
+                            statement.variable_declaration.fully_specified = {
+                                type,
+                                initializer
+                            };
+                        } else if(has_type) {
+                            statement.variable_declaration.type = VariableDeclarationType::Uninitialized;
+
+                            statement.variable_declaration.uninitialized = type;
+                        } else if(has_initializer) {
+                            statement.variable_declaration.type = VariableDeclarationType::TypeElided;
+
+                            statement.variable_declaration.type_elided = initializer;
+                        } else {
+                            abort();
+                        }
 
                         return {
                             true,
                             statement
                         };
                     }
-                } else {
-                    ungetc(character, context->source_file);
+                } break;
+
+                case '=': {
+                    context->character += 1;
+
+                    Expression target;
+                    target.type = ExpressionType::NamedReference;
+                    target.source_file_path = context->source_file_path;
+                    target.line = identifier.line;
+                    target.character = identifier.character;
+                    target.named_reference = identifier;
 
                     skip_whitespace(context);
 
-                    auto character = fgetc(context->source_file);
+                    auto result = parse_expression(context);
 
-                    bool has_type;
-                    Expression type;
-                    if(character != '=') {
-                        ungetc(character, context->source_file);
-
-                        auto result = parse_expression(context);
-
-                        if(!result.status) {
-                            return { false };
-                        }
-
-                        has_type = true;
-                        type = result.value;
-
-                        skip_whitespace(context);
-
-                        character = fgetc(context->source_file);
-                    } else {
-                        has_type = false;
+                    if(!result.status) {
+                        return { false };
                     }
 
-                    bool has_initializer;
-                    Expression initializer;
-                    if(character == '=') {
-                        context->character += 1;
+                    skip_whitespace(context);
 
-                        skip_whitespace(context);
-
-                        auto result = parse_expression(context);
-
-                        if(!result.status) {
-                            return { false };
-                        }
-
-                        has_initializer = true;
-                        initializer = result.value;
-
-                        skip_whitespace(context);
-
-                        if(!expect_character(context, ';')) {
-                            return { false };
-                        }
-                    } else if(character == ';') {
-                        context->character += 1;
-
-                        has_initializer = false;
-                    } else if(character == EOF) {
-                        error(*context, "Unexpected End of File");
-
-                        return { false };
-                    } else {
-                        error(*context, "Expected '=' or ';', got '%c'", character);
-
+                    if(!expect_character(context, ';')) {
                         return { false };
                     }
 
                     Statement statement;
-                    statement.type = StatementType::VariableDeclaration;
+                    statement.type = StatementType::Assignment;
                     statement.source_file_path = context->source_file_path;
                     statement.line = first_line;
                     statement.character = first_character;
-                    statement.variable_declaration.name = identifier;
-
-                    if(has_type && has_initializer) {
-                        statement.variable_declaration.type = VariableDeclarationType::FullySpecified;
-
-                        statement.variable_declaration.fully_specified = {
-                            type,
-                            initializer
-                        };
-                    } else if(has_type) {
-                        statement.variable_declaration.type = VariableDeclarationType::Uninitialized;
-
-                        statement.variable_declaration.uninitialized = type;
-                    } else if(has_initializer) {
-                        statement.variable_declaration.type = VariableDeclarationType::TypeElided;
-
-                        statement.variable_declaration.type_elided = initializer;
-                    } else {
-                        abort();
-                    }
+                    statement.assignment.target = target;
+                    statement.assignment.value = result.value;
 
                     return {
                         true,
                         statement
                     };
-                }
-            } break;
+                } break;
 
-            case '=': {
-                context->character += 1;
+                case EOF: {
+                    error(*context, "Unexpected End of File");
 
-                Expression target;
-                target.type = ExpressionType::NamedReference;
-                target.source_file_path = context->source_file_path;
-                target.line = identifier.line;
-                target.character = identifier.character;
-                target.named_reference = identifier;
-
-                skip_whitespace(context);
-
-                auto result = parse_expression(context);
-
-                if(!result.status) {
                     return { false };
-                }
+                } break;
 
-                skip_whitespace(context);
+                default: {
+                    ungetc(character, context->source_file);
 
-                if(!expect_character(context, ';')) {
-                    return { false };
-                }
+                    Expression expression;
+                    expression.source_file_path = context->source_file_path;
+                    expression.line = first_line;
+                    expression.character = first_character;
+                    expression.type = ExpressionType::NamedReference;
+                    expression.named_reference = identifier;
 
-                Statement statement;
-                statement.type = StatementType::Assignment;
-                statement.source_file_path = context->source_file_path;
-                statement.line = first_line;
-                statement.character = first_character;
-                statement.assignment.target = target;
-                statement.assignment.value = result.value;
+                    List<Expression> expression_stack{};
 
-                return {
-                    true,
-                    statement
-                };
-            } break;
+                    append(&expression_stack, expression);
 
-            case EOF: {
-                error(*context, "Unexpected End of File");
+                    auto result = parse_right_expressions(context, &expression_stack);
 
-                return { false };
-            } break;
+                    if(!result.status) {
+                        return { false };
+                    }
 
-            default: {
-                ungetc(character, context->source_file);
+                    skip_whitespace(context);
 
-                Expression expression;
-                expression.source_file_path = context->source_file_path;
-                expression.line = first_line;
-                expression.character = first_character;
-                expression.type = ExpressionType::NamedReference;
-                expression.named_reference = identifier;
+                    auto statement_result = parse_expression_statement_or_variable_assignment(context, result.value);
 
-                List<Expression> expression_stack{};
+                    if(!statement_result.status) {
+                        return { false };
+                    }
 
-                append(&expression_stack, expression);
-
-                auto result = parse_right_expressions(context, &expression_stack);
-
-                if(!result.status) {
-                    return { false };
-                }
-
-                skip_whitespace(context);
-
-                auto statement_result = parse_expression_statement_or_variable_assignment(context, result.value);
-
-                if(!statement_result.status) {
-                    return { false };
-                }
-
-                return {
-                    true,
-                    statement_result.value
-                };
-            } break;
+                    return {
+                        true,
+                        statement_result.value
+                    };
+                } break;
+            }
         }
     } else {
         ungetc(character, context->source_file);
