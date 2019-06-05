@@ -255,15 +255,15 @@ static ConstantValue compiler_size_to_native_size(ConstantContext context, size_
 
     switch(context.unsigned_size_integer_type) {
         case IntegerType::Unsigned8: {
-            value.integer.unsigned_8 = (uint64_t)size;
+            value.integer.unsigned_8 = (uint8_t)size;
         } break;
         
         case IntegerType::Unsigned16: {
-            value.integer.unsigned_16 = (uint64_t)size;
+            value.integer.unsigned_16 = (uint16_t)size;
         } break;
         
         case IntegerType::Unsigned32: {
-            value.integer.unsigned_32 = (uint64_t)size;
+            value.integer.unsigned_32 = (uint32_t)size;
         } break;
         
         case IntegerType::Unsigned64: {
