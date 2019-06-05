@@ -231,6 +231,7 @@ enum struct OperationType {
     IndexReference,
     FunctionCall,
     Pointer,
+    BooleanInvert,
     ArrayType
 };
 
@@ -336,9 +337,21 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
         } break;
 
         case OperationType::Pointer: {
-            expression.type = ExpressionType::Pointer;
+            expression.type = ExpressionType::PrefixOperation;
 
-            expression.pointer = heapify(take_last(expression_stack));
+            expression.prefix_operation = {
+                PrefixOperator::Pointer,
+                heapify(take_last(expression_stack))
+            };
+        } break;
+
+        case OperationType::BooleanInvert: {
+            expression.type = ExpressionType::PrefixOperation;
+
+            expression.prefix_operation = {
+                PrefixOperator::BooleanInvert,
+                heapify(take_last(expression_stack))
+            };
         } break;
 
         case OperationType::ArrayType: {
@@ -500,7 +513,18 @@ static Result<Expression> parse_right_expressions(Context *context, List<Express
 
                 append(&operation_stack, operation);
 
-                // Unary operators are always followed by a non-left-recursive expression, so skip the left-recursive parsing below
+                continue;
+            } else if(character == '!') {
+                context->character += 1;
+
+                Operation operation;
+                operation.source_file_path = context->source_file_path;
+                operation.line = first_line;
+                operation.character = first_character;
+                operation.type = OperationType::BooleanInvert;
+
+                append(&operation_stack, operation);
+
                 continue;
             } else if(character == '"') {
                 context->character += 1;

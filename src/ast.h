@@ -20,6 +20,11 @@ enum struct BinaryOperator {
     Modulo
 };
 
+enum struct PrefixOperator {
+    Pointer,
+    BooleanInvert
+};
+
 enum struct ExpressionType {
     NamedReference,
     MemberReference,
@@ -28,7 +33,7 @@ enum struct ExpressionType {
     StringLiteral,
     FunctionCall,
     BinaryOperation,
-    Pointer,
+    PrefixOperation,
     ArrayType
 };
 
@@ -73,7 +78,11 @@ struct Expression {
             Expression *right;
         } binary_operation;
 
-        Expression *pointer;
+        struct {
+            PrefixOperator prefix_operator;
+
+            Expression *expression;
+        } prefix_operation;
 
         Expression *array_type;
     };

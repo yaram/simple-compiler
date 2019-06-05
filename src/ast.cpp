@@ -102,7 +102,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             printf("BinaryOperation: {\n");
 
             indent(indentation_level + 1);
-            printf("operation: ");
+            printf("operator: ");
             switch(expression.binary_operation.binary_operator) {
                 case BinaryOperator::Addition: {
                     printf("Addition");
@@ -134,16 +134,35 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             indent(indentation_level + 1);
             printf("right: ");
             debug_print_expression_indent(*expression.binary_operation.right, indentation_level + 1);
-            printf(",\n");
+            printf("\n");
             
             indent(indentation_level);
             printf("}");
         } break;
 
-        case ExpressionType::Pointer: {
-            printf("Pointer: ");
+        case ExpressionType::PrefixOperation: {
+            printf("PrefixOperation: {\n");
 
-            debug_print_expression_indent(*(expression.pointer), indentation_level + 1);
+            indent(indentation_level + 1);
+            printf("operation: ");
+            switch(expression.prefix_operation.prefix_operator) {
+                case PrefixOperator::Pointer: {
+                    printf("Pointer");
+                } break;
+                
+                case PrefixOperator::BooleanInvert: {
+                    printf("BooleanInvert");
+                } break;
+            }
+            printf(",\n");
+
+            indent(indentation_level + 1);
+            printf("expression: ");
+            debug_print_expression_indent(*(expression.prefix_operation.expression), indentation_level + 1);
+            printf("\n");
+
+            indent(indentation_level);
+            printf("}");
         } break;
 
         case ExpressionType::ArrayType: {
