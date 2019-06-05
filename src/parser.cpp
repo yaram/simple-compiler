@@ -227,6 +227,8 @@ enum struct OperationType {
     Multiplication,
     Division,
     Modulo,
+    Equal,
+    NotEqual,
     MemberReference,
     IndexReference,
     FunctionCall,
@@ -276,7 +278,9 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
         case OperationType::Subtraction:
         case OperationType::Multiplication:
         case OperationType::Division:
-        case OperationType::Modulo: {
+        case OperationType::Modulo:
+        case OperationType::Equal:
+        case OperationType::NotEqual: {
             expression.type = ExpressionType::BinaryOperation;
 
             expression.binary_operation.right = heapify(take_last(expression_stack));
@@ -301,6 +305,14 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
 
                 case OperationType::Modulo: {
                     expression.binary_operation.binary_operator = BinaryOperator::Modulo;
+                } break;
+
+                case OperationType::Equal: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Equal;
+                } break;
+
+                case OperationType::NotEqual: {
+                    expression.binary_operation.binary_operator = BinaryOperator::NotEqual;
                 } break;
 
                 default: {
@@ -370,10 +382,8 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
 
 static Result<Expression> parse_expression(Context *context);
 
-static Result<Expression> parse_right_expressions(Context *context, List<Expression> *expression_stack) {
-    List<Operation> operation_stack{};
-
-    auto expect_non_left_recursive = expression_stack->count == 0;
+static Result<Expression> parse_right_expressions(Context *context, List<Operation> *operation_stack, List<Expression> *expression_stack, bool start_with_non_left_recursive) {
+    auto expect_non_left_recursive = start_with_non_left_recursive;
 
     while(true) {
         if(expect_non_left_recursive) {
@@ -511,7 +521,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Express
                 operation.character = first_character;
                 operation.type = OperationType::Pointer;
 
-                append(&operation_stack, operation);
+                append(operation_stack, operation);
 
                 continue;
             } else if(character == '!') {
@@ -523,7 +533,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Express
                 operation.character = first_character;
                 operation.type = OperationType::BooleanInvert;
 
-                append(&operation_stack, operation);
+                append(operation_stack, operation);
 
                 continue;
             } else if(character == '"') {
@@ -803,6 +813,26 @@ static Result<Expression> parse_right_expressions(Context *context, List<Express
             operation.type = OperationType::Modulo;
 
             expect_non_left_recursive = true;
+        } else if(character == '=') {
+            context->character += 1;
+
+            if(!expect_character(context, '=')) {
+                return { false };
+            }
+
+            operation.type = OperationType::Equal;
+
+            expect_non_left_recursive = true;
+        } else if(character == '!') {
+            context->character += 1;
+
+            if(!expect_character(context, '=')) {
+                return { false };
+            }
+
+            operation.type = OperationType::NotEqual;
+
+            expect_non_left_recursive = true;
         } else {
             ungetc(character, context->source_file);
 
@@ -811,27 +841,27 @@ static Result<Expression> parse_right_expressions(Context *context, List<Express
 
         // Meat of the precedence sorting
         while(true) {
-            if(operation_stack.count == 0) {
-                append(&operation_stack, operation);
+            if(operation_stack->count == 0) {
+                append(operation_stack, operation);
 
                 break;
             } else {
-                auto last_operation = operation_stack[operation_stack.count - 1];
+                auto last_operation = (*operation_stack)[operation_stack->count - 1];
 
                 if(operation_precedences[(int)operation.type] > operation_precedences[(int)last_operation.type]) {
-                    append(&operation_stack, operation);
+                    append(operation_stack, operation);
 
                     break;
                 } else {
-                    apply_operation(expression_stack, take_last(&operation_stack));
+                    apply_operation(expression_stack, take_last(operation_stack));
                 }
             }
         }
     }
 
     // Apply the remaining operations
-    while(operation_stack.count != 0) {
-        apply_operation(expression_stack, take_last(&operation_stack));
+    while(operation_stack->count != 0) {
+        apply_operation(expression_stack, take_last(operation_stack));
     }
 
     assert(expression_stack->count == 1);
@@ -843,9 +873,11 @@ static Result<Expression> parse_right_expressions(Context *context, List<Express
 }
 
 static Result<Expression> parse_expression(Context *context) {
+    List<Operation> operation_stack{};
+
     List<Expression> expression_stack{};
 
-    return parse_right_expressions(context, &expression_stack);
+    return parse_right_expressions(context, &operation_stack, &expression_stack, true);
 }
 
 static Result<Statement> parse_expression_statement_or_variable_assignment(Context *context, Expression expression) {
@@ -858,32 +890,97 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
         case '=': {
             context->character += 1;
 
-            skip_whitespace(context);
+            auto character = fgetc(context->source_file);
 
-            auto value_result = parse_expression(context);
+            switch(character) {
+                case '=': {
+                    context->character += 1;
 
-            if(!value_result.status) {
-                return { false };
+                    skip_whitespace(context);
+
+                    List<Operation> operation_stack{};
+
+                    Operation operation;
+                    operation.type = OperationType::Equal;
+                    operation.source_file_path = context->source_file_path;
+                    operation.line = first_line;
+                    operation.character = first_character;
+
+                    append(&operation_stack, operation);
+
+                    List<Expression> expression_stack{};
+
+                    append(&expression_stack, expression);
+
+                    auto result = parse_right_expressions(context, &operation_stack, &expression_stack, true);
+
+                    if(!result.status) {
+                        return { false };
+                    }
+
+                    skip_whitespace(context);
+
+                    if(!expect_character(context, ';')) {
+                        return { false };
+                    }
+
+                    Statement statement;
+                    statement.type = StatementType::Expression;
+                    statement.source_file_path = context->source_file_path;
+                    statement.line = first_line;
+                    statement.character = first_character;
+
+                    statement.expression.type = ExpressionType::BinaryOperation;
+                    statement.expression.source_file_path = context->source_file_path;
+                    statement.expression.line = first_line;
+                    statement.expression.character = first_character;
+                    statement.expression.binary_operation.binary_operator = BinaryOperator::Equal;
+                    statement.expression.binary_operation.left = heapify(expression);
+                    statement.expression.binary_operation.right = heapify(result.value);
+
+                    return {
+                        true,
+                        statement
+                    };
+                } break;
+
+                case EOF: {
+                    error(*context, "Unexpected End of File");
+
+                    return { false };
+                } break;
+
+                default: {
+                    ungetc(character, context->source_file);
+
+                    skip_whitespace(context);
+
+                    auto result = parse_expression(context);
+
+                    if(!result.status) {
+                        return { false };
+                    }
+
+                    skip_whitespace(context);
+
+                    if(!expect_character(context, ';')) {
+                        return { false };
+                    }
+
+                    Statement statement;
+                    statement.type = StatementType::Assignment;
+                    statement.source_file_path = context->source_file_path;
+                    statement.line = first_line;
+                    statement.character = first_character;
+                    statement.assignment.target = expression;
+                    statement.assignment.value = result.value;
+
+                    return {
+                        true,
+                        statement
+                    };
+                } break;
             }
-
-            skip_whitespace(context);
-
-            if(!expect_character(context, ';')) {
-                return { false };
-            }
-
-            Statement statement;
-            statement.type = StatementType::Assignment;
-            statement.source_file_path = context->source_file_path;
-            statement.line = first_line;
-            statement.character = first_character;
-            statement.assignment.target = expression;
-            statement.assignment.value = value_result.value;
-
-            return {
-                true,
-                statement
-            };
         } break;
         
         case ';': {
@@ -1121,6 +1218,9 @@ static Result<Statement> parse_statement(Context *context) {
                 statement
             };
         } else {
+            auto after_identifier_line = context->line;
+            auto after_identifier_character = context->character;
+
             auto character = fgetc(context->source_file);
 
             switch(character) {
@@ -1232,11 +1332,13 @@ static Result<Statement> parse_statement(Context *context) {
                                     expression.character = first_identifier.character;
                                     expression.named_reference = first_identifier;
 
+                                    List<Operation> sub_operation_stack{};
+
                                     List<Expression> sub_expression_stack{};
 
                                     append(&sub_expression_stack, expression);
 
-                                    auto result = parse_right_expressions(context, &sub_expression_stack);
+                                    auto result = parse_right_expressions(context, &sub_operation_stack, &sub_expression_stack, false);
 
                                     if(!result.status) {
                                         return { false };
@@ -1248,11 +1350,13 @@ static Result<Statement> parse_statement(Context *context) {
                                         return { false };
                                     }
 
+                                    List<Operation> operation_stack{};
+
                                     List<Expression> expression_stack{};
 
                                     append(&expression_stack, result.value);
 
-                                    auto right_result = parse_right_expressions(context, &expression_stack);
+                                    auto right_result = parse_right_expressions(context, &operation_stack, &expression_stack, false);
 
                                     if(!right_result.status) {
                                         return { false };
@@ -1300,11 +1404,13 @@ static Result<Statement> parse_statement(Context *context) {
 
                                 skip_whitespace(context);
 
+                                List<Operation> operation_stack{};
+
                                 List<Expression> expression_stack{};
 
                                 append(&expression_stack, result.value);
 
-                                auto right_result = parse_right_expressions(context, &expression_stack);
+                                auto right_result = parse_right_expressions(context, &operation_stack, &expression_stack, false);
 
                                 if(!right_result.status) {
                                     return { false };
@@ -1456,39 +1562,104 @@ static Result<Statement> parse_statement(Context *context) {
                 case '=': {
                     context->character += 1;
 
-                    Expression target;
-                    target.type = ExpressionType::NamedReference;
-                    target.source_file_path = context->source_file_path;
-                    target.line = identifier.line;
-                    target.character = identifier.character;
-                    target.named_reference = identifier;
+                    Expression expression;
+                    expression.type = ExpressionType::NamedReference;
+                    expression.source_file_path = context->source_file_path;
+                    expression.line = identifier.line;
+                    expression.character = identifier.character;
+                    expression.named_reference = identifier;
 
-                    skip_whitespace(context);
+                    auto character = fgetc(context->source_file);
 
-                    auto result = parse_expression(context);
+                    switch(character) {
+                        case '=': {
+                            context->character += 1;
 
-                    if(!result.status) {
-                        return { false };
+                            skip_whitespace(context);
+
+                            List<Operation> operation_stack{};
+
+                            Operation operation;
+                            operation.type = OperationType::Equal;
+                            operation.source_file_path = context->source_file_path;
+                            operation.line = after_identifier_line;
+                            operation.character = after_identifier_character;
+
+                            append(&operation_stack, operation);
+
+                            List<Expression> expression_stack{};
+
+                            append(&expression_stack, expression);
+
+                            auto result = parse_right_expressions(context, &operation_stack, &expression_stack, true);
+
+                            if(!result.status) {
+                                return { false };
+                            }
+
+                            skip_whitespace(context);
+
+                            if(!expect_character(context, ';')) {
+                                return { false };
+                            }
+
+                            Statement statement;
+                            statement.type = StatementType::Expression;
+                            statement.source_file_path = context->source_file_path;
+                            statement.line = first_line;
+                            statement.character = first_character;
+
+                            statement.expression.type = ExpressionType::BinaryOperation;
+                            statement.expression.source_file_path = context->source_file_path;
+                            statement.expression.line = after_identifier_line;
+                            statement.expression.character = after_identifier_character;
+                            statement.expression.binary_operation.binary_operator = BinaryOperator::Equal;
+                            statement.expression.binary_operation.left = heapify(expression);
+                            statement.expression.binary_operation.right = heapify(result.value);
+
+                            return {
+                                true,
+                                statement
+                            };
+                        } break;
+
+                        case EOF: {
+                            error(*context, "Unexpected End of File");
+
+                            return { false };
+                        } break;
+
+                        default: {
+                            ungetc(character, context->source_file);
+
+                            skip_whitespace(context);
+
+                            auto result = parse_expression(context);
+
+                            if(!result.status) {
+                                return { false };
+                            }
+
+                            skip_whitespace(context);
+
+                            if(!expect_character(context, ';')) {
+                                return { false };
+                            }
+
+                            Statement statement;
+                            statement.type = StatementType::Assignment;
+                            statement.source_file_path = context->source_file_path;
+                            statement.line = first_line;
+                            statement.character = first_character;
+                            statement.assignment.target = expression;
+                            statement.assignment.value = result.value;
+
+                            return {
+                                true,
+                                statement
+                            };
+                        } break;
                     }
-
-                    skip_whitespace(context);
-
-                    if(!expect_character(context, ';')) {
-                        return { false };
-                    }
-
-                    Statement statement;
-                    statement.type = StatementType::Assignment;
-                    statement.source_file_path = context->source_file_path;
-                    statement.line = first_line;
-                    statement.character = first_character;
-                    statement.assignment.target = target;
-                    statement.assignment.value = result.value;
-
-                    return {
-                        true,
-                        statement
-                    };
                 } break;
 
                 case EOF: {
@@ -1507,11 +1678,13 @@ static Result<Statement> parse_statement(Context *context) {
                     expression.type = ExpressionType::NamedReference;
                     expression.named_reference = identifier;
 
+                    List<Operation> operation_stack{};
+
                     List<Expression> expression_stack{};
 
                     append(&expression_stack, expression);
 
-                    auto result = parse_right_expressions(context, &expression_stack);
+                    auto result = parse_right_expressions(context, &operation_stack, &expression_stack, false);
 
                     if(!result.status) {
                         return { false };

@@ -17,7 +17,9 @@ enum struct BinaryOperator {
     Subtraction,
     Multiplication,
     Division,
-    Modulo
+    Modulo,
+    Equal,
+    NotEqual
 };
 
 enum struct PrefixOperator {

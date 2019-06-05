@@ -123,6 +123,14 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
                 case BinaryOperator::Modulo: {
                     printf("Modulo");
                 } break;
+                
+                case BinaryOperator::Equal: {
+                    printf("Equal");
+                } break;
+
+                case BinaryOperator::NotEqual: {
+                    printf("NotEqual");
+                } break;
             }
             printf(",\n");
 
