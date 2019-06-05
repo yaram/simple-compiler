@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 static void indent(unsigned int level) {
-    for(auto i = 0; i < level; i += 1) {
+    for(unsigned int i = 0; i < level; i += 1) {
         printf("    ");
     }
 }
