@@ -814,15 +814,20 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
             expect_non_left_recursive = true;
         } else if(character == '=') {
-            context->character += 1;
+            auto next_character = fgetc(context->source_file);
 
-            if(!expect_character(context, '=')) {
-                return { false };
+            if(next_character == '=') {
+                context->character += 2;
+
+                operation.type = OperationType::Equal;
+
+                expect_non_left_recursive = true;
+            } else {
+                ungetc(next_character, context->source_file);
+                ungetc(character, context->source_file);
+
+                break;
             }
-
-            operation.type = OperationType::Equal;
-
-            expect_non_left_recursive = true;
         } else if(character == '!') {
             context->character += 1;
 
