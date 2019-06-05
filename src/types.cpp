@@ -28,13 +28,11 @@ bool types_equal(Type a, Type b) {
             return a.integer == b.integer;
         } break;
 
-        case TypeCategory::Type: {
-            return true;
-        } break;
-
+        case TypeCategory::Boolean:
+        case TypeCategory::Type:
         case TypeCategory::Void: {
             return true;
-        }  break;
+        } break;
 
         case TypeCategory::Pointer: {
             return types_equal(*a.pointer, *b.pointer);

@@ -140,6 +140,8 @@ union ConstantValue {
         int64_t signed_64;
     } integer;
 
+    bool boolean;
+
     Type type;
 
     Array<ConstantValue> array;
@@ -190,6 +192,10 @@ static bool constant_values_deep_equal(Type type, ConstantValue a, ConstantValue
                     abort();
                 } break;
             }
+        } break;
+
+        case TypeCategory::Boolean: {
+            return a.boolean == b.boolean;
         } break;
 
         case TypeCategory::Type: {
@@ -1475,6 +1481,10 @@ static bool generate_type(GenerationContext *context, char **source, Type type) 
             return true;
         } break;
 
+        case TypeCategory::Boolean: {
+            string_buffer_append(source, "_Bool");
+        } break;
+
         case TypeCategory::Type: {
             fprintf(stderr, "Type values cannot exist at runtime\n");
 
@@ -1570,6 +1580,16 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
             }
 
             string_buffer_append(source, buffer);
+
+            return true;
+        } break;
+
+        case TypeCategory::Boolean: {
+            if(value.boolean) {
+                string_buffer_append(source, "1");
+            } else {
+                string_buffer_append(source, "0");
+            }
 
             return true;
         } break;
@@ -2621,19 +2641,26 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
     }
 }
 
-inline GlobalConstant create_base_integer_type(const char *name, IntegerType integer_type) {
-    Type type;
-    type.category = TypeCategory::Type;
+inline GlobalConstant create_base_type(const char *name, Type type) {
+    Type value_type;
+    value_type.category = TypeCategory::Type;
 
     ConstantValue value;
-    value.type.category = TypeCategory::Integer;
-    value.type.integer = integer_type;
+    value.type = type;
 
     return {
         name,
-        type,
+        value_type,
         value
     };
+}
+
+inline GlobalConstant create_base_integer_type(const char *name, IntegerType integer_type) {
+    Type type;
+    type.category = TypeCategory::Integer;
+    type.integer = integer_type;
+
+    return create_base_type(name, type);
 }
 
 Result<char*> generate_c_source(Array<Statement> top_level_statements) {
@@ -2672,6 +2699,29 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
 
     append(&global_constants, create_base_integer_type("usize", unsigned_size_integer_type));
     append(&global_constants, create_base_integer_type("isize", signed_size_integer_type));
+
+    Type base_boolean_type;
+    base_boolean_type.category = TypeCategory::Boolean;
+
+    append(&global_constants, create_base_type("bool", base_boolean_type));
+
+    ConstantValue boolean_true_value;
+    boolean_true_value.boolean = true;
+
+    append(&global_constants, GlobalConstant {
+        "true",
+        base_boolean_type,
+        boolean_true_value
+    });
+
+    ConstantValue boolean_false_value;
+    boolean_false_value.boolean = false;
+
+    append(&global_constants, GlobalConstant {
+        "false",
+        base_boolean_type,
+        boolean_false_value
+    });
 
     ConstantContext constant_context {
         unsigned_size_integer_type,

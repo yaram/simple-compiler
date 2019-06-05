@@ -5,6 +5,7 @@
 enum struct TypeCategory {
     Function,
     Integer,
+    Boolean,
     Type,
     Void,
     Pointer,
