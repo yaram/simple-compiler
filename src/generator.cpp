@@ -494,6 +494,18 @@ static ConstantExpressionValue perform_constant_integer_binary_operation(BinaryO
             result_type.category = TypeCategory::Integer;
             result_type.integer = type;
         } break;
+        
+        case BinaryOperator::Equal: {
+            result_value.boolean = left == right;
+
+            result_type.category = TypeCategory::Boolean;
+        } break;
+        
+        case BinaryOperator::NotEqual: {
+            result_value.boolean = left != right;
+
+            result_type.category = TypeCategory::Boolean;
+        } break;
 
         default: {
             abort();
@@ -2087,7 +2099,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     value
                 };
             } else {
-                IntegerType result_type;
+                IntegerType type;
                 if(left_result.value.type.integer != IntegerType::Undetermined && right_result.value.type.integer != IntegerType::Undetermined) {
                     if(left_result.value.type.integer != right_result.value.type.integer) {
                         error(expression, "Mismatched types for binary operation");
@@ -2095,17 +2107,17 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                         return { false };
                     }
 
-                    result_type = left_result.value.type.integer;
+                    type = left_result.value.type.integer;
                 } else if(left_result.value.type.integer != IntegerType::Undetermined) {
-                    result_type = left_result.value.type.integer;
+                    type = left_result.value.type.integer;
                 } else {
-                    result_type = right_result.value.type.integer;
+                    type = right_result.value.type.integer;
                 }
 
                 if(left_result.value.type.integer == IntegerType::Undetermined) {
                     string_buffer_append(source, "(");
 
-                    generate_integer_type(source, result_type);
+                    generate_integer_type(source, type);
 
                     string_buffer_append(source, ")");
                 }
@@ -2131,25 +2143,53 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
                 string_buffer_append(source, ")");
 
+                Type result_type;
                 switch(expression.binary_operation.binary_operator) {
                     case BinaryOperator::Addition: {
                         string_buffer_append(source, "+");
+
+                        result_type.category = TypeCategory::Integer;
+                        result_type.integer = type;
                     } break;
                     
                     case BinaryOperator::Subtraction: {
                         string_buffer_append(source, "-");
+
+                        result_type.category = TypeCategory::Integer;
+                        result_type.integer = type;
                     } break;
                     
                     case BinaryOperator::Multiplication: {
                         string_buffer_append(source, "*");
+
+                        result_type.category = TypeCategory::Integer;
+                        result_type.integer = type;
                     } break;
                     
                     case BinaryOperator::Division: {
                         string_buffer_append(source, "/");
+
+                        result_type.category = TypeCategory::Integer;
+                        result_type.integer = type;
                     } break;
                     
                     case BinaryOperator::Modulo: {
                         string_buffer_append(source, "%");
+
+                        result_type.category = TypeCategory::Integer;
+                        result_type.integer = type;
+                    } break;
+                    
+                    case BinaryOperator::Equal: {
+                        string_buffer_append(source, "==");
+
+                        result_type.category = TypeCategory::Boolean;
+                    } break;
+                    
+                    case BinaryOperator::NotEqual: {
+                        string_buffer_append(source, "!=");
+
+                        result_type.category = TypeCategory::Boolean;
                     } break;
 
                     default: {
@@ -2160,7 +2200,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 if(right_result.value.type.integer == IntegerType::Undetermined) {
                     string_buffer_append(source, "(");
 
-                    generate_integer_type(source, result_type);
+                    generate_integer_type(source, type);
 
                     string_buffer_append(source, ")");
                 }
@@ -2188,8 +2228,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
                 ExpressionValue value;
                 value.category = ExpressionValueCategory::Anonymous;
-                value.type.category = TypeCategory::Integer;
-                value.type.integer = result_type;
+                value.type = result_type;
 
                 return {
                     true,
