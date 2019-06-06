@@ -4,6 +4,7 @@
 #include <string.h>
 #include "parser.h"
 #include "generator.h"
+#include "platform.h"
 
 int main(int argc, char *argv[]) {
     if(argc < 2) {
@@ -32,9 +33,15 @@ int main(int argc, char *argv[]) {
 
     fclose(output_file);
 
+#if defined(PLATFORM_UNIX)
     if(system("clang -o out out.c") != 0){
         return EXIT_FAILURE;
     }
+#elif defined(PLATFORM_WINDOWS)
+    if(system("clang -o out.exe out.c") != 0){
+        return EXIT_FAILURE;
+    }
+#endif    
 
     return EXIT_SUCCESS;
 }
