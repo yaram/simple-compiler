@@ -837,7 +837,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             type.category = TypeCategory::Array;
             type.array = heapify(array_type);
 
-            auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * expression.string_literal.count);
+            auto characters = allocate<ConstantValue>(expression.string_literal.count);
 
             for(size_t i = 0; i < expression.string_literal.count; i += 1) {
                 characters[i].integer = expression.string_literal[i];
@@ -1205,7 +1205,7 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
                     return_type.category = TypeCategory::Void;
                 }
 
-                auto parameters = (Type*)malloc(declaration.function_definition.parameters.count * sizeof(Type));
+                auto parameters = allocate<Type>(declaration.function_definition.parameters.count);
                 
                 for(auto i = 0; i < declaration.function_definition.parameters.count; i += 1) {
                     auto result = evaluate_type_expression(*context, declaration.function_definition.parameters[i].type, print_errors);
@@ -1249,7 +1249,7 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
                     return_type.category = TypeCategory::Void;
                 }
 
-                auto parameters = (Type*)malloc(declaration.external_function.parameters.count * sizeof(Type));
+                auto parameters = allocate<Type>(declaration.external_function.parameters.count);
                 
                 for(auto i = 0; i < declaration.external_function.parameters.count; i += 1) {
                     auto result = evaluate_type_expression(*context, declaration.external_function.parameters[i].type, print_errors);
@@ -2115,7 +2115,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
         } break;
 
         case ExpressionType::StringLiteral: {
-            auto characters = (ConstantValue*)malloc(sizeof(ConstantValue) * expression.string_literal.count);
+            auto characters = allocate<ConstantValue>(expression.string_literal.count);
 
             for(size_t i = 0; i < expression.string_literal.count; i += 1) {
                 characters[i].integer = expression.string_literal[i];

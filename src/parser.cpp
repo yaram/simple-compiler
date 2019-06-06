@@ -1775,7 +1775,7 @@ static Result<Statement> parse_statement(Context *context) {
                     return { false };
                 }
 
-                auto import_path = (char*)malloc(result.value.count + 1);
+                auto import_path = allocate<char>(result.value.count + 1);
                 memcpy(import_path, result.value.elements, result.value.count);
                 import_path[result.value.count] = 0;
 
@@ -1792,7 +1792,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                 string_buffer_append(&full_import_path, import_path);
 
-                auto source_file_path_absolute = (char*)malloc(PATH_MAX);
+                auto source_file_path_absolute = allocate<char>(PATH_MAX);
     
                 if(realpath(full_import_path, source_file_path_absolute) == nullptr) {
                     fprintf(stderr, "Invalid path %s\n", source_file_path);
@@ -1811,7 +1811,7 @@ static Result<Statement> parse_statement(Context *context) {
                 string_buffer_append(&full_import_path, source_file_directory);
                 string_buffer_append(&full_import_path, import_path);
 
-                auto absolute_import_path = (char*)malloc(_MAX_PATH);
+                auto absolute_import_path = allocate<char>(_MAX_PATH);
 
                 if(_fullpath(absolute_import_path, full_import_path, _MAX_PATH) == nullptr) {
                     fprintf(stderr, "Invalid path %s\n", full_import_path);
@@ -1870,7 +1870,7 @@ static Result<Statement> parse_statement(Context *context) {
 
 Result<Array<File>> parse_source(const char *source_file_path) {
 #if defined(PLATFORM_UNIX)
-    auto source_file_path_absolute = (char*)malloc(PATH_MAX);
+    auto source_file_path_absolute = allocate<char>(PATH_MAX);
     
     if(realpath(source_file_path, source_file_path_absolute) == nullptr) {
         fprintf(stderr, "Invalid path %s\n", source_file_path);
@@ -1878,7 +1878,7 @@ Result<Array<File>> parse_source(const char *source_file_path) {
         return { false };
     }
 #elif defined(PLATFORM_WINDOWS)
-    auto source_file_path_absolute = (char*)malloc(_MAX_PATH);
+    auto source_file_path_absolute = allocate<char>(_MAX_PATH);
     
     if(_fullpath(source_file_path_absolute, source_file_path, _MAX_PATH) == nullptr) {
         fprintf(stderr, "Invalid path %s\n", source_file_path);
