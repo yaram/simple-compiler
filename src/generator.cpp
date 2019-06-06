@@ -6,6 +6,7 @@
 #include "list.h"
 #include "types.h"
 #include "util.h"
+#include "platform.h"
 
 static void string_buffer_append(char **string_buffer, const char *string) {
     auto string_length = strlen(string);
@@ -44,7 +45,8 @@ static void error(T node, const char *format, ...) {
 enum struct DeclarationCategory {
     FunctionDefinition,
     ExternalFunction,
-    ConstantDefinition
+    ConstantDefinition,
+    FileModuleImport
 };
 
 struct Declaration {
@@ -77,6 +79,8 @@ struct Declaration {
         } external_function;
 
         Expression constant_definition;
+
+        const char *file_module_import;
     };
 };
 
@@ -86,11 +90,9 @@ static Array<Declaration> get_declaration_children(Declaration declaration) {
             return declaration.function_definition.declarations;
         } break;
 
-        case DeclarationCategory::ExternalFunction: {
-            return Array<Declaration>{};
-        } break;
-
-        case DeclarationCategory::ConstantDefinition: {
+        case DeclarationCategory::ExternalFunction:
+        case DeclarationCategory::ConstantDefinition:
+        case DeclarationCategory::FileModuleImport: {
             return Array<Declaration>{};
         } break;
 
@@ -134,6 +136,8 @@ union ConstantValue {
     Type type;
 
     Array<ConstantValue> array;
+
+    Array<Declaration> file_module;
 };
 
 static bool constant_values_deep_equal(Type type, ConstantValue a, ConstantValue b) {
@@ -207,6 +211,7 @@ static bool constant_values_deep_equal(Type type, ConstantValue a, ConstantValue
 
         case TypeCategory::Void:
         case TypeCategory::Pointer:
+        case TypeCategory::FileModule:
         default: {
             abort();
         } break;
@@ -227,6 +232,12 @@ struct GlobalConstant {
     ConstantValue value;
 };
 
+struct FileModule {
+    const char *path;
+
+    Array<Declaration> declarations;
+};
+
 struct ConstantContext {
     IntegerType unsigned_size_integer_type;
     IntegerType signed_size_integer_type;
@@ -235,6 +246,7 @@ struct ConstantContext {
     Array<GlobalConstant> global_constants;
 
     Array<Declaration> top_level_declarations;
+    Array<FileModule> file_modules;
 
     List<Declaration> declaration_stack;
 };
@@ -274,6 +286,74 @@ static ConstantValue compiler_size_to_native_size(ConstantContext context, size_
 
 static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors);
 
+static Result<ConstantExpressionValue> evaluate_constant_declaration(ConstantContext context, Declaration declaration, bool print_errors) {
+    switch(declaration.category) {
+        case DeclarationCategory::FunctionDefinition: {
+            ConstantValue value;
+            value.function = declaration.function_definition.mangled_name;
+
+            return {
+                true,
+                {
+                    declaration.type,
+                    value
+                }
+            };
+        } break;
+
+        case DeclarationCategory::ExternalFunction: {
+            ConstantValue value;
+            value.function = declaration.name.text;
+
+            return {
+                true,
+                {
+                    declaration.type,
+                    value
+                }
+            };
+        } break;
+
+        case DeclarationCategory::ConstantDefinition: {
+            auto expression_result = evaluate_constant_expression(context, declaration.constant_definition, print_errors);
+
+            if(!expression_result.status) {
+                return { false };
+            }
+
+            return {
+                true,
+                expression_result.value
+            };
+        } break;
+
+        case DeclarationCategory::FileModuleImport: {
+            Type type;
+            type.category = TypeCategory::FileModule;
+
+            ConstantValue value;
+
+            for(auto file_module : context.file_modules) {
+                if(strcmp(declaration.file_module_import, file_module.path) == 0) {
+                    value.file_module = file_module.declarations;
+                }
+            }
+
+            return {
+                true,
+                {
+                    type,
+                    value
+                }
+            };
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 static Result<ConstantExpressionValue> resolve_constant_named_reference(ConstantContext context, Identifier name, bool print_errors) {
     auto result = lookup_declaration(context.top_level_declarations, to_array(context.declaration_stack), name.text);
 
@@ -297,50 +377,7 @@ static Result<ConstantExpressionValue> resolve_constant_named_reference(Constant
         return { false };
     }
 
-    switch(result.value.category) {
-        case DeclarationCategory::FunctionDefinition: {
-            ConstantValue value;
-            value.function = result.value.function_definition.mangled_name;
-
-            return {
-                true,
-                {
-                    result.value.type,
-                    value
-                }
-            };
-        } break;
-
-        case DeclarationCategory::ExternalFunction: {
-            ConstantValue value;
-            value.function = result.value.name.text;
-
-            return {
-                true,
-                {
-                    result.value.type,
-                    value
-                }
-            };
-        } break;
-
-        case DeclarationCategory::ConstantDefinition: {
-            auto expression_result = evaluate_constant_expression(context, result.value.constant_definition, print_errors);
-
-            if(!expression_result.status) {
-                return { false };
-            }
-
-            return {
-                true,
-                expression_result.value
-            };
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
+    return evaluate_constant_declaration(context, result.value, print_errors);
 }
 
 static Result<ConstantValue> evaluate_constant_array_index(Array<ConstantValue> array, IntegerType index_type, ConstantValue index_value, bool print_errors) {
@@ -666,40 +703,67 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                 return { false };
             }
 
-            if(result.value.type.category != TypeCategory::Array) {
-                if(print_errors) {
-                    error(*expression.member_reference.expression, "This type has no members");
-                }
-
-                return { false };
-            }
-
-            if(strcmp(expression.member_reference.name.text, "length") == 0) {
-                Type type;
-                type.category = TypeCategory::Integer;
-                type.integer = context.unsigned_size_integer_type;
-
-                auto value = compiler_size_to_native_size(context, result.value.value.array.count);
-
-                return {
-                    true,
-                    {
-                        type,
-                        value
+            switch(result.value.type.category) {
+                case TypeCategory::Function:
+                case TypeCategory::Integer:
+                case TypeCategory::Boolean:
+                case TypeCategory::Type:
+                case TypeCategory::Void:
+                case TypeCategory::Pointer: {
+                    if(print_errors) {
+                        error(*expression.member_reference.expression, "This type has no members");
                     }
-                };
-            } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
-                if(print_errors) {
-                    error(expression.member_reference.name, "Cannot access array pointer in constant context");
-                }
 
-                return { false };
-            } else {
-                if(print_errors) {
-                    error(expression.member_reference.name, "No member with name %s", expression.member_reference.name.text);
-                }
+                    return { false };
+                } break;
 
-                return { false };
+                case TypeCategory::Array: {
+                    if(strcmp(expression.member_reference.name.text, "length") == 0) {
+                        Type type;
+                        type.category = TypeCategory::Integer;
+                        type.integer = context.unsigned_size_integer_type;
+
+                        auto value = compiler_size_to_native_size(context, result.value.value.array.count);
+
+                        return {
+                            true,
+                            {
+                                type,
+                                value
+                            }
+                        };
+                    } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
+                        if(print_errors) {
+                            error(expression.member_reference.name, "Cannot access array pointer in constant context");
+                        }
+
+                        return { false };
+                    } else {
+                        if(print_errors) {
+                            error(expression.member_reference.name, "No member with name %s", expression.member_reference.name.text);
+                        }
+
+                        return { false };
+                    }
+                } break;
+
+                case TypeCategory::FileModule: {
+                    for(auto declaration : result.value.value.file_module) {
+                        if(declaration.type_resolved && strcmp(declaration.name.text, expression.member_reference.name.text) == 0) {
+                            return evaluate_constant_declaration(context, declaration, print_errors);
+                        }
+                    }
+
+                    if(print_errors) {
+                        error(expression.member_reference.name, "No member with name %s", expression.member_reference.name.text);
+                    }
+
+                    return { false };
+                } break;
+
+                default: {
+                    abort();
+                } break;
             }
         } break;
 
@@ -1036,6 +1100,40 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
             return { false };
         }
 
+        case StatementType::Import: {
+            Declaration declaration;
+            declaration.category = DeclarationCategory::FileModuleImport;
+            declaration.type_resolved = false;
+
+#if defined(PLATFORM_UNIX)
+            auto name = basename(statement.import);
+#elif defined(PLATFORM_WINDOWS)
+            char file_name[_MAX_FNAME];
+            char file_extension[_MAX_EXT];
+
+            _splitpath(statement.import, nullptr, nullptr, file_name, file_extension);
+
+            auto name = allocate<char>(_MAX_FNAME + _MAX_EXT);
+
+            strcpy(name, file_name);
+            strcat(name, file_extension);
+#endif
+
+            declaration.name = {
+                name,
+                statement.source_file_path,
+                statement.line,
+                statement.character
+            };
+
+            declaration.file_module_import = statement.import;
+
+            return {
+                true,
+                declaration
+            };
+        } break;
+
         default: {
             abort();
         } break;
@@ -1183,6 +1281,16 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
                 return {
                     true,
                     result.value.type
+                };
+            } break;
+
+            case DeclarationCategory::FileModuleImport: {
+                Type type;
+                type.category = TypeCategory::FileModule;
+
+                return {
+                    true,
+                    type
                 };
             } break;
 
@@ -1347,7 +1455,10 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
     switch(type.category) {
         case TypeCategory::Function:
         case TypeCategory::Type:
-        case TypeCategory::Void: {
+        case TypeCategory::Void:
+        case TypeCategory::FileModule: {
+            fprintf(stderr, "Invalid array type\n");
+
             return { false };
         } break;
 
@@ -1492,6 +1603,12 @@ static bool generate_type(GenerationContext *context, char **source, Type type) 
             return true;
         } break;
 
+        case TypeCategory::FileModule: {
+            fprintf(stderr, "Module values cannot exist at runtime\n");
+
+            return false;
+        } break;
+
         default: {
             abort();
         } break;
@@ -1617,6 +1734,12 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
             return false;
         } break;
 
+        case TypeCategory::FileModule: {
+            fprintf(stderr, "Module values cannot exist at runtime\n");
+
+            return false;
+        } break;
+
         default: {
             abort();
         } break;
@@ -1723,99 +1846,140 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 return { false };
             }
 
-            if(result.value.type.category != TypeCategory::Array) {
-                error(*expression.member_reference.expression, "This type has no members");
+            switch(result.value.type.category) {
+                case TypeCategory::Function:
+                case TypeCategory::Integer:
+                case TypeCategory::Boolean:
+                case TypeCategory::Type:
+                case TypeCategory::Void:
+                case TypeCategory::Pointer: {
+                    error(*expression.member_reference.expression, "This type has no members");
 
-                return { false };
-            }
+                    return { false };
+                } break;
 
-            if(strcmp(expression.member_reference.name.text, "length") == 0) {
-                switch(result.value.category) {
-                    case ExpressionValueCategory::Anonymous:
-                    case ExpressionValueCategory::Assignable: {
-                        string_buffer_append(source, "(");
+                case TypeCategory::Array: {
+                    if(strcmp(expression.member_reference.name.text, "length") == 0) {
+                        switch(result.value.category) {
+                            case ExpressionValueCategory::Anonymous:
+                            case ExpressionValueCategory::Assignable: {
+                                string_buffer_append(source, "(");
 
-                        string_buffer_append(source, expression_source);
+                                string_buffer_append(source, expression_source);
 
-                        string_buffer_append(source, ").length");
+                                string_buffer_append(source, ").length");
 
-                        ExpressionValue value;
-                        value.category = ExpressionValueCategory::Anonymous;
-                        value.type.category = TypeCategory::Integer;
-                        value.type.integer = context->constant_context.unsigned_size_integer_type;
+                                ExpressionValue value;
+                                value.category = ExpressionValueCategory::Anonymous;
+                                value.type.category = TypeCategory::Integer;
+                                value.type.integer = context->constant_context.unsigned_size_integer_type;
 
-                        return {
-                            true,
-                            value
-                        };
-                    } break;
+                                return {
+                                    true,
+                                    value
+                                };
+                            } break;
 
-                    case ExpressionValueCategory::Constant: {
-                        ExpressionValue value;
-                        value.category = ExpressionValueCategory::Constant;
-                        value.type.category = TypeCategory::Integer;
-                        value.type.integer = context->constant_context.unsigned_size_integer_type;
-                        value.constant = compiler_size_to_native_size(context->constant_context, result.value.constant.array.count);
+                            case ExpressionValueCategory::Constant: {
+                                ExpressionValue value;
+                                value.category = ExpressionValueCategory::Constant;
+                                value.type.category = TypeCategory::Integer;
+                                value.type.integer = context->constant_context.unsigned_size_integer_type;
+                                value.constant = compiler_size_to_native_size(context->constant_context, result.value.constant.array.count);
 
-                        return {
-                            true,
-                            value
-                        };
-                    } break;
+                                return {
+                                    true,
+                                    value
+                                };
+                            } break;
 
-                    default: {
-                        abort();
-                    } break;
-                }
-            } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
-                switch(result.value.category) {
-                    case ExpressionValueCategory::Anonymous:
-                    case ExpressionValueCategory::Assignable: {
-                        string_buffer_append(source, "(");
-
-                        string_buffer_append(source, expression_source);
-
-                        string_buffer_append(source, ").pointer");
-
-                        ExpressionValue value;
-                        value.category = ExpressionValueCategory::Anonymous;
-                        value.type.category = TypeCategory::Pointer;
-                        value.type.pointer = result.value.type.array;
-
-                        return {
-                            true,
-                            value
-                        };
-                    } break;
-
-                    case ExpressionValueCategory::Constant: {
-                        auto constant_result = maybe_register_array_constant(context, *result.value.type.array, result.value.constant.array);
-
-                        if(!constant_result.status) {
-                            return { false };
+                            default: {
+                                abort();
+                            } break;
                         }
+                    } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
+                        switch(result.value.category) {
+                            case ExpressionValueCategory::Anonymous:
+                            case ExpressionValueCategory::Assignable: {
+                                string_buffer_append(source, "(");
 
-                        string_buffer_append(source, constant_result.value);
+                                string_buffer_append(source, expression_source);
 
-                        ExpressionValue value;
-                        value.category = ExpressionValueCategory::Anonymous;
-                        value.type.category = TypeCategory::Pointer;
-                        value.type.pointer = result.value.type.array;
+                                string_buffer_append(source, ").pointer");
 
-                        return {
-                            true,
-                            value
-                        };
-                    } break;
+                                ExpressionValue value;
+                                value.category = ExpressionValueCategory::Anonymous;
+                                value.type.category = TypeCategory::Pointer;
+                                value.type.pointer = result.value.type.array;
 
-                    default: {
-                        abort();
-                    } break;
-                }
-            } else {
-                error(expression.member_reference.name, "No member with name %s", expression.member_reference.name.text);
+                                return {
+                                    true,
+                                    value
+                                };
+                            } break;
 
-                return { false };
+                            case ExpressionValueCategory::Constant: {
+                                auto constant_result = maybe_register_array_constant(context, *result.value.type.array, result.value.constant.array);
+
+                                if(!constant_result.status) {
+                                    return { false };
+                                }
+
+                                string_buffer_append(source, constant_result.value);
+
+                                ExpressionValue value;
+                                value.category = ExpressionValueCategory::Anonymous;
+                                value.type.category = TypeCategory::Pointer;
+                                value.type.pointer = result.value.type.array;
+
+                                return {
+                                    true,
+                                    value
+                                };
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+                    } else {
+                        error(expression.member_reference.name, "No member with name %s", expression.member_reference.name.text);
+
+                        return { false };
+                    }
+                } break;
+
+                case TypeCategory::FileModule: {
+                    assert(result.value.category == ExpressionValueCategory::Constant);
+
+                    for(auto declaration : result.value.constant.file_module) {
+                        if(declaration.type_resolved && strcmp(declaration.name.text, expression.member_reference.name.text) == 0) {
+                            auto result = evaluate_constant_declaration(context->constant_context, declaration, true);
+
+                            if(!result.status) {
+                                return { false };
+                            }
+
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Constant;
+                            value.type = result.value.type;
+                            value.constant = result.value.value;
+
+                            return {
+                                true,
+                                value
+                            };
+                        }
+                    }
+
+                    error(expression.member_reference.name, "No member with name %s", expression.member_reference.name.text);
+
+                    return { false };
+                } break;
+
+                default: {
+                    abort();
+                } break;
             }
         } break;
 
@@ -2705,6 +2869,10 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
             return result.status;
         } break;
 
+        case DeclarationCategory::FileModuleImport: {
+            return true;
+        } break;
+
         default: {
             abort();
         } break;
@@ -2733,24 +2901,57 @@ inline GlobalConstant create_base_integer_type(const char *name, IntegerType int
     return create_base_type(name, type);
 }
 
-Result<char*> generate_c_source(Array<Statement> top_level_statements) {
-    List<Declaration> top_level_declarations{};
+Result<char*> generate_c_source(Array<File> files) {
+    assert(files.count > 0);
+
+    auto file_modules = allocate<FileModule>(files.count);
 
     List<const char*> name_stack{};
 
-    for(auto top_level_statement : top_level_statements) {
-        auto result = create_declaration(&name_stack, top_level_statement);
+    for(auto i = 0; i < files.count; i += 1) {
+        auto file = files[i];
 
-        if(result.status) {
-            append(&top_level_declarations, result.value);
-        } else {
-            error(top_level_statement, "Only constant declarations are allowed in global scope");
+        if(i != 0) {
+#if defined(PLATFORM_UNIX)
+            auto name = basename(file.path);
+#elif defined(PLATFORM_WINDOWS)
+            char file_name[_MAX_FNAME];
+            char file_extension[_MAX_EXT];
 
-            return { false };
+            _splitpath(file.path, nullptr, nullptr, file_name, file_extension);
+
+            char name[_MAX_FNAME + _MAX_EXT];
+
+            strcpy(name, file_name);
+            strcat(name, file_extension);
+#endif
+
+            append<const char*>(&name_stack, name);
+        }
+
+        List<Declaration> declarations{};
+
+        for(auto statement : file.statements) {
+            auto result = create_declaration(&name_stack, statement);
+
+            if(result.status) {
+                append(&declarations, result.value);
+            } else {
+                error(statement, "Only constant declarations are allowed in global scope");
+
+                return { false };
+            }
+        }
+
+        file_modules[i] = {
+            file.path,
+            to_array(declarations)
+        };
+
+        if(i != 0) {
+            name_stack.count -= 1;
         }
     }
-
-    auto previous_resolved_declaration_count = 0;
 
     List<GlobalConstant> global_constants{};
 
@@ -2793,38 +2994,65 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
         boolean_false_value
     });
 
-    ConstantContext constant_context {
-        unsigned_size_integer_type,
-        signed_size_integer_type,
-        signed_size_integer_type,
-        to_array(global_constants),
-        to_array(top_level_declarations)
-    };
+    auto previous_resolved_declaration_count = 0;
 
     while(true) {
-        for(auto &top_level_declaration : top_level_declarations) {
-            auto result = resolve_declaration_type(&constant_context, top_level_declaration, false);
+        for(auto i = 0; i < files.count; i += 1) {
+            auto file_module = file_modules[i];
 
-            if(result.status) {
-                top_level_declaration.type_resolved = true;
-                top_level_declaration.type = result.value;
+            ConstantContext constant_context {
+                unsigned_size_integer_type,
+                signed_size_integer_type,
+                signed_size_integer_type,
+                to_array(global_constants),
+                file_module.declarations,
+                {
+                    files.count,
+                    file_modules
+                }
+            };
+
+            for(auto &declaration : file_module.declarations) {
+                auto result = resolve_declaration_type(&constant_context, declaration, false);
+
+                if(result.status) {
+                    declaration.type_resolved = true;
+                    declaration.type = result.value;
+                }
             }
         }
 
         auto resolved_declaration_count = 0;
-        
-        for(auto top_level_declaration : top_level_declarations) {
-            resolved_declaration_count += count_declarations(top_level_declaration, true);
+
+        for(auto i = 0; i < files.count; i += 1) {
+            for(auto declaration : file_modules[i].declarations) {
+                resolved_declaration_count += count_declarations(declaration, true);
+            }
         }
 
         if(resolved_declaration_count == previous_resolved_declaration_count) {
-            for(auto top_level_declaration : top_level_declarations) {
-                resolve_declaration_type(&constant_context, top_level_declaration, true);
-            }
-
             auto declaration_count = 0;
-            for(auto top_level_declaration : top_level_declarations) {
-                declaration_count += count_declarations(top_level_declaration, false);
+
+            for(auto i = 0; i < files.count; i += 1) {
+                auto file_module = file_modules[i];
+
+                ConstantContext constant_context {
+                    unsigned_size_integer_type,
+                    signed_size_integer_type,
+                    signed_size_integer_type,
+                    to_array(global_constants),
+                    file_module.declarations,
+                    {
+                        files.count,
+                        file_modules
+                    }
+                };
+
+                for(auto declaration : file_module.declarations) {
+                    resolve_declaration_type(&constant_context, declaration, true);
+
+                    declaration_count += count_declarations(declaration, false);
+                }
             }
 
             if(declaration_count != resolved_declaration_count) {
@@ -2832,17 +3060,34 @@ Result<char*> generate_c_source(Array<Statement> top_level_statements) {
             }
 
             break;
+        } else {
+            previous_resolved_declaration_count = resolved_declaration_count;
         }
-
-        previous_resolved_declaration_count = resolved_declaration_count;
     }
 
     GenerationContext context{};
-    context.constant_context = constant_context;
 
-    for(auto top_level_declaration : top_level_declarations) {
-        if(!generate_declaration(&context, top_level_declaration)) {
-            return { false };
+    for(auto i = 0; i < files.count; i += 1) {
+        auto file_module = file_modules[i];
+
+        ConstantContext constant_context {
+            unsigned_size_integer_type,
+            signed_size_integer_type,
+            signed_size_integer_type,
+            to_array(global_constants),
+            file_module.declarations,
+            {
+                files.count,
+                file_modules
+            }
+        };
+
+        context.constant_context = constant_context;
+
+        for(auto declaration : file_module.declarations) {
+            if(!generate_declaration(&context, declaration)) {
+                return { false };
+            }
         }
     }
 

@@ -9,7 +9,8 @@ enum struct TypeCategory {
     Type,
     Void,
     Pointer,
-    Array
+    Array,
+    FileModule
 };
 
 enum struct IntegerType {

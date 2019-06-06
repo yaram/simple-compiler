@@ -10,3 +10,8 @@ inline T *heapify(T value) {
 
     return pointer;
 }
+
+template <typename T>
+inline T *allocate(size_t count) {
+    return (T*)malloc(sizeof(T) * count);
+}

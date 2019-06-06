@@ -30,7 +30,8 @@ bool types_equal(Type a, Type b) {
 
         case TypeCategory::Boolean:
         case TypeCategory::Type:
-        case TypeCategory::Void: {
+        case TypeCategory::Void:
+        case TypeCategory::FileModule: {
             return true;
         } break;
 

@@ -13,15 +13,8 @@ int main(int argc, char *argv[]) {
     }
 
     auto source_file_path = argv[1];
-    auto source_file = fopen(source_file_path, "rb");
-
-    if(source_file == NULL) {
-        fprintf(stderr, "Unable to read source file: %s\n", strerror(errno));
-
-        return EXIT_FAILURE;
-    }
-
-    auto parser_result = parse_source(source_file_path, source_file);
+    
+    auto parser_result = parse_source(source_file_path);
 
     if(!parser_result.status) {
         return EXIT_FAILURE;
