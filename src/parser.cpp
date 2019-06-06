@@ -3,8 +3,35 @@
 #include <ctype.h>
 #include <stdarg.h>
 #include <assert.h>
+#include <stdlib.h>
+#if defined(PLATFORM_UNIX)
+#include <string.h>
+#endif
 #include "list.h"
 #include "util.h"
+#include "platform.h"
+
+static void string_buffer_append(char **string_buffer, const char *string) {
+    auto string_length = strlen(string);
+
+    if(*string_buffer == nullptr) {
+        *string_buffer = (char*)malloc(string_length + 1);
+
+        strcpy(*string_buffer, string);
+    } else {
+        auto string_buffer_length = strlen(*string_buffer);
+
+        auto new_string_buffer_length = string_buffer_length + string_length;
+
+        auto new_string_buffer = (char*)realloc((void*)(*string_buffer), new_string_buffer_length + 1);
+
+        strcpy(new_string_buffer, *string_buffer);
+
+        strcat(new_string_buffer, string);
+
+        *string_buffer = new_string_buffer;
+    }
+}
 
 struct Context {
     const char *source_file_path;
@@ -13,6 +40,8 @@ struct Context {
 
     unsigned int line;
     unsigned int character;
+
+    List<const char*> *remaining_files;
 };
 
 static void error(Context context, const char *format, ...) {
@@ -380,6 +409,103 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
     append(expression_stack, expression);
 }
 
+static Result<Array<char>> parse_string(Context *context) {
+    List<char> buffer{};
+
+    while(true) {
+        auto character = fgetc(context->source_file);
+
+        auto done = false;
+        switch(character) {
+            case '\\': {
+                context->character += 1;
+
+                auto character = fgetc(context->source_file);
+
+                switch(character) {
+                    case '\\':
+                    case '"': {
+                        context->character += 1;
+
+                        append(&buffer, (char)character);
+                    } break;
+
+                    case 'r': {
+                        context->character += 1;
+
+                        append(&buffer, '\r');
+                    } break;
+
+                    case 'n': {
+                        context->character += 1;
+
+                        append(&buffer, '\n');
+                    } break;
+
+                    case '0': {
+                        context->character += 1;
+
+                        append(&buffer, '\0');
+                    } break;
+
+                    case '\n':
+                    case '\r': {
+                        error(*context, "Unexpected newline");
+
+                        return { false };
+                    } break;
+
+                    case EOF: {
+                        error(*context, "Unexpected End of File");
+
+                        return { false };
+                    } break;
+
+                    default: {
+                        error(*context, "Unknown escape code %c", character);
+
+                        return { false };
+                    } break;
+                }
+            } break;
+
+            case '"': {
+                context->character += 1;
+
+                done = true;
+            } break;
+
+            case '\n':
+            case '\r': {
+                error(*context, "Unexpected newline");
+
+                return { false };
+            } break;
+
+            case EOF: {
+                error(*context, "Unexpected End of File");
+
+                return { false };
+            } break;
+
+            default: {
+                context->character += 1;
+
+                append(&buffer, (char)character);
+            } break;
+        }
+
+        if(done) {
+            break;
+        }
+    }
+
+    return {
+        true,
+        to_array(buffer)
+    };
+}
+
 static Result<Expression> parse_expression(Context *context);
 
 static Result<Expression> parse_right_expressions(Context *context, List<Operation> *operation_stack, List<Expression> *expression_stack, bool start_with_non_left_recursive) {
@@ -539,94 +665,10 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
             } else if(character == '"') {
                 context->character += 1;
 
-                List<char> buffer{};
+                auto result = parse_string(context);
 
-                while(true) {
-                    auto character = fgetc(context->source_file);
-
-                    auto done = false;
-                    switch(character) {
-                        case '\\': {
-                            context->character += 1;
-
-                            auto character = fgetc(context->source_file);
-
-                            switch(character) {
-                                case '\\':
-                                case '"': {
-                                    context->character += 1;
-
-                                    append(&buffer, (char)character);
-                                } break;
-
-                                case 'r': {
-                                    context->character += 1;
-
-                                    append(&buffer, '\r');
-                                } break;
-
-                                case 'n': {
-                                    context->character += 1;
-
-                                    append(&buffer, '\n');
-                                } break;
-
-                                case '0': {
-                                    context->character += 1;
-
-                                    append(&buffer, '\0');
-                                } break;
-
-                                case '\n':
-                                case '\r': {
-                                    error(*context, "Unexpected newline");
-
-                                    return { false };
-                                } break;
-
-                                case EOF: {
-                                    error(*context, "Unexpected End of File");
-
-                                    return { false };
-                                } break;
-
-                                default: {
-                                    error(*context, "Unknown escape code %c", character);
-
-                                    return { false };
-                                } break;
-                            }
-                        } break;
-
-                        case '"': {
-                            context->character += 1;
-
-                            done = true;
-                        } break;
-
-                        case '\n':
-                        case '\r': {
-                            error(*context, "Unexpected newline");
-
-                            return { false };
-                        } break;
-
-                        case EOF: {
-                            error(*context, "Unexpected End of File");
-
-                            return { false };
-                        } break;
-
-                        default: {
-                            context->character += 1;
-
-                            append(&buffer, (char)character);
-                        } break;
-                    }
-
-                    if(done) {
-                        break;
-                    }
+                if(!result.status) {
+                    return { false };
                 }
 
                 Expression expression;
@@ -634,7 +676,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 expression.line = first_line;
                 expression.character = first_character;
                 expression.type = ExpressionType::StringLiteral;
-                expression.string_literal = to_array(buffer);
+                expression.string_literal = result.value;
 
                 append(expression_stack, expression);
             } else if(character == '(') {
@@ -1710,6 +1752,100 @@ static Result<Statement> parse_statement(Context *context) {
                 } break;
             }
         }
+    } else if(character == '#') {
+        context->character += 1;
+
+        auto character = fgetc(context->source_file);
+
+        if(isalpha(character)) {
+            ungetc(character, context->source_file);
+
+            auto identifier = parse_identifier(context);
+
+            if(strcmp(identifier.text, "import") == 0) {
+                skip_whitespace(context);
+
+                if(!expect_character(context, '"')) {
+                    return { false };
+                }
+
+                auto result = parse_string(context);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                auto import_path = (char*)malloc(result.value.count + 1);
+                memcpy(import_path, result.value.elements, result.value.count);
+                import_path[result.value.count] = 0;
+
+#if defined(PLATFORM_UNIX)
+                auto source_file_directory = dirname(context->source_file_path);
+
+                char *full_import_path{};
+
+                string_buffer_append(&full_import_path, source_file_directory);
+
+                if(strlen(source_file_directory) != 0) {
+                    string_buffer_append(&full_import_path, "/");
+                }
+
+                string_buffer_append(&full_import_path, import_path);
+
+                auto source_file_path_absolute = (char*)malloc(PATH_MAX);
+    
+                if(realpath(full_import_path, source_file_path_absolute) == nullptr) {
+                    fprintf(stderr, "Invalid path %s\n", source_file_path);
+
+                    return { false };
+                }
+#elif defined(PLATFORM_WINDOWS)
+                char source_file_drive[_MAX_DRIVE];
+                char source_file_directory[_MAX_DIR];
+
+                _splitpath(context->source_file_path, source_file_drive, source_file_directory, nullptr, nullptr);
+
+                char *full_import_path{};
+
+                string_buffer_append(&full_import_path, source_file_drive);
+                string_buffer_append(&full_import_path, source_file_directory);
+                string_buffer_append(&full_import_path, import_path);
+
+                auto absolute_import_path = (char*)malloc(_MAX_PATH);
+
+                if(_fullpath(absolute_import_path, full_import_path, _MAX_PATH) == nullptr) {
+                    fprintf(stderr, "Invalid path %s\n", full_import_path);
+
+                    return { false };
+                }
+#endif
+                append<const char *>(context->remaining_files, absolute_import_path);
+
+                Statement statement;
+                statement.type = StatementType::Import;
+                statement.source_file_path = context->source_file_path;
+                statement.line = first_line;
+                statement.character = first_character;
+                statement.import = absolute_import_path;
+
+                return {
+                    true,
+                    statement
+                };
+            } else {
+                error(*context, "Expected import. Got '%s'", identifier.text);
+
+                return { false };
+            }
+        } else if(character == EOF) {
+            error(*context, "Unexpected End of File");
+
+            return { false };
+        } else {
+            error(*context, "Expected a-z or A-Z. Got '%c'", (char)character);
+
+            return { false };
+        }
     } else {
         ungetc(character, context->source_file);
 
@@ -1732,39 +1868,92 @@ static Result<Statement> parse_statement(Context *context) {
     }
 }
 
-Result<Array<Statement>> parse_source(const char *source_file_path, FILE *source_file) {
-    Context context{
-        source_file_path,
-        source_file,
-        1, 1        
-    };
+Result<Array<File>> parse_source(const char *source_file_path) {
+#if defined(PLATFORM_UNIX)
+    auto source_file_path_absolute = (char*)malloc(PATH_MAX);
+    
+    if(realpath(source_file_path, source_file_path_absolute) == nullptr) {
+        fprintf(stderr, "Invalid path %s\n", source_file_path);
 
-    List<Statement> top_level_statements{};
+        return { false };
+    }
+#elif defined(PLATFORM_WINDOWS)
+    auto source_file_path_absolute = (char*)malloc(_MAX_PATH);
+    
+    if(_fullpath(source_file_path_absolute, source_file_path, _MAX_PATH) == nullptr) {
+        fprintf(stderr, "Invalid path %s\n", source_file_path);
 
-    skip_whitespace(&context);
+        return { false };
+    }
+#endif
 
-    while(true) {
-        auto character = fgetc(source_file);
+    List<const char*> remaining_files{};
 
-        if(character == EOF) {
-            break;
-        } else {
-            ungetc(character, source_file);
+    append<const char *>(&remaining_files, source_file_path_absolute);
+
+    List<File> files{};
+
+    while(remaining_files.count > 0) {
+        auto source_file_path = take_last(&remaining_files);
+
+        auto already_parsed = false;
+        for(auto file : files) {
+            if(strcmp(file.path, source_file_path) == 0) {
+                already_parsed = true;
+
+                break;
+            }
         }
 
-        auto result = parse_statement(&context);
+        if(!already_parsed) {
+            auto source_file = fopen(source_file_path, "rb");
 
-        if(!result.status) {
-            return { false };
+            if(source_file == NULL) {
+                fprintf(stderr, "Unable to read source file: %s (%s)\n", source_file_path, strerror(errno));
+
+                return { false };
+            }
+
+            Context context {
+                source_file_path,
+                source_file,
+                1, 1,
+                &remaining_files
+            };
+
+            List<Statement> top_level_statements{};
+
+            skip_whitespace(&context);
+
+            while(true) {
+                auto character = fgetc(source_file);
+
+                if(character == EOF) {
+                    break;
+                } else {
+                    ungetc(character, source_file);
+                }
+
+                auto result = parse_statement(&context);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                append(&top_level_statements, result.value);
+
+                skip_whitespace(&context);
+            }
+
+            append(&files, File {
+                source_file_path,
+                to_array(top_level_statements)
+            });
         }
-
-        append(&top_level_statements, result.value);
-
-        skip_whitespace(&context);
     }
 
     return {
         true,
-        to_array(top_level_statements)
+        to_array(files)
     };
 }

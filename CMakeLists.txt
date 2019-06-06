@@ -8,6 +8,8 @@ add_executable(compiler
     src/result.h
     src/util.h
 
+    src/platform.h
+
     src/ast.h
     src/ast.cpp
 

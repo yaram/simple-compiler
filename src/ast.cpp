@@ -398,6 +398,10 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             indent(indentation_level);
             printf("}");
         } break;
+
+        case StatementType::Import: {
+            printf("Import: %s", statement.import);
+        } break;
     }
 }
 

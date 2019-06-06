@@ -98,7 +98,8 @@ enum struct StatementType {
     Expression,
     VariableDeclaration,
     Assignment,
-    LoneIf
+    LoneIf,
+    Import
 };
 
 struct FunctionParameter {
@@ -172,6 +173,8 @@ struct Statement {
 
             Array<Statement> statements;
         } lone_if;
+
+        const char *import;
     };
 };
 
