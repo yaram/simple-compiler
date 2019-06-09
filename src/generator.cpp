@@ -3013,7 +3013,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                         ) &&
                         !types_equal(type_result.value, initializer_result.value.type)
                     ) {
-                        error(statement.assignment.value, "Assigning incorrect type");
+                        error(statement.variable_declaration.fully_specified.initializer, "Assigning incorrect type");
 
                         return false;
                     }
