@@ -229,6 +229,8 @@ struct FileModule {
     const char *path;
 
     Array<Declaration> declarations;
+
+    Array<Statement> compiler_directives;
 };
 
 struct ConstantContext {
@@ -1512,6 +1514,8 @@ struct GenerationContext {
     List<ArrayType> array_types;
 
     List<ArrayConstant> array_constants;
+
+    List<const char*> libraries;
 };
 
 static bool register_global_name(GenerationContext *context, const char *name, FilePosition name_position) {
@@ -3162,6 +3166,18 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
             return true;
         } break;
 
+        case StatementType::Library: {
+            for(auto library : context->libraries) {
+                if(strcmp(library, statement.library) == 0) {
+                    return true;
+                }
+            }
+
+            append(&(context->libraries), statement.library);
+
+            return true;
+        } break;
+
         default: {
             abort();
         } break;
@@ -3347,7 +3363,7 @@ inline GlobalConstant create_base_integer_type(const char *name, IntegerType int
     return create_base_type(name, type);
 }
 
-Result<char*> generate_c_source(Array<File> files) {
+Result<CSource> generate_c_source(Array<File> files) {
     assert(files.count > 0);
 
     auto file_modules = allocate<FileModule>(files.count);
@@ -3365,21 +3381,32 @@ Result<char*> generate_c_source(Array<File> files) {
 
         List<Declaration> declarations{};
 
+        List<Statement> compiler_directives{};
+
         for(auto statement : file.statements) {
-            auto result = create_declaration(&name_stack, statement);
+            switch(statement.type) {
+                case StatementType::Library: {
+                    append(&compiler_directives, statement);
+                } break;
 
-            if(result.status) {
-                append(&declarations, result.value);
-            } else {
-                error(statement.position, "Only constant declarations are allowed in global scope");
+                default: {
+                    auto result = create_declaration(&name_stack, statement);
 
-                return { false };
+                    if(result.status) {
+                        append(&declarations, result.value);
+                    } else {
+                        error(statement.position, "Only constant declarations and compiler directives are allowed in global scope");
+
+                        return { false };
+                    }
+                } break;
             }
         }
 
         file_modules[i] = {
             file.path,
-            to_array(declarations)
+            to_array(declarations),
+            to_array(compiler_directives)
         };
 
         if(i != 0) {
@@ -3523,6 +3550,12 @@ Result<char*> generate_c_source(Array<File> files) {
                 return { false };
             }
         }
+
+        for(auto compiler_directive : file_module.compiler_directives) {
+            if(!generate_statement(&context, compiler_directive)) {
+                return { false };
+            }
+        }
     }
 
     char *full_source{};
@@ -3606,6 +3639,9 @@ Result<char*> generate_c_source(Array<File> files) {
 
     return {
         true,
-        full_source
+        {
+            full_source,
+            to_array(context.libraries)
+        }
     };
 }

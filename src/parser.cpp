@@ -1894,8 +1894,44 @@ static Result<Statement> parse_statement(Context *context) {
                     true,
                     statement
                 };
+            } else if(strcmp(identifier.text, "library") == 0) {
+                skip_whitespace(context);
+
+                if(!expect_character(context, '"')) {
+                    return { false };
+                }
+
+                auto result = parse_string(context);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                skip_whitespace(context);
+
+                if(!expect_character(context, ';')) {
+                    return { false };
+                }
+
+                auto library = allocate<char>(result.value.count + 1);
+                memcpy(library, result.value.elements, result.value.count);
+                library[result.value.count] = 0;
+
+                Statement statement;
+                statement.type = StatementType::Library;
+                statement.position = {
+                    context->source_file_path,
+                    first_line,
+                    first_character
+                };
+                statement.library = library;
+
+                return {
+                    true,
+                    statement
+                };
             } else {
-                error(*context, "Expected import. Got '%s'", identifier.text);
+                error(*context, "Expected 'import' or 'library'. Got '%s'", identifier.text);
 
                 return { false };
             }

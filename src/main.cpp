@@ -4,6 +4,7 @@
 #include <string.h>
 #include "parser.h"
 #include "generator.h"
+#include "util.h"
 #include "platform.h"
 
 int main(int argc, char *argv[]) {
@@ -29,19 +30,31 @@ int main(int argc, char *argv[]) {
 
     auto output_file = fopen("out.c", "w");
 
-    fprintf(output_file, "%s", generator_result.value);
+    fprintf(output_file, "%s", generator_result.value.source);
 
     fclose(output_file);
 
+    char *buffer{};
+
 #if defined(PLATFORM_UNIX)
-    if(system("clang -o out out.c") != 0){
-        return EXIT_FAILURE;
-    }
+    string_buffer_append(&buffer, "clang -o out ");
 #elif defined(PLATFORM_WINDOWS)
-    if(system("clang -o out.exe out.c") != 0){
+    string_buffer_append(&buffer, "clang -o out.exe ");
+#endif
+
+    for(auto library : generator_result.value.libraries) {
+        string_buffer_append(&buffer, "-l");
+
+        string_buffer_append(&buffer, library);
+
+        string_buffer_append(&buffer, " ");
+    }
+
+    string_buffer_append(&buffer, "out.c");
+
+    if(system(buffer) != 0) {
         return EXIT_FAILURE;
     }
-#endif    
 
     return EXIT_SUCCESS;
 }

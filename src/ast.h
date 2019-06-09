@@ -104,7 +104,8 @@ enum struct StatementType {
     Assignment,
     LoneIf,
     Return,
-    Import
+    Import,
+    Library
 };
 
 struct FunctionParameter {
@@ -179,6 +180,8 @@ struct Statement {
         Expression _return;
 
         const char *import;
+
+        const char *library;
     };
 };
 
