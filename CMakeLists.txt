@@ -8,6 +8,9 @@ add_executable(compiler
     src/result.h
     src/platform.h
 
+    src/path.h
+    src/path.cpp
+
     src/util.h
     src/util.cpp
 

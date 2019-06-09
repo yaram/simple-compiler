@@ -6,7 +6,7 @@
 #include "list.h"
 #include "types.h"
 #include "util.h"
-#include "platform.h"
+#include "path.h"
 
 template <typename T>
 static void error(T node, const char *format, ...) {
@@ -1279,19 +1279,7 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
             declaration.category = DeclarationCategory::FileModuleImport;
             declaration.type_resolved = false;
 
-#if defined(PLATFORM_UNIX)
-            auto name = basename(statement.import);
-#elif defined(PLATFORM_WINDOWS)
-            char file_name[_MAX_FNAME];
-            char file_extension[_MAX_EXT];
-
-            _splitpath(statement.import, nullptr, nullptr, file_name, file_extension);
-
-            auto name = allocate<char>(_MAX_FNAME + _MAX_EXT);
-
-            strcpy(name, file_name);
-            strcat(name, file_extension);
-#endif
+            auto name = path_get_file_component(statement.import);
 
             declaration.name = {
                 name,
@@ -3326,19 +3314,7 @@ Result<char*> generate_c_source(Array<File> files) {
         auto file = files[i];
 
         if(i != 0) {
-#if defined(PLATFORM_UNIX)
-            auto name = basename(file.path);
-#elif defined(PLATFORM_WINDOWS)
-            char file_name[_MAX_FNAME];
-            char file_extension[_MAX_EXT];
-
-            _splitpath(file.path, nullptr, nullptr, file_name, file_extension);
-
-            char name[_MAX_FNAME + _MAX_EXT];
-
-            strcpy(name, file_name);
-            strcat(name, file_extension);
-#endif
+            auto name = path_get_file_component(file.path);
 
             append<const char*>(&name_stack, name);
         }

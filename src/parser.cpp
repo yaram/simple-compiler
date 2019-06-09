@@ -4,12 +4,9 @@
 #include <stdarg.h>
 #include <assert.h>
 #include <stdlib.h>
-#if defined(PLATFORM_UNIX)
-#include <string.h>
-#endif
 #include "list.h"
 #include "util.h"
-#include "platform.h"
+#include "path.h"
 
 struct Context {
     const char *source_file_path;
@@ -1812,54 +1809,27 @@ static Result<Statement> parse_statement(Context *context) {
                 memcpy(import_path, result.value.elements, result.value.count);
                 import_path[result.value.count] = 0;
 
-#if defined(PLATFORM_UNIX)
-                auto source_file_directory = dirname(context->source_file_path);
+                auto source_file_directory = path_get_directory_component(context->source_file_path);
 
-                char *full_import_path{};
+                auto import_path_relative = allocate<char>(strlen(source_file_directory) + result.value.count + 1);
 
-                string_buffer_append(&full_import_path, source_file_directory);
+                strcpy(import_path_relative, source_file_directory);
+                strcat(import_path_relative, import_path);
 
-                if(strlen(source_file_directory) != 0) {
-                    string_buffer_append(&full_import_path, "/");
-                }
+                auto absolute_result = path_relative_to_absolute(import_path_relative);
 
-                string_buffer_append(&full_import_path, import_path);
-
-                auto source_file_path_absolute = allocate<char>(PATH_MAX);
-    
-                if(realpath(full_import_path, source_file_path_absolute) == nullptr) {
-                    fprintf(stderr, "Invalid path %s\n", source_file_path);
-
+                if(!absolute_result.status) {
                     return { false };
                 }
-#elif defined(PLATFORM_WINDOWS)
-                char source_file_drive[_MAX_DRIVE];
-                char source_file_directory[_MAX_DIR];
 
-                _splitpath(context->source_file_path, source_file_drive, source_file_directory, nullptr, nullptr);
-
-                char *full_import_path{};
-
-                string_buffer_append(&full_import_path, source_file_drive);
-                string_buffer_append(&full_import_path, source_file_directory);
-                string_buffer_append(&full_import_path, import_path);
-
-                auto absolute_import_path = allocate<char>(_MAX_PATH);
-
-                if(_fullpath(absolute_import_path, full_import_path, _MAX_PATH) == nullptr) {
-                    fprintf(stderr, "Invalid path %s\n", full_import_path);
-
-                    return { false };
-                }
-#endif
-                append<const char *>(context->remaining_files, absolute_import_path);
+                append<const char *>(context->remaining_files, absolute_result.value);
 
                 Statement statement;
                 statement.type = StatementType::Import;
                 statement.source_file_path = context->source_file_path;
                 statement.line = first_line;
                 statement.character = first_character;
-                statement.import = absolute_import_path;
+                statement.import = absolute_result.value;
 
                 return {
                     true,
@@ -1902,27 +1872,15 @@ static Result<Statement> parse_statement(Context *context) {
 }
 
 Result<Array<File>> parse_source(const char *source_file_path) {
-#if defined(PLATFORM_UNIX)
-    auto source_file_path_absolute = allocate<char>(PATH_MAX);
-    
-    if(realpath(source_file_path, source_file_path_absolute) == nullptr) {
-        fprintf(stderr, "Invalid path %s\n", source_file_path);
+    auto result = path_relative_to_absolute(source_file_path);
 
+    if(!result.status) {
         return { false };
     }
-#elif defined(PLATFORM_WINDOWS)
-    auto source_file_path_absolute = allocate<char>(_MAX_PATH);
-    
-    if(_fullpath(source_file_path_absolute, source_file_path, _MAX_PATH) == nullptr) {
-        fprintf(stderr, "Invalid path %s\n", source_file_path);
-
-        return { false };
-    }
-#endif
 
     List<const char*> remaining_files{};
 
-    append<const char *>(&remaining_files, source_file_path_absolute);
+    append<const char *>(&remaining_files, result.value);
 
     List<File> files{};
 
