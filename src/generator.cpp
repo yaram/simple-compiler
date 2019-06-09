@@ -1272,7 +1272,8 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
         case StatementType::Expression:
         case StatementType::VariableDeclaration:
         case StatementType::Assignment:
-        case StatementType::LoneIf: {
+        case StatementType::LoneIf:
+        case StatementType::Return: {
             return { false };
         }
 
@@ -1501,6 +1502,8 @@ struct GenerationContext {
     char *implementation_source;
 
     ConstantContext constant_context;
+
+    Type return_type;
 
     List<const char*> global_names;
 
@@ -3129,6 +3132,36 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
             return true;
         } break;
 
+        case StatementType::Return: {
+            string_buffer_append(&(context->implementation_source), "return ");
+
+            char *expression_source{};
+            auto result = generate_runtime_expression(context, &expression_source, statement._return);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            if(
+                !(
+                    context->return_type.category == TypeCategory::Integer &&
+                    result.value.type.category == TypeCategory::Integer &&
+                    result.value.type.integer == IntegerType::Undetermined
+                ) &&
+                !types_equal(context->return_type, result.value.type)
+            ) {
+                error(statement._return.position, "Mismatched return type");
+
+                return { false };
+            }
+
+            string_buffer_append(&(context->implementation_source), expression_source);
+
+            string_buffer_append(&(context->implementation_source), ";");
+
+            return true;
+        } break;
+
         default: {
             abort();
         } break;
@@ -3225,6 +3258,8 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
             string_buffer_append(&(context->implementation_source), "{");
 
             append(&(context->variable_context_stack), List<Variable>{});
+
+            context->return_type = *declaration.type.function.return_type;
 
             assert(declaration.type.function.parameters.count == declaration.function_definition.parameters.count);
 
