@@ -53,7 +53,7 @@ Result<const char *> path_relative_to_absolute(const char *path) {
         fprintf(stderr, "Invalid path %s\n", path);
 
         return { false };
-        }
+    }
 
     return {
         true,
@@ -64,8 +64,6 @@ Result<const char *> path_relative_to_absolute(const char *path) {
 const char *path_get_directory_component(const char *path) {
     char path_drive[10];
     char path_directory[_MAX_DIR];
-
-    printf("%s\n", path_drive);
 
     _splitpath(path, path_drive, path_directory, nullptr, nullptr);
 
