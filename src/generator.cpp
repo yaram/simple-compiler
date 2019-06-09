@@ -35,7 +35,7 @@ static void error(T node, const char *format, ...) {
     va_list arguments;
     va_start(arguments, format);
 
-    fprintf(stderr, "%s(%d:%d): ", node.source_file_path, node.line, node.character);
+    fprintf(stderr, "%s(%u:%u): ", node.source_file_path, node.line, node.character);
     vfprintf(stderr, format, arguments);
     fprintf(stderr, "\n");
 
@@ -1621,7 +1621,7 @@ static Result<const char *> maybe_register_array_constant(GenerationContext *con
     string_buffer_append(&mangled_name, "_array_constant_");
 
     char buffer[32];
-    sprintf(buffer, "%d", context->array_constants.count);
+    sprintf(buffer, "%zd", context->array_constants.count);
 
     string_buffer_append(&mangled_name, buffer);
 
@@ -1686,7 +1686,7 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
 
     char number_buffer[32];
 
-    sprintf(number_buffer, "%d", array_types->count);
+    sprintf(number_buffer, "%zd", array_types->count);
 
     string_buffer_append(&mangled_name_buffer, number_buffer);
 
@@ -1923,7 +1923,7 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
 
             char buffer[64];
 
-            sprintf(buffer, "%d", value.array.count);
+            sprintf(buffer, "%zd", value.array.count);
 
             string_buffer_append(source, buffer);
 
@@ -2035,7 +2035,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                             string_buffer_append(source, "){");
 
                             char buffer[64];
-                            sprintf(buffer, "%d", variable.type.static_array.length);
+                            sprintf(buffer, "%zd", variable.type.static_array.length);
                             string_buffer_append(source, buffer);
 
                             string_buffer_append(source, ",");
@@ -2495,7 +2495,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             string_buffer_append(source, "(");
 
             if(expression.function_call.parameters.count != result.value.type.function.parameters.count) {
-                error(expression, "Incorrect number of parameters. Expected %d, got %d", result.value.type.function.parameters.count, expression.function_call.parameters.count);
+                error(expression, "Incorrect number of parameters. Expected %zd, got %zd", result.value.type.function.parameters.count, expression.function_call.parameters.count);
 
                 return { false };
             }
@@ -2888,16 +2888,16 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     auto result = evaluate_type_expression(context->constant_context, statement.variable_declaration.uninitialized, true);
 
                     if(!result.status) {
-                        return { false };
+                        return false;
                     }
 
                     if(!add_new_variable(context, statement.variable_declaration.name, result.value)) {
-                        return { false };
+                        return false;
                     }
 
                     char *type_suffix_source{};
                     if(!generate_type(context, &(context->implementation_source), &type_suffix_source, result.value)) {
-                        return { false };
+                        return false;
                     }
 
                     string_buffer_append(&(context->implementation_source), " ");
@@ -2920,7 +2920,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     auto result = generate_expression(context, &initializer_source, statement.variable_declaration.type_elided);
 
                     if(!result.status) {
-                        return { false };
+                        return false;
                     }
 
                     Type actual_type;
@@ -2932,12 +2932,12 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     }
 
                     if(!add_new_variable(context, statement.variable_declaration.name, actual_type)) {
-                        return { false };
+                        return false;
                     }
                     
                     char *type_suffix_source{};
                     if(!generate_type(context, &(context->implementation_source), &type_suffix_source, actual_type)) {
-                        return { false };
+                        return false;
                     }
 
                     string_buffer_append(&(context->implementation_source), " ");
@@ -2995,14 +2995,14 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     auto type_result = evaluate_type_expression(context->constant_context, statement.variable_declaration.fully_specified.type, true);
 
                     if(!type_result.status) {
-                        return { false };
+                        return false;
                     }
 
                     char *initializer_source{};
                     auto initializer_result = generate_expression(context, &initializer_source, statement.variable_declaration.fully_specified.initializer);
 
                     if(!initializer_result.status) {
-                        return { false };
+                        return false;
                     }
 
                     if(
@@ -3019,12 +3019,12 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     }
 
                     if(!add_new_variable(context, statement.variable_declaration.name, type_result.value)) {
-                        return { false };
+                        return false;
                     }
 
                     char *type_suffix_source{};
                     if(!generate_type(context, &(context->implementation_source), &type_suffix_source, type_result.value)) {
-                        return { false };
+                        return false;
                     }
 
                     string_buffer_append(&(context->implementation_source), " ");
@@ -3146,7 +3146,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
 
             for(auto child_statement : statement.lone_if.statements) {
                 if(!generate_statement(context, child_statement)) {
-                    return { false };
+                    return false;
                 }
             }
 
