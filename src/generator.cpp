@@ -103,7 +103,7 @@ static Array<Declaration> get_declaration_children(Declaration declaration) {
 }
 
 static Result<Declaration> lookup_declaration(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name) {
-    for(auto i = 0; i < declaration_stack.count; i++) {
+    for(size_t i = 0; i < declaration_stack.count; i++) {
         for(auto child : get_declaration_children(declaration_stack[declaration_stack.count - 1 - i])) {
             if(child.type_resolved && strcmp(child.name.text, name) == 0) {
                 return {
@@ -1403,7 +1403,7 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
 
                 auto parameters = allocate<Type>(declaration.function_definition.parameters.count);
                 
-                for(auto i = 0; i < declaration.function_definition.parameters.count; i += 1) {
+                for(size_t i = 0; i < declaration.function_definition.parameters.count; i += 1) {
                     auto result = evaluate_type_expression(*context, declaration.function_definition.parameters[i].type, print_errors);
 
                     parameters[i] = result.value;
@@ -1447,7 +1447,7 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
 
                 auto parameters = allocate<Type>(declaration.external_function.parameters.count);
                 
-                for(auto i = 0; i < declaration.external_function.parameters.count; i += 1) {
+                for(size_t i = 0; i < declaration.external_function.parameters.count; i += 1) {
                     auto result = evaluate_type_expression(*context, declaration.external_function.parameters[i].type, print_errors);
 
                     parameters[i] = result.value;
@@ -1579,7 +1579,7 @@ static bool add_new_variable(GenerationContext *context, Identifier name, Type t
 }
 
 static Result<const char *> maybe_register_array_constant(GenerationContext *context, Type type, Array<ConstantValue> value) {
-    for(auto i = 0; i < context->array_constants.count; i += 1) {
+    for(size_t i = 0; i < context->array_constants.count; i += 1) {
         auto array_constant = context->array_constants[i];
 
         if(!types_equal(array_constant.type, type)) {
@@ -2018,7 +2018,7 @@ static Result<ExpressionValue> generate_runtime_expression(GenerationContext *co
 static Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
-            for(auto i = 0; i < context->variable_context_stack.count; i++) {
+            for(size_t i = 0; i < context->variable_context_stack.count; i++) {
                 for(auto variable : context->variable_context_stack[context->variable_context_stack.count - 1 - i]) {
                     if(strcmp(variable.name.text, expression.named_reference.text) == 0) {
                         if(variable.type.category == TypeCategory::StaticArray) {
@@ -2500,7 +2500,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 return { false };
             }
 
-            for(auto i = 0; i < result.value.type.function.parameters.count; i += 1) {
+            for(size_t i = 0; i < result.value.type.function.parameters.count; i += 1) {
                 char *parameter_source{};
                 auto parameter_result = generate_runtime_expression(context, &parameter_source, expression.function_call.parameters[i]);
 
@@ -3181,7 +3181,7 @@ static bool generate_function_signature(GenerationContext *context, char **sourc
 
     string_buffer_append(source, "(");
     
-    for(auto i = 0; i < type.function.parameters.count; i += 1) {
+    for(size_t i = 0; i < type.function.parameters.count; i += 1) {
         char *parameter_type_suffix_source{};
         if(!generate_type(context, source, &parameter_type_suffix_source, type.function.parameters[i])) {
             return false;
@@ -3254,7 +3254,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
 
             assert(declaration.type.function.parameters.count == declaration.function_definition.parameters.count);
 
-            for(auto i = 0; i < declaration.type.function.parameters.count; i += 1) {
+            for(size_t i = 0; i < declaration.type.function.parameters.count; i += 1) {
                 if(!add_new_variable(context, declaration.function_definition.parameters[i].name, declaration.type.function.parameters[i])) {
                     return false;
                 }
@@ -3344,7 +3344,7 @@ Result<char*> generate_c_source(Array<File> files) {
 
     List<const char*> name_stack{};
 
-    for(auto i = 0; i < files.count; i += 1) {
+    for(size_t i = 0; i < files.count; i += 1) {
         auto file = files[i];
 
         if(i != 0) {
@@ -3433,7 +3433,7 @@ Result<char*> generate_c_source(Array<File> files) {
     auto previous_resolved_declaration_count = 0;
 
     while(true) {
-        for(auto i = 0; i < files.count; i += 1) {
+        for(size_t i = 0; i < files.count; i += 1) {
             auto file_module = file_modules[i];
 
             ConstantContext constant_context {
@@ -3460,7 +3460,7 @@ Result<char*> generate_c_source(Array<File> files) {
 
         auto resolved_declaration_count = 0;
 
-        for(auto i = 0; i < files.count; i += 1) {
+        for(size_t i = 0; i < files.count; i += 1) {
             for(auto declaration : file_modules[i].declarations) {
                 resolved_declaration_count += count_declarations(declaration, true);
             }
@@ -3469,7 +3469,7 @@ Result<char*> generate_c_source(Array<File> files) {
         if(resolved_declaration_count == previous_resolved_declaration_count) {
             auto declaration_count = 0;
 
-            for(auto i = 0; i < files.count; i += 1) {
+            for(size_t i = 0; i < files.count; i += 1) {
                 auto file_module = file_modules[i];
 
                 ConstantContext constant_context {
@@ -3503,7 +3503,7 @@ Result<char*> generate_c_source(Array<File> files) {
 
     GenerationContext context{};
 
-    for(auto i = 0; i < files.count; i += 1) {
+    for(size_t i = 0; i < files.count; i += 1) {
         auto file_module = file_modules[i];
 
         ConstantContext constant_context {
@@ -3554,7 +3554,7 @@ Result<char*> generate_c_source(Array<File> files) {
         string_buffer_append(&full_source, ";};");
     }
 
-    for(auto i = 0; i < context.array_constants.count; i += 1) {
+    for(size_t i = 0; i < context.array_constants.count; i += 1) {
         auto array_constant = context.array_constants[i];
 
         Type type;

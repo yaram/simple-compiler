@@ -13,7 +13,7 @@ bool types_equal(Type a, Type b) {
                 return false;
             }
 
-            for(auto i = 0; i < a.function.parameters.count; i += 1) {
+            for(size_t i = 0; i < a.function.parameters.count; i += 1) {
                 if(!types_equal(a.function.parameters[i], b.function.parameters[i])) {
                     return false;
                 }
