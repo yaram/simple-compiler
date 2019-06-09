@@ -6,9 +6,10 @@ add_executable(compiler
     src/array.h
     src/list.h
     src/result.h
-    src/util.h
-
     src/platform.h
+
+    src/util.h
+    src/util.cpp
 
     src/ast.h
     src/ast.cpp
