@@ -257,10 +257,7 @@ unsigned int operation_precedences[] = {
 struct Operation {
     OperationType type;
 
-    const char *source_file_path;
-
-    unsigned int line;
-    unsigned int character;
+    FilePosition position;
 
     union {
         Identifier member_reference;
@@ -273,9 +270,7 @@ struct Operation {
 
 static void apply_operation(List<Expression> *expression_stack, Operation operation) {
     Expression expression;
-    expression.source_file_path = operation.source_file_path;
-    expression.line = operation.line;
-    expression.character = operation.character;
+    expression.position = operation.position;
 
     switch(operation.type) {
         case OperationType::Addition:
@@ -521,9 +516,11 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 Expression expression;
                 expression.type = ExpressionType::NamedReference;
-                expression.source_file_path = context->source_file_path,
-                expression.line = first_line;
-                expression.character = first_character;
+                expression.position = {
+                    context->source_file_path,
+                    first_line,
+                    first_character
+                };
                 expression.named_reference = {
                     buffer.elements,
                     context->source_file_path,
@@ -584,9 +581,11 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 append(&buffer, '\0');
 
                 Expression expression;
-                expression.source_file_path = context->source_file_path;
-                expression.line = first_line;
-                expression.character = first_character;
+                expression.position = {
+                    context->source_file_path,
+                    first_line,
+                    first_character
+                };
 
                 if(definitely_numeric || !definitely_identifier) {
                     auto value = strtoll(buffer.elements, NULL, 10);
@@ -601,9 +600,11 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                     expression.integer_literal = value;
                 } else {
                     expression.type = ExpressionType::NamedReference;
-                    expression.source_file_path = context->source_file_path;
-                    expression.line = first_line;
-                    expression.character = first_character;
+                    expression.position = {
+                        context->source_file_path,
+                        first_line,
+                        first_character
+                    };
                     expression.named_reference = {
                         buffer.elements,
                         context->source_file_path,
@@ -617,9 +618,11 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 context->character += 1;
 
                 Operation operation;
-                operation.source_file_path = context->source_file_path;
-                operation.line = first_line;
-                operation.character = first_character;
+                operation.position = {
+                    context->source_file_path,
+                    first_line,
+                    first_character
+                };
                 operation.type = OperationType::Pointer;
 
                 append(operation_stack, operation);
@@ -629,9 +632,11 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 context->character += 1;
 
                 Operation operation;
-                operation.source_file_path = context->source_file_path;
-                operation.line = first_line;
-                operation.character = first_character;
+                operation.position = {
+                    context->source_file_path,
+                    first_line,
+                    first_character
+                };
                 operation.type = OperationType::BooleanInvert;
 
                 append(operation_stack, operation);
@@ -647,9 +652,11 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 }
 
                 Expression expression;
-                expression.source_file_path = context->source_file_path;
-                expression.line = first_line;
-                expression.character = first_character;
+                expression.position = {
+                    context->source_file_path,
+                    first_line,
+                    first_character
+                };
                 expression.type = ExpressionType::StringLiteral;
                 expression.string_literal = result.value;
 
@@ -717,9 +724,11 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 Expression expression;
                 expression.type = ExpressionType::ArrayLiteral;
-                expression.source_file_path = context->source_file_path;
-                expression.line = first_line;
-                expression.character = first_character;
+                expression.position = {
+                    context->source_file_path,
+                    first_line,
+                    first_character
+                };
                 expression.array_literal = to_array(elements);
 
                 append(expression_stack, expression);
@@ -742,9 +751,11 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
         auto character = fgetc(context->source_file);
 
         Operation operation;
-        operation.source_file_path = context->source_file_path;
-        operation.line = first_line;
-        operation.character = first_character;
+        operation.position = {
+            context->source_file_path,
+            first_line,
+            first_character
+        };
 
         // Parse left-recursive expressions (e.g. binary operators) after parsing all adjacent non-left-recursive expressions
         if(character == '(') {
@@ -979,9 +990,11 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
                     Operation operation;
                     operation.type = OperationType::Equal;
-                    operation.source_file_path = context->source_file_path;
-                    operation.line = first_line;
-                    operation.character = first_character;
+                    operation.position = {
+                        context->source_file_path,
+                        first_line,
+                        first_character
+                    };
 
                     append(&operation_stack, operation);
 
@@ -1003,14 +1016,18 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
                     Statement statement;
                     statement.type = StatementType::Expression;
-                    statement.source_file_path = context->source_file_path;
-                    statement.line = first_line;
-                    statement.character = first_character;
+                    statement.position = {
+                        context->source_file_path,
+                        first_line,
+                        first_character
+                    };
 
                     statement.expression.type = ExpressionType::BinaryOperation;
-                    statement.expression.source_file_path = context->source_file_path;
-                    statement.expression.line = first_line;
-                    statement.expression.character = first_character;
+                    statement.expression.position = {
+                        context->source_file_path,
+                        first_line,
+                        first_character
+                    };
                     statement.expression.binary_operation.binary_operator = BinaryOperator::Equal;
                     statement.expression.binary_operation.left = heapify(expression);
                     statement.expression.binary_operation.right = heapify(result.value);
@@ -1046,9 +1063,11 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
                     Statement statement;
                     statement.type = StatementType::Assignment;
-                    statement.source_file_path = context->source_file_path;
-                    statement.line = first_line;
-                    statement.character = first_character;
+                    statement.position = {
+                        context->source_file_path,
+                        first_line,
+                        first_character
+                    };
                     statement.assignment.target = expression;
                     statement.assignment.value = result.value;
 
@@ -1065,9 +1084,11 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
             Statement statement;
             statement.type = StatementType::Expression;
-            statement.source_file_path = context->source_file_path;
-            statement.line = first_line;
-            statement.character = first_character;
+            statement.position = {
+                context->source_file_path,
+                first_line,
+                first_character
+            };
             statement.expression = expression;
 
             return {
@@ -1212,9 +1233,7 @@ static Result<Statement> continue_parsing_function_declaration(Context *context,
 
     Statement statement;
     statement.type = StatementType::FunctionDeclaration;
-    statement.source_file_path = context->source_file_path;
-    statement.line = name.line;
-    statement.character = name.character;
+    statement.position = name.position;
     statement.function_declaration.name = name;
     statement.function_declaration.parameters = parameters;
     statement.function_declaration.has_return_type = has_return_type;
@@ -1284,9 +1303,7 @@ static Result<Statement> parse_statement(Context *context) {
 
             Statement statement;
             statement.type = StatementType::LoneIf;
-            statement.source_file_path = context->source_file_path;
-            statement.line = result.value.line;
-            statement.character = result.value.character;
+            statement.position = result.value.position;
             statement.lone_if.condition = result.value;
             statement.lone_if.statements = to_array(statements);
 
@@ -1404,9 +1421,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                                     Expression expression;
                                     expression.type = ExpressionType::NamedReference;
-                                    expression.source_file_path = context->source_file_path;
-                                    expression.line = first_identifier.line;
-                                    expression.character = first_identifier.character;
+                                    expression.position = first_identifier.position;
                                     expression.named_reference = first_identifier;
 
                                     List<Operation> sub_operation_stack{};
@@ -1445,9 +1460,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                                     Statement statement;
                                     statement.type = StatementType::ConstantDefinition;
-                                    statement.source_file_path = context->source_file_path;
-                                    statement.line = first_line;
-                                    statement.character = first_character;
+                                    statement.position = {
+                                        context->source_file_path,
+                                        first_line,
+                                        first_character
+                                    };
                                     statement.constant_definition = {
                                         identifier,
                                         right_result.value
@@ -1499,9 +1516,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                                 Statement statement;
                                 statement.type = StatementType::ConstantDefinition;
-                                statement.source_file_path = context->source_file_path;
-                                statement.line = first_line;
-                                statement.character = first_character;
+                                statement.position = {
+                                    context->source_file_path,
+                                    first_line,
+                                    first_character
+                                };
                                 statement.constant_definition = {
                                     identifier,
                                     right_result.value
@@ -1527,9 +1546,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                             Statement statement;
                             statement.type = StatementType::ConstantDefinition;
-                            statement.source_file_path = context->source_file_path;
-                            statement.line = first_line;
-                            statement.character = first_character;
+                            statement.position = {
+                                context->source_file_path,
+                                first_line,
+                                first_character
+                            };
                             statement.constant_definition = {
                                 identifier,
                                 result.value
@@ -1605,9 +1626,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                         Statement statement;
                         statement.type = StatementType::VariableDeclaration;
-                        statement.source_file_path = context->source_file_path;
-                        statement.line = first_line;
-                        statement.character = first_character;
+                        statement.position = {
+                            context->source_file_path,
+                            first_line,
+                            first_character
+                        };
                         statement.variable_declaration.name = identifier;
 
                         if(has_type && has_initializer) {
@@ -1641,9 +1664,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                     Expression expression;
                     expression.type = ExpressionType::NamedReference;
-                    expression.source_file_path = context->source_file_path;
-                    expression.line = identifier.line;
-                    expression.character = identifier.character;
+                    expression.position = identifier.position;
                     expression.named_reference = identifier;
 
                     auto character = fgetc(context->source_file);
@@ -1658,9 +1679,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                             Operation operation;
                             operation.type = OperationType::Equal;
-                            operation.source_file_path = context->source_file_path;
-                            operation.line = after_identifier_line;
-                            operation.character = after_identifier_character;
+                            operation.position = {
+                                context->source_file_path,
+                                after_identifier_line,
+                                after_identifier_character
+                            };
 
                             append(&operation_stack, operation);
 
@@ -1682,14 +1705,18 @@ static Result<Statement> parse_statement(Context *context) {
 
                             Statement statement;
                             statement.type = StatementType::Expression;
-                            statement.source_file_path = context->source_file_path;
-                            statement.line = first_line;
-                            statement.character = first_character;
+                            statement.position = {
+                                context->source_file_path,
+                                first_line,
+                                first_character
+                            };
 
                             statement.expression.type = ExpressionType::BinaryOperation;
-                            statement.expression.source_file_path = context->source_file_path;
-                            statement.expression.line = after_identifier_line;
-                            statement.expression.character = after_identifier_character;
+                            statement.expression.position = {
+                                context->source_file_path,
+                                after_identifier_line,
+                                after_identifier_character
+                            };
                             statement.expression.binary_operation.binary_operator = BinaryOperator::Equal;
                             statement.expression.binary_operation.left = heapify(expression);
                             statement.expression.binary_operation.right = heapify(result.value);
@@ -1725,9 +1752,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                             Statement statement;
                             statement.type = StatementType::Assignment;
-                            statement.source_file_path = context->source_file_path;
-                            statement.line = first_line;
-                            statement.character = first_character;
+                            statement.position = {
+                                context->source_file_path,
+                                first_line,
+                                first_character
+                            };
                             statement.assignment.target = expression;
                             statement.assignment.value = result.value;
 
@@ -1749,9 +1778,11 @@ static Result<Statement> parse_statement(Context *context) {
                     ungetc(character, context->source_file);
 
                     Expression expression;
-                    expression.source_file_path = context->source_file_path;
-                    expression.line = first_line;
-                    expression.character = first_character;
+                    expression.position = {
+                        context->source_file_path,
+                        first_line,
+                        first_character
+                    };
                     expression.type = ExpressionType::NamedReference;
                     expression.named_reference = identifier;
 
@@ -1826,9 +1857,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                 Statement statement;
                 statement.type = StatementType::Import;
-                statement.source_file_path = context->source_file_path;
-                statement.line = first_line;
-                statement.character = first_character;
+                statement.position = {
+                    context->source_file_path,
+                    first_line,
+                    first_character
+                };
                 statement.import = absolute_result.value;
 
                 return {

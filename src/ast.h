@@ -3,13 +3,17 @@
 #include <stdint.h>
 #include "array.h"
 
-struct Identifier {
-    const char *text;
-
-    const char *source_file_path;
+struct FilePosition {
+    const char *path;
 
     unsigned int line;
     unsigned int character;
+};
+
+struct Identifier {
+    const char *text;
+
+    FilePosition position;
 };
 
 enum struct BinaryOperator {
@@ -43,10 +47,7 @@ enum struct ExpressionType {
 struct Expression {
     ExpressionType type;
 
-    const char *source_file_path;
-
-    unsigned int line;
-    unsigned int character;
+    FilePosition position;
 
     union {
         Identifier named_reference;
@@ -120,10 +121,7 @@ enum struct VariableDeclarationType {
 struct Statement {
     StatementType type;
 
-    const char *source_file_path;
-
-    unsigned int line;
-    unsigned int character;
+    FilePosition position;
 
     union {
         struct {
