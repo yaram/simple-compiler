@@ -412,6 +412,39 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             printf("}");
         } break;
 
+        case StatementType::WhileLoop: {
+            printf("WhileLoop: {\n");
+
+            indent(indentation_level + 1);
+            printf("condition: ");
+
+            debug_print_expression_indent(statement.while_loop.condition, indentation_level + 2);
+
+            printf("\n");
+
+            indent(indentation_level + 1);
+            printf("statements: [");
+
+            if(statement.while_loop.statements.count != 0) {
+                printf("\n");
+
+                for(auto child_statement : statement.while_loop.statements) {
+                    indent(indentation_level + 2);
+
+                    debug_print_statement_indent(child_statement, indentation_level + 2);
+
+                    printf("\n");
+                }
+
+                indent(indentation_level + 1);
+            }
+
+            printf("]\n");
+
+            indent(indentation_level);
+            printf("}");
+        } break;
+
         case StatementType::Return: {
             printf("Return: ");
 

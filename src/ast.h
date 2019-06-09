@@ -103,6 +103,7 @@ enum struct StatementType {
     VariableDeclaration,
     Assignment,
     LoneIf,
+    WhileLoop,
     Return,
     Import,
     Library
@@ -176,6 +177,12 @@ struct Statement {
 
             Array<Statement> statements;
         } lone_if;
+
+        struct {
+            Expression condition;
+
+            Array<Statement> statements;
+        } while_loop;
 
         Expression _return;
 

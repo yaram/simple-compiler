@@ -1311,6 +1311,51 @@ static Result<Statement> parse_statement(Context *context) {
                 true,
                 statement
             };
+        } else if(strcmp(identifier.text, "while") == 0) {
+            auto result = parse_expression(context);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            skip_whitespace(context);
+
+            if(!expect_character(context, '{')) {
+                return { false };
+            }
+
+            List<Statement> statements{};
+
+            while(true) {
+                skip_whitespace(context);
+
+                auto character = fgetc(context->source_file);
+
+                if(character == '}') {
+                    break;
+                } else {
+                    ungetc(character, context->source_file);
+                }
+
+                auto result = parse_statement(context);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                append(&statements, result.value);
+            }
+
+            Statement statement;
+            statement.type = StatementType::WhileLoop;
+            statement.position = result.value.position;
+            statement.lone_if.condition = result.value;
+            statement.lone_if.statements = to_array(statements);
+
+            return {
+                true,
+                statement
+            };
         } else if(strcmp(identifier.text, "return") == 0) {
             auto result = parse_expression(context);
 
