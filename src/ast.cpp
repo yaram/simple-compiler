@@ -179,6 +179,12 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             indent(indentation_level);
             printf("}");
         } break;
+
+        case ExpressionType::ArrayType: {
+            printf("ArrayType: ");
+
+            debug_print_expression_indent(*(expression.array_type), indentation_level);
+        } break;
     }
 }
 
