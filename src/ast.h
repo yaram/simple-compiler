@@ -103,6 +103,7 @@ enum struct StatementType {
     VariableDeclaration,
     Assignment,
     LoneIf,
+    Return,
     Import
 };
 
@@ -174,6 +175,8 @@ struct Statement {
 
             Array<Statement> statements;
         } lone_if;
+
+        Expression _return;
 
         const char *import;
     };

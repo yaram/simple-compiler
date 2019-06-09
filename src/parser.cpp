@@ -1311,6 +1311,32 @@ static Result<Statement> parse_statement(Context *context) {
                 true,
                 statement
             };
+        } else if(strcmp(identifier.text, "return") == 0) {
+            auto result = parse_expression(context);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            skip_whitespace(context);
+
+            if(!expect_character(context, ';')) {
+                return { false };
+            }
+
+            Statement statement;
+            statement.type = StatementType::Return;
+            statement.position = {
+                context->source_file_path,
+                first_line,
+                first_character
+            };
+            statement._return = result.value;
+
+            return {
+                true,
+                statement
+            };
         } else {
             auto after_identifier_line = context->line;
             auto after_identifier_character = context->character;

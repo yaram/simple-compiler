@@ -412,6 +412,12 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             printf("}");
         } break;
 
+        case StatementType::Return: {
+            printf("Return: ");
+
+            debug_print_expression_indent(statement._return, indentation_level);
+        } break;
+
         case StatementType::Import: {
             printf("Import: %s", statement.import);
         } break;
