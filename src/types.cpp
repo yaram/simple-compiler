@@ -43,6 +43,10 @@ bool types_equal(Type a, Type b) {
             return types_equal(*a.array, *b.array);
         } break;
 
+        case TypeCategory::StaticArray: {
+            return types_equal(*a.static_array.type, *b.static_array.type) && a.static_array.length == b.static_array.length;
+        } break;
+
         default: {
             abort();
         } break;

@@ -10,6 +10,7 @@ enum struct TypeCategory {
     Void,
     Pointer,
     Array,
+    StaticArray,
     FileModule
 };
 
@@ -40,6 +41,12 @@ struct Type {
         Type *pointer;
 
         Type *array;
+
+        struct {
+            size_t length;
+
+            Type *type;
+        } static_array;
     };
 };
 
