@@ -62,6 +62,19 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             printf("StringLiteral: %.*s", expression.string_literal.count, expression.string_literal.elements);
         } break;
 
+        case ExpressionType::ArrayLiteral: {
+            printf("ArrayLiteral: [\n");
+
+            for(auto element_expression : expression.array_literal) {
+                indent(indentation_level);
+                debug_print_expression_indent(element_expression, indentation_level);
+                printf("\n");
+            }
+
+            indent(indentation_level);
+            printf("]");
+        } break;
+
         case ExpressionType::FunctionCall: {
             printf("FunctionCall: {\n");
 

@@ -693,6 +693,61 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 }
 
                 append(expression_stack, result.value);
+            } else if(character == '[') {
+                context->character += 1;
+
+                skip_whitespace(context);
+
+                List<Expression> elements{};
+
+                auto character = fgetc(context->source_file);
+
+                if(character == ']') {
+                    context->character += 1;
+                } else {
+                    ungetc(character, context->source_file);
+
+                    while(true) {
+                        auto result = parse_expression(context);
+
+                        if(!result.status) {
+                            return { false };
+                        }
+
+                        append(&elements, result.value);
+
+                        skip_whitespace(context);
+
+                        auto character = fgetc(context->source_file);
+
+                        if(character == ',') {
+                            context->character += 1;
+
+                            skip_whitespace(context);
+                        } else if(character == ']') {
+                            context->character += 1;
+
+                            break;
+                        } else if(character == EOF) {
+                            error(*context, "Unexpected End of File");
+
+                            return { false };
+                        } else {
+                            error(*context, "Expected ',' or ']'. Got '%c'", character);
+
+                            return { false };
+                        }
+                    }
+                }
+
+                Expression expression;
+                expression.type = ExpressionType::ArrayLiteral;
+                expression.source_file_path = context->source_file_path;
+                expression.line = first_line;
+                expression.character = first_character;
+                expression.array_literal = to_array(elements);
+
+                append(expression_stack, expression);
             } else if(character == EOF) {
                 error(*context, "Unexpected End of File");
 

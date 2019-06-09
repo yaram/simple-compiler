@@ -33,6 +33,7 @@ enum struct ExpressionType {
     IndexReference,
     IntegerLiteral,
     StringLiteral,
+    ArrayLiteral,
     FunctionCall,
     BinaryOperation,
     UnaryOperation,
@@ -65,6 +66,8 @@ struct Expression {
         int64_t integer_literal;
 
         Array<char> string_literal;
+
+        Array<Expression> array_literal;
 
         struct {
             Expression *expression;
