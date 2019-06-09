@@ -103,7 +103,7 @@ static Array<Declaration> get_declaration_children(Declaration declaration) {
 }
 
 static Result<Declaration> lookup_declaration(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name) {
-    for(size_t i = 0; i < declaration_stack.count; i++) {
+    for(size_t i = 0; i < declaration_stack.count; i += 1) {
         for(auto child : get_declaration_children(declaration_stack[declaration_stack.count - 1 - i])) {
             if(child.type_resolved && strcmp(child.name.text, name) == 0) {
                 return {
@@ -2018,7 +2018,7 @@ static Result<ExpressionValue> generate_runtime_expression(GenerationContext *co
 static Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
-            for(size_t i = 0; i < context->variable_context_stack.count; i++) {
+            for(size_t i = 0; i < context->variable_context_stack.count; i += 1) {
                 for(auto variable : context->variable_context_stack[context->variable_context_stack.count - 1 - i]) {
                     if(strcmp(variable.name.text, expression.named_reference.text) == 0) {
                         if(variable.type.category == TypeCategory::StaticArray) {
@@ -2737,9 +2737,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
         } break;
 
         case ExpressionType::UnaryOperation: {
-            char *buffer{};
+            char *expression_source{};
 
-            auto result = generate_expression(context, &buffer, *expression.unary_operation.expression);
+            auto result = generate_expression(context, &expression_source, *expression.unary_operation.expression);
 
             if(!result.status) {
                 return { false };
@@ -2761,7 +2761,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                                 return { false };
                             }
 
-                            string_buffer_append(source, buffer);
+                            string_buffer_append(source, expression_source);
 
                             ExpressionValue value;
                             value.category = ExpressionValueCategory::Constant;
@@ -2778,7 +2778,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                         case ExpressionValueCategory::Assignable: {
                             string_buffer_append(source, "&(");
 
-                            string_buffer_append(source, buffer);
+                            string_buffer_append(source, expression_source);
 
                             string_buffer_append(source, ")");
 
@@ -2814,7 +2814,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                         case ExpressionValueCategory::Assignable: {
                             string_buffer_append(source, "!(");
 
-                            string_buffer_append(source, buffer);
+                            string_buffer_append(source, expression_source);
 
                             string_buffer_append(source, ")");
 
