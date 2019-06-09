@@ -68,7 +68,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             indent(indentation_level + 1);
             printf("expression: ");
             debug_print_expression_indent(*(expression.function_call.expression), indentation_level + 1);
-            printf(",\n");
+            printf("\n");
             
             indent(indentation_level + 1);
             printf("parameters: [");
@@ -76,15 +76,9 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             if(expression.function_call.parameters.count != 0) {
                 printf("\n");
 
-                for(auto i = 0; i < expression.function_call.parameters.count; i += 1) {
-                    auto parameter = expression.function_call.parameters[i];
-
+                for(auto parameter : expression.function_call.parameters) {
                     indent(indentation_level + 2);
                     debug_print_expression_indent(parameter, indentation_level + 2);
-
-                    if(i != expression.function_call.parameters.count - 1) {
-                        printf(",");
-                    }
 
                     printf("\n");
                 }
@@ -132,12 +126,12 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
                     printf("NotEqual");
                 } break;
             }
-            printf(",\n");
+            printf("\n");
 
             indent(indentation_level + 1);
             printf("left: ");
             debug_print_expression_indent(*expression.binary_operation.left, indentation_level + 1);
-            printf(",\n");
+            printf("\n");
 
             indent(indentation_level + 1);
             printf("right: ");
@@ -162,7 +156,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
                     printf("BooleanInvert");
                 } break;
             }
-            printf(",\n");
+            printf("\n");
 
             indent(indentation_level + 1);
             printf("expression: ");
@@ -171,12 +165,6 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
             indent(indentation_level);
             printf("}");
-        } break;
-
-        case ExpressionType::ArrayType: {
-            printf("ArrayType: ");
-
-            debug_print_expression_indent(*(expression.array_type), indentation_level + 1);
         } break;
     }
 }
@@ -195,7 +183,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             indent(indentation_level + 1);
             printf("name: ");
             debug_print_indentifier(statement.function_declaration.name);
-            printf(",\n");
+            printf("\n");
             
             indent(indentation_level + 1);
             printf("parameters: {");
@@ -203,18 +191,12 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             if(statement.function_declaration.parameters.count != 0) {
                 printf("\n");
 
-                for(auto i = 0; i < statement.function_declaration.parameters.count; i += 1) {
-                    auto parameter = statement.function_declaration.parameters[i];
-
+                for(auto parameter : statement.function_declaration.parameters) {
                     indent(indentation_level + 2);
                     debug_print_indentifier(parameter.name);
                     printf(": ");
 
                     debug_print_expression_indent(parameter.type, indentation_level + 2);
-
-                    if(i != statement.function_declaration.parameters.count - 1) {
-                        printf(",");
-                    }
 
                     printf("\n");
                 }
@@ -247,13 +229,9 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
                 if(statement.function_declaration.statements.count != 0) {
                     printf("\n");
 
-                    for(auto i = 0; i < statement.function_declaration.statements.count; i += 1) {
+                    for(auto child_statement : statement.function_declaration.statements) {
                         indent(indentation_level + 2);
-                        debug_print_statement_indent(statement.function_declaration.statements[i], indentation_level + 2);
-
-                        if(i != statement.function_declaration.statements.count - 1) {
-                            printf(",");
-                        }
+                        debug_print_statement_indent(child_statement, indentation_level + 2);
 
                         printf("\n");
                     }
@@ -272,9 +250,9 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             printf("ConstantDefinition: {\n");
 
             indent(indentation_level + 1);
-            printf("name: ", statement.constant_definition.name);
+            printf("name: ");
             debug_print_indentifier(statement.constant_definition.name);
-            printf(",\n");
+            printf("\n");
 
             indent(indentation_level + 1);
             printf("expression: ");
@@ -299,7 +277,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             indent(indentation_level + 1);
             printf("name: ");
             debug_print_indentifier(statement.variable_declaration.name);
-            printf(",\n");
+            printf("\n");
 
             switch(statement.variable_declaration.type) {
                 case VariableDeclarationType::Uninitialized: {
@@ -378,14 +356,10 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             if(statement.lone_if.statements.count != 0) {
                 printf("\n");
 
-                for(auto i = 0; i < statement.lone_if.statements.count; i += 1) {
+                for(auto child_statement : statement.lone_if.statements) {
                     indent(indentation_level + 2);
 
-                    debug_print_statement_indent(statement.lone_if.statements[i], indentation_level + 2);
-
-                    if(i != statement.lone_if.statements.count - 1) {
-                        printf(",");
-                    }
+                    debug_print_statement_indent(child_statement, indentation_level + 2);
 
                     printf("\n");
                 }
