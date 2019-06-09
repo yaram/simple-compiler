@@ -373,13 +373,13 @@ static Result<ConstantExpressionValue> resolve_constant_named_reference(Constant
     return evaluate_constant_declaration(context, result.value, print_errors);
 }
 
-static Result<ConstantExpressionValue> evaluate_constant_index(Type type, ConstantValue value, IntegerType index_type, ConstantValue index_value, bool print_errors) {
+static Result<ConstantExpressionValue> evaluate_constant_index(Type type, ConstantValue value, FilePosition position, IntegerType index_type, ConstantValue index_value, FilePosition index_position, bool print_errors) {
     size_t index;
     switch(index_type) {
         case IntegerType::Undetermined: {
             if((int64_t)index_value.integer < 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %lld out of bounds", (int64_t)index_value.integer);
+                    error(index_position, "Array index %lld out of bounds", (int64_t)index_value.integer);
                 }
 
                 return { false };
@@ -407,7 +407,7 @@ static Result<ConstantExpressionValue> evaluate_constant_index(Type type, Consta
         case IntegerType::Signed8: {
             if((int8_t)index_value.integer < 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %hhd out of bounds", (int8_t)index_value.integer);
+                    error(index_position, "Array index %hhd out of bounds", (int8_t)index_value.integer);
                 }
 
                 return { false };
@@ -419,7 +419,7 @@ static Result<ConstantExpressionValue> evaluate_constant_index(Type type, Consta
         case IntegerType::Signed16: {
             if((int16_t)index_value.integer < 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %hd out of bounds", (int16_t)index_value.integer);
+                    error(index_position, "Array index %hd out of bounds", (int16_t)index_value.integer);
                 }
 
                 return { false };
@@ -431,7 +431,7 @@ static Result<ConstantExpressionValue> evaluate_constant_index(Type type, Consta
         case IntegerType::Signed32: {
             if((int32_t)index_value.integer < 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %d out of bounds", (int32_t)index_value.integer);
+                    error(index_position, "Array index %d out of bounds", (int32_t)index_value.integer);
                 }
 
                 return { false };
@@ -443,7 +443,7 @@ static Result<ConstantExpressionValue> evaluate_constant_index(Type type, Consta
         case IntegerType::Signed64: {
             if((int64_t)index_value.integer < 0) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %lld out of bounds", (int64_t)index_value.integer);
+                    error(index_position, "Array index %lld out of bounds", (int64_t)index_value.integer);
                 }
 
                 return { false };
@@ -465,7 +465,7 @@ static Result<ConstantExpressionValue> evaluate_constant_index(Type type, Consta
         case TypeCategory::Pointer:
         case TypeCategory::FileModule: {
             if(print_errors) {
-                fprintf(stderr, "Cannot index a non-array\n");
+                error(position, "Cannot index a non-array");
             }
 
             return { false };
@@ -492,7 +492,7 @@ static Result<ConstantExpressionValue> evaluate_constant_index(Type type, Consta
         case TypeCategory::Array: {
             if(index >= value.array.count) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %llu out of bounds", index);
+                    error(index_position, "Array index %zu out of bounds", index);
                 }
 
                 return { false };
@@ -510,7 +510,7 @@ static Result<ConstantExpressionValue> evaluate_constant_index(Type type, Consta
         case TypeCategory::StaticArray: {
             if(index >= type.static_array.length) {
                 if(print_errors) {
-                    fprintf(stderr, "Array index %llu out of bounds", index);
+                    error(index_position, "Array index %zu out of bounds", index);
                 }
 
                 return { false };
@@ -608,7 +608,7 @@ static ConstantExpressionValue perform_constant_integer_binary_operation(BinaryO
     };
 }
 
-static Result<ConstantExpressionValue> evaluate_constant_integer_binary_operation(BinaryOperator binary_operator, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value, bool print_errors) {
+static Result<ConstantExpressionValue> evaluate_constant_integer_binary_operation(BinaryOperator binary_operator, FilePosition position, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value, bool print_errors) {
     ConstantExpressionValue result;
 
     if(left_type == IntegerType::Undetermined && right_type == IntegerType::Undetermined) {
@@ -629,7 +629,7 @@ static Result<ConstantExpressionValue> evaluate_constant_integer_binary_operatio
         } else {
             if(left_type != right_type) {
                 if(print_errors) {
-                    fprintf(stderr, "Mismatched types for binary operation\n");
+                    error(position, "Mismatched types for binary operation");
                 }
 
                 return { false };
@@ -890,8 +890,10 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             return evaluate_constant_index(
                 expression_result.value.type,
                 expression_result.value.value,
+                expression.index_reference.expression->position,
                 index_result.value.type.integer,
                 index_result.value.value,
+                expression.index_reference.index->position,
                 print_errors
             );
         } break;
@@ -1066,6 +1068,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
             auto result = evaluate_constant_integer_binary_operation(
                 expression.binary_operation.binary_operator,
+                expression.position,
                 left_result.value.type.integer,
                 left_result.value.value,
                 right_result.value.type.integer,
@@ -1478,6 +1481,7 @@ struct Variable {
     Identifier name;
 
     Type type;
+    FilePosition type_position;
 };
 
 struct ArrayType {
@@ -1507,10 +1511,10 @@ struct GenerationContext {
     List<ArrayConstant> array_constants;
 };
 
-static bool register_global_name(GenerationContext *context, const char *name) {
+static bool register_global_name(GenerationContext *context, const char *name, FilePosition name_position) {
     for(auto global_name : context->global_names) {
         if(strcmp(global_name, name) == 0) {
-            fprintf(stderr, "Duplicate global name %s\n", name);
+            error(name_position, "Duplicate global name %s", name);
 
             return false;
         }
@@ -1584,7 +1588,7 @@ static Result<const char *> maybe_register_array_constant(GenerationContext *con
     string_buffer_append(&mangled_name, "_array_constant_");
 
     char buffer[32];
-    sprintf(buffer, "%zd", context->array_constants.count);
+    sprintf(buffer, "%zu", context->array_constants.count);
 
     string_buffer_append(&mangled_name, buffer);
 
@@ -1599,7 +1603,7 @@ static Result<const char *> maybe_register_array_constant(GenerationContext *con
     };
 }
 
-static Result<const char *> maybe_register_array_type(GenerationContext *context, Type type) {
+static Result<const char *> maybe_register_array_type(GenerationContext *context, Type type, FilePosition type_position) {
     auto array_types = &(context->array_types);
 
     for(auto array_type : *array_types) {
@@ -1617,7 +1621,7 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
         case TypeCategory::Void:
         case TypeCategory::StaticArray:
         case TypeCategory::FileModule: {
-            fprintf(stderr, "Invalid array type\n");
+            error(type_position, "Invalid array type\n");
 
             return { false };
         } break;
@@ -1631,7 +1635,7 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
         } break;
 
         case TypeCategory::Array: {
-            auto result = maybe_register_array_type(context, *type.array);
+            auto result = maybe_register_array_type(context, *type.array, type_position);
 
             if(!result.status) {
                 return { false };
@@ -1649,7 +1653,7 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
 
     char number_buffer[32];
 
-    sprintf(number_buffer, "%zd", array_types->count);
+    sprintf(number_buffer, "%zu", array_types->count);
 
     string_buffer_append(&mangled_name_buffer, number_buffer);
 
@@ -1708,10 +1712,10 @@ static void generate_integer_type(char **source, IntegerType type) {
     }
 }
 
-static bool generate_type(GenerationContext *context, char **prefix_source, char **suffix_source, Type type) {
+static bool generate_type(GenerationContext *context, char **prefix_source, char **suffix_source, Type type, FilePosition type_position) {
     switch(type.category) {
         case TypeCategory::Function: {
-            fprintf(stderr, "Function values cannot exist at runtime\n");
+            error(type_position, "Function values cannot exist at runtime");
 
             return false;
         } break;
@@ -1729,7 +1733,7 @@ static bool generate_type(GenerationContext *context, char **prefix_source, char
         } break;
 
         case TypeCategory::Type: {
-            fprintf(stderr, "Type values cannot exist at runtime\n");
+            error(type_position, "Type values cannot exist at runtime");
 
             return false;
         } break;
@@ -1741,7 +1745,7 @@ static bool generate_type(GenerationContext *context, char **prefix_source, char
         } break;
 
         case TypeCategory::Pointer: {
-            if(!generate_type(context, prefix_source, suffix_source, *type.pointer)) {
+            if(!generate_type(context, prefix_source, suffix_source, *type.pointer, type_position)) {
                 return false;
             }
 
@@ -1751,7 +1755,7 @@ static bool generate_type(GenerationContext *context, char **prefix_source, char
         } break;
 
         case TypeCategory::Array: {
-            auto result = maybe_register_array_type(context, *type.array);
+            auto result = maybe_register_array_type(context, *type.array, type_position);
 
             if(!result.status) {
                 return false;
@@ -1764,7 +1768,7 @@ static bool generate_type(GenerationContext *context, char **prefix_source, char
         } break;
 
         case TypeCategory::StaticArray: {
-            if(!generate_type(context, prefix_source, suffix_source, *type.static_array.type)) {
+            if(!generate_type(context, prefix_source, suffix_source, *type.static_array.type, type_position)) {
                 return false;
             }
 
@@ -1780,7 +1784,7 @@ static bool generate_type(GenerationContext *context, char **prefix_source, char
         } break;
 
         case TypeCategory::FileModule: {
-            fprintf(stderr, "Module values cannot exist at runtime\n");
+            error(type_position, "Module values cannot exist at runtime");
 
             return false;
         } break;
@@ -1791,7 +1795,7 @@ static bool generate_type(GenerationContext *context, char **prefix_source, char
     }
 }
 
-static bool generate_constant_value(GenerationContext *context, char **source, Type type, ConstantValue value) {
+static bool generate_constant_value(GenerationContext *context, char **source, Type type, ConstantValue value, FilePosition position) {
     switch(type.category) {
         case TypeCategory::Function: {
             string_buffer_append(source, value.function);
@@ -1860,13 +1864,13 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
         } break;
 
         case TypeCategory::Type: {
-            fprintf(stderr, "Type values cannot exist at runtime\n");
+            error(position, "Type values cannot exist at runtime");
 
             return false;
         } break;
 
         case TypeCategory::Array: {
-            auto type_result = maybe_register_array_type(context, *type.array);
+            auto type_result = maybe_register_array_type(context, *type.array, position);
 
             if(!type_result.status) {
                 return false;
@@ -1886,7 +1890,7 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
 
             char buffer[64];
 
-            sprintf(buffer, "%zd", value.array.count);
+            sprintf(buffer, "%zu", value.array.count);
 
             string_buffer_append(source, buffer);
 
@@ -1905,13 +1909,13 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
         } break;
 
         case TypeCategory::Void: {
-            fprintf(stderr, "Void values cannot exist at runtime\n");
+            error(position, "Void values cannot exist at runtime");
 
             return false;
         } break;
 
         case TypeCategory::FileModule: {
-            fprintf(stderr, "Module values cannot exist at runtime\n");
+            error(position, "Module values cannot exist at runtime");
 
             return false;
         } break;
@@ -1958,7 +1962,7 @@ static Result<ExpressionValue> generate_runtime_expression(GenerationContext *co
         } break;
 
         case ExpressionValueCategory::Constant: {
-            if(!generate_constant_value(context, source, result.value.type, result.value.constant)) {
+            if(!generate_constant_value(context, source, result.value.type, result.value.constant, expression.position)) {
                 return { false };
             }
 
@@ -1985,7 +1989,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 for(auto variable : context->variable_context_stack[context->variable_context_stack.count - 1 - i]) {
                     if(strcmp(variable.name.text, expression.named_reference.text) == 0) {
                         if(variable.type.category == TypeCategory::StaticArray) {
-                            auto type_result = maybe_register_array_type(context, *variable.type.static_array.type);
+                            auto type_result = maybe_register_array_type(context, *variable.type.static_array.type, variable.type_position);
 
                             if(!type_result.status) {
                                 return { false };
@@ -1998,7 +2002,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                             string_buffer_append(source, "){");
 
                             char buffer[64];
-                            sprintf(buffer, "%zd", variable.type.static_array.length);
+                            sprintf(buffer, "%zu", variable.type.static_array.length);
                             string_buffer_append(source, buffer);
 
                             string_buffer_append(source, ",");
@@ -2290,7 +2294,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                         } break;
 
                         case ExpressionValueCategory::Constant: {
-                            auto constant_value = evaluate_constant_index(result.value.type, result.value.constant, index_result.value.type.integer, index_result.value.constant, true);
+                            auto constant_value = evaluate_constant_index(result.value.type, result.value.constant, expression.position, index_result.value.type.integer, index_result.value.constant, expression.index_reference.index->position, true);
 
                             if(!constant_value.status) {
                                 return { false };
@@ -2458,7 +2462,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             string_buffer_append(source, "(");
 
             if(expression.function_call.parameters.count != result.value.type.function.parameters.count) {
-                error(expression.position, "Incorrect number of parameters. Expected %zd, got %zd", result.value.type.function.parameters.count, expression.function_call.parameters.count);
+                error(expression.position, "Incorrect number of parameters. Expected %zu, got %zu", result.value.type.function.parameters.count, expression.function_call.parameters.count);
 
                 return { false };
             }
@@ -2540,6 +2544,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             if(left_result.value.category == ExpressionValueCategory::Constant && right_result.value.category == ExpressionValueCategory::Constant) {
                 auto result = evaluate_constant_integer_binary_operation(
                     expression.binary_operation.binary_operator,
+                    expression.position,
                     left_result.value.type.integer,
                     left_result.value.constant,
                     right_result.value.type.integer,
@@ -2593,7 +2598,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     } break;
 
                     case ExpressionValueCategory::Constant: {
-                        if(!generate_constant_value(context, source, left_result.value.type, left_result.value.constant)) {
+                        if(!generate_constant_value(context, source, left_result.value.type, left_result.value.constant, expression.binary_operation.left->position)) {
                             return { false };
                         }
                     } break;
@@ -2676,7 +2681,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     } break;
 
                     case ExpressionValueCategory::Constant: {
-                        if(!generate_constant_value(context, source, right_result.value.type, right_result.value.constant)) {
+                        if(!generate_constant_value(context, source, right_result.value.type, right_result.value.constant, expression.binary_operation.right->position)) {
                             return { false };
                         }
                     } break;
@@ -2859,7 +2864,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     }
 
                     char *type_suffix_source{};
-                    if(!generate_type(context, &(context->implementation_source), &type_suffix_source, result.value)) {
+                    if(!generate_type(context, &(context->implementation_source), &type_suffix_source, result.value, statement.variable_declaration.uninitialized.position)) {
                         return false;
                     }
 
@@ -2899,7 +2904,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     }
                     
                     char *type_suffix_source{};
-                    if(!generate_type(context, &(context->implementation_source), &type_suffix_source, actual_type)) {
+                    if(!generate_type(context, &(context->implementation_source), &type_suffix_source, actual_type, statement.variable_declaration.type_elided.position)) {
                         return false;
                     }
 
@@ -2924,7 +2929,8 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                                     context,
                                     &(context->implementation_source),
                                     *result.value.type.static_array.type,
-                                    result.value.constant.static_array[i]
+                                    result.value.constant.static_array[i],
+                                    statement.variable_declaration.type_elided.position
                                 )) {
                                     return false;
                                 }
@@ -2940,7 +2946,8 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                                 context,
                                 &(context->implementation_source),
                                 result.value.type,
-                                result.value.constant
+                                result.value.constant,
+                                statement.variable_declaration.type_elided.position
                             )) {
                                 return false;
                             }
@@ -2986,7 +2993,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                     }
 
                     char *type_suffix_source{};
-                    if(!generate_type(context, &(context->implementation_source), &type_suffix_source, type_result.value)) {
+                    if(!generate_type(context, &(context->implementation_source), &type_suffix_source, type_result.value, statement.variable_declaration.fully_specified.type.position)) {
                         return false;
                     }
 
@@ -3011,7 +3018,8 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                                     context,
                                     &(context->implementation_source),
                                     *initializer_result.value.type.static_array.type,
-                                    initializer_result.value.constant.static_array[i]
+                                    initializer_result.value.constant.static_array[i],
+                                    statement.variable_declaration.fully_specified.initializer.position
                                 )) {
                                     return false;
                                 }
@@ -3027,7 +3035,8 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                                 context,
                                 &(context->implementation_source),
                                 initializer_result.value.type,
-                                initializer_result.value.constant
+                                initializer_result.value.constant,
+                                statement.variable_declaration.fully_specified.initializer.position
                             )) {
                                 return false;
                             }
@@ -3126,9 +3135,9 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
     }
 }
 
-static bool generate_function_signature(GenerationContext *context, char **source, const char *name, Type type, FunctionParameter *parameters) {
+static bool generate_function_signature(GenerationContext *context, char **source, const char *name, Type type, FilePosition position, FunctionParameter *parameters) {
     char *type_suffix_source{};
-    if(!generate_type(context, source, &type_suffix_source, *type.function.return_type)) {
+    if(!generate_type(context, source, &type_suffix_source, *type.function.return_type, position)) {
         return false;
     }
 
@@ -3146,7 +3155,7 @@ static bool generate_function_signature(GenerationContext *context, char **sourc
     
     for(size_t i = 0; i < type.function.parameters.count; i += 1) {
         char *parameter_type_suffix_source{};
-        if(!generate_type(context, source, &parameter_type_suffix_source, type.function.parameters[i])) {
+        if(!generate_type(context, source, &parameter_type_suffix_source, type.function.parameters[i], parameters[i].type.position)) {
             return false;
         }
 
@@ -3177,7 +3186,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
         case DeclarationCategory::FunctionDefinition: {
             assert(declaration.type.category == TypeCategory::Function);
 
-            if(!register_global_name(context, declaration.function_definition.mangled_name)) {
+            if(!register_global_name(context, declaration.function_definition.mangled_name, declaration.name.position)) {
                 return false;
             }
 
@@ -3186,6 +3195,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
                 &(context->forward_declaration_source),
                 declaration.function_definition.mangled_name,
                 declaration.type,
+                declaration.name.position,
                 declaration.function_definition.parameters.elements
             )){
                 return false;
@@ -3206,6 +3216,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
                 &(context->implementation_source),
                 declaration.function_definition.mangled_name,
                 declaration.type,
+                declaration.name.position,
                 declaration.function_definition.parameters.elements
             )){
                 return false;
@@ -3241,7 +3252,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
         case DeclarationCategory::ExternalFunction: {
             assert(declaration.type.category == TypeCategory::Function);
 
-            if(!register_global_name(context, declaration.name.text)) {
+            if(!register_global_name(context, declaration.name.text, declaration.name.position)) {
                 return false;
             }
 
@@ -3250,6 +3261,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
                 &(context->forward_declaration_source),
                 declaration.name.text,
                 declaration.type,
+                declaration.name.position,
                 declaration.external_function.parameters.elements
             )){
                 return false;
@@ -3480,6 +3492,12 @@ Result<char*> generate_c_source(Array<File> files) {
 
     char *full_source{};
 
+    FilePosition position {
+        "<generated>",
+        0,
+        0
+    };
+
     for(auto array_type : context.array_types) {
         string_buffer_append(&full_source, "struct ");
 
@@ -3492,7 +3510,7 @@ Result<char*> generate_c_source(Array<File> files) {
         type.pointer = heapify(array_type.type);
 
         char *type_suffix_source{};
-        if(!generate_type(&context, &full_source, &type_suffix_source, type)) {
+        if(!generate_type(&context, &full_source, &type_suffix_source, type, position)) {
             return { false };
         }
 
@@ -3514,7 +3532,7 @@ Result<char*> generate_c_source(Array<File> files) {
         type.static_array.type = heapify(array_constant.type);
 
         char *type_suffix_source{};
-        if(!generate_type(&context, &full_source, &type_suffix_source, type)) {
+        if(!generate_type(&context, &full_source, &type_suffix_source, type, position)) {
             return { false };
         }
 
@@ -3531,7 +3549,7 @@ Result<char*> generate_c_source(Array<File> files) {
         string_buffer_append(&full_source, "={");
 
         for(size_t j = 0; j < array_constant.elements.count; j += 1) {
-            if(!generate_constant_value(&context, &full_source, array_constant.type, array_constant.elements[j])) {
+            if(!generate_constant_value(&context, &full_source, array_constant.type, array_constant.elements[j], position)) {
                 return { false };
             }
 

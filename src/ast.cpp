@@ -1,5 +1,7 @@
 #include "ast.h"
 #include <stdio.h>
+#include <string.h>
+#include "path.h"
 
 static void indent(unsigned int level) {
     for(unsigned int i = 0; i < level; i += 1) {
@@ -8,7 +10,19 @@ static void indent(unsigned int level) {
 }
 
 static void debug_print_position(FilePosition position) {
-    printf("%s(%u:%u)", position.path, position.line, position.character);
+    const size_t max_path_length = 17;
+
+    auto path_length = strlen(position.path);
+
+    if(path_length <= max_path_length) {
+        printf("%s", position.path);
+    } else {
+        char buffer[max_path_length + 1];
+
+        printf("...%.*s", max_path_length, position.path + path_length - max_path_length);
+    }
+
+    printf("(%u:%u)", position.line, position.character);
 }
 
 static void debug_print_indentifier(Identifier identifier) {
