@@ -23,7 +23,9 @@ enum struct BinaryOperator {
     Division,
     Modulo,
     Equal,
-    NotEqual
+    NotEqual,
+    BooleanAnd,
+    BooleanOr
 };
 
 enum struct UnaryOperator {

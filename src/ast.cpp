@@ -158,6 +158,14 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
                 case BinaryOperator::NotEqual: {
                     printf("NotEqual");
                 } break;
+                
+                case BinaryOperator::BooleanAnd: {
+                    printf("BooleanAnd");
+                } break;
+
+                case BinaryOperator::BooleanOr: {
+                    printf("BooleanOr");
+                } break;
             }
             printf("\n");
 

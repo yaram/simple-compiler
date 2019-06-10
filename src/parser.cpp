@@ -275,32 +275,37 @@ static bool expect_character(Context *context, char expected_character) {
 }
 
 enum struct OperationType {
-    Addition,
-    Subtraction,
+    FunctionCall,
+    MemberReference,
+    IndexReference,
+    ArrayType,
+
+    Pointer,
+    BooleanInvert,
+
     Multiplication,
     Division,
     Modulo,
+
+    Addition,
+    Subtraction,
+
     Equal,
     NotEqual,
-    MemberReference,
-    IndexReference,
-    FunctionCall,
-    Pointer,
-    BooleanInvert,
-    ArrayType
+
+    BooleanAnd,
+
+    BooleanOr
 };
 
 unsigned int operation_precedences[] = {
-    0,
-    0,
-    1,
-    1,
-    1,
-    2,
-    2,
-    2,
-    2,
-    2
+    1, 1, 1, 1,
+    2, 2,
+    3, 3, 3,
+    4, 4,
+    7, 7,
+    11,
+    12
 };
 
 struct Operation {
@@ -328,7 +333,9 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
         case OperationType::Division:
         case OperationType::Modulo:
         case OperationType::Equal:
-        case OperationType::NotEqual: {
+        case OperationType::NotEqual:
+        case OperationType::BooleanAnd:
+        case OperationType::BooleanOr: {
             expression.type = ExpressionType::BinaryOperation;
 
             expression.binary_operation.right = heapify(take_last(expression_stack));
@@ -361,6 +368,14 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
 
                 case OperationType::NotEqual: {
                     expression.binary_operation.binary_operator = BinaryOperator::NotEqual;
+                } break;
+
+                case OperationType::BooleanAnd: {
+                    expression.binary_operation.binary_operator = BinaryOperator::BooleanAnd;
+                } break;
+
+                case OperationType::BooleanOr: {
+                    expression.binary_operation.binary_operator = BinaryOperator::BooleanOr;
                 } break;
 
                 default: {
@@ -1103,6 +1118,26 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 break;
             }
+        } else if(character == '&') {
+            context->character += 1;
+
+            if(!expect_character(context, '&')) {
+                return { false };
+            }
+
+            operation.type = OperationType::BooleanAnd;
+
+            expect_non_left_recursive = true;
+        } else if(character == '|') {
+            context->character += 1;
+
+            if(!expect_character(context, '|')) {
+                return { false };
+            }
+
+            operation.type = OperationType::BooleanOr;
+
+            expect_non_left_recursive = true;
         } else if(character == '!') {
             context->character += 1;
 
@@ -1128,7 +1163,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
             } else {
                 auto last_operation = (*operation_stack)[operation_stack->count - 1];
 
-                if(operation_precedences[(int)operation.type] > operation_precedences[(int)last_operation.type]) {
+                if(operation_precedences[(int)operation.type] < operation_precedences[(int)last_operation.type]) {
                     append(operation_stack, operation);
 
                     break;
