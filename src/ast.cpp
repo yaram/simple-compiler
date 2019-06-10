@@ -159,6 +159,14 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
                     printf("NotEqual");
                 } break;
                 
+                case BinaryOperator::BitwiseAnd: {
+                    printf("BitwiseAnd");
+                } break;
+
+                case BinaryOperator::BitwiseOr: {
+                    printf("BitwiseOr");
+                } break;
+                
                 case BinaryOperator::BooleanAnd: {
                     printf("BooleanAnd");
                 } break;

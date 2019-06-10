@@ -293,6 +293,10 @@ enum struct OperationType {
     Equal,
     NotEqual,
 
+    BitwiseAnd,
+
+    BitwiseOr,
+
     BooleanAnd,
 
     BooleanOr
@@ -304,6 +308,8 @@ unsigned int operation_precedences[] = {
     3, 3, 3,
     4, 4,
     7, 7,
+    8,
+    10,
     11,
     12
 };
@@ -334,6 +340,8 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
         case OperationType::Modulo:
         case OperationType::Equal:
         case OperationType::NotEqual:
+        case OperationType::BitwiseAnd:
+        case OperationType::BitwiseOr:
         case OperationType::BooleanAnd:
         case OperationType::BooleanOr: {
             expression.type = ExpressionType::BinaryOperation;
@@ -368,6 +376,14 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
 
                 case OperationType::NotEqual: {
                     expression.binary_operation.binary_operator = BinaryOperator::NotEqual;
+                } break;
+
+                case OperationType::BitwiseAnd: {
+                    expression.binary_operation.binary_operator = BinaryOperator::BitwiseAnd;
+                } break;
+
+                case OperationType::BitwiseOr: {
+                    expression.binary_operation.binary_operator = BinaryOperator::BitwiseOr;
                 } break;
 
                 case OperationType::BooleanAnd: {
@@ -1121,21 +1137,33 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
         } else if(character == '&') {
             context->character += 1;
 
-            if(!expect_character(context, '&')) {
-                return { false };
-            }
+            auto character = fgetc(context->source_file);
 
-            operation.type = OperationType::BooleanAnd;
+            if(character == '&') {
+                context->character += 1;
+
+                operation.type = OperationType::BooleanAnd;
+            } else {
+                ungetc(character, context->source_file);
+
+                operation.type = OperationType::BitwiseAnd;
+            }
 
             expect_non_left_recursive = true;
         } else if(character == '|') {
             context->character += 1;
 
-            if(!expect_character(context, '|')) {
-                return { false };
-            }
+            auto character = fgetc(context->source_file);
 
-            operation.type = OperationType::BooleanOr;
+            if(character == '|') {
+                context->character += 1;
+
+                operation.type = OperationType::BooleanOr;
+            } else {
+                ungetc(character, context->source_file);
+
+                operation.type = OperationType::BitwiseOr;
+            }
 
             expect_non_left_recursive = true;
         } else if(character == '!') {
