@@ -1,6 +1,7 @@
 #include "types.h"
 #include <stdlib.h>
 #include <assert.h>
+#include <string.h>
 
 bool types_equal(Type a, Type b) {
     if(a.category != b.category) {
@@ -45,6 +46,10 @@ bool types_equal(Type a, Type b) {
 
         case TypeCategory::StaticArray: {
             return types_equal(*a.static_array.type, *b.static_array.type) && a.static_array.length == b.static_array.length;
+        } break;
+
+        case TypeCategory::Struct: {
+            return strcmp(a._struct, b._struct) == 0;
         } break;
 
         default: {

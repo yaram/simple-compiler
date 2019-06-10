@@ -11,6 +11,7 @@ enum struct TypeCategory {
     Pointer,
     Array,
     StaticArray,
+    Struct,
     FileModule
 };
 
@@ -47,6 +48,8 @@ struct Type {
 
             Type *type;
         } static_array;
+
+        const char *_struct;
     };
 };
 

@@ -23,7 +23,8 @@ enum struct DeclarationCategory {
     FunctionDefinition,
     ExternalFunction,
     ConstantDefinition,
-    FileModuleImport
+    StructDefinition,
+    FileModuleImport,
 };
 
 struct Declaration {
@@ -57,6 +58,12 @@ struct Declaration {
 
         Expression constant_definition;
 
+        struct {
+            const char *mangled_name;
+
+            Array<StructMember> members;
+        } struct_definition;
+
         const char *file_module_import;
     };
 };
@@ -69,6 +76,7 @@ static Array<Declaration> get_declaration_children(Declaration declaration) {
 
         case DeclarationCategory::ExternalFunction:
         case DeclarationCategory::ConstantDefinition:
+        case DeclarationCategory::StructDefinition:
         case DeclarationCategory::FileModuleImport: {
             return Array<Declaration>{};
         } break;
@@ -116,10 +124,65 @@ union ConstantValue {
 
     ConstantValue *static_array;
 
+    ConstantValue *_struct;
+
     Array<Declaration> file_module;
 };
 
-static bool constant_values_deep_equal(Type type, ConstantValue a, ConstantValue b) {
+struct FileModule {
+    const char *path;
+
+    Array<Declaration> declarations;
+
+    Array<Statement> compiler_directives;
+};
+
+struct GlobalConstant {
+    const char *name;
+
+    Type type;
+
+    ConstantValue value;
+};
+
+struct StructTypeMember {
+    Identifier name;
+
+    Type type;
+};
+
+struct StructType {
+    const char *mangled_name;
+
+    Array<StructTypeMember> members;
+};
+
+struct ConstantContext {
+    IntegerType unsigned_size_integer_type;
+    IntegerType signed_size_integer_type;
+    IntegerType default_integer_type;
+
+    Array<GlobalConstant> global_constants;
+
+    List<StructType> *struct_types;
+
+    Array<Declaration> top_level_declarations;
+    Array<FileModule> file_modules;
+
+    List<Declaration> declaration_stack;
+};
+
+static StructType retrieve_struct_type(ConstantContext context, const char *mangled_name) {
+    for(auto struct_type : *context.struct_types) {
+        if(strcmp(struct_type.mangled_name, mangled_name) == 0) {
+            return struct_type;
+        }
+    }
+
+    abort();
+}
+
+static bool constant_values_deep_equal(ConstantContext context, Type type, ConstantValue a, ConstantValue b) {
     switch(type.category) {
         case TypeCategory::Function: {
             return strcmp(a.function, b.function) == 0;
@@ -180,7 +243,7 @@ static bool constant_values_deep_equal(Type type, ConstantValue a, ConstantValue
             }
 
             for(size_t i = 0; i < a.array.count; i += 1) {
-                if(!constant_values_deep_equal(*type.array, a.array[i], b.array[i])) {
+                if(!constant_values_deep_equal(context, *type.array, a.array[i], b.array[i])) {
                     return false;
                 }
             }
@@ -194,7 +257,19 @@ static bool constant_values_deep_equal(Type type, ConstantValue a, ConstantValue
             }
 
             for(size_t i = 0; i < a.type.static_array.length; i += 1) {
-                if(!constant_values_deep_equal(*type.array, a.static_array[i], b.static_array[i])) {
+                if(!constant_values_deep_equal(context, *type.array, a.static_array[i], b.static_array[i])) {
+                    return false;
+                }
+            }
+
+            return true;
+        } break;
+
+        case TypeCategory::Struct: {
+            auto struct_type = retrieve_struct_type(context, type._struct);
+
+            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                if(!constant_values_deep_equal(context, struct_type.members[i].type, a._struct[i], b._struct[i])) {
                     return false;
                 }
             }
@@ -215,35 +290,6 @@ struct ConstantExpressionValue {
     Type type;
 
     ConstantValue value;
-};
-
-struct GlobalConstant {
-    const char *name;
-
-    Type type;
-
-    ConstantValue value;
-};
-
-struct FileModule {
-    const char *path;
-
-    Array<Declaration> declarations;
-
-    Array<Statement> compiler_directives;
-};
-
-struct ConstantContext {
-    IntegerType unsigned_size_integer_type;
-    IntegerType signed_size_integer_type;
-    IntegerType default_integer_type;
-
-    Array<GlobalConstant> global_constants;
-
-    Array<Declaration> top_level_declarations;
-    Array<FileModule> file_modules;
-
-    List<Declaration> declaration_stack;
 };
 
 static ConstantValue compiler_size_to_native_size(ConstantContext context, size_t size) {
@@ -319,6 +365,23 @@ static Result<ConstantExpressionValue> evaluate_constant_declaration(ConstantCon
             return {
                 true,
                 expression_result.value
+            };
+        } break;
+
+        case DeclarationCategory::StructDefinition: {
+            Type type;
+            type.category = TypeCategory::Type;
+
+            ConstantValue value;
+            value.type.category = TypeCategory::Struct;
+            value.type._struct = declaration.struct_definition.mangled_name;
+
+            return{
+                true,
+                {
+                    type,
+                    value
+                }
             };
         } break;
 
@@ -465,6 +528,7 @@ static Result<ConstantExpressionValue> evaluate_constant_index(Type type, Consta
         case TypeCategory::Boolean:
         case TypeCategory::Void:
         case TypeCategory::Pointer:
+        case TypeCategory::Struct:
         case TypeCategory::FileModule: {
             if(print_errors) {
                 error(position, "Cannot index a non-array");
@@ -846,6 +910,28 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
                         return { false };
                     }
+                } break;
+
+                case TypeCategory::Struct: {
+                    auto struct_type = retrieve_struct_type(context, result.value.type._struct);
+
+                    for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                        if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
+                            return {
+                                true,
+                                {
+                                    struct_type.members[i].type,
+                                    result.value.value._struct[i]
+                                }
+                            };
+                        }
+                    }
+
+                    if(print_errors) {
+                        error(expression.member_reference.name.position, "No member with name %s", expression.member_reference.name.text);
+                    }
+                    
+                    return { false };
                 } break;
 
                 case TypeCategory::FileModule: {
@@ -1271,6 +1357,31 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
             };
         } break;
 
+        case StatementType::StructDefinition: {
+            char* mangled_name{};
+
+            for(auto name : *name_stack) {
+                string_buffer_append(&mangled_name, name);
+            }
+
+            string_buffer_append(&mangled_name, statement.struct_definition.name.text);
+
+            Declaration declaration;
+            declaration.category = DeclarationCategory::StructDefinition;
+            declaration.name = statement.struct_definition.name;
+            declaration.type_resolved = false;
+
+            declaration.struct_definition = {
+                mangled_name,
+                statement.struct_definition.members
+            };
+
+            return {
+                true,
+                declaration
+            };
+        } break;
+
         case StatementType::Expression:
         case StatementType::VariableDeclaration:
         case StatementType::Assignment:
@@ -1450,6 +1561,54 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
                 };
             } break;
 
+            case DeclarationCategory::StructDefinition: {
+                for(size_t i = 0; i < declaration.struct_definition.members.count; i += 1) {
+                    for(size_t j = 0; j < declaration.struct_definition.members.count; j += 1) {
+                        if(j != i && strcmp(declaration.struct_definition.members[i].name.text, declaration.struct_definition.members[j].name.text) == 0) {
+                            if(print_errors) {
+                                error(declaration.struct_definition.members[i].name.position, "Duplicate struct member name %s", declaration.struct_definition.members[i].name.text);
+                            }
+
+                            return { false };
+                        }
+                    }
+
+                    auto result = evaluate_type_expression(*context, declaration.struct_definition.members[i].type, print_errors);
+
+                    if(!result.status) {
+                        return { false };
+                    }
+                }
+
+                auto members = allocate<StructTypeMember>(declaration.struct_definition.members.count);
+
+                for(size_t i = 0; i < declaration.struct_definition.members.count; i += 1) {
+                    auto result = evaluate_type_expression(*context, declaration.struct_definition.members[i].type, print_errors);
+
+                    members[i] = {
+                        declaration.struct_definition.members[i].name,
+                        result.value
+                    };
+                }
+
+                append(context->struct_types, {
+                    declaration.struct_definition.mangled_name,
+                    {
+                        declaration.struct_definition.members.count,
+                        members
+                    }
+                });
+
+                Type type;
+                type.category = TypeCategory::Struct;
+                type._struct = declaration.struct_definition.mangled_name;
+
+                return {
+                    true,
+                    type
+                };
+            } break;
+
             case DeclarationCategory::FileModuleImport: {
                 Type type;
                 type.category = TypeCategory::FileModule;
@@ -1567,7 +1726,7 @@ static Result<const char *> maybe_register_array_constant(GenerationContext *con
 
         auto equal = true;
         for(size_t j = 0; j < value.count; j += 1) {
-            if(!constant_values_deep_equal(type, array_constant.elements[j], value[j])) {
+            if(!constant_values_deep_equal(context->constant_context, type, array_constant.elements[j], value[j])) {
                 equal = false;
 
                 break;
@@ -1638,7 +1797,8 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
             assert(type.integer != IntegerType::Undetermined);
         } break;
 
-        case TypeCategory::Pointer: {
+        case TypeCategory::Pointer:
+        case TypeCategory::Struct: {
             
         } break;
 
@@ -1771,6 +1931,13 @@ static bool generate_type(GenerationContext *context, char **prefix_source, char
 
             string_buffer_append(prefix_source, "struct ");
             string_buffer_append(prefix_source, result.value);
+
+            return true;
+        } break;
+
+        case TypeCategory::Struct: {
+            string_buffer_append(prefix_source, "struct ");
+            string_buffer_append(prefix_source, type._struct);
 
             return true;
         } break;
@@ -1914,6 +2081,10 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
             });
 
             return true;
+        } break;
+
+        case TypeCategory::Struct: {
+            
         } break;
 
         case TypeCategory::Void: {
@@ -2170,6 +2341,66 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                         error(expression.member_reference.name.position, "No member with name %s", expression.member_reference.name.text);
 
                         return { false };
+                    }
+                } break;
+
+                case TypeCategory::Struct: {
+                    switch(result.value.category) {
+                        case ExpressionValueCategory::Anonymous:
+                        case ExpressionValueCategory::Assignable: {
+                            auto struct_type = retrieve_struct_type(context->constant_context, result.value.type._struct);
+
+                            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                                if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
+                                    string_buffer_append(source, "(");
+
+                                    string_buffer_append(source, expression_source);
+
+                                    string_buffer_append(source, ").");
+
+                                    string_buffer_append(source, expression.member_reference.name.text);
+
+                                    ExpressionValue value;
+                                    value.category = result.value.category;
+                                    value.type = struct_type.members[i].type;
+
+                                    return {
+                                        true,
+                                        value
+                                    };
+                                }
+                            }
+
+                            error(expression.member_reference.name.position, "No member with name %s", expression.member_reference.name.text);
+                            
+                            return { false };
+                        } break;
+
+                        case ExpressionValueCategory::Constant: {
+                            auto struct_type = retrieve_struct_type(context->constant_context, result.value.type._struct);
+
+                            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                                if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
+                                    ExpressionValue value;
+                                    value.category = ExpressionValueCategory::Constant;
+                                    value.type = struct_type.members[i].type;
+                                    value.constant = result.value.constant._struct[i];
+
+                                    return {
+                                        true,
+                                        value
+                                    };
+                                }
+                            }
+
+                            error(expression.member_reference.name.position, "No member with name %s", expression.member_reference.name.text);
+                            
+                            return { false };
+                        } break;
+
+                        default: {
+                            return { false };
+                        } break;
                     }
                 } break;
 
@@ -3370,6 +3601,14 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
             return true;
         } break;
 
+        case DeclarationCategory::StructDefinition: {
+            if(!register_global_name(context, declaration.name.text, declaration.name.position)) {
+                return false;
+            }
+
+            return true;
+        } break;
+
         default: {
             abort();
         } break;
@@ -3490,6 +3729,8 @@ Result<CSource> generate_c_source(Array<File> files) {
         boolean_false_value
     });
 
+    List<StructType> struct_types{};
+
     auto previous_resolved_declaration_count = 0;
 
     while(true) {
@@ -3501,6 +3742,7 @@ Result<CSource> generate_c_source(Array<File> files) {
                 signed_size_integer_type,
                 signed_size_integer_type,
                 to_array(global_constants),
+                &struct_types,
                 file_module.declarations,
                 {
                     files.count,
@@ -3537,6 +3779,7 @@ Result<CSource> generate_c_source(Array<File> files) {
                     signed_size_integer_type,
                     signed_size_integer_type,
                     to_array(global_constants),
+                    &struct_types,
                     file_module.declarations,
                     {
                         files.count,
@@ -3566,19 +3809,18 @@ Result<CSource> generate_c_source(Array<File> files) {
     for(size_t i = 0; i < files.count; i += 1) {
         auto file_module = file_modules[i];
 
-        ConstantContext constant_context {
+        context.constant_context = {
             unsigned_size_integer_type,
             signed_size_integer_type,
             signed_size_integer_type,
             to_array(global_constants),
+            &struct_types,
             file_module.declarations,
             {
                 files.count,
                 file_modules
             }
         };
-
-        context.constant_context = constant_context;
 
         for(auto declaration : file_module.declarations) {
             if(!generate_declaration(&context, declaration)) {
@@ -3659,6 +3901,35 @@ Result<CSource> generate_c_source(Array<File> files) {
             if(j != array_constant.elements.count - 1) {
                 string_buffer_append(&full_source, ",");
             }
+        }
+
+        string_buffer_append(&full_source, "};");
+    }
+
+    for(auto struct_type : struct_types) {
+        string_buffer_append(&full_source, "struct ");
+
+        string_buffer_append(&full_source, struct_type.mangled_name);
+
+        string_buffer_append(&full_source, "{");
+
+        for(auto member : struct_type.members) {
+            char *type_postfix_buffer{};
+            if(!generate_type(&context, &full_source, &type_postfix_buffer, member.type, position)) {
+                return { false };
+            }
+
+            string_buffer_append(&full_source, " ");
+
+            string_buffer_append(&full_source, member.name.text);
+
+            if(type_postfix_buffer != nullptr) {
+                string_buffer_append(&full_source, " ");
+
+                string_buffer_append(&full_source, type_postfix_buffer);
+            }
+
+            string_buffer_append(&full_source, ";");
         }
 
         string_buffer_append(&full_source, "};");
