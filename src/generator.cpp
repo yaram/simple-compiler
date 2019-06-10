@@ -2084,7 +2084,27 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
         } break;
 
         case TypeCategory::Struct: {
-            
+            string_buffer_append(source, "struct ");
+
+            string_buffer_append(source, type._struct);
+
+            string_buffer_append(source, "{");
+
+            auto struct_type = retrieve_struct_type(context->constant_context, type._struct);
+
+            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                if(i != struct_type.members.count - 1) {
+                    if(!generate_constant_value(context, source, struct_type.members[i].type, value._struct[i], position)) {
+                        return false;
+                    }
+
+                    string_buffer_append(source, ",");
+                }
+            }
+
+            string_buffer_append(source, "}");
+
+            return true;
         } break;
 
         case TypeCategory::Void: {
