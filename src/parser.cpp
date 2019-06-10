@@ -184,18 +184,18 @@ static Identifier parse_identifier(Context *context) {
     while(true) {
         auto character = fgetc(context->source_file);
 
-        if(isalnum(character)) {
+        if(isalnum(character) || character == '_') {
             context->character += 1;
 
             append(&buffer, (char)character);
         } else {
             ungetc(character, context->source_file);
 
-            append(&buffer, '\0');
-
             break;
         }
     }
+
+    append(&buffer, '\0');
 
     return {
         buffer.elements,
@@ -211,7 +211,7 @@ static Result<Identifier> expect_identifier(Context *context) {
 
     auto character = fgetc(context->source_file);
 
-    if(isalpha(character)) {
+    if(isalpha(character) || character == '_') {
         context->character += 1;
 
         List<char> buffer{};
@@ -221,18 +221,18 @@ static Result<Identifier> expect_identifier(Context *context) {
         while(true) {
             auto character = fgetc(context->source_file);
 
-            if(isalnum(character)) {
+            if(isalnum(character) || character == '_') {
                 context->character += 1;
 
                 append(&buffer, (char)character);
             } else {
                 ungetc(character, context->source_file);
 
-                append(&buffer, '\0');
-
                 break;
             }
         }
+
+        append(&buffer, '\0');
 
         return {
             true,
@@ -248,7 +248,7 @@ static Result<Identifier> expect_identifier(Context *context) {
 
         return { false };
     } else {
-        error(*context, "Expected a-z or A-Z. Got '%c'", character);
+        error(*context, "Expected a-z, A-Z or '_'. Got '%c'", character);
 
         return { false };
     }
@@ -540,28 +540,10 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
             auto character = fgetc(context->source_file);
 
             // Parse non-left-recursive expressions first
-            if(isalpha(character)) {
-                context->character += 1;
+            if(isalpha(character) || character == '_') {
+                ungetc(character, context->source_file);
 
-                List<char> buffer{};
-
-                append(&buffer, (char)character);
-
-                while(true) {
-                    auto character = fgetc(context->source_file);
-
-                    if(isalnum(character)) {
-                        context->character += 1;
-
-                        append(&buffer, (char)character);
-                    } else {
-                        ungetc(character, context->source_file);
-
-                        break;
-                    }
-                }
-
-                append(&buffer, '\0');
+                auto identifier = parse_identifier(context);
 
                 Expression expression;
                 expression.type = ExpressionType::NamedReference;
@@ -570,54 +552,21 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                     first_line,
                     first_character
                 };
-                expression.named_reference = {
-                    buffer.elements,
-                    context->source_file_path,
-                    first_line,
-                    first_character
-                };
+                expression.named_reference = identifier;
 
                 append(expression_stack, expression);
-            } else if(isdigit(character) || character == '-'){
-                auto definitely_identifier = false;
-                auto definitely_numeric = false;
-
-                if(character == '-') {
-                    definitely_numeric = true;
-                }
-
+            } else if(isdigit(character)){
                 context->character += 1;
 
                 List<char> buffer{};
 
                 append(&buffer, (char)character);
 
-                auto character_count = 1;
                 while(true) {
                     auto character = fgetc(context->source_file);
 
                     if(isdigit(character)) {
                         context->character += 1;
-
-                        if(definitely_identifier) {
-                            error(*context, "Expected a-z or A-Z, got '%c'", character);
-
-                            return { false };
-                        }
-
-                        append(&buffer, (char)character);
-
-                        character_count += 1;
-                    } else if(isalpha(character)) {
-                        context->character += 1;
-
-                        if(definitely_numeric) {
-                            error(*context, "Expected 0-9, got '%c'", character);
-
-                            return { false };
-                        }
-
-                        definitely_identifier = true;
 
                         append(&buffer, (char)character);
                     } else {
@@ -629,38 +578,22 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 append(&buffer, '\0');
 
+                auto value = strtoll(buffer.elements, NULL, 10);
+
+                if((value == LLONG_MAX || value == LLONG_MIN) && errno == ERANGE) {
+                    error(*context, "Integer literal out of range");
+
+                    return { false };
+                }
+
                 Expression expression;
                 expression.position = {
                     context->source_file_path,
                     first_line,
                     first_character
                 };
-
-                if(definitely_numeric || !definitely_identifier) {
-                    auto value = strtoll(buffer.elements, NULL, 10);
-
-                    if((value == LLONG_MAX || value == LLONG_MIN) && errno == ERANGE) {
-                        error(*context, "Integer literal out of range");
-
-                        return { false };
-                    }
-
-                    expression.type = ExpressionType::IntegerLiteral;
-                    expression.integer_literal = value;
-                } else {
-                    expression.type = ExpressionType::NamedReference;
-                    expression.position = {
-                        context->source_file_path,
-                        first_line,
-                        first_character
-                    };
-                    expression.named_reference = {
-                        buffer.elements,
-                        context->source_file_path,
-                        first_line,
-                        first_character
-                    };
-                }
+                expression.type = ExpressionType::IntegerLiteral;
+                expression.integer_literal = value;
 
                 append(expression_stack, expression);
             } else if(character == '*') {
@@ -717,7 +650,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 auto character = fgetc(context->source_file);
 
-                if(isalpha(character)) {
+                if(isalpha(character) || character == '_') {
                     ungetc(character, context->source_file);
 
                     auto identifier = parse_identifier(context);
@@ -1071,7 +1004,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
             auto character = fgetc(context->source_file);
 
-            if(isalnum(character)) {
+            if(isalnum(character) || character == '_') {
                 ungetc(character, context->source_file);
 
                 auto name = parse_identifier(context);
@@ -1396,7 +1329,7 @@ static Result<Statement> continue_parsing_function_declaration(Context *context,
         
         character = fgetc(context->source_file);
 
-        if(isalpha(character)) {
+        if(isalpha(character) || character == '_') {
             ungetc(character, context->source_file);
 
             auto identifier = parse_identifier(context);
@@ -1411,7 +1344,7 @@ static Result<Statement> continue_parsing_function_declaration(Context *context,
 
             is_external = true;
         }
-    } else if(isalpha(character)) {
+    } else if(isalpha(character) || character == '_') {
         ungetc(character, context->source_file);
 
         auto identifier = parse_identifier(context);
@@ -1543,7 +1476,7 @@ static Result<Statement> parse_statement(Context *context) {
 
     auto character = fgetc(context->source_file);
 
-    if(isalpha(character)) {
+    if(isalpha(character) || character == '_') {
         ungetc(character, context->source_file);
 
         auto identifier = parse_identifier(context);
@@ -1688,7 +1621,7 @@ static Result<Statement> parse_statement(Context *context) {
                         auto value_line = context->line;
                         auto value_character = context->character;
 
-                        if(isalpha(character)){
+                        if(isalpha(character) || character == '_'){
                             ungetc(character, context->source_file);
 
                             auto value_identifier = parse_identifier(context);
@@ -1819,7 +1752,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                             auto character = fgetc(context->source_file);
 
-                            if(isalpha(character)) {
+                            if(isalpha(character) || character == '_') {
                                 ungetc(character, context->source_file);
 
                                 auto first_identifier = parse_identifier(context);
@@ -2312,7 +2245,7 @@ static Result<Statement> parse_statement(Context *context) {
 
         auto character = fgetc(context->source_file);
 
-        if(isalpha(character)) {
+        if(isalpha(character) || character == '_') {
             ungetc(character, context->source_file);
 
             auto identifier = parse_identifier(context);
