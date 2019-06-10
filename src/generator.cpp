@@ -1183,7 +1183,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(ConstantContext c
                 case UnaryOperator::Pointer: {
                     if(result.value.type.category != TypeCategory::Type) {
                         if(print_errors) {
-                            error(expression.unary_operation.expression->position, "Cannot take pointers to constants");
+                            error(expression.unary_operation.expression->position, "Cannot take pointers to constants of this type");
                         }
 
                         return { false };
@@ -3135,24 +3135,53 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                         } break;
 
                         case ExpressionValueCategory::Constant: {
-                            if(result.value.type.category != TypeCategory::Type) {
-                                error(expression.unary_operation.expression->position, "Cannot take pointers to constants");
+                            switch(result.value.type.category) {
+                                case TypeCategory::Integer:
+                                case TypeCategory::Boolean:
+                                case TypeCategory::Void:
+                                case TypeCategory::Pointer:
+                                case TypeCategory::Array:
+                                case TypeCategory::StaticArray:
+                                case TypeCategory::Struct:
+                                case TypeCategory::FileModule: {
+                                    error(expression.unary_operation.expression->position, "Cannot take pointers to constants of this type");
 
-                                return { false };
+                                    return { false };
+                                } break;
+
+                                case TypeCategory::Function: {
+                                    string_buffer_append(source, "&");
+
+                                    string_buffer_append(source, result.value.constant.function);
+
+                                    ExpressionValue value;
+                                    value.category = ExpressionValueCategory::Anonymous;
+                                    value.type.category = TypeCategory::Pointer;
+                                    value.type.pointer = heapify(result.value.type);
+
+                                    return {
+                                        true,
+                                        value
+                                    };
+                                } break;
+
+                                case TypeCategory::Type: {
+                                    ExpressionValue value;
+                                    value.category = ExpressionValueCategory::Constant;
+                                    value.type.category = TypeCategory::Type;
+                                    value.constant.type.category = TypeCategory::Pointer;
+                                    value.constant.type.pointer = heapify(result.value.constant.type);
+
+                                    return {
+                                        true,
+                                        value
+                                    };
+                                } break;
+
+                                default: {
+                                    abort();
+                                } break;
                             }
-
-                            string_buffer_append(source, expression_source);
-
-                            ExpressionValue value;
-                            value.category = ExpressionValueCategory::Constant;
-                            value.type.category = TypeCategory::Type;
-                            value.constant.type.category = TypeCategory::Pointer;
-                            value.constant.type.pointer = heapify(result.value.constant.type);
-
-                            return {
-                                true,
-                                value
-                            };
                         } break;
                         
                         case ExpressionValueCategory::Assignable: {
