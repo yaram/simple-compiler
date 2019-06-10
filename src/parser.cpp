@@ -925,7 +925,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 return { false };
             } else {
-                error(*context, "Expected a-z, A-Z, 0-9, '-' or '*'. Got '%c'", character);
+                error(*context, "Expected a-z, A-Z, 0-9, '*', '!', '(', '[' or '\"'. Got '%c'", character);
 
                 return { false };
             }
