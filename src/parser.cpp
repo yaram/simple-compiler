@@ -205,6 +205,55 @@ static Identifier parse_identifier(Context *context) {
     };
 }
 
+static Result<Identifier> expect_identifier(Context *context) {
+    auto first_line = context->line;
+    auto first_character = context->character;
+
+    auto character = fgetc(context->source_file);
+
+    if(isalpha(character)) {
+        context->character += 1;
+
+        List<char> buffer{};
+
+        append(&buffer, (char)character);
+
+        while(true) {
+            auto character = fgetc(context->source_file);
+
+            if(isalnum(character)) {
+                context->character += 1;
+
+                append(&buffer, (char)character);
+            } else {
+                ungetc(character, context->source_file);
+
+                append(&buffer, '\0');
+
+                break;
+            }
+        }
+
+        return {
+            true,
+            {
+                buffer.elements,
+                context->source_file_path,
+                first_line,
+                first_character
+            }
+        };
+    } else if(character == EOF) {
+        error(*context, "Unexpected End of File");
+
+        return { false };
+    } else {
+        error(*context, "Expected a-z or A-Z. Got '%c'", character);
+
+        return { false };
+    }
+}
+
 static bool expect_character(Context *context, char expected_character) {
     auto character = fgetc(context->source_file);
 
@@ -1401,7 +1450,131 @@ static Result<Statement> parse_statement(Context *context) {
 
                         auto character = fgetc(context->source_file);
 
-                        if(character == '(') {
+                        if(isalpha(character)){
+                            ungetc(character, context->source_file);
+
+                            auto value_identifier = parse_identifier(context);
+
+                            if(strcmp(value_identifier.text, "struct") == 0) {
+                                skip_whitespace(context);
+
+                                if(!expect_character(context, '{')) {
+                                    return { false };
+                                }
+
+                                skip_whitespace(context);
+
+                                List<StructMember> members{};
+
+                                auto character = fgetc(context->source_file);
+
+                                if(character == '}') {
+                                    context->character += 1;
+                                } else {
+                                    ungetc(character, context->source_file);
+
+                                    while(true) {
+                                        auto name_result = expect_identifier(context);
+
+                                        if(!name_result.status) {
+                                            return { false };
+                                        }
+
+                                        skip_whitespace(context);
+
+                                        if(!expect_character(context, ':')) {
+                                            return { false };
+                                        }
+
+                                        skip_whitespace(context);
+
+                                        auto type_result = parse_expression(context);
+
+                                        if(!type_result.status) {
+                                            return { false };
+                                        }
+
+                                        append(&members, {
+                                            name_result.value,
+                                            type_result.value
+                                        });
+
+                                        skip_whitespace(context);
+
+                                        auto character = fgetc(context->source_file);
+
+                                        if(character == '}') {
+                                            context->character += 1;
+
+                                            break;
+                                        } else if(character == ',') {
+                                            context->character += 1;
+
+                                            skip_whitespace(context);
+                                        } else if(character == EOF) {
+
+                                        } else if(character == EOF) {
+                                            error(*context, "Unexpected End of File");
+
+                                            return { false };
+                                        } else {
+                                            error(*context, "Expected ',' or ';'. Got '%c'", character);
+
+                                            return { false };
+                                        }
+                                    }
+                                }
+
+                                Statement statement;
+                                statement.type = StatementType::StructDefinition;
+                                statement.position = identifier.position;
+                                statement.struct_definition = {
+                                    identifier,
+                                    to_array(members)
+                                };
+
+                                return {
+                                    true,
+                                    statement
+                                };
+                            } else {
+                                Expression expression;
+                                expression.type = ExpressionType::NamedReference;
+                                expression.position = value_identifier.position;
+                                expression.named_reference = value_identifier;
+
+                                List<Operation> operation_stack{};
+                                
+                                List<Expression> expression_stack{};
+
+                                append(&expression_stack, expression);
+
+                                auto result = parse_right_expressions(context, &operation_stack, &expression_stack, false);
+
+                                if(!result.status) {
+                                    return { false };
+                                }
+
+                                skip_whitespace(context);
+
+                                if(!expect_character(context, ';')) {
+                                    return { false };
+                                }
+
+                                Statement statement;
+                                statement.type = StatementType::ConstantDefinition;
+                                statement.position = identifier.position;
+                                statement.constant_definition = {
+                                    identifier,
+                                    result.value
+                                };
+
+                                return {
+                                    true,
+                                    statement
+                                };
+                            }
+                        } else if(character == '(') {
                             context->character += 1;
 
                             skip_whitespace(context);
@@ -1456,7 +1629,7 @@ static Result<Statement> parse_statement(Context *context) {
                                             return { false };
                                         }
 
-                                        auto name = parse_identifier(context);
+                                        auto name_result = expect_identifier(context);
 
                                         skip_whitespace(context);
 
@@ -1475,7 +1648,7 @@ static Result<Statement> parse_statement(Context *context) {
                                         skip_whitespace(context);
 
                                         FunctionParameter parameter {
-                                            name,
+                                            name_result.value,
                                             result.value
                                         };
 

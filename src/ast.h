@@ -99,6 +99,7 @@ void debug_print_expression(Expression expression);
 enum struct StatementType {
     FunctionDeclaration,
     ConstantDefinition,
+    StructDefinition,
     Expression,
     VariableDeclaration,
     Assignment,
@@ -119,6 +120,12 @@ enum struct VariableDeclarationType {
     Uninitialized,
     TypeElided,
     FullySpecified
+};
+
+struct StructMember {
+    Identifier name;
+
+    Expression type;
 };
 
 struct Statement {
@@ -145,6 +152,12 @@ struct Statement {
 
             Expression expression;
         } constant_definition;
+
+        struct {
+            Identifier name;
+
+            Array<StructMember> members;
+        } struct_definition;
 
         Expression expression;
 

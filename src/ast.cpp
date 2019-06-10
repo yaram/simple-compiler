@@ -304,6 +304,39 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             printf("}");
         } break;
 
+        case StatementType::StructDefinition: {
+            printf("StructDefinition: {\n");
+
+            indent(indentation_level + 1);
+            printf("name: ");
+            debug_print_indentifier(statement.struct_definition.name);
+            printf("\n");
+
+            indent(indentation_level + 1);
+            printf("members: [");
+
+            if(statement.struct_definition.members.count != 0) {
+                printf("\n");
+
+                for(auto member : statement.struct_definition.members) {
+                    indent(indentation_level + 2);
+                    debug_print_indentifier(member.name);
+                    printf(": ");
+
+                    debug_print_expression_indent(member.type, indentation_level + 2);
+
+                    printf("\n");
+                }
+
+                indent(indentation_level + 1);
+            }
+
+            printf("]\n");
+
+            indent(indentation_level);
+            printf("}");
+        } break;
+
         case StatementType::Expression: {
             printf("Expression: ");
 
