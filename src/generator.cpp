@@ -3711,6 +3711,11 @@ Result<CSource> generate_c_source(Array<File> files) {
 
     append(&global_constants, create_base_type("bool", base_boolean_type));
 
+    Type base_void_type;
+    base_void_type.category = TypeCategory::Void;
+
+    append(&global_constants, create_base_type("void", base_void_type));
+
     ConstantValue boolean_true_value;
     boolean_true_value.boolean = true;
 
