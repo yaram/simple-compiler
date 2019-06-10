@@ -182,6 +182,8 @@ static StructType retrieve_struct_type(ConstantContext context, const char *mang
     abort();
 }
 
+
+
 static bool constant_values_deep_equal(ConstantContext context, Type type, ConstantValue a, ConstantValue b) {
     switch(type.category) {
         case TypeCategory::Function: {
@@ -3206,6 +3208,77 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
     }
 }
 
+static bool generate_default_value(GenerationContext *context, char **source, Type type, FilePosition position) {
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            string_buffer_append(source, "0");
+
+            return true;
+        } break;
+
+        case TypeCategory::Boolean: {
+            string_buffer_append(source, "false");
+
+            return true;
+        } break;
+
+        case TypeCategory::Pointer: {
+            string_buffer_append(source, "0");
+
+            return true;
+        } break;
+
+        case TypeCategory::Array: {
+            auto result = maybe_register_array_type(context, *type.array, position);
+
+            if(!result.status) {
+                return false;
+            }
+
+            string_buffer_append(source, "(struct ");
+
+            string_buffer_append(source, result.value);
+
+            string_buffer_append(source, "){0,0}");
+
+            return true;
+        } break;
+
+        case TypeCategory::Struct: {
+            auto struct_type = retrieve_struct_type(context->constant_context, type._struct);
+
+            string_buffer_append(source, "(struct ");
+
+            string_buffer_append(source, struct_type.mangled_name);
+
+            string_buffer_append(source, "){");
+
+            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                if(!generate_default_value(context, source, struct_type.members[i].type, position)) {
+                    return false;
+                }
+
+                if(i != struct_type.members.count - 1) {
+                    string_buffer_append(source, ",");
+                }
+            }
+
+            string_buffer_append(source, "}");
+
+            return true;
+        } break;
+
+        case TypeCategory::Function:
+        case TypeCategory::Type:
+        case TypeCategory::Void:
+        case TypeCategory::StaticArray:
+        case TypeCategory::FileModule:
+        default: {
+            abort();
+        } break;
+    }
+}
+
 static bool generate_statement(GenerationContext *context, Statement statement) {
     switch(statement.type) {
         case StatementType::Expression: {
@@ -3246,6 +3319,12 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
                         string_buffer_append(&(context->implementation_source), " ");
 
                         string_buffer_append(&(context->implementation_source), type_suffix_source);
+                    }
+
+                    string_buffer_append(&(context->implementation_source), "=");
+
+                    if(!generate_default_value(context, &(context->implementation_source), result.value, statement.variable_declaration.uninitialized.position)) {
+                        return false;
                     }
 
                     string_buffer_append(&(context->implementation_source), ";");
