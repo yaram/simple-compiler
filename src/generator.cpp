@@ -19,6 +19,32 @@ static void error(FilePosition position, const char *format, ...) {
     va_end(arguments);
 }
 
+struct Declaration;
+
+union ConstantValue {
+    const char *function;
+
+    uint64_t integer;
+
+    bool boolean;
+
+    Type type;
+
+    Array<ConstantValue> array;
+
+    ConstantValue *static_array;
+
+    ConstantValue *_struct;
+
+    Array<Declaration> file_module;
+};
+
+struct TypedConstantValue {
+    Type type;
+
+    ConstantValue value;
+};
+
 enum struct DeclarationCategory {
     FunctionDefinition,
     ExternalFunction,
@@ -32,8 +58,9 @@ struct Declaration {
 
     Identifier name;
 
-    bool type_resolved;
-    Type type;
+    bool is_resolved;
+
+    TypedConstantValue value;
 
     union {
         struct {
@@ -90,7 +117,7 @@ static Array<Declaration> get_declaration_children(Declaration declaration) {
 static Result<Declaration> lookup_declaration(Array<Declaration> top_level_declarations, Array<Declaration> declaration_stack, const char *name) {
     for(size_t i = 0; i < declaration_stack.count; i += 1) {
         for(auto child : get_declaration_children(declaration_stack[declaration_stack.count - 1 - i])) {
-            if(child.type_resolved && strcmp(child.name.text, name) == 0) {
+            if(child.is_resolved && strcmp(child.name.text, name) == 0) {
                 return {
                     true,
                     child
@@ -110,24 +137,6 @@ static Result<Declaration> lookup_declaration(Array<Declaration> top_level_decla
 
     return { false };
 }
-
-union ConstantValue {
-    const char *function;
-
-    uint64_t integer;
-
-    bool boolean;
-
-    Type type;
-
-    Array<ConstantValue> array;
-
-    ConstantValue *static_array;
-
-    ConstantValue *_struct;
-
-    Array<Declaration> file_module;
-};
 
 struct FileModule {
     const char *path;
@@ -288,12 +297,6 @@ static bool constant_values_deep_equal(ConstantContext context, Type type, Const
     }
 }
 
-struct ConstantExpressionValue {
-    Type type;
-
-    ConstantValue value;
-};
-
 static ConstantValue compiler_size_to_native_size(ConstantContext context, size_t size) {
     ConstantValue value;
 
@@ -327,94 +330,9 @@ static ConstantValue compiler_size_to_native_size(ConstantContext context, size_
     return value;
 }
 
-static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors);
+static Result<TypedConstantValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors);
 
-static Result<ConstantExpressionValue> evaluate_constant_declaration(ConstantContext context, Declaration declaration, bool print_errors) {
-    switch(declaration.category) {
-        case DeclarationCategory::FunctionDefinition: {
-            ConstantValue value;
-            value.function = declaration.function_definition.mangled_name;
-
-            return {
-                true,
-                {
-                    declaration.type,
-                    value
-                }
-            };
-        } break;
-
-        case DeclarationCategory::ExternalFunction: {
-            ConstantValue value;
-            value.function = declaration.name.text;
-
-            return {
-                true,
-                {
-                    declaration.type,
-                    value
-                }
-            };
-        } break;
-
-        case DeclarationCategory::ConstantDefinition: {
-            auto expression_result = evaluate_constant_expression(context, declaration.constant_definition, print_errors);
-
-            if(!expression_result.status) {
-                return { false };
-            }
-
-            return {
-                true,
-                expression_result.value
-            };
-        } break;
-
-        case DeclarationCategory::StructDefinition: {
-            Type type;
-            type.category = TypeCategory::Type;
-
-            ConstantValue value;
-            value.type.category = TypeCategory::Struct;
-            value.type._struct = declaration.struct_definition.mangled_name;
-
-            return{
-                true,
-                {
-                    type,
-                    value
-                }
-            };
-        } break;
-
-        case DeclarationCategory::FileModuleImport: {
-            Type type;
-            type.category = TypeCategory::FileModule;
-
-            ConstantValue value;
-
-            for(auto file_module : context.file_modules) {
-                if(strcmp(declaration.file_module_import, file_module.path) == 0) {
-                    value.file_module = file_module.declarations;
-                }
-            }
-
-            return {
-                true,
-                {
-                    type,
-                    value
-                }
-            };
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-}
-
-static Result<ConstantExpressionValue> resolve_constant_named_reference(ConstantContext context, Identifier name, bool print_errors) {
+static Result<TypedConstantValue> resolve_constant_named_reference(ConstantContext context, Identifier name, bool print_errors) {
     auto result = lookup_declaration(context.top_level_declarations, to_array(context.declaration_stack), name.text);
 
     if(!result.status) {
@@ -437,10 +355,13 @@ static Result<ConstantExpressionValue> resolve_constant_named_reference(Constant
         return { false };
     }
 
-    return evaluate_constant_declaration(context, result.value, print_errors);
+    return {
+        true,
+        result.value.value
+    };
 }
 
-static Result<ConstantExpressionValue> evaluate_constant_index(Type type, ConstantValue value, FilePosition position, IntegerType index_type, ConstantValue index_value, FilePosition index_position, bool print_errors) {
+static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantValue value, FilePosition position, IntegerType index_type, ConstantValue index_value, FilePosition index_position, bool print_errors) {
     size_t index;
     switch(index_type) {
         case IntegerType::Undetermined: {
@@ -600,7 +521,7 @@ static Result<ConstantExpressionValue> evaluate_constant_index(Type type, Consta
 }
 
 template <typename T>
-static ConstantExpressionValue perform_constant_integer_binary_operation(BinaryOperator binary_operator, IntegerType type, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value) {
+static TypedConstantValue perform_constant_integer_binary_operation(BinaryOperator binary_operator, IntegerType type, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value) {
     T left;
     if(left_type == IntegerType::Undetermined) {
         left = (T)(int64_t)left_value.integer;
@@ -676,8 +597,8 @@ static ConstantExpressionValue perform_constant_integer_binary_operation(BinaryO
     };
 }
 
-static Result<ConstantExpressionValue> evaluate_constant_integer_binary_operation(BinaryOperator binary_operator, FilePosition position, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value, bool print_errors) {
-    ConstantExpressionValue result;
+static Result<TypedConstantValue> evaluate_constant_integer_binary_operation(BinaryOperator binary_operator, FilePosition position, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value, bool print_errors) {
+    TypedConstantValue result;
 
     if(left_type == IntegerType::Undetermined && right_type == IntegerType::Undetermined) {
         result = perform_constant_integer_binary_operation<int64_t>(
@@ -706,7 +627,7 @@ static Result<ConstantExpressionValue> evaluate_constant_integer_binary_operatio
             type = left_type;
         }
 
-        ConstantExpressionValue result;
+        TypedConstantValue result;
         switch(type) {
             case IntegerType::Unsigned8: {
                 result = perform_constant_integer_binary_operation<uint8_t>(
@@ -856,7 +777,7 @@ static ConstantValue determine_constant_integer(IntegerType target_type, Constan
 
 static Result<Type> evaluate_type_expression(ConstantContext context, Expression expression, bool print_errors);
 
-static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors) {
+static Result<TypedConstantValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             return resolve_constant_named_reference(context, expression.named_reference, print_errors);
@@ -938,8 +859,11 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
 
                 case TypeCategory::FileModule: {
                     for(auto declaration : result.value.value.file_module) {
-                        if(declaration.type_resolved && strcmp(declaration.name.text, expression.member_reference.name.text) == 0) {
-                            return evaluate_constant_declaration(context, declaration, print_errors);
+                        if(declaration.is_resolved && strcmp(declaration.name.text, expression.member_reference.name.text) == 0) {
+                            return {
+                                true,
+                                declaration.value
+                            };
                         }
                     }
 
@@ -1243,7 +1167,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                 return { false };
             }
 
-            ConstantExpressionValue value;
+            TypedConstantValue value;
             value.type.category = TypeCategory::Type;
             value.value.type.category = TypeCategory::Array;
             value.value.type.array = heapify(result.value);
@@ -1280,7 +1204,7 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
                 parameters[i] = result.value;
             }
 
-            ConstantExpressionValue value;
+            TypedConstantValue value;
             value.type.category = TypeCategory::Type;
             value.value.type.category = TypeCategory::Function;
             value.value.type.function = {
@@ -1331,7 +1255,7 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
                 Declaration declaration;
                 declaration.category = DeclarationCategory::ExternalFunction;
                 declaration.name = statement.function_declaration.name;
-                declaration.type_resolved = false;
+                declaration.is_resolved = false;
 
                 declaration.external_function = {
                     statement.function_declaration.parameters,
@@ -1370,7 +1294,7 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
                 Declaration declaration;
                 declaration.category = DeclarationCategory::FunctionDefinition;
                 declaration.name = statement.function_declaration.name;
-                declaration.type_resolved = false;
+                declaration.is_resolved = false;
 
                 declaration.function_definition = {
                     mangled_name,
@@ -1392,7 +1316,7 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
             Declaration declaration;
             declaration.category = DeclarationCategory::ConstantDefinition;
             declaration.name = statement.constant_definition.name;
-            declaration.type_resolved = false;
+            declaration.is_resolved = false;
             
             declaration.constant_definition = statement.constant_definition.expression;
 
@@ -1414,7 +1338,7 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
             Declaration declaration;
             declaration.category = DeclarationCategory::StructDefinition;
             declaration.name = statement.struct_definition.name;
-            declaration.type_resolved = false;
+            declaration.is_resolved = false;
 
             declaration.struct_definition = {
                 mangled_name,
@@ -1439,7 +1363,7 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
         case StatementType::Import: {
             Declaration declaration;
             declaration.category = DeclarationCategory::FileModuleImport;
-            declaration.type_resolved = false;
+            declaration.is_resolved = false;
 
             auto name = path_get_file_component(statement.import);
 
@@ -1462,28 +1386,28 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
     }
 }
 
-static Result<Type> resolve_declaration_type(ConstantContext *context, Declaration declaration, bool print_errors) {
+static Result<TypedConstantValue> resolve_declaration(ConstantContext *context, Declaration declaration, bool print_errors) {
     auto children = get_declaration_children(declaration);
 
     if(children.count > 0) {
         append(&(context->declaration_stack), declaration);
 
         for(auto &child : children) {
-            auto result = resolve_declaration_type(context, child, print_errors);
+            auto result = resolve_declaration(context, child, print_errors);
 
             if(result.status) {
-                child.type_resolved = true;
-                child.type = result.value;
+                child.is_resolved = true;
+                child.value = result.value;
             }
         }
 
         context->declaration_stack.count -= 1;
     }
 
-    if(declaration.type_resolved) {
+    if(declaration.is_resolved) {
         return {
             true,
-            declaration.type
+            declaration.value
         };
     } else {
         Array<Declaration> siblings;
@@ -1494,7 +1418,7 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
         }
 
         for(auto sibling : siblings) {
-            if(sibling.type_resolved && strcmp(sibling.name.text, declaration.name.text) == 0) {
+            if(sibling.is_resolved && strcmp(sibling.name.text, declaration.name.text) == 0) {
                 if(print_errors) {
                     error(declaration.name.position, "Duplicate declaration name %s", declaration.name.text);
                     error(sibling.name.position, "Original declared here");
@@ -1543,9 +1467,15 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
                 };
                 type.function.return_type = heapify(return_type);
 
+                ConstantValue value;
+                value.function = declaration.function_definition.mangled_name;
+
                 return {
                     true,
-                    type
+                    {
+                        type,
+                        value
+                    }
                 };
             } break;
 
@@ -1587,9 +1517,15 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
                 };
                 type.function.return_type = heapify(return_type);
 
+                ConstantValue value;
+                value.function = declaration.name.text;
+
                 return {
                     true,
-                    type
+                    {
+                        type,
+                        value
+                    }
                 };
             } break;
 
@@ -1602,7 +1538,7 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
 
                 return {
                     true,
-                    result.value.type
+                    result.value
                 };
             } break;
 
@@ -1645,12 +1581,18 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
                 });
 
                 Type type;
-                type.category = TypeCategory::Struct;
-                type._struct = declaration.struct_definition.mangled_name;
+                type.category = TypeCategory::Type;
+
+                ConstantValue value;
+                value.type.category = TypeCategory::Struct;
+                value.type._struct = declaration.struct_definition.mangled_name;
 
                 return {
                     true,
-                    type
+                    {
+                        type,
+                        value
+                    }
                 };
             } break;
 
@@ -1658,9 +1600,20 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
                 Type type;
                 type.category = TypeCategory::FileModule;
 
+                ConstantValue value;
+
+                for(auto file_module : context->file_modules) {
+                    if(strcmp(declaration.file_module_import, file_module.path) == 0) {
+                        value.file_module = file_module.declarations;
+                    }
+                }
+
                 return {
                     true,
-                    type
+                    {
+                        type,
+                        value
+                    }
                 };
             } break;
 
@@ -1674,7 +1627,7 @@ static Result<Type> resolve_declaration_type(ConstantContext *context, Declarati
 static int count_declarations(Declaration declaration, bool only_resolved) {
     auto resolved_declaration_count = 0;
 
-    if(!only_resolved || declaration.type_resolved) {
+    if(!only_resolved || declaration.is_resolved) {
         resolved_declaration_count = 1;
     }
 
@@ -2497,17 +2450,11 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     assert(result.value.category == ExpressionValueCategory::Constant);
 
                     for(auto declaration : result.value.constant.file_module) {
-                        if(declaration.type_resolved && strcmp(declaration.name.text, expression.member_reference.name.text) == 0) {
-                            auto result = evaluate_constant_declaration(context->constant_context, declaration, true);
-
-                            if(!result.status) {
-                                return { false };
-                            }
-
+                        if(declaration.is_resolved && strcmp(declaration.name.text, expression.member_reference.name.text) == 0) {
                             ExpressionValue value;
                             value.category = ExpressionValueCategory::Constant;
-                            value.type = result.value.type;
-                            value.constant = result.value.value;
+                            value.type = declaration.value.type;
+                            value.constant = declaration.value.value;
 
                             return {
                                 true,
@@ -3705,11 +3652,11 @@ static bool generate_function_signature(GenerationContext *context, char **sourc
 }
 
 static bool generate_declaration(GenerationContext *context, Declaration declaration) {
-    assert(declaration.type_resolved);
+    assert(declaration.is_resolved);
 
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
-            assert(declaration.type.category == TypeCategory::Function);
+            assert(declaration.value.type.category == TypeCategory::Function);
 
             if(!register_global_name(context, declaration.function_definition.mangled_name, declaration.name.position)) {
                 return false;
@@ -3719,7 +3666,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
                 context,
                 &(context->forward_declaration_source),
                 declaration.function_definition.mangled_name,
-                declaration.type,
+                declaration.value.type,
                 declaration.name.position,
                 declaration.function_definition.parameters.elements
             )){
@@ -3740,7 +3687,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
                 context,
                 &(context->implementation_source),
                 declaration.function_definition.mangled_name,
-                declaration.type,
+                declaration.value.type,
                 declaration.name.position,
                 declaration.function_definition.parameters.elements
             )){
@@ -3751,12 +3698,12 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
 
             append(&(context->variable_context_stack), List<Variable>{});
 
-            context->return_type = *declaration.type.function.return_type;
+            context->return_type = *declaration.value.type.function.return_type;
 
-            assert(declaration.type.function.parameters.count == declaration.function_definition.parameters.count);
+            assert(declaration.value.type.function.parameters.count == declaration.function_definition.parameters.count);
 
-            for(size_t i = 0; i < declaration.type.function.parameters.count; i += 1) {
-                if(!add_new_variable(context, declaration.function_definition.parameters[i].name, declaration.type.function.parameters[i])) {
+            for(size_t i = 0; i < declaration.value.type.function.parameters.count; i += 1) {
+                if(!add_new_variable(context, declaration.function_definition.parameters[i].name, declaration.value.type.function.parameters[i])) {
                     return false;
                 }
             }
@@ -3777,7 +3724,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
         } break;
         
         case DeclarationCategory::ExternalFunction: {
-            assert(declaration.type.category == TypeCategory::Function);
+            assert(declaration.value.type.category == TypeCategory::Function);
 
             if(!register_global_name(context, declaration.name.text, declaration.name.position)) {
                 return false;
@@ -3787,7 +3734,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
                 context,
                 &(context->forward_declaration_source),
                 declaration.name.text,
-                declaration.type,
+                declaration.value.type,
                 declaration.name.position,
                 declaration.external_function.parameters.elements
             )){
@@ -3800,11 +3747,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
         } break;
 
         case DeclarationCategory::ConstantDefinition: {
-            // Only do type checking. Constants have no run-time presence.
-
-            auto result = evaluate_constant_expression(context->constant_context, declaration.constant_definition, true);
-
-            return result.status;
+            return true;
         } break;
 
         case DeclarationCategory::FileModuleImport: {
@@ -3966,11 +3909,11 @@ Result<CSource> generate_c_source(Array<File> files) {
             };
 
             for(auto &declaration : file_module.declarations) {
-                auto result = resolve_declaration_type(&constant_context, declaration, false);
+                auto result = resolve_declaration(&constant_context, declaration, false);
 
                 if(result.status) {
-                    declaration.type_resolved = true;
-                    declaration.type = result.value;
+                    declaration.is_resolved = true;
+                    declaration.value = result.value;
                 }
             }
         }
@@ -4003,7 +3946,7 @@ Result<CSource> generate_c_source(Array<File> files) {
                 };
 
                 for(auto declaration : file_module.declarations) {
-                    resolve_declaration_type(&constant_context, declaration, true);
+                    resolve_declaration(&constant_context, declaration, true);
 
                     declaration_count += count_declarations(declaration, false);
                 }
