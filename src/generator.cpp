@@ -585,7 +585,23 @@ static TypedConstantValue perform_constant_integer_binary_operation(BinaryOperat
 
             result_type.category = TypeCategory::Boolean;
         } break;
+        
+        case BinaryOperator::BitwiseAnd: {
+            result_value.integer = (uint64_t)(left & right);
 
+            result_type.category = TypeCategory::Integer;
+            result_type.integer = type;
+        } break;
+        
+        case BinaryOperator::BitwiseOr: {
+            result_value.integer = (uint64_t)(left | right);
+
+            result_type.category = TypeCategory::Integer;
+            result_type.integer = type;
+        } break;
+
+        case BinaryOperator::BooleanAnd:
+        case BinaryOperator::BooleanOr:
         default: {
             abort();
         } break;
@@ -755,7 +771,9 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
                 case BinaryOperator::Subtraction:
                 case BinaryOperator::Multiplication:
                 case BinaryOperator::Division:
-                case BinaryOperator::Modulo: {
+                case BinaryOperator::Modulo:
+                case BinaryOperator::BitwiseAnd:
+                case BinaryOperator::BitwiseOr: {
                     if(print_errors) {
                         error(position, "Cannot perform that operation on booleans");
                     }
@@ -2994,7 +3012,23 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
                                 result_type.category = TypeCategory::Boolean;
                             } break;
+                            
+                            case BinaryOperator::BitwiseAnd: {
+                                string_buffer_append(source, "&");
 
+                                result_type.category = TypeCategory::Integer;
+                                result_type.integer = integer_type;
+                            } break;
+                            
+                            case BinaryOperator::BitwiseOr: {
+                                string_buffer_append(source, "|");
+
+                                result_type.category = TypeCategory::Integer;
+                                result_type.integer = integer_type;
+                            } break;
+
+                            case BinaryOperator::BooleanAnd:
+                            case BinaryOperator::BooleanOr:
                             default: {
                                 abort();
                             } break;
