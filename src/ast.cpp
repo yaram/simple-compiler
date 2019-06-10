@@ -205,6 +205,43 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
             debug_print_expression_indent(*(expression.array_type), indentation_level);
         } break;
+
+        case ExpressionType::FunctionType: {
+            printf("FunctionDeclaration {\n");
+            
+            indent(indentation_level + 1);
+            printf("parameters: {");
+
+            if(expression.function_type.parameters.count != 0) {
+                printf("\n");
+
+                for(auto parameter : expression.function_type.parameters) {
+                    indent(indentation_level + 2);
+                    debug_print_indentifier(parameter.name);
+                    printf(": ");
+
+                    debug_print_expression_indent(parameter.type, indentation_level + 2);
+
+                    printf("\n");
+                }
+
+                indent(indentation_level + 1);
+            }
+            
+            printf("}\n");
+
+            if(expression.function_type.return_type != nullptr) {
+                indent(indentation_level + 1);
+                printf("return_type: ");
+
+                debug_print_expression_indent(*expression.function_type.return_type, indentation_level + 1);
+            
+                printf("\n");
+            }
+            
+            indent(indentation_level);
+            printf("}");
+        } break;
     }
 }
 

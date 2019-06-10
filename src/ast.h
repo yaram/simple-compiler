@@ -41,8 +41,11 @@ enum struct ExpressionType {
     FunctionCall,
     BinaryOperation,
     UnaryOperation,
-    ArrayType
+    ArrayType,
+    FunctionType
 };
+
+struct FunctionParameter;
 
 struct Expression {
     ExpressionType type;
@@ -91,6 +94,12 @@ struct Expression {
         } unary_operation;
 
         Expression *array_type;
+
+        struct {
+            Array<FunctionParameter> parameters;
+
+            Expression *return_type;
+        } function_type;
     };
 };
 
@@ -110,12 +119,6 @@ enum struct StatementType {
     Library
 };
 
-struct FunctionParameter {
-    Identifier name;
-
-    Expression type;
-};
-
 enum struct VariableDeclarationType {
     Uninitialized,
     TypeElided,
@@ -123,6 +126,12 @@ enum struct VariableDeclarationType {
 };
 
 struct StructMember {
+    Identifier name;
+
+    Expression type;
+};
+
+struct FunctionParameter {
     Identifier name;
 
     Expression type;
