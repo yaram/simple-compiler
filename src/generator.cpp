@@ -597,131 +597,197 @@ static TypedConstantValue perform_constant_integer_binary_operation(BinaryOperat
     };
 }
 
-static Result<TypedConstantValue> evaluate_constant_integer_binary_operation(BinaryOperator binary_operator, FilePosition position, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value, bool print_errors) {
+static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOperator binary_operator, FilePosition position, Type left_type, ConstantValue left_value, Type right_type, ConstantValue right_value, bool print_errors) {
+    if(
+        !(
+            left_type.category == TypeCategory::Integer && right_type.category == TypeCategory::Integer &&
+            (left_type.integer == IntegerType::Undetermined || right_type.integer == IntegerType::Undetermined)
+        ) &&
+        !types_equal(left_type, right_type)
+    ) {
+        if(print_errors) {
+            error(position, "Mismatched types for binary operation");
+        }
+
+        return { false };
+    }
+
     TypedConstantValue result;
 
-    if(left_type == IntegerType::Undetermined && right_type == IntegerType::Undetermined) {
-        result = perform_constant_integer_binary_operation<int64_t>(
-            binary_operator,
-            IntegerType::Undetermined,
-            left_type,
-            left_value,
-            right_type,
-            right_value
-        );
-    } else {
-        IntegerType type;
-        if(left_type != IntegerType::Undetermined) {
-            type = left_type;
-        } else if(right_type != IntegerType::Undetermined) {
-            type = right_type;
-        } else {
-            if(left_type != right_type) {
-                if(print_errors) {
-                    error(position, "Mismatched types for binary operation");
-                }
 
-                return { false };
+    switch(left_type.category) {
+        case TypeCategory::Function:
+        case TypeCategory::Type:
+        case TypeCategory::Void:
+        case TypeCategory::Pointer:
+        case TypeCategory::Array:
+        case TypeCategory::StaticArray:
+        case TypeCategory::Struct:
+        case TypeCategory::FileModule: {
+            if(print_errors) {
+                error(position, "Cannot perform binary operations on this type");
             }
 
-            type = left_type;
-        }
+            return { false };
+        } break;
 
-        TypedConstantValue result;
-        switch(type) {
-            case IntegerType::Unsigned8: {
-                result = perform_constant_integer_binary_operation<uint8_t>(
-                    binary_operator,
-                    type,
-                    left_type,
-                    left_value,
-                    right_type,
-                    right_value
-                );
-            } break;
-
-            case IntegerType::Unsigned16: {
-                result = perform_constant_integer_binary_operation<uint16_t>(
-                    binary_operator,
-                    type,
-                    left_type,
-                    left_value,
-                    right_type,
-                    right_value
-                );
-            } break;
-
-            case IntegerType::Unsigned32: {
-                result = perform_constant_integer_binary_operation<uint32_t>(
-                    binary_operator,
-                    type,
-                    left_type,
-                    left_value,
-                    right_type,
-                    right_value
-                );
-            } break;
-
-            case IntegerType::Unsigned64: {
-                result = perform_constant_integer_binary_operation<uint64_t>(
-                    binary_operator,
-                    type,
-                    left_type,
-                    left_value,
-                    right_type,
-                    right_value
-                );
-            } break;
-
-            case IntegerType::Signed8: {
-                result = perform_constant_integer_binary_operation<int8_t>(
-                    binary_operator,
-                    type,
-                    left_type,
-                    left_value,
-                    right_type,
-                    right_value
-                );
-            } break;
-
-            case IntegerType::Signed16: {
-                result = perform_constant_integer_binary_operation<int16_t>(
-                    binary_operator,
-                    type,
-                    left_type,
-                    left_value,
-                    right_type,
-                    right_value
-                );
-            } break;
-
-            case IntegerType::Signed32: {
-                result = perform_constant_integer_binary_operation<int32_t>(
-                    binary_operator,
-                    type,
-                    left_type,
-                    left_value,
-                    right_type,
-                    right_value
-                );
-            } break;
-
-            case IntegerType::Signed64: {
+        case TypeCategory::Integer: {
+            if(left_type.integer == IntegerType::Undetermined && right_type.integer == IntegerType::Undetermined) {
                 result = perform_constant_integer_binary_operation<int64_t>(
                     binary_operator,
-                    type,
-                    left_type,
+                    IntegerType::Undetermined,
+                    left_type.integer,
                     left_value,
-                    right_type,
+                    right_type.integer,
                     right_value
                 );
-            } break;
+            } else {
+                IntegerType type;
+                if(left_type.integer != IntegerType::Undetermined) {
+                    type = left_type.integer;
+                } else if(right_type.integer != IntegerType::Undetermined) {
+                    type = right_type.integer;
+                }
 
-            case IntegerType::Undetermined:
-            default: {
-                abort();
-            } break;
-        }
+                TypedConstantValue result;
+                switch(type) {
+                    case IntegerType::Unsigned8: {
+                        result = perform_constant_integer_binary_operation<uint8_t>(
+                            binary_operator,
+                            type,
+                            left_type.integer,
+                            left_value,
+                            right_type.integer,
+                            right_value
+                        );
+                    } break;
+
+                    case IntegerType::Unsigned16: {
+                        result = perform_constant_integer_binary_operation<uint16_t>(
+                            binary_operator,
+                            type,
+                            left_type.integer,
+                            left_value,
+                            right_type.integer,
+                            right_value
+                        );
+                    } break;
+
+                    case IntegerType::Unsigned32: {
+                        result = perform_constant_integer_binary_operation<uint32_t>(
+                            binary_operator,
+                            type,
+                            left_type.integer,
+                            left_value,
+                            right_type.integer,
+                            right_value
+                        );
+                    } break;
+
+                    case IntegerType::Unsigned64: {
+                        result = perform_constant_integer_binary_operation<uint64_t>(
+                            binary_operator,
+                            type,
+                            left_type.integer,
+                            left_value,
+                            right_type.integer,
+                            right_value
+                        );
+                    } break;
+
+                    case IntegerType::Signed8: {
+                        result = perform_constant_integer_binary_operation<int8_t>(
+                            binary_operator,
+                            type,
+                            left_type.integer,
+                            left_value,
+                            right_type.integer,
+                            right_value
+                        );
+                    } break;
+
+                    case IntegerType::Signed16: {
+                        result = perform_constant_integer_binary_operation<int16_t>(
+                            binary_operator,
+                            type,
+                            left_type.integer,
+                            left_value,
+                            right_type.integer,
+                            right_value
+                        );
+                    } break;
+
+                    case IntegerType::Signed32: {
+                        result = perform_constant_integer_binary_operation<int32_t>(
+                            binary_operator,
+                            type,
+                            left_type.integer,
+                            left_value,
+                            right_type.integer,
+                            right_value
+                        );
+                    } break;
+
+                    case IntegerType::Signed64: {
+                        result = perform_constant_integer_binary_operation<int64_t>(
+                            binary_operator,
+                            type,
+                            left_type.integer,
+                            left_value,
+                            right_type.integer,
+                            right_value
+                        );
+                    } break;
+
+                    case IntegerType::Undetermined:
+                    default: {
+                        abort();
+                    } break;
+                }
+            }
+        } break;
+
+        case TypeCategory::Boolean: {
+            result.type.category = TypeCategory::Boolean;
+
+            switch(binary_operator) {
+                case BinaryOperator::Addition:
+                case BinaryOperator::Subtraction:
+                case BinaryOperator::Multiplication:
+                case BinaryOperator::Division:
+                case BinaryOperator::Modulo: {
+                    if(print_errors) {
+                        error(position, "Cannot perform that operation on booleans");
+                    }
+
+                    return { false };
+                } break;
+
+                case BinaryOperator::Equal: {
+                    result.value.boolean = left_value.boolean == right_value.boolean;
+                } break;
+
+                case BinaryOperator::NotEqual: {
+                    result.value.boolean = left_value.boolean != right_value.boolean;
+                } break;
+
+                case BinaryOperator::BooleanAnd: {
+                    result.value.boolean = left_value.boolean && right_value.boolean;
+                } break;
+
+                case BinaryOperator::BooleanOr: {
+                    result.value.boolean = left_value.boolean || right_value.boolean;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        default: {
+            abort();
+        } break;
     }
 
     return {
@@ -1062,30 +1128,18 @@ static Result<TypedConstantValue> evaluate_constant_expression(ConstantContext c
                 return { false };
             }
 
-            if(left_result.value.type.category != TypeCategory::Integer) {
-                error(expression.binary_operation.left->position, "Cannot apply binary operation to non-integers");
-
-                return { false };
-            }
-
             auto right_result = evaluate_constant_expression(context, *expression.binary_operation.right, print_errors);
 
             if(!right_result.status) {
                 return { false };
             }
-            
-            if(right_result.value.type.category != TypeCategory::Integer) {
-                error(expression.binary_operation.right->position, "Cannot apply binary operation to non-integers");
 
-                return { false };
-            }
-
-            auto result = evaluate_constant_integer_binary_operation(
+            auto result = evaluate_constant_binary_operation(
                 expression.binary_operation.binary_operator,
                 expression.position,
-                left_result.value.type.integer,
+                left_result.value.type,
                 left_result.value.value,
-                right_result.value.type.integer,
+                right_result.value.type,
                 right_result.value.value,
                 print_errors
             );
@@ -2797,32 +2851,20 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 return { false };
             }
 
-            if(left_result.value.type.category != TypeCategory::Integer) {
-                error(expression.binary_operation.left->position, "Cannot apply binary operation to non-integers");
-
-                return { false };
-            }
-
             char *right_source{};
             auto right_result = generate_expression(context, &right_source, *expression.binary_operation.right);
 
             if(!right_result.status) {
                 return { false };
             }
-            
-            if(right_result.value.type.category != TypeCategory::Integer) {
-                error(expression.binary_operation.right->position, "Cannot apply binary operation to non-integers");
-
-                return { false };
-            }
 
             if(left_result.value.category == ExpressionValueCategory::Constant && right_result.value.category == ExpressionValueCategory::Constant) {
-                auto result = evaluate_constant_integer_binary_operation(
+                auto result = evaluate_constant_binary_operation(
                     expression.binary_operation.binary_operator,
                     expression.position,
-                    left_result.value.type.integer,
+                    left_result.value.type,
                     left_result.value.constant,
-                    right_result.value.type.integer,
+                    right_result.value.type,
                     right_result.value.constant,
                     true
                 );
@@ -2841,25 +2883,29 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     value
                 };
             } else {
-                IntegerType type;
-                if(left_result.value.type.integer != IntegerType::Undetermined && right_result.value.type.integer != IntegerType::Undetermined) {
-                    if(left_result.value.type.integer != right_result.value.type.integer) {
-                        error(expression.position, "Mismatched types for binary operation");
+                if(
+                    !(
+                        left_result.value.type.category == TypeCategory::Integer && right_result.value.type.category == TypeCategory::Integer &&
+                        (left_result.value.type.integer == IntegerType::Undetermined || right_result.value.type.integer == IntegerType::Undetermined)
+                    ) &&
+                    !types_equal(left_result.value.type, right_result.value.type)
+                ) {
+                    error(expression.position, "Mismatched types for binary operation");
 
-                        return { false };
-                    }
-
-                    type = left_result.value.type.integer;
-                } else if(left_result.value.type.integer != IntegerType::Undetermined) {
-                    type = left_result.value.type.integer;
-                } else {
-                    type = right_result.value.type.integer;
+                    return { false };
                 }
 
-                if(left_result.value.type.integer == IntegerType::Undetermined) {
+                IntegerType integer_type;
+                if(left_result.value.type.integer != IntegerType::Undetermined) {
+                    integer_type = left_result.value.type.integer;
+                } else {
+                    integer_type = right_result.value.type.integer;
+                }
+
+                if(left_result.value.type.category == TypeCategory::Integer && left_result.value.type.integer == IntegerType::Undetermined) {
                     string_buffer_append(source, "(");
 
-                    generate_integer_type(source, type);
+                    generate_integer_type(source, integer_type);
 
                     string_buffer_append(source, ")");
                 }
@@ -2886,52 +2932,109 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 string_buffer_append(source, ")");
 
                 Type result_type;
-                switch(expression.binary_operation.binary_operator) {
-                    case BinaryOperator::Addition: {
-                        string_buffer_append(source, "+");
+                switch(left_result.value.type.category) {
+                    case TypeCategory::Function:
+                    case TypeCategory::Type:
+                    case TypeCategory::Void:
+                    case TypeCategory::Pointer:
+                    case TypeCategory::Array:
+                    case TypeCategory::StaticArray:
+                    case TypeCategory::Struct:
+                    case TypeCategory::FileModule: {
+                        error(expression.position, "Cannot perform binary operations on this type");
 
-                        result_type.category = TypeCategory::Integer;
-                        result_type.integer = type;
+                        return { false };
                     } break;
-                    
-                    case BinaryOperator::Subtraction: {
-                        string_buffer_append(source, "-");
 
-                        result_type.category = TypeCategory::Integer;
-                        result_type.integer = type;
+                    case TypeCategory::Integer: {
+                        switch(expression.binary_operation.binary_operator) {
+                            case BinaryOperator::Addition: {
+                                string_buffer_append(source, "+");
+
+                                result_type.category = TypeCategory::Integer;
+                                result_type.integer = integer_type;
+                            } break;
+                            
+                            case BinaryOperator::Subtraction: {
+                                string_buffer_append(source, "-");
+
+                                result_type.category = TypeCategory::Integer;
+                                result_type.integer = integer_type;
+                            } break;
+                            
+                            case BinaryOperator::Multiplication: {
+                                string_buffer_append(source, "*");
+
+                                result_type.category = TypeCategory::Integer;
+                                result_type.integer = integer_type;
+                            } break;
+                            
+                            case BinaryOperator::Division: {
+                                string_buffer_append(source, "/");
+
+                                result_type.category = TypeCategory::Integer;
+                                result_type.integer = integer_type;
+                            } break;
+                            
+                            case BinaryOperator::Modulo: {
+                                string_buffer_append(source, "%");
+
+                                result_type.category = TypeCategory::Integer;
+                                result_type.integer = integer_type;
+                            } break;
+                            
+                            case BinaryOperator::Equal: {
+                                string_buffer_append(source, "==");
+
+                                result_type.category = TypeCategory::Boolean;
+                            } break;
+                            
+                            case BinaryOperator::NotEqual: {
+                                string_buffer_append(source, "!=");
+
+                                result_type.category = TypeCategory::Boolean;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
                     } break;
-                    
-                    case BinaryOperator::Multiplication: {
-                        string_buffer_append(source, "*");
 
-                        result_type.category = TypeCategory::Integer;
-                        result_type.integer = type;
-                    } break;
-                    
-                    case BinaryOperator::Division: {
-                        string_buffer_append(source, "/");
-
-                        result_type.category = TypeCategory::Integer;
-                        result_type.integer = type;
-                    } break;
-                    
-                    case BinaryOperator::Modulo: {
-                        string_buffer_append(source, "%");
-
-                        result_type.category = TypeCategory::Integer;
-                        result_type.integer = type;
-                    } break;
-                    
-                    case BinaryOperator::Equal: {
-                        string_buffer_append(source, "==");
-
+                    case TypeCategory::Boolean: {
                         result_type.category = TypeCategory::Boolean;
-                    } break;
-                    
-                    case BinaryOperator::NotEqual: {
-                        string_buffer_append(source, "!=");
 
-                        result_type.category = TypeCategory::Boolean;
+                        switch(expression.binary_operation.binary_operator) {
+                            case BinaryOperator::Addition:
+                            case BinaryOperator::Subtraction:
+                            case BinaryOperator::Multiplication:
+                            case BinaryOperator::Division:
+                            case BinaryOperator::Modulo: {
+                                error(expression.position, "Cannot perform that operation on booleans");
+
+                                return { false };
+                            } break;
+
+                            case BinaryOperator::Equal: {
+                                string_buffer_append(source, "==");
+                            } break;
+
+                            case BinaryOperator::NotEqual: {
+                                string_buffer_append(source, "!=");
+                            } break;
+
+                            case BinaryOperator::BooleanAnd: {
+                                string_buffer_append(source, "&&");
+                            } break;
+
+                            case BinaryOperator::BooleanOr: {
+                                string_buffer_append(source, "||");
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
                     } break;
 
                     default: {
@@ -2939,10 +3042,10 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     } break;
                 }
 
-                if(right_result.value.type.integer == IntegerType::Undetermined) {
+                if(right_result.value.type.category == TypeCategory::Integer && right_result.value.type.integer == IntegerType::Undetermined) {
                     string_buffer_append(source, "(");
 
-                    generate_integer_type(source, type);
+                    generate_integer_type(source, integer_type);
 
                     string_buffer_append(source, ")");
                 }
