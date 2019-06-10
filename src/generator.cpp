@@ -1252,6 +1252,49 @@ static Result<ConstantExpressionValue> evaluate_constant_expression(ConstantCont
             };
         } break;
 
+        case ExpressionType::FunctionType: {
+            Type return_type;
+            if(expression.function_type.return_type == nullptr) {
+                return_type.category = TypeCategory::Void;
+            } else {
+                auto result = evaluate_type_expression(context, *expression.function_type.return_type, true);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                return_type = result.value;
+            }
+
+            auto parameters = allocate<Type>(expression.function_type.parameters.count);
+
+            for(size_t i = 0; i < expression.function_type.parameters.count; i += 1) {
+                auto result = evaluate_type_expression(context, expression.function_type.parameters[i].type, true);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                parameters[i] = result.value;
+            }
+
+            ConstantExpressionValue value;
+            value.type.category = TypeCategory::Type;
+            value.value.type.category = TypeCategory::Function;
+            value.value.type.function = {
+                {
+                    expression.function_type.parameters.count,
+                    parameters
+                },
+                heapify(return_type)
+            };
+
+            return {
+                true,
+                value
+            };
+        } break;
+
         default: {
             abort();
         } break;
@@ -1913,11 +1956,35 @@ static bool generate_type(GenerationContext *context, char **prefix_source, char
         } break;
 
         case TypeCategory::Pointer: {
-            if(!generate_type(context, prefix_source, suffix_source, *type.pointer, type_position)) {
-                return false;
-            }
+            if(type.pointer->category == TypeCategory::Function) {
+                auto function_type = type.pointer->function;
 
-            string_buffer_append(prefix_source, "*");
+                if(!generate_type(context, prefix_source, prefix_source, *function_type.return_type, type_position)) {
+                    return false;
+                }
+
+                string_buffer_append(prefix_source, "(*");
+
+                string_buffer_append(suffix_source, ")(");
+
+                for(size_t i = 0; i < function_type.parameters.count; i += 1) {
+                    if(!generate_type(context, suffix_source, suffix_source, function_type.parameters[i], type_position)) {
+                        return false;
+                    }
+
+                    if(i != function_type.parameters.count - 1) {
+                        string_buffer_append(suffix_source, ",");
+                    }
+                }
+
+                string_buffer_append(suffix_source, ")");
+            } else {
+                if(!generate_type(context, prefix_source, suffix_source, *type.pointer, type_position)) {
+                    return false;
+                }
+
+                string_buffer_append(prefix_source, "*");
+            }
 
             return true;
         } break;
@@ -3082,6 +3149,50 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             value.type.category = TypeCategory::Type;
             value.constant.type.category = TypeCategory::Array;
             value.constant.type.array = heapify(result.value);
+
+            return {
+                true,
+                value
+            };
+        } break;
+
+        case ExpressionType::FunctionType: {
+            Type return_type;
+            if(expression.function_type.return_type == nullptr) {
+                return_type.category = TypeCategory::Void;
+            } else {
+                auto result = evaluate_type_expression(context->constant_context, *expression.function_type.return_type, true);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                return_type = result.value;
+            }
+
+            auto parameters = allocate<Type>(expression.function_type.parameters.count);
+
+            for(size_t i = 0; i < expression.function_type.parameters.count; i += 1) {
+                auto result = evaluate_type_expression(context->constant_context, expression.function_type.parameters[i].type, true);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                parameters[i] = result.value;
+            }
+
+            ExpressionValue value;
+            value.category = ExpressionValueCategory::Constant;
+            value.type.category = TypeCategory::Type;
+            value.constant.type.category = TypeCategory::Function;
+            value.constant.type.function = {
+                {
+                    expression.function_type.parameters.count,
+                    parameters
+                },
+                heapify(return_type)
+            };
 
             return {
                 true,
