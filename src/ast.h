@@ -49,6 +49,7 @@ enum struct ExpressionType {
     FunctionCall,
     BinaryOperation,
     UnaryOperation,
+    Cast,
     ArrayType,
     FunctionType
 };
@@ -100,6 +101,12 @@ struct Expression {
 
             Expression *expression;
         } unary_operation;
+
+        struct {
+            Expression *expression;
+
+            Expression *type;
+        } cast;
 
         Expression *array_type;
 

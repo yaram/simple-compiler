@@ -304,6 +304,8 @@ enum struct OperationType {
     BooleanInvert,
     Negation,
 
+    Cast,
+
     Multiplication,
     Division,
     Modulo,
@@ -326,13 +328,14 @@ enum struct OperationType {
 unsigned int operation_precedences[] = {
     1, 1, 1, 1,
     2, 2, 2,
-    3, 3, 3,
-    4, 4,
-    7, 7,
-    8,
-    10,
+    3,
+    4, 4, 4,
+    5, 5,
+    8, 8,
+    9,
     11,
-    12
+    12,
+    13
 };
 
 struct Operation {
@@ -346,6 +349,8 @@ struct Operation {
         Expression index_reference;
 
         Array<Expression> function_call;
+
+        Expression cast;
     };
 };
 
@@ -472,6 +477,15 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
             expression.unary_operation = {
                 UnaryOperator::Negation,
                 heapify(take_last(expression_stack))
+            };
+        } break;
+
+        case OperationType::Cast: {
+            expression.type = ExpressionType::Cast;
+
+            expression.cast = {
+                heapify(take_last(expression_stack)),
+                heapify(operation.cast)
             };
         } break;
 
@@ -1128,7 +1142,26 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
         };
 
         // Parse left-recursive expressions (e.g. binary operators) after parsing all adjacent non-left-recursive expressions
-        if(character == '(') {
+        if(character == 'a') {
+            context->character += 1;
+
+            if(!expect_character(context, 's')) {
+                return { false };
+            }
+
+            skip_whitespace(context);
+
+            auto result = parse_expression(context);
+
+            if(!result.status) {
+                return { false };
+            }
+
+            operation.type = OperationType::Cast;
+            operation.cast = result.value;
+
+            expect_non_left_recursive = false;
+        } else if(character == '(') {
             context->character += 1;
             
             skip_whitespace(context);

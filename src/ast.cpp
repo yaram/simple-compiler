@@ -220,6 +220,23 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
             printf("}");
         } break;
 
+        case ExpressionType::Cast: {
+            printf("Cast: {\n");
+
+            indent(indentation_level + 1);
+            printf("expression: ");
+            debug_print_expression_indent(*(expression.cast.expression), indentation_level + 1);
+            printf("\n");
+
+            indent(indentation_level + 1);
+            printf("type: ");
+            debug_print_expression_indent(*(expression.cast.type), indentation_level + 1);
+            printf("\n");
+
+            indent(indentation_level);
+            printf("}");
+        } break;
+
         case ExpressionType::ArrayType: {
             printf("ArrayType: ");
 
