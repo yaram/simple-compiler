@@ -598,6 +598,14 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                         context->character += 1;
 
                         radix = 16;
+                    } else if(character == 'b' || character == 'B') {
+                        context->character += 1;
+
+                        radix = 2;
+                    } else if(character == 'o' || character == 'O') {
+                        context->character += 1;
+
+                        radix = 8;
                     } else {
                         ungetc(character, context->source_file);
                     }
