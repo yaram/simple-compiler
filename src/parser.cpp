@@ -589,6 +589,20 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
             } else if(isdigit(character)){
                 context->character += 1;
 
+                auto radix = 10;
+
+                if(character == '0') {
+                    auto character = fgetc(context->source_file);
+
+                    if(character == 'x' || character == 'X') {
+                        context->character += 1;
+
+                        radix = 16;
+                    } else {
+                        ungetc(character, context->source_file);
+                    }
+                }
+
                 List<char> buffer{};
 
                 append(&buffer, (char)character);
@@ -596,7 +610,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 while(true) {
                     auto character = fgetc(context->source_file);
 
-                    if(isdigit(character)) {
+                    if(isalnum(character)) {
                         context->character += 1;
 
                         append(&buffer, (char)character);
@@ -609,12 +623,22 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 append(&buffer, '\0');
 
-                auto value = strtoll(buffer.elements, NULL, 10);
+                char *end;
 
-                if((value == LLONG_MAX || value == LLONG_MIN) && errno == ERANGE) {
-                    error(*context, "Integer literal out of range");
+                auto value = strtoll(buffer.elements, &end, radix);
 
-                    return { false };
+                if(value == LLONG_MAX || value == LLONG_MIN) {
+                    if(errno == ERANGE) {
+                        error(*context, "Integer literal out of range");
+
+                        return { false };
+                    }
+                } else if(value == 0) {
+                    if(end != buffer.elements + buffer.count - 1) {
+                        error(*context, "Invalid integer literal");
+
+                        return { false };
+                    }
                 }
 
                 Expression expression;
