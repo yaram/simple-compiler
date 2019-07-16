@@ -1226,6 +1226,68 @@ static Result<TypedConstantValue> evaluate_constant_expression(ConstantContext c
                     };
                 } break;
 
+                case UnaryOperator::Negation: {
+                    if(result.value.type.category != TypeCategory::Integer) {
+                        if(print_errors) {
+                            error(expression.unary_operation.expression->position, "Cannot do negation on non-integer");
+                        }
+
+                        return { false };
+                    }
+
+                    ConstantValue value;
+                    
+                    switch(result.value.type.integer) {
+                        case IntegerType::Undetermined: {
+                            value.integer = (uint64_t)-(int64_t)result.value.value.integer;
+                        } break;
+
+                        case IntegerType::Unsigned8: {
+                            value.integer = (uint64_t)-(uint8_t)result.value.value.integer;
+                        } break;
+
+                        case IntegerType::Unsigned16: {
+                            value.integer = (uint64_t)-(uint16_t)result.value.value.integer;
+                        } break;
+
+                        case IntegerType::Unsigned32: {
+                            value.integer = (uint64_t)-(uint32_t)result.value.value.integer;
+                        } break;
+
+                        case IntegerType::Unsigned64: {
+                            value.integer = (uint64_t)-(uint64_t)result.value.value.integer;
+                        } break;
+
+                        case IntegerType::Signed8: {
+                            value.integer = (uint64_t)-(int8_t)(int64_t)result.value.value.integer;
+                        } break;
+
+                        case IntegerType::Signed16: {
+                            value.integer = (uint64_t)-(int16_t)(int64_t)result.value.value.integer;
+                        } break;
+
+                        case IntegerType::Signed32: {
+                            value.integer = (uint64_t)-(int32_t)(int64_t)result.value.value.integer;
+                        } break;
+
+                        case IntegerType::Signed64: {
+                            value.integer = (uint64_t)-(int64_t)(int64_t)result.value.value.integer;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+
+                    return {
+                        true,
+                        {
+                            result.value.type,
+                            value
+                        }
+                    };
+                } break;
+
                 default: {
                     abort();
                 } break;
@@ -3233,6 +3295,86 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                         case ExpressionValueCategory::Constant: {
                             value.category = ExpressionValueCategory::Constant;
                             value.constant.boolean = !result.value.constant.boolean;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+
+                    return {
+                        true,
+                        value
+                    };
+                } break;
+                
+                case UnaryOperator::Negation: {
+                    if(result.value.type.category != TypeCategory::Integer) {
+                        error(expression.unary_operation.expression->position, "Cannot do negation on non-integer");
+
+                        return { false };
+                    }
+
+                    ExpressionValue value;
+                    value.type.category = TypeCategory::Integer;
+                    value.type.integer = result.value.type.integer;
+
+                    switch(result.value.category) {
+                        case ExpressionValueCategory::Anonymous:
+                        case ExpressionValueCategory::Assignable: {
+                            string_buffer_append(source, "-(");
+
+                            string_buffer_append(source, expression_source);
+
+                            string_buffer_append(source, ")");
+
+                            value.category = ExpressionValueCategory::Anonymous;
+                        } break;
+                        
+                        case ExpressionValueCategory::Constant: {
+                            value.category = ExpressionValueCategory::Constant;
+
+                            switch(result.value.type.integer) {
+                                case IntegerType::Undetermined: {
+                                    value.constant.integer = (uint64_t)-(int64_t)result.value.constant.integer;
+                                } break;
+
+                                case IntegerType::Unsigned8: {
+                                    value.constant.integer = (uint64_t)-(uint8_t)result.value.constant.integer;
+                                } break;
+
+                                case IntegerType::Unsigned16: {
+                                    value.constant.integer = (uint64_t)-(uint16_t)result.value.constant.integer;
+                                } break;
+
+                                case IntegerType::Unsigned32: {
+                                    value.constant.integer = (uint64_t)-(uint32_t)result.value.constant.integer;
+                                } break;
+
+                                case IntegerType::Unsigned64: {
+                                    value.constant.integer = (uint64_t)-(uint64_t)result.value.constant.integer;
+                                } break;
+
+                                case IntegerType::Signed8: {
+                                    value.constant.integer = (uint64_t)-(int8_t)(int64_t)result.value.constant.integer;
+                                } break;
+
+                                case IntegerType::Signed16: {
+                                    value.constant.integer = (uint64_t)-(int16_t)(int64_t)result.value.constant.integer;
+                                } break;
+
+                                case IntegerType::Signed32: {
+                                    value.constant.integer = (uint64_t)-(int32_t)(int64_t)result.value.constant.integer;
+                                } break;
+
+                                case IntegerType::Signed64: {
+                                    value.constant.integer = (uint64_t)-(int64_t)(int64_t)result.value.constant.integer;
+                                } break;
+
+                                default: {
+                                    abort();
+                                } break;
+                            }
                         } break;
 
                         default: {
