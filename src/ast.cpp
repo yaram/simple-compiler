@@ -204,6 +204,10 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
                 case UnaryOperator::BooleanInvert: {
                     printf("BooleanInvert");
                 } break;
+                
+                case UnaryOperator::Negation: {
+                    printf("Negation");
+                } break;
             }
             printf("\n");
 

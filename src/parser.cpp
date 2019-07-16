@@ -282,6 +282,7 @@ enum struct OperationType {
 
     Pointer,
     BooleanInvert,
+    Negation,
 
     Multiplication,
     Division,
@@ -304,7 +305,7 @@ enum struct OperationType {
 
 unsigned int operation_precedences[] = {
     1, 1, 1, 1,
-    2, 2,
+    2, 2, 2,
     3, 3, 3,
     4, 4,
     7, 7,
@@ -441,6 +442,15 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
 
             expression.unary_operation = {
                 UnaryOperator::BooleanInvert,
+                heapify(take_last(expression_stack))
+            };
+        } break;
+
+        case OperationType::Negation: {
+            expression.type = ExpressionType::UnaryOperation;
+
+            expression.unary_operation = {
+                UnaryOperator::Negation,
                 heapify(take_last(expression_stack))
             };
         } break;
@@ -683,6 +693,20 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                     first_character
                 };
                 operation.type = OperationType::BooleanInvert;
+
+                append(operation_stack, operation);
+
+                continue;
+            } else if(character == '-') {
+                context->character += 1;
+
+                Operation operation;
+                operation.position = {
+                    context->source_file_path,
+                    first_line,
+                    first_character
+                };
+                operation.type = OperationType::Negation;
 
                 append(operation_stack, operation);
 

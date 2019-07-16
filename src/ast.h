@@ -32,7 +32,8 @@ enum struct BinaryOperator {
 
 enum struct UnaryOperator {
     Pointer,
-    BooleanInvert
+    BooleanInvert,
+    Negation
 };
 
 enum struct ExpressionType {
