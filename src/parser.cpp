@@ -1076,6 +1076,8 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                         break;
                     } else if(character == EOF) {
                         error(*context, "Unexpected End of File");
+
+                        return { false };
                     } else {
                         error(*context, "Expected ',' or ')', got '%c'", character);
 
