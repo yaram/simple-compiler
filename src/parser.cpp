@@ -903,6 +903,8 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                     skip_whitespace(context);
 
+                    auto character = fgetc(context->source_file);
+
                     Expression *return_type;
                     if(character == '-') {
                         context->character += 1;
@@ -921,6 +923,8 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                         return_type = heapify(result.value);
                     } else {
+                        ungetc(character, context->source_file);
+
                         return_type = nullptr;
                     }
 
