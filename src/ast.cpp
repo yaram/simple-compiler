@@ -9,30 +9,30 @@ static void indent(unsigned int level) {
     }
 }
 
-static void debug_print_position(FilePosition position) {
+static void debug_print_range(FileRange range) {
     const size_t max_path_length = 17;
 
-    auto path_length = strlen(position.path);
+    auto path_length = strlen(range.path);
 
     if(path_length <= max_path_length) {
-        printf("%s", position.path);
+        printf("%s", range.path);
     } else {
         char buffer[max_path_length + 1];
 
-        printf("...%.*s", max_path_length, position.path + path_length - max_path_length);
+        printf("...%.*s", max_path_length, range.path + path_length - max_path_length);
     }
 
-    printf("(%u:%u)", position.line, position.character);
+    printf("(%u:%u)", range.start_line, range.start_character);
 }
 
 static void debug_print_indentifier(Identifier identifier) {
-    debug_print_position(identifier.position);
+    debug_print_range(identifier.range);
 
     printf("%s", identifier.text);
 }
 
 static void debug_print_expression_indent(Expression expression, unsigned int indentation_level) {
-    debug_print_position(expression.position);
+    debug_print_range(expression.range);
 
     switch(expression.type) {
         case ExpressionType::NamedReference: {
@@ -270,7 +270,7 @@ void debug_print_expression(Expression expression) {
 }
 
 static void debug_print_statement_indent(Statement statement, unsigned int indentation_level) {
-    debug_print_position(statement.position);
+    debug_print_range(statement.range);
 
     switch(statement.type) {
         case StatementType::FunctionDeclaration: {

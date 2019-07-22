@@ -318,7 +318,7 @@ unsigned int operation_precedences[] = {
 struct Operation {
     OperationType type;
 
-    FilePosition position;
+    FileRange range;
 
     union {
         Identifier member_reference;
@@ -331,7 +331,7 @@ struct Operation {
 
 static void apply_operation(List<Expression> *expression_stack, Operation operation) {
     Expression expression;
-    expression.position = operation.position;
+    expression.range = operation.range;
 
     switch(operation.type) {
         case OperationType::Addition:
@@ -469,10 +469,29 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
     append(expression_stack, expression);
 }
 
-static Result<Array<char>> parse_string(Context *context) {
+struct String {
+    Array<char> text;
+
+    FileRange range;
+};
+
+static Result<String> parse_string(Context *context) {
+    auto first_line = context->line;
+    auto first_character = context->character;
+
+    if(!expect_character(context, '"')) {
+        return { false };
+    }
+
     List<char> buffer{};
 
+    unsigned int last_line;
+    unsigned int last_character;
+
     while(true) {
+        last_line = context->line;
+        last_character = context->character;
+
         auto character = fgetc(context->source_file);
 
         auto done = false;
@@ -562,7 +581,16 @@ static Result<Array<char>> parse_string(Context *context) {
 
     return {
         true,
-        to_array(buffer)
+        {
+            to_array(buffer),
+            {
+                context->source_file_path,
+                first_line,
+                first_character,
+                last_line,
+                last_character
+            }
+        }
     };
 }
 
@@ -588,10 +616,12 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 Expression expression;
                 expression.type = ExpressionType::NamedReference;
-                expression.position = {
+                expression.range = {
                     context->source_file_path,
                     first_line,
-                    first_character
+                    first_character,
+                    identifier.range.end_line,
+                    identifier.range.end_character
                 };
                 expression.named_reference = identifier;
 
@@ -621,11 +651,17 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                     }
                 }
 
+                unsigned int end_line;
+                unsigned int end_character;
+
                 List<char> buffer{};
 
                 append(&buffer, (char)character);
 
                 while(true) {
+                    end_character = context->character;
+                    end_line = context->line;
+
                     auto character = fgetc(context->source_file);
 
                     if(isalnum(character)) {
@@ -660,10 +696,12 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 }
 
                 Expression expression;
-                expression.position = {
+                expression.range = {
                     context->source_file_path,
                     first_line,
-                    first_character
+                    first_character,
+                    end_line,
+                    end_character
                 };
                 expression.type = ExpressionType::IntegerLiteral;
                 expression.integer_literal = value;
@@ -673,8 +711,10 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 context->character += 1;
 
                 Operation operation;
-                operation.position = {
+                operation.range = {
                     context->source_file_path,
+                    first_line,
+                    first_character,
                     first_line,
                     first_character
                 };
@@ -687,8 +727,10 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 context->character += 1;
 
                 Operation operation;
-                operation.position = {
+                operation.range = {
                     context->source_file_path,
+                    first_line,
+                    first_character,
                     first_line,
                     first_character
                 };
@@ -701,8 +743,10 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 context->character += 1;
 
                 Operation operation;
-                operation.position = {
+                operation.range = {
                     context->source_file_path,
+                    first_line,
+                    first_character,
                     first_line,
                     first_character
                 };
@@ -712,7 +756,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 continue;
             } else if(character == '"') {
-                context->character += 1;
+                ungetc(character, context->source_file);
 
                 auto result = parse_string(context);
 
@@ -721,13 +765,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 }
 
                 Expression expression;
-                expression.position = {
-                    context->source_file_path,
-                    first_line,
-                    first_character
-                };
+                expression.range = result.value.range;
                 expression.type = ExpressionType::StringLiteral;
-                expression.string_literal = result.value;
+                expression.string_literal = result.value.text;
 
                 append(expression_stack, expression);
             } else if(character == '(') {
@@ -746,15 +786,20 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                     auto character = fgetc(context->source_file);
 
+                    auto last_line = context->line;
+                    auto last_character = context->character;
+
                     if(character == ')') {
                         context->character += 1;
 
                         Expression expression;
                         expression.type = ExpressionType::NamedReference;
-                        expression.position = {
+                        expression.range = {
                             context->source_file_path,
                             first_line,
-                            first_character
+                            first_character,
+                            last_line,
+                            last_character
                         };
                         expression.named_reference = identifier;
 
@@ -787,6 +832,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                                 skip_whitespace(context);
                             } else if(character == ')') {
+                                last_line = context->line;
+                                last_character = context->character;
+
                                 context->character += 1;
 
                                 break;
@@ -846,6 +894,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                                 return { false };
                             }
 
+                            last_line = result.value.range.end_line;
+                            last_character = result.value.range.end_character;
+
                             return_type = heapify(result.value);
                         } else {
                             ungetc(character, context->source_file);
@@ -855,10 +906,12 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                         Expression expression;
                         expression.type = ExpressionType::FunctionType;
-                        expression.position = {
+                        expression.range = {
                             context->source_file_path,
                             first_line,
-                            first_character
+                            first_character,
+                            last_line,
+                            last_character
                         };
                         expression.function_type = {
                             to_array(parameters),
@@ -871,11 +924,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                         Expression expression;
                         expression.type = ExpressionType::NamedReference;
-                        expression.position = {
-                            context->source_file_path,
-                            first_line,
-                            first_character
-                        };
+                        expression.range = identifier.range;
                         expression.named_reference = identifier;
 
                         List<Operation> sub_operation_stack{};
@@ -899,6 +948,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                         append(expression_stack, result.value);
                     }
                 } else if(character == ')') {
+                    auto last_line = context->line;
+                    auto last_character = context->character;
+
                     context->character += 1;
 
                     skip_whitespace(context);
@@ -921,6 +973,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                             return { false };
                         }
 
+                        last_line = result.value.range.end_line;
+                        last_character = result.value.range.end_character;
+
                         return_type = heapify(result.value);
                     } else {
                         ungetc(character, context->source_file);
@@ -930,10 +985,12 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                     Expression expression;
                     expression.type = ExpressionType::FunctionType;
-                    expression.position = {
+                    expression.range = {
                         context->source_file_path,
                         first_line,
-                        first_character
+                        first_character,
+                        last_line,
+                        last_character
                     };
                     expression.function_type = {
                         {},
@@ -965,6 +1022,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 List<Expression> elements{};
 
+                auto last_line = context->line;
+                auto last_character = context->character;
+
                 auto character = fgetc(context->source_file);
 
                 if(character == ']') {
@@ -982,6 +1042,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                         append(&elements, result.value);
 
                         skip_whitespace(context);
+
+                        last_line = context->line;
+                        last_character = context->character;
 
                         auto character = fgetc(context->source_file);
 
@@ -1007,10 +1070,12 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 Expression expression;
                 expression.type = ExpressionType::ArrayLiteral;
-                expression.position = {
+                expression.range = {
                     context->source_file_path,
                     first_line,
-                    first_character
+                    first_character,
+                    last_line,
+                    last_character
                 };
                 expression.array_literal = to_array(elements);
 
@@ -1034,8 +1099,10 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
         auto character = fgetc(context->source_file);
 
         Operation operation;
-        operation.position = {
+        operation.range = {
             context->source_file_path,
+            first_line,
+            first_character,
             first_line,
             first_character
         };
@@ -1047,6 +1114,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
             skip_whitespace(context);
 
             List<Expression> parameters{};
+
+            auto last_line = context->line;
+            auto last_character = context->character;
 
             auto character = fgetc(context->source_file);
 
@@ -1065,6 +1135,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                     append(&parameters, result.value);
 
                     skip_whitespace(context);
+
+                    last_line = context->line;
+                    last_character = context->character;
 
                     character = getc(context->source_file);
 
@@ -1092,6 +1165,8 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
             operation.type = OperationType::FunctionCall;
             operation.function_call = to_array(parameters);
+            operation.range.end_line = last_line;
+            operation.range.end_character = last_character;
 
             expect_non_left_recursive = false;
         } else if(character == '.') {
@@ -1108,6 +1183,8 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 operation.type = OperationType::MemberReference;
                 operation.member_reference = name;
+                operation.range.end_line = name.range.end_line;
+                operation.range.end_character = name.range.end_character;
 
                 expect_non_left_recursive = false;
             } else if(character == EOF) {
@@ -1124,13 +1201,15 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
             skip_whitespace(context);
 
+            auto last_line = context->line;
+            auto last_character = context->character;
+
             auto character = fgetc(context->source_file);
 
             if(character == ']') {
                 context->character += 1;
 
                 operation.type = OperationType::ArrayType;
-                expect_non_left_recursive = false;
             } else {
                 ungetc(character, context->source_file);
 
@@ -1141,6 +1220,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 }
 
                 skip_whitespace(context);
+                
+                last_line = context->line;
+                last_character = context->character;
 
                 if(!expect_character(context, ']')) {
                     return { false };
@@ -1148,9 +1230,12 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 operation.type = OperationType::IndexReference;
                 operation.index_reference = result.value;
-
-                expect_non_left_recursive = false;
             }
+
+            operation.range.end_line = last_line;
+            operation.range.end_character = last_character;
+
+            expect_non_left_recursive = false;
         } else if(character == '+') {
             context->character += 1;
 
@@ -1182,16 +1267,26 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
             expect_non_left_recursive = true;
         } else if(character == '=') {
+            context->character += 1;
+
+            auto last_line = context->line;
+            auto last_character = context->character;
+
             auto next_character = fgetc(context->source_file);
 
             if(next_character == '=') {
-                context->character += 2;
+                context->character += 1;
 
                 operation.type = OperationType::Equal;
+                operation.range.end_line = last_line;
+                operation.range.end_character = last_character;
 
                 expect_non_left_recursive = true;
             } else {
                 ungetc(next_character, context->source_file);
+
+                context->character -= 1;
+
                 ungetc(character, context->source_file);
 
                 break;
@@ -1199,12 +1294,17 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
         } else if(character == '&') {
             context->character += 1;
 
+            auto last_line = context->line;
+            auto last_character = context->character;
+
             auto character = fgetc(context->source_file);
 
             if(character == '&') {
                 context->character += 1;
 
                 operation.type = OperationType::BooleanAnd;
+                operation.range.end_line = last_line;
+                operation.range.end_character = last_character;
             } else {
                 ungetc(character, context->source_file);
 
@@ -1215,12 +1315,17 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
         } else if(character == '|') {
             context->character += 1;
 
+            auto last_line = context->line;
+            auto last_character = context->character;
+
             auto character = fgetc(context->source_file);
 
             if(character == '|') {
                 context->character += 1;
 
                 operation.type = OperationType::BooleanOr;
+                operation.range.end_line = last_line;
+                operation.range.end_character = last_character;
             } else {
                 ungetc(character, context->source_file);
 
@@ -1231,11 +1336,16 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
         } else if(character == '!') {
             context->character += 1;
 
+            auto last_line = context->line;
+            auto last_character = context->character;
+
             if(!expect_character(context, '=')) {
                 return { false };
             }
 
             operation.type = OperationType::NotEqual;
+            operation.range.end_line = last_line;
+            operation.range.end_character = last_character;
 
             expect_non_left_recursive = true;
         } else {
@@ -1295,6 +1405,9 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
         case '=': {
             context->character += 1;
 
+            auto last_line = context->line;
+            auto last_character = context->character;
+
             auto character = fgetc(context->source_file);
 
             switch(character) {
@@ -1307,10 +1420,12 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
                     Operation operation;
                     operation.type = OperationType::Equal;
-                    operation.position = {
+                    operation.range = {
                         context->source_file_path,
                         first_line,
-                        first_character
+                        first_character,
+                        last_line,
+                        last_character
                     };
 
                     append(&operation_stack, operation);
@@ -1327,23 +1442,30 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
                     skip_whitespace(context);
 
+                    last_line = context->line;
+                    last_character = context->character;
+
                     if(!expect_character(context, ';')) {
                         return { false };
                     }
 
                     Statement statement;
                     statement.type = StatementType::Expression;
-                    statement.position = {
+                    statement.range = {
                         context->source_file_path,
                         first_line,
-                        first_character
+                        first_character,
+                        last_line,
+                        last_character
                     };
 
                     statement.expression.type = ExpressionType::BinaryOperation;
-                    statement.expression.position = {
+                    statement.expression.range = {
                         context->source_file_path,
                         first_line,
-                        first_character
+                        first_character,
+                        result.value.range.end_line,
+                        result.value.range.end_character
                     };
                     statement.expression.binary_operation.binary_operator = BinaryOperator::Equal;
                     statement.expression.binary_operation.left = heapify(expression);
@@ -1374,16 +1496,21 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
                     skip_whitespace(context);
 
+                    auto last_line = context->line;
+                    auto last_character = context->character;
+
                     if(!expect_character(context, ';')) {
                         return { false };
                     }
 
                     Statement statement;
                     statement.type = StatementType::Assignment;
-                    statement.position = {
+                    statement.range = {
                         context->source_file_path,
                         first_line,
-                        first_character
+                        first_character,
+                        last_line,
+                        last_character
                     };
                     statement.assignment.target = expression;
                     statement.assignment.value = result.value;
@@ -1401,8 +1528,10 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
             Statement statement;
             statement.type = StatementType::Expression;
-            statement.position = {
+            statement.range = {
                 context->source_file_path,
+                first_line,
+                first_character,
                 first_line,
                 first_character
             };
@@ -1430,7 +1559,7 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
 static Result<Statement> parse_statement(Context *context);
 
-static Result<Statement> continue_parsing_function_declaration(Context *context, Identifier name, Array<FunctionParameter> parameters, FilePosition parameters_position) {
+static Result<Statement> continue_parsing_function_declaration(Context *context, Identifier name, Array<FunctionParameter> parameters, FileRange parameters_range) {
     auto character = fgetc(context->source_file);
 
     auto is_external = false;
@@ -1525,7 +1654,7 @@ static Result<Statement> continue_parsing_function_declaration(Context *context,
 
         Statement statement;
         statement.type = StatementType::FunctionDeclaration;
-        statement.position = name.position;
+        statement.range = name.range;
         statement.function_declaration.name = name;
         statement.function_declaration.parameters = parameters;
         statement.function_declaration.has_return_type = has_return_type;
@@ -1549,7 +1678,7 @@ static Result<Statement> continue_parsing_function_declaration(Context *context,
         if(is_external) {
             Statement statement;
             statement.type = StatementType::FunctionDeclaration;
-            statement.position = name.position;
+            statement.range = name.range;
             statement.function_declaration.name = name;
             statement.function_declaration.parameters = parameters;
             statement.function_declaration.has_return_type = has_return_type;
@@ -1566,7 +1695,7 @@ static Result<Statement> continue_parsing_function_declaration(Context *context,
         } else {
             Expression expression;
             expression.type = ExpressionType::FunctionType;
-            expression.position = parameters_position;
+            expression.range = parameters_range;
             expression.function_type.parameters = parameters;
 
             if(has_return_type) {
@@ -1577,7 +1706,7 @@ static Result<Statement> continue_parsing_function_declaration(Context *context,
 
             Statement statement;
             statement.type = StatementType::ConstantDefinition;
-            statement.position = name.position;
+            statement.range = name.range;
             statement.constant_definition = {
                 name,
                 expression
@@ -1649,7 +1778,7 @@ static Result<Statement> parse_statement(Context *context) {
 
             Statement statement;
             statement.type = StatementType::LoneIf;
-            statement.position = result.value.position;
+            statement.range = result.value.range;
             statement.lone_if.condition = result.value;
             statement.lone_if.statements = to_array(statements);
 
@@ -1694,7 +1823,7 @@ static Result<Statement> parse_statement(Context *context) {
 
             Statement statement;
             statement.type = StatementType::WhileLoop;
-            statement.position = result.value.position;
+            statement.range = result.value.range;
             statement.lone_if.condition = result.value;
             statement.lone_if.statements = to_array(statements);
 
@@ -1710,6 +1839,9 @@ static Result<Statement> parse_statement(Context *context) {
             }
 
             skip_whitespace(context);
+            
+            auto last_line = context->line;
+            auto last_character = context->character;
 
             if(!expect_character(context, ';')) {
                 return { false };
@@ -1717,10 +1849,12 @@ static Result<Statement> parse_statement(Context *context) {
 
             Statement statement;
             statement.type = StatementType::Return;
-            statement.position = {
+            statement.range = {
                 context->source_file_path,
                 first_line,
-                first_character
+                first_character,
+                last_line,
+                last_character
             };
             statement._return = result.value;
 
@@ -1827,7 +1961,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                                 Statement statement;
                                 statement.type = StatementType::StructDefinition;
-                                statement.position = identifier.position;
+                                statement.range = identifier.range;
                                 statement.struct_definition = {
                                     identifier,
                                     to_array(members)
@@ -1840,7 +1974,7 @@ static Result<Statement> parse_statement(Context *context) {
                             } else {
                                 Expression expression;
                                 expression.type = ExpressionType::NamedReference;
-                                expression.position = value_identifier.position;
+                                expression.range = value_identifier.range;
                                 expression.named_reference = value_identifier;
 
                                 List<Operation> operation_stack{};
@@ -1863,7 +1997,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                                 Statement statement;
                                 statement.type = StatementType::ConstantDefinition;
-                                statement.position = identifier.position;
+                                statement.range = identifier.range;
                                 statement.constant_definition = {
                                     identifier,
                                     result.value
@@ -1878,6 +2012,9 @@ static Result<Statement> parse_statement(Context *context) {
                             context->character += 1;
 
                             skip_whitespace(context);
+
+                            auto last_line = context->line;
+                            auto last_character = context->character;
 
                             auto character = fgetc(context->source_file);
 
@@ -1907,8 +2044,14 @@ static Result<Statement> parse_statement(Context *context) {
                                         first_identifier,
                                         result.value
                                     });
+                                    
+                                    unsigned int last_line;
+                                    unsigned int last_character;
 
                                     while(true) {
+                                        last_line = context->line;
+                                        last_character = context->character;
+
                                         auto character = fgetc(context->source_file);
 
                                         if(character == ',') {
@@ -1957,13 +2100,15 @@ static Result<Statement> parse_statement(Context *context) {
 
                                     skip_whitespace(context);
 
-                                    FilePosition parameters_position {
+                                    FileRange parameters_range {
                                         context->source_file_path,
                                         value_line,
-                                        value_character
+                                        value_character,
+                                        last_character,
+                                        last_line
                                     };
 
-                                    return continue_parsing_function_declaration(context, identifier, to_array(parameters), parameters_position);
+                                    return continue_parsing_function_declaration(context, identifier, to_array(parameters), parameters_range);
                                 } else {
                                     ungetc(character, context->source_file);
 
@@ -1971,7 +2116,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                                     Expression expression;
                                     expression.type = ExpressionType::NamedReference;
-                                    expression.position = first_identifier.position;
+                                    expression.range = first_identifier.range;
                                     expression.named_reference = first_identifier;
 
                                     List<Operation> sub_operation_stack{};
@@ -2003,6 +2148,9 @@ static Result<Statement> parse_statement(Context *context) {
                                     if(!right_result.status) {
                                         return { false };
                                     }
+                                    
+                                    auto last_line = context->line;
+                                    auto last_character = context->character;
 
                                     if(!expect_character(context, ';')) {
                                         return { false };
@@ -2010,10 +2158,12 @@ static Result<Statement> parse_statement(Context *context) {
 
                                     Statement statement;
                                     statement.type = StatementType::ConstantDefinition;
-                                    statement.position = {
+                                    statement.range = {
                                         context->source_file_path,
                                         first_line,
-                                        first_character
+                                        first_character,
+                                        last_line,
+                                        last_character
                                     };
                                     statement.constant_definition = {
                                         identifier,
@@ -2030,13 +2180,15 @@ static Result<Statement> parse_statement(Context *context) {
 
                                 skip_whitespace(context);
 
-                                FilePosition parameters_position {
+                                FileRange parameters_range {
                                     context->source_file_path,
                                     value_line,
-                                    value_character
+                                    value_character,
+                                    last_line,
+                                    last_character
                                 };
 
-                                return continue_parsing_function_declaration(context, identifier, Array<FunctionParameter>{}, parameters_position);
+                                return continue_parsing_function_declaration(context, identifier, Array<FunctionParameter>{}, parameters_range);
                             } else {
                                 ungetc(character, context->source_file);
 
@@ -2066,16 +2218,21 @@ static Result<Statement> parse_statement(Context *context) {
                                     return { false };
                                 }
 
+                                auto last_line = context->line;
+                                auto last_character = context->character;
+
                                 if(!expect_character(context, ';')) {
                                     return { false };
                                 }
 
                                 Statement statement;
                                 statement.type = StatementType::ConstantDefinition;
-                                statement.position = {
+                                statement.range = {
                                     context->source_file_path,
                                     first_line,
-                                    first_character
+                                    first_character,
+                                    last_line,
+                                    last_character
                                 };
                                 statement.constant_definition = {
                                     identifier,
@@ -2095,6 +2252,9 @@ static Result<Statement> parse_statement(Context *context) {
                             if(!result.status) {
                                 return { false };
                             }
+                            
+                            auto last_line = context->line;
+                            auto last_character = context->character;
 
                             if(!expect_character(context, ';')) {
                                 return { false };
@@ -2102,10 +2262,12 @@ static Result<Statement> parse_statement(Context *context) {
 
                             Statement statement;
                             statement.type = StatementType::ConstantDefinition;
-                            statement.position = {
+                            statement.range = {
                                 context->source_file_path,
                                 first_line,
-                                first_character
+                                first_character,
+                                last_line,
+                                last_character
                             };
                             statement.constant_definition = {
                                 identifier,
@@ -2145,6 +2307,9 @@ static Result<Statement> parse_statement(Context *context) {
                             has_type = false;
                         }
 
+                        auto last_line = context->line;
+                        auto last_character = context->character;
+
                         bool has_initializer;
                         Expression initializer;
                         if(character == '=') {
@@ -2162,6 +2327,9 @@ static Result<Statement> parse_statement(Context *context) {
                             initializer = result.value;
 
                             skip_whitespace(context);
+                            
+                            last_line = context->line;
+                            last_character = context->character;
 
                             if(!expect_character(context, ';')) {
                                 return { false };
@@ -2182,10 +2350,12 @@ static Result<Statement> parse_statement(Context *context) {
 
                         Statement statement;
                         statement.type = StatementType::VariableDeclaration;
-                        statement.position = {
+                        statement.range = {
                             context->source_file_path,
                             first_line,
-                            first_character
+                            first_character,
+                            last_line,
+                            last_character
                         };
                         statement.variable_declaration.name = identifier;
 
@@ -2220,8 +2390,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                     Expression expression;
                     expression.type = ExpressionType::NamedReference;
-                    expression.position = identifier.position;
+                    expression.range = identifier.range;
                     expression.named_reference = identifier;
+                    
+                    auto last_line = context->line;
+                    auto last_character = context->character;
 
                     auto character = fgetc(context->source_file);
 
@@ -2235,10 +2408,12 @@ static Result<Statement> parse_statement(Context *context) {
 
                             Operation operation;
                             operation.type = OperationType::Equal;
-                            operation.position = {
+                            operation.range = {
                                 context->source_file_path,
                                 after_identifier_line,
-                                after_identifier_character
+                                after_identifier_character,
+                                last_line,
+                                last_character
                             };
 
                             append(&operation_stack, operation);
@@ -2254,6 +2429,9 @@ static Result<Statement> parse_statement(Context *context) {
                             }
 
                             skip_whitespace(context);
+                            
+                            last_line = context->line;
+                            last_character = context->character;
 
                             if(!expect_character(context, ';')) {
                                 return { false };
@@ -2261,17 +2439,21 @@ static Result<Statement> parse_statement(Context *context) {
 
                             Statement statement;
                             statement.type = StatementType::Expression;
-                            statement.position = {
+                            statement.range = {
                                 context->source_file_path,
                                 first_line,
-                                first_character
+                                first_character,
+                                last_line,
+                                last_character
                             };
 
                             statement.expression.type = ExpressionType::BinaryOperation;
-                            statement.expression.position = {
+                            statement.expression.range = {
                                 context->source_file_path,
                                 after_identifier_line,
-                                after_identifier_character
+                                after_identifier_character,
+                                result.value.range.end_line,
+                                result.value.range.end_character
                             };
                             statement.expression.binary_operation.binary_operator = BinaryOperator::Equal;
                             statement.expression.binary_operation.left = heapify(expression);
@@ -2301,6 +2483,9 @@ static Result<Statement> parse_statement(Context *context) {
                             }
 
                             skip_whitespace(context);
+                            
+                            auto last_line = context->line;
+                            auto last_character = context->character;
 
                             if(!expect_character(context, ';')) {
                                 return { false };
@@ -2308,10 +2493,12 @@ static Result<Statement> parse_statement(Context *context) {
 
                             Statement statement;
                             statement.type = StatementType::Assignment;
-                            statement.position = {
+                            statement.range = {
                                 context->source_file_path,
                                 first_line,
-                                first_character
+                                first_character,
+                                last_line,
+                                last_character
                             };
                             statement.assignment.target = expression;
                             statement.assignment.value = result.value;
@@ -2334,11 +2521,7 @@ static Result<Statement> parse_statement(Context *context) {
                     ungetc(character, context->source_file);
 
                     Expression expression;
-                    expression.position = {
-                        context->source_file_path,
-                        first_line,
-                        first_character
-                    };
+                    expression.range = identifier.range;
                     expression.type = ExpressionType::NamedReference;
                     expression.named_reference = identifier;
 
@@ -2382,23 +2565,19 @@ static Result<Statement> parse_statement(Context *context) {
             if(strcmp(identifier.text, "import") == 0) {
                 skip_whitespace(context);
 
-                if(!expect_character(context, '"')) {
-                    return { false };
-                }
-
                 auto result = parse_string(context);
 
                 if(!result.status) {
                     return { false };
                 }
 
-                auto import_path = allocate<char>(result.value.count + 1);
-                memcpy(import_path, result.value.elements, result.value.count);
-                import_path[result.value.count] = 0;
+                auto import_path = allocate<char>(result.value.text.count + 1);
+                memcpy(import_path, result.value.text.elements, result.value.text.count);
+                import_path[result.value.text.count] = 0;
 
                 auto source_file_directory = path_get_directory_component(context->source_file_path);
 
-                auto import_path_relative = allocate<char>(strlen(source_file_directory) + result.value.count + 1);
+                auto import_path_relative = allocate<char>(strlen(source_file_directory) + result.value.text.count + 1);
 
                 strcpy(import_path_relative, source_file_directory);
                 strcat(import_path_relative, import_path);
@@ -2413,10 +2592,12 @@ static Result<Statement> parse_statement(Context *context) {
 
                 Statement statement;
                 statement.type = StatementType::Import;
-                statement.position = {
+                statement.range = {
                     context->source_file_path,
                     first_line,
-                    first_character
+                    first_character,
+                    result.value.range.end_line,
+                    result.value.range.end_character
                 };
                 statement.import = absolute_result.value;
 
@@ -2426,10 +2607,6 @@ static Result<Statement> parse_statement(Context *context) {
                 };
             } else if(strcmp(identifier.text, "library") == 0) {
                 skip_whitespace(context);
-
-                if(!expect_character(context, '"')) {
-                    return { false };
-                }
 
                 auto result = parse_string(context);
 
@@ -2443,16 +2620,18 @@ static Result<Statement> parse_statement(Context *context) {
                     return { false };
                 }
 
-                auto library = allocate<char>(result.value.count + 1);
-                memcpy(library, result.value.elements, result.value.count);
-                library[result.value.count] = 0;
+                auto library = allocate<char>(result.value.text.count + 1);
+                memcpy(library, result.value.text.elements, result.value.text.count);
+                library[result.value.text.count] = 0;
 
                 Statement statement;
                 statement.type = StatementType::Library;
-                statement.position = {
+                statement.range = {
                     context->source_file_path,
                     first_line,
-                    first_character
+                    first_character,
+                    result.value.range.end_line,
+                    result.value.range.end_character
                 };
                 statement.library = library;
 
