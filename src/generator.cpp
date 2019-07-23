@@ -16,6 +16,86 @@ static void error(FileRange range, const char *format, ...) {
     vfprintf(stderr, format, arguments);
     fprintf(stderr, "\n");
 
+    auto file = fopen(range.path, "rb");
+
+    if(file != nullptr) {
+        if(range.start_line == range.end_line) {
+            unsigned int current_line = 1;
+
+            while(current_line != range.start_line) {
+                auto character = fgetc(file);
+
+                switch(character) {
+                    case '\r': {
+                        auto character = fgetc(file);
+
+                        if(character == '\n') {
+                            current_line += 1;
+                        } else {
+                            ungetc(character, file);
+
+                            current_line += 1;
+                        }
+                    } break;
+
+                    case '\n': {
+                        current_line += 1;
+                    } break;
+
+                    case EOF: {
+                        fclose(file);
+
+                        va_end(arguments);
+
+                        return;
+                    } break;
+                }
+            }
+
+            auto done = false;
+            while(!done) {
+                auto character = fgetc(file);
+
+                switch(character) {
+                    case '\r':
+                    case '\n': {
+                        done = true;
+                    } break;
+
+                    case EOF: {
+                        fclose(file);
+
+                        va_end(arguments);
+
+                        return;
+                    } break;
+
+                    default: {
+                        fprintf(stderr, "%c", character);
+                    } break;
+                }
+            }
+
+            fprintf(stderr, "\n");
+
+            for(unsigned int i = 1; i < range.start_character; i += 1) {
+                fprintf(stderr, " ");
+            }
+
+            if(range.end_character - range.start_character == 0) {
+                fprintf(stderr, "^");
+            } else {
+                for(unsigned int i = range.start_character; i <= range.end_character; i += 1) {
+                    fprintf(stderr, "-");
+                }
+            }
+        }
+
+        fclose(file);
+    }
+
+    
+
     va_end(arguments);
 }
 
