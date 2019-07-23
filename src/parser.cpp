@@ -179,12 +179,18 @@ static Identifier parse_identifier(Context *context) {
     auto first_line = context->line;
     auto first_character = context->character;
 
+    auto last_line = context->line;
+    auto last_character = context->character;
+
     List<char> buffer{};
 
     while(true) {
         auto character = fgetc(context->source_file);
 
         if(isalnum(character) || character == '_') {
+            last_line = context->line;
+            last_character = context->character;
+
             context->character += 1;
 
             append(&buffer, (char)character);
@@ -199,15 +205,22 @@ static Identifier parse_identifier(Context *context) {
 
     return {
         buffer.elements,
-        context->source_file_path,
-        first_line,
-        first_character
+        {
+            context->source_file_path,
+            first_line,
+            first_character,
+            last_line,
+            last_character
+        }
     };
 }
 
 static Result<Identifier> expect_identifier(Context *context) {
     auto first_line = context->line;
     auto first_character = context->character;
+    
+    auto last_line = context->line;
+    auto last_character = context->character;
 
     auto character = fgetc(context->source_file);
 
@@ -222,6 +235,9 @@ static Result<Identifier> expect_identifier(Context *context) {
             auto character = fgetc(context->source_file);
 
             if(isalnum(character) || character == '_') {
+                last_line = context->line;
+                last_character = context->character;
+
                 context->character += 1;
 
                 append(&buffer, (char)character);
@@ -238,9 +254,13 @@ static Result<Identifier> expect_identifier(Context *context) {
             true,
             {
                 buffer.elements,
-                context->source_file_path,
-                first_line,
-                first_character
+                {
+                    context->source_file_path,
+                    first_line,
+                    first_character,
+                    last_line,
+                    last_character
+                }
             }
         };
     } else if(character == EOF) {
