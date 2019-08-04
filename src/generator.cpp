@@ -110,6 +110,8 @@ union ConstantValue {
 
     Type type;
 
+    size_t pointer;
+
     Array<ConstantValue> array;
 
     ConstantValue *static_array;
@@ -327,6 +329,10 @@ static bool constant_values_deep_equal(ConstantContext context, Type type, Const
         case TypeCategory::Type: {
             return types_equal(a.type, b.type);
         } break;
+        
+        case TypeCategory::Pointer: {
+            return a.pointer == b.pointer;
+        } break;
 
         case TypeCategory::Array: {
             if(a.array.count != b.array.count) {
@@ -369,7 +375,6 @@ static bool constant_values_deep_equal(ConstantContext context, Type type, Const
         } break;
 
         case TypeCategory::Void:
-        case TypeCategory::Pointer:
         case TypeCategory::FileModule:
         default: {
             abort();
@@ -2363,6 +2368,16 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
             error(range, "Type values cannot exist at runtime");
 
             return false;
+        } break;
+
+        case TypeCategory::Pointer: {
+            char buffer[64];
+
+            sprintf(buffer, "%zu", value.pointer);
+
+            string_buffer_append(source, buffer);
+
+            return true;
         } break;
 
         case TypeCategory::Array: {
