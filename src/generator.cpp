@@ -939,6 +939,50 @@ static ConstantValue determine_constant_integer(IntegerType target_type, Constan
     return value;
 }
 
+static uint64_t perform_constant_integer_conversion(uint64_t value, IntegerType type_from) {
+    switch(type_from) {
+        case IntegerType::Undetermined: {
+            return (uint64_t)(int64_t)value;
+        } break;
+
+        case IntegerType::Unsigned8: {
+            return (uint64_t)(uint8_t)value;
+        } break;
+
+        case IntegerType::Unsigned16: {
+            return (uint64_t)(uint16_t)value;
+        } break;
+
+        case IntegerType::Unsigned32: {
+            return (uint64_t)(uint32_t)value;
+        } break;
+
+        case IntegerType::Unsigned64: {
+            return value;
+        } break;
+
+        case IntegerType::Signed8: {
+            return (uint64_t)(int8_t)value;
+        } break;
+
+        case IntegerType::Signed16: {
+            return (uint64_t)(int16_t)value;
+        } break;
+
+        case IntegerType::Signed32: {
+            return (uint64_t)(int32_t)value;
+        } break;
+
+        case IntegerType::Signed64: {
+            return (uint64_t)(int64_t)value;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 static Result<Type> evaluate_type_expression(ConstantContext context, Expression expression, bool print_errors);
 
 static Result<TypedConstantValue> evaluate_constant_expression(ConstantContext context, Expression expression, bool print_errors) {
@@ -1372,6 +1416,47 @@ static Result<TypedConstantValue> evaluate_constant_expression(ConstantContext c
                     abort();
                 } break;
             }
+        } break;
+
+        case ExpressionType::Cast: {
+            auto expression_result = evaluate_constant_expression(context, *expression.cast.expression, print_errors);
+
+            if(!expression_result.status) {
+                return { false };
+            }
+
+            if(expression_result.value.type.category != TypeCategory::Integer) {
+                if(print_errors) {
+                    error(expression.cast.expression->range, "Cannot cast from that type");
+                }
+
+                return { false };
+            }
+
+            auto type_result = evaluate_type_expression(context, *expression.cast.type, print_errors);
+
+            if(!type_result.status) {
+                return { false };
+            }
+
+            if(type_result.value.category != TypeCategory::Integer) {
+                if(print_errors) {
+                    error(expression.cast.expression->range, "Cannot cast from integer to that type");
+                }
+
+                return { false };
+            }
+
+            auto result = perform_constant_integer_conversion(expression_result.value.value.integer, expression_result.value.type.integer);
+
+            TypedConstantValue value;
+            value.type = type_result.value;
+            value.value.integer = result;
+
+            return {
+                true,
+                value
+            };
         } break;
         
         case ExpressionType::ArrayType: {
@@ -3461,6 +3546,75 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                             abort();
                         } break;
                     }
+
+                    return {
+                        true,
+                        value
+                    };
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        case ExpressionType::Cast: {
+            char *expression_source{};
+            auto expression_result = generate_expression(context, &expression_source, *expression.cast.expression);
+
+            if(!expression_result.status) {
+                return { false };
+            }
+
+            if(expression_result.value.type.category != TypeCategory::Integer) {
+                error(expression.cast.expression->range, "Cannot cast from that type");
+
+                return { false };
+            }
+
+            auto type_result = evaluate_type_expression(context->constant_context, *expression.cast.type, true);
+
+            if(!type_result.status) {
+                return { false };
+            }
+
+            if(type_result.value.category != TypeCategory::Integer) {
+                error(expression.cast.expression->range, "Cannot cast from integer to that type");
+
+                return { false };
+            }
+
+            switch(expression_result.value.category) {
+                case ExpressionValueCategory::Anonymous:
+                case ExpressionValueCategory::Assignable: {
+                    string_buffer_append(source, "(");
+
+                    generate_integer_type(source, type_result.value.integer);
+
+                    string_buffer_append(source, ")(");
+
+                    string_buffer_append(source, expression_source);
+
+                    string_buffer_append(source, ")");
+
+                    ExpressionValue value;
+                    value.category = ExpressionValueCategory::Anonymous;
+                    value.type = type_result.value;
+
+                    return {
+                        true,
+                        value
+                    };
+                } break;
+
+                case ExpressionValueCategory::Constant: {
+                    auto result = perform_constant_integer_conversion(expression_result.value.constant.integer, expression_result.value.type.integer);
+
+                    ExpressionValue value;
+                    value.category = ExpressionValueCategory::Constant;
+                    value.type = type_result.value;
+                    value.constant.integer = result;
 
                     return {
                         true,
