@@ -4,6 +4,8 @@
 #include <stdarg.h>
 #include <assert.h>
 #include <stdlib.h>
+#include <limits.h>
+#include <errno.h>
 #include "list.h"
 #include "util.h"
 #include "path.h"

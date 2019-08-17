@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdlib.h>
+
 template <typename T>
 struct Array {
     size_t count;

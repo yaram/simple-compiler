@@ -3,48 +3,67 @@
 #include "platform.h"
 #include "util.h"
 #include <string.h>
+#include <stdlib.h>
 
 #if defined(PLATFORM_UNIX)
 
+#include <limits.h>
+#include <libgen.h>
+
 Result<const char *> path_relative_to_absolute(const char *path) {
-    auto absolute_path = allocate<char>(PATH_MAX);
-        
+    char absolute_path[PATH_MAX];
     if(realpath(path, absolute_path) == nullptr) {
         fprintf(stderr, "Invalid path %s\n", path);
 
         return { false };
     }
+
+    auto output_buffer = allocate<char>(strlen(absolute_path) + 1);
+    strcpy(output_buffer, absolute_path);
     
     return {
         true,
-        absolute_path
+        output_buffer
     };
 }
 
-const char *path_get_directory_component(const char *path) {
-    return dirname(path);
+const char *path_get_file_component(const char *path) {
+    char input_buffer[PATH_MAX];
+    strcpy(input_buffer, path);
+
+    auto path_file = basename(input_buffer);
+
+    auto output_buffer = allocate<char>(strlen(path_file) + 1);
+    strcpy(path_file, output_buffer);
+
+    return output_buffer;
 }
 
-const char *path_get_file_component(const char *path) {
-    auto path_directory = basename(path);
+const char *path_get_directory_component(const char *path) {
+    char input_buffer[PATH_MAX];
+    strcpy(input_buffer, path);
+
+    auto path_directory = dirname(input_buffer);
 
     auto path_directory_length = strlen(path_directory);
 
-    if(path_directory_length != 0 && path_directory[0] != '/') {
-        auto buffer = allocate<char>(path_directory_length + 2);
+    if(path_directory_length != 1 && path_directory[path_directory_length - 1] != '/') {
+        auto output_buffer = allocate<char>(path_directory_length + 2);
 
-        strcpy(buffer, path_directory);
-        strcat(buffer, "/");
+        strcpy(output_buffer, path_directory);
+        strcat(output_buffer, "/");
 
-        return buffer;
+        return output_buffer;
     } else {
-        return path_directory;
+        auto output_buffer = allocate<char>(path_directory_length + 1);
+
+        strcpy(output_buffer, path_directory);
+
+        return output_buffer;
     }
 }
 
 #elif defined(PLATFORM_WINDOWS)
-
-#include <stdlib.h>
 
 Result<const char *> path_relative_to_absolute(const char *path) {
     auto absolute_path = allocate<char>(_MAX_PATH);
