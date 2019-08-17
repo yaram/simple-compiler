@@ -15,8 +15,6 @@ void string_buffer_append(char **string_buffer, const char *string) {
 
         auto new_string_buffer = (char*)realloc((void*)(*string_buffer), new_string_buffer_length + 1);
 
-        strcpy(new_string_buffer, *string_buffer);
-
         strcat(new_string_buffer, string);
 
         *string_buffer = new_string_buffer;
