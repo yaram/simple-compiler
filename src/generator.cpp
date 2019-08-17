@@ -2040,7 +2040,7 @@ static Result<const char *> maybe_register_array_constant(GenerationContext *con
             string_buffer_append(&mangled_name, "_array_constant_");
 
             char buffer[32];
-            sprintf(buffer, "%d", i);
+            sprintf(buffer, "%zu", i);
 
             string_buffer_append(&mangled_name, buffer);
 
@@ -4601,7 +4601,7 @@ Result<CSource> generate_c_source(Array<File> files) {
         string_buffer_append(&full_source, " _array_constant_");
 
         char buffer[32];
-        sprintf(buffer, "%d", i);
+        sprintf(buffer, "%zu", i);
         string_buffer_append(&full_source, buffer);
 
         if(type_suffix_source != nullptr) {
