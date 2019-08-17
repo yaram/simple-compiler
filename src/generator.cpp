@@ -89,12 +89,12 @@ static void error(FileRange range, const char *format, ...) {
                     fprintf(stderr, "-");
                 }
             }
+
+            fprintf(stderr, "\n");
         }
 
         fclose(file);
     }
-
-    
 
     va_end(arguments);
 }
