@@ -1,0 +1,9 @@
+main :: (argc: i32, argv: **u8) -> i32 {
+    a: i32 = 1;
+    b: i32 = 10;
+    c: i32 = 5;
+    d: i32 = 3;
+    e: i32 = 2;
+
+    return -a * b - c + d * (b / e);
+}

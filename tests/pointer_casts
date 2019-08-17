@@ -1,0 +1,5 @@
+main :: (argc: i32, argv: **u8) -> i32 {
+    a: usize = 0;
+
+    return a as *void as *u8 as usize as i32;
+}

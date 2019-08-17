@@ -1,0 +1,10 @@
+main :: (argc: i32, argv: **u8) -> i32 {
+    a: i64 = 1;
+    b: i64 = 1;
+
+    if a == b {
+        return 0;
+    }
+
+    return 1;
+}

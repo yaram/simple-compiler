@@ -1,0 +1,5 @@
+main :: (argc: i32, argv: **u8) -> i32 {
+    return CONSTANT;
+}
+
+CONSTANT :: 0;
