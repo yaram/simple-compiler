@@ -944,48 +944,121 @@ static ConstantValue determine_constant_integer(IntegerType target_type, Constan
     return value;
 }
 
-static uint64_t perform_constant_integer_conversion(uint64_t value, IntegerType type_from) {
-    switch(type_from) {
-        case IntegerType::Undetermined: {
-            return (uint64_t)(int64_t)value;
+static Result<ConstantValue> evaluate_constant_conversion(ConstantContext context, TypedConstantValue value, FileRange value_range, Type type, FileRange type_range, bool print_errors) {
+    ConstantValue result;
+
+    switch(value.type.category) {
+        case TypeCategory::Integer: {
+            switch(type.category) {
+                case TypeCategory::Integer: {
+                    switch(value.type.integer) {
+                        case IntegerType::Undetermined: {
+                            result.integer = (uint64_t)(int64_t)value.value.integer;
+                        } break;
+
+                        case IntegerType::Unsigned8: {
+                            result.integer = (uint64_t)(uint8_t)value.value.integer;
+                        } break;
+
+                        case IntegerType::Unsigned16: {
+                            result.integer = (uint64_t)(uint16_t)value.value.integer;
+                        } break;
+
+                        case IntegerType::Unsigned32: {
+                            result.integer = (uint64_t)(uint32_t)value.value.integer;
+                        } break;
+
+                        case IntegerType::Unsigned64: {
+                            result.integer = value.value.integer;
+                        } break;
+
+                        case IntegerType::Signed8: {
+                            result.integer = (uint64_t)(int8_t)value.value.integer;
+                        } break;
+
+                        case IntegerType::Signed16: {
+                            result.integer = (uint64_t)(int16_t)value.value.integer;
+                        } break;
+
+                        case IntegerType::Signed32: {
+                            result.integer = (uint64_t)(int32_t)value.value.integer;
+                        } break;
+
+                        case IntegerType::Signed64: {
+                            result.integer = (uint64_t)(int64_t)value.value.integer;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } break;
+
+                case TypeCategory::Pointer: {
+                    if(value.type.integer == IntegerType::Undetermined) {
+                        result.pointer = (int64_t)value.value.integer;
+                    } else if(value.type.integer == context.unsigned_size_integer_type) {
+                        result.pointer = value.value.integer;
+                    } else {
+                        if(print_errors) {
+                            error(value_range, "Cannot cast to pointer from this integer type");
+                        }
+
+                        return { false };
+                    }
+                } break;
+
+                default: {
+                    if(print_errors) {
+                        error(type_range, "Cannot cast integer to this type");
+                    }
+
+                    return { false };
+                } break;
+            }
         } break;
 
-        case IntegerType::Unsigned8: {
-            return (uint64_t)(uint8_t)value;
-        } break;
+        case TypeCategory::Pointer: {
+            switch(type.category) {
+                case TypeCategory::Integer: {
+                    if(type.integer == context.unsigned_size_integer_type) {
+                        result.pointer = value.value.integer;
+                    } else {
+                        if(print_errors) {
+                            error(value_range, "Cannot cast from pointer to this integer type");
+                        }
 
-        case IntegerType::Unsigned16: {
-            return (uint64_t)(uint16_t)value;
-        } break;
+                        return { false };
+                    }
+                } break;
 
-        case IntegerType::Unsigned32: {
-            return (uint64_t)(uint32_t)value;
-        } break;
+                case TypeCategory::Pointer: {
+                    result.pointer = value.value.pointer;
+                } break;
 
-        case IntegerType::Unsigned64: {
-            return value;
-        } break;
+                default: {
+                    if(print_errors) {
+                        error(type_range, "Cannot cast pointer to this type");
+                    }
 
-        case IntegerType::Signed8: {
-            return (uint64_t)(int8_t)value;
-        } break;
-
-        case IntegerType::Signed16: {
-            return (uint64_t)(int16_t)value;
-        } break;
-
-        case IntegerType::Signed32: {
-            return (uint64_t)(int32_t)value;
-        } break;
-
-        case IntegerType::Signed64: {
-            return (uint64_t)(int64_t)value;
+                    return { false };
+                } break;
+            }
         } break;
 
         default: {
-            abort();
+            if(print_errors) {
+                error(value_range, "Cannot cast from this type");
+            }
+
+            return { false };
         } break;
     }
+
+    return {
+        true,
+        result
+    };
 }
 
 static Result<Type> evaluate_type_expression(ConstantContext context, Expression expression, bool print_errors);
@@ -1430,37 +1503,31 @@ static Result<TypedConstantValue> evaluate_constant_expression(ConstantContext c
                 return { false };
             }
 
-            if(expression_result.value.type.category != TypeCategory::Integer) {
-                if(print_errors) {
-                    error(expression.cast.expression->range, "Cannot cast from that type");
-                }
-
-                return { false };
-            }
-
             auto type_result = evaluate_type_expression(context, *expression.cast.type, print_errors);
 
             if(!type_result.status) {
                 return { false };
             }
 
-            if(type_result.value.category != TypeCategory::Integer) {
-                if(print_errors) {
-                    error(expression.cast.expression->range, "Cannot cast from integer to that type");
-                }
+            auto result = evaluate_constant_conversion(
+                context,
+                expression_result.value,
+                expression.cast.expression->range,
+                type_result.value,
+                expression.cast.type->range,
+                print_errors
+            );
 
+            if(!result.status) {
                 return { false };
             }
 
-            auto result = perform_constant_integer_conversion(expression_result.value.value.integer, expression_result.value.type.integer);
-
-            TypedConstantValue value;
-            value.type = type_result.value;
-            value.value.integer = result;
-
             return {
                 true,
-                value
+                {
+                    type_result.value,
+                    result.value
+                }
             };
         } break;
         
@@ -3582,27 +3649,70 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 return { false };
             }
 
-            if(expression_result.value.type.category != TypeCategory::Integer) {
-                error(expression.cast.expression->range, "Cannot cast from that type");
-
-                return { false };
-            }
-
             auto type_result = evaluate_type_expression(context->constant_context, *expression.cast.type, true);
 
             if(!type_result.status) {
                 return { false };
             }
 
-            if(type_result.value.category != TypeCategory::Integer) {
-                error(expression.cast.expression->range, "Cannot cast from integer to that type");
-
-                return { false };
-            }
-
             switch(expression_result.value.category) {
                 case ExpressionValueCategory::Anonymous:
                 case ExpressionValueCategory::Assignable: {
+                    switch(expression_result.value.type.category) {
+                        case TypeCategory::Integer: {
+                            switch(type_result.value.category) {
+                                case TypeCategory::Integer: {
+                                    
+                                } break;
+
+                                case TypeCategory::Pointer: {
+                                    if(
+                                        expression_result.value.type.integer != IntegerType::Undetermined && 
+                                        expression_result.value.type.integer != context->constant_context.unsigned_size_integer_type
+                                    ) {
+                                        error(expression.cast.expression->range, "Cannot cast to pointer from this integer type");
+
+                                        return { false };
+                                    }
+                                } break;
+
+                                default: {
+                                    error(expression.cast.type->range, "Cannot cast integer to this type");
+
+                                    return { false };
+                                } break;
+                            }
+                        } break;
+
+                        case TypeCategory::Pointer: {
+                            switch(type_result.value.category) {
+                                case TypeCategory::Integer: {
+                                    if(type_result.value.integer != context->constant_context.unsigned_size_integer_type) {
+                                        error(expression.cast.expression->range, "Cannot cast from pointer to this integer type");
+
+                                        return { false };
+                                    }
+                                } break;
+
+                                case TypeCategory::Pointer: {
+                                    
+                                } break;
+
+                                default: {
+                                    error(expression.cast.type->range, "Cannot cast pointer to this type");
+
+                                    return { false };
+                                } break;
+                            }
+                        } break;
+
+                        default: {
+                            error(expression.cast.expression->range, "Cannot cast from this type");
+
+                            return { false };
+                        } break;
+                    }
+
                     string_buffer_append(source, "(");
 
                     generate_integer_type(source, type_result.value.integer);
@@ -3624,12 +3734,26 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 } break;
 
                 case ExpressionValueCategory::Constant: {
-                    auto result = perform_constant_integer_conversion(expression_result.value.constant.integer, expression_result.value.type.integer);
+                    auto result = evaluate_constant_conversion(
+                        context->constant_context,
+                        {
+                            expression_result.value.type,
+                            expression_result.value.constant
+                        },
+                        expression.cast.expression->range,
+                        type_result.value,
+                        expression.cast.type->range,
+                        true
+                    );
+
+                    if(!result.status) {
+                        return { false };
+                    }
 
                     ExpressionValue value;
                     value.category = ExpressionValueCategory::Constant;
                     value.type = type_result.value;
-                    value.constant.integer = result;
+                    value.constant = result.value;
 
                     return {
                         true,
