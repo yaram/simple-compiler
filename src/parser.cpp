@@ -349,8 +349,6 @@ struct Operation {
         Expression index_reference;
 
         Array<Expression> function_call;
-
-        Expression cast;
     };
 };
 
@@ -483,9 +481,12 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
         case OperationType::Cast: {
             expression.type = ExpressionType::Cast;
 
+            auto type = heapify(take_last(expression_stack));
+            auto expression_pointer = heapify(take_last(expression_stack));
+
             expression.cast = {
-                heapify(take_last(expression_stack)),
-                heapify(operation.cast)
+                expression_pointer,
+                type
             };
         } break;
 
@@ -1149,18 +1150,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 return { false };
             }
 
-            skip_whitespace(context);
-
-            auto result = parse_expression(context);
-
-            if(!result.status) {
-                return { false };
-            }
-
             operation.type = OperationType::Cast;
-            operation.cast = result.value;
 
-            expect_non_left_recursive = false;
+            expect_non_left_recursive = true;
         } else if(character == '(') {
             context->character += 1;
             
