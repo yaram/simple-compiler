@@ -183,15 +183,8 @@ static Array<Declaration> get_declaration_children(Declaration declaration) {
             return declaration.function_definition.declarations;
         } break;
 
-        case DeclarationCategory::ExternalFunction:
-        case DeclarationCategory::ConstantDefinition:
-        case DeclarationCategory::StructDefinition:
-        case DeclarationCategory::FileModuleImport: {
-            return Array<Declaration>{};
-        } break;
-
         default: {
-            abort();
+            return Array<Declaration>{};
         } break;
     }
 }
@@ -374,8 +367,6 @@ static bool constant_values_deep_equal(ConstantContext context, Type type, Const
             return true;
         } break;
 
-        case TypeCategory::Void:
-        case TypeCategory::FileModule:
         default: {
             abort();
         } break;
@@ -402,11 +393,6 @@ static ConstantValue compiler_size_to_native_size(ConstantContext context, size_
             value.integer = (uint64_t)size;
         } break;
 
-        case IntegerType::Undetermined:
-        case IntegerType::Signed8:
-        case IntegerType::Signed16:
-        case IntegerType::Signed32:
-        case IntegerType::Signed64:
         default: {
             abort();
         } break;
@@ -531,20 +517,6 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
     }
 
     switch(type.category) {
-        case TypeCategory::Function:
-        case TypeCategory::Integer:
-        case TypeCategory::Boolean:
-        case TypeCategory::Void:
-        case TypeCategory::Pointer:
-        case TypeCategory::Struct:
-        case TypeCategory::FileModule: {
-            if(print_errors) {
-                error(range, "Cannot index a non-array");
-            }
-
-            return { false };
-        } break;
-
         case TypeCategory::Type: {
             Type type_type;
             type_type.category = TypeCategory::Type;
@@ -600,7 +572,11 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
         } break;
 
         default: {
-            abort();
+            if(print_errors) {
+                error(range, "Cannot index a non-array");
+            }
+
+            return { false };
         } break;
     }
 }
@@ -685,8 +661,6 @@ static TypedConstantValue perform_constant_integer_binary_operation(BinaryOperat
             result_type.integer = type;
         } break;
 
-        case BinaryOperator::BooleanAnd:
-        case BinaryOperator::BooleanOr:
         default: {
             abort();
         } break;
@@ -717,21 +691,6 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
 
 
     switch(left_type.category) {
-        case TypeCategory::Function:
-        case TypeCategory::Type:
-        case TypeCategory::Void:
-        case TypeCategory::Pointer:
-        case TypeCategory::Array:
-        case TypeCategory::StaticArray:
-        case TypeCategory::Struct:
-        case TypeCategory::FileModule: {
-            if(print_errors) {
-                error(range, "Cannot perform binary operations on this type");
-            }
-
-            return { false };
-        } break;
-
         case TypeCategory::Integer: {
             if(left_type.integer == IntegerType::Undetermined && right_type.integer == IntegerType::Undetermined) {
                 result = perform_constant_integer_binary_operation<int64_t>(
@@ -840,7 +799,6 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
                         );
                     } break;
 
-                    case IntegerType::Undetermined:
                     default: {
                         abort();
                     } break;
@@ -852,20 +810,6 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
             result.type.category = TypeCategory::Boolean;
 
             switch(binary_operator) {
-                case BinaryOperator::Addition:
-                case BinaryOperator::Subtraction:
-                case BinaryOperator::Multiplication:
-                case BinaryOperator::Division:
-                case BinaryOperator::Modulo:
-                case BinaryOperator::BitwiseAnd:
-                case BinaryOperator::BitwiseOr: {
-                    if(print_errors) {
-                        error(range, "Cannot perform that operation on booleans");
-                    }
-
-                    return { false };
-                } break;
-
                 case BinaryOperator::Equal: {
                     result.value.boolean = left_value.boolean == right_value.boolean;
                 } break;
@@ -883,13 +827,21 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
                 } break;
 
                 default: {
-                    abort();
+                    if(print_errors) {
+                        error(range, "Cannot perform that operation on booleans");
+                    }
+
+                    return { false };
                 } break;
             }
         } break;
 
         default: {
-            abort();
+            if(print_errors) {
+                error(range, "Cannot perform binary operations on this type");
+            }
+
+            return { false };
         } break;
     }
 
@@ -935,7 +887,6 @@ static ConstantValue determine_constant_integer(IntegerType target_type, Constan
             value.integer = (int64_t)(int64_t)undetermined_value.integer;
         } break;
 
-        case IntegerType::Undetermined:
         default: {
             abort();
         }
@@ -1077,20 +1028,6 @@ static Result<TypedConstantValue> evaluate_constant_expression(ConstantContext c
             }
 
             switch(result.value.type.category) {
-                case TypeCategory::Function:
-                case TypeCategory::Integer:
-                case TypeCategory::Boolean:
-                case TypeCategory::Type:
-                case TypeCategory::Void:
-                case TypeCategory::Pointer:
-                case TypeCategory::StaticArray: {
-                    if(print_errors) {
-                        error(expression.member_reference.expression->range, "This type has no members");
-                    }
-
-                    return { false };
-                } break;
-
                 case TypeCategory::Array: {
                     if(strcmp(expression.member_reference.name.text, "length") == 0) {
                         Type type;
@@ -1161,7 +1098,11 @@ static Result<TypedConstantValue> evaluate_constant_expression(ConstantContext c
                 } break;
 
                 default: {
-                    abort();
+                    if(print_errors) {
+                        error(expression.member_reference.expression->range, "This type has no members");
+                    }
+
+                    return { false };
                 } break;
             }
         } break;
@@ -1722,15 +1663,6 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
             };
         } break;
 
-        case StatementType::Expression:
-        case StatementType::VariableDeclaration:
-        case StatementType::Assignment:
-        case StatementType::LoneIf:
-        case StatementType::WhileLoop:
-        case StatementType::Return: {
-            return { false };
-        }
-
         case StatementType::Import: {
             Declaration declaration;
             declaration.category = DeclarationCategory::FileModuleImport;
@@ -1752,7 +1684,7 @@ static Result<Declaration> create_declaration(List<const char*> *name_stack, Sta
         } break;
 
         default: {
-            abort();
+            return { false };
         } break;
     }
 }
@@ -2152,16 +2084,6 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
     }
 
     switch(type.category) {
-        case TypeCategory::Function:
-        case TypeCategory::Type:
-        case TypeCategory::Void:
-        case TypeCategory::StaticArray:
-        case TypeCategory::FileModule: {
-            error(type_range, "Invalid array type\n");
-
-            return { false };
-        } break;
-
         case TypeCategory::Integer: {
             assert(type.integer != IntegerType::Undetermined);
         } break;
@@ -2180,7 +2102,9 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
         } break;
 
         default: {
-            abort();
+            error(type_range, "Invalid array type\n");
+
+            return { false };
         } break;
     }
 
@@ -2522,7 +2446,6 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
             return false;
         } break;
 
-        case TypeCategory::StaticArray:
         default: {
             abort();
         } break;
@@ -2664,18 +2587,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
             }
 
             switch(result.value.type.category) {
-                case TypeCategory::Function:
-                case TypeCategory::Integer:
-                case TypeCategory::Boolean:
-                case TypeCategory::Type:
-                case TypeCategory::Void:
-                case TypeCategory::Pointer:
-                case TypeCategory::StaticArray: {
-                    error(expression.member_reference.expression->range, "This type has no members");
-
-                    return { false };
-                } break;
-
                 case TypeCategory::Array: {
                     if(strcmp(expression.member_reference.name.text, "length") == 0) {
                         switch(result.value.category) {
@@ -2850,7 +2761,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 } break;
 
                 default: {
-                    abort();
+                    error(expression.member_reference.expression->range, "This type has no members");
+
+                    return { false };
                 } break;
             }
         } break;
@@ -3260,19 +3173,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
                 Type result_type;
                 switch(left_result.value.type.category) {
-                    case TypeCategory::Function:
-                    case TypeCategory::Type:
-                    case TypeCategory::Void:
-                    case TypeCategory::Pointer:
-                    case TypeCategory::Array:
-                    case TypeCategory::StaticArray:
-                    case TypeCategory::Struct:
-                    case TypeCategory::FileModule: {
-                        error(expression.range, "Cannot perform binary operations on this type");
-
-                        return { false };
-                    } break;
-
                     case TypeCategory::Integer: {
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Addition: {
@@ -3348,16 +3248,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                         result_type.category = TypeCategory::Boolean;
 
                         switch(expression.binary_operation.binary_operator) {
-                            case BinaryOperator::Addition:
-                            case BinaryOperator::Subtraction:
-                            case BinaryOperator::Multiplication:
-                            case BinaryOperator::Division:
-                            case BinaryOperator::Modulo: {
-                                error(expression.range, "Cannot perform that operation on booleans");
-
-                                return { false };
-                            } break;
-
                             case BinaryOperator::Equal: {
                                 string_buffer_append(source, "==");
                             } break;
@@ -3375,13 +3265,17 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                             } break;
 
                             default: {
-                                abort();
+                                error(expression.range, "Cannot perform that operation on booleans");
+
+                                return { false };
                             } break;
                         }
                     } break;
 
                     default: {
-                        abort();
+                        error(expression.range, "Cannot perform binary operations on this type");
+
+                        return { false };
                     } break;
                 }
 
@@ -3445,19 +3339,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
                         case ExpressionValueCategory::Constant: {
                             switch(result.value.type.category) {
-                                case TypeCategory::Integer:
-                                case TypeCategory::Boolean:
-                                case TypeCategory::Void:
-                                case TypeCategory::Pointer:
-                                case TypeCategory::Array:
-                                case TypeCategory::StaticArray:
-                                case TypeCategory::Struct:
-                                case TypeCategory::FileModule: {
-                                    error(expression.unary_operation.expression->range, "Cannot take pointers to constants of this type");
-
-                                    return { false };
-                                } break;
-
                                 case TypeCategory::Function: {
                                     string_buffer_append(source, "&");
 
@@ -3488,7 +3369,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                                 } break;
 
                                 default: {
-                                    abort();
+                                    error(expression.unary_operation.expression->range, "Cannot take pointers to constants of this type");
+
+                                    return { false };
                                 } break;
                             }
                         } break;
@@ -3896,11 +3779,6 @@ static bool generate_default_value(GenerationContext *context, char **source, Ty
             return true;
         } break;
 
-        case TypeCategory::Function:
-        case TypeCategory::Type:
-        case TypeCategory::Void:
-        case TypeCategory::StaticArray:
-        case TypeCategory::FileModule:
         default: {
             abort();
         } break;

@@ -29,13 +29,6 @@ bool types_equal(Type a, Type b) {
             return a.integer == b.integer;
         } break;
 
-        case TypeCategory::Boolean:
-        case TypeCategory::Type:
-        case TypeCategory::Void:
-        case TypeCategory::FileModule: {
-            return true;
-        } break;
-
         case TypeCategory::Pointer: {
             return types_equal(*a.pointer, *b.pointer);
         } break;
@@ -53,7 +46,7 @@ bool types_equal(Type a, Type b) {
         } break;
 
         default: {
-            abort();
+            return true;
         } break;
     }
 }
