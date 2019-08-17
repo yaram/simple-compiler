@@ -3598,7 +3598,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
                     string_buffer_append(source, "(");
 
-                    generate_integer_type(source, type_result.value.integer);
+                    generate_type(context, source, source, type_result.value, expression.cast.type->range);
 
                     string_buffer_append(source, ")(");
 
