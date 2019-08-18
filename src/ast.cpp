@@ -244,7 +244,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
         } break;
 
         case ExpressionType::FunctionType: {
-            printf("FunctionDeclaration {\n");
+            printf("FunctionType {\n");
             
             indent(indentation_level + 1);
             printf("parameters: {");
