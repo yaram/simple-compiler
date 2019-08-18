@@ -92,31 +92,39 @@ int main(int argument_count, char *arguments[]) {
         total_time += time;
     }
 
-    const char *source_file_name;
+    const char *output_file_name;
     {
-        auto full_name = path_get_file_component(source_file_path);
+        auto full_name = path_get_file_component(output_file_path);
 
         auto dot_pointer = strchr(full_name, '.');
 
         if(dot_pointer == nullptr) {
-            source_file_name = full_name;
+            output_file_name = full_name;
         } else {
-            auto length = (size_t)full_name - (size_t)dot_pointer;
+            auto length = (size_t)dot_pointer - (size_t)full_name;
 
-            auto buffer = allocate<char>(length + 1);
+            if(length == 0) {
+                output_file_name = "out";
+            } else {
+                auto buffer = allocate<char>(length + 1);
 
-            strncpy(buffer, full_name, length);
+                memcpy(buffer, full_name, length);
+                buffer[length] = 0;
 
-            source_file_name = buffer;
+                output_file_name = buffer;
+            }
         }
     }
+
+    auto output_file_directory = path_get_directory_component(output_file_path);
 
     {
         auto start_time = clock();
 
         char *c_file_path_buffer{};
 
-        string_buffer_append(&c_file_path_buffer, source_file_name);
+        string_buffer_append(&c_file_path_buffer, output_file_directory);
+        string_buffer_append(&c_file_path_buffer, output_file_name);
         string_buffer_append(&c_file_path_buffer, ".c");
 
         auto c_file = fopen(c_file_path_buffer, "w");
@@ -135,7 +143,8 @@ int main(int argument_count, char *arguments[]) {
 
         string_buffer_append(&command_buffer, "clang -c -o ");
 
-        string_buffer_append(&command_buffer, source_file_name);
+        string_buffer_append(&command_buffer, output_file_directory);
+        string_buffer_append(&command_buffer, output_file_name);
         string_buffer_append(&command_buffer, ".o ");
 
         string_buffer_append(&command_buffer, c_file_path_buffer);
@@ -169,7 +178,8 @@ int main(int argument_count, char *arguments[]) {
         }
 
         string_buffer_append(&buffer, " ");
-        string_buffer_append(&buffer, source_file_name);
+        string_buffer_append(&buffer, output_file_directory);
+        string_buffer_append(&buffer, output_file_name);
         string_buffer_append(&buffer, ".o");
 
         if(system(buffer) != 0) {
