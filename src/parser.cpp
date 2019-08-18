@@ -795,16 +795,12 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
             } else if(character == '"') {
                 ungetc(character, context->source_file);
 
-                auto result = parse_string(context);
-
-                if(!result.status) {
-                    return { false };
-                }
+                expect(string, parse_string(context));
 
                 Expression expression;
-                expression.range = result.value.range;
+                expression.range = string.range;
                 expression.type = ExpressionType::StringLiteral;
-                expression.string_literal = result.value.text;
+                expression.string_literal = string.text;
 
                 append(expression_stack, expression);
             } else if(character == '(') {
@@ -846,11 +842,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                         skip_whitespace(context);
 
-                        auto result = parse_expression(context);
-
-                        if(!result.status) {
-                            return { false };
-                        }
+                        expect(first_parmameter, parse_expression(context));
 
                         skip_whitespace(context);
 
@@ -858,7 +850,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                         append(&parameters, {
                             identifier,
-                            result.value
+                            first_parmameter
                         });
 
                         while(true) {
@@ -895,17 +887,13 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                             skip_whitespace(context);
 
-                            auto result = parse_expression(context);
-
-                            if(!result.status) {
-                                return { false };
-                            }
+                            expect(expression, parse_expression(context));
 
                             skip_whitespace(context);
 
                             FunctionParameter parameter {
                                 name_result.value,
-                                result.value
+                                expression
                             };
 
                             append(&parameters, parameter);
@@ -925,16 +913,12 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                             skip_whitespace(context);
 
-                            auto result = parse_expression(context);
+                            expect(expression, parse_expression(context));
 
-                            if(!result.status) {
-                                return { false };
-                            }
+                            last_line = expression.range.end_line;
+                            last_character = expression.range.end_character;
 
-                            last_line = result.value.range.end_line;
-                            last_character = result.value.range.end_character;
-
-                            return_type = heapify(result.value);
+                            return_type = heapify(expression);
                         } else {
                             ungetc(character, context->source_file);
 
@@ -970,11 +954,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                         append(&sub_expression_stack, expression);
 
-                        auto result = parse_right_expressions(context, &sub_operation_stack, &sub_expression_stack, false);
-
-                        if(!result.status) {
-                            return { false };
-                        }
+                        expect(right_expresion, parse_right_expressions(context, &sub_operation_stack, &sub_expression_stack, false));
 
                         skip_whitespace(context);
 
@@ -982,7 +962,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                             return { false };
                         }
 
-                        append(expression_stack, result.value);
+                        append(expression_stack, right_expresion);
                     }
                 } else if(character == ')') {
                     auto last_line = context->line;
@@ -1004,16 +984,12 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                         skip_whitespace(context);
 
-                        auto result = parse_expression(context);
+                        expect(expression, parse_expression(context));
 
-                        if(!result.status) {
-                            return { false };
-                        }
+                        last_line = expression.range.end_line;
+                        last_character = expression.range.end_character;
 
-                        last_line = result.value.range.end_line;
-                        last_character = result.value.range.end_character;
-
-                        return_type = heapify(result.value);
+                        return_type = heapify(expression);
                     } else {
                         ungetc(character, context->source_file);
 
@@ -1038,11 +1014,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 } else {
                     ungetc(character, context->source_file);
 
-                    auto result = parse_expression(context);
-
-                    if(!result.status) {
-                        return { false };
-                    }
+                    expect(expression, parse_expression(context));
 
                     skip_whitespace(context);
 
@@ -1050,7 +1022,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                         return { false };
                     }
 
-                    append(expression_stack, result.value);
+                    append(expression_stack, expression);
                 }
             } else if(character == '[') {
                 context->character += 1;
@@ -1070,13 +1042,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                     ungetc(character, context->source_file);
 
                     while(true) {
-                        auto result = parse_expression(context);
+                        expect(expression, parse_expression(context));
 
-                        if(!result.status) {
-                            return { false };
-                        }
-
-                        append(&elements, result.value);
+                        append(&elements, expression);
 
                         skip_whitespace(context);
 
@@ -1173,13 +1141,9 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 ungetc(character, context->source_file);
 
                 while(true) {
-                    auto result = parse_expression(context);
+                    expect(expression, parse_expression(context));
 
-                    if(!result.status) {
-                        return { false };
-                    }
-
-                    append(&parameters, result.value);
+                    append(&parameters, expression);
 
                     skip_whitespace(context);
 
@@ -1260,11 +1224,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
             } else {
                 ungetc(character, context->source_file);
 
-                auto result = parse_expression(context);
-
-                if(!result.status) {
-                    return { false };
-                }
+                expect(expression, parse_expression(context));
 
                 skip_whitespace(context);
                 
@@ -1276,7 +1236,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 }
 
                 operation.type = OperationType::IndexReference;
-                operation.index_reference = result.value;
+                operation.index_reference = expression;
             }
 
             operation.range.end_line = last_line;
@@ -1481,11 +1441,7 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
                     append(&expression_stack, expression);
 
-                    auto result = parse_right_expressions(context, &operation_stack, &expression_stack, true);
-
-                    if(!result.status) {
-                        return { false };
-                    }
+                    expect(right_expressions, parse_right_expressions(context, &operation_stack, &expression_stack, true));
 
                     skip_whitespace(context);
 
@@ -1511,12 +1467,12 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
                         context->source_file_path,
                         first_line,
                         first_character,
-                        result.value.range.end_line,
-                        result.value.range.end_character
+                        right_expressions.range.end_line,
+                        right_expressions.range.end_character
                     };
                     statement.expression.binary_operation.binary_operator = BinaryOperator::Equal;
                     statement.expression.binary_operation.left = heapify(expression);
-                    statement.expression.binary_operation.right = heapify(result.value);
+                    statement.expression.binary_operation.right = heapify(right_expressions);
 
                     return {
                         true,
@@ -1535,11 +1491,7 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
                     skip_whitespace(context);
 
-                    auto result = parse_expression(context);
-
-                    if(!result.status) {
-                        return { false };
-                    }
+                    expect(expression, parse_expression(context));
 
                     skip_whitespace(context);
 
@@ -1560,7 +1512,7 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
                         last_character
                     };
                     statement.assignment.target = expression;
-                    statement.assignment.value = result.value;
+                    statement.assignment.value = expression;
 
                     return {
                         true,
@@ -1621,14 +1573,10 @@ static Result<Statement> continue_parsing_function_declaration(Context *context,
 
         skip_whitespace(context);
 
-        auto result = parse_expression(context);
-
-        if(!result.status) {
-            return { false };
-        }
+        expect(expression, parse_expression(context));
 
         has_return_type = true;
-        return_type = result.value;
+        return_type = expression;
 
         skip_whitespace(context);
         
@@ -1685,13 +1633,9 @@ static Result<Statement> continue_parsing_function_declaration(Context *context,
                     ungetc(character, context->source_file);
                 }
 
-                auto result = parse_statement(context);
+                expect(statement, parse_statement(context));
 
-                if(!result.status) {
-                    return { false };
-                }
-
-                append(&statement_list, result.value);
+                append(&statement_list, statement);
 
                 skip_whitespace(context);
             }
@@ -1789,11 +1733,7 @@ static Result<Statement> parse_statement(Context *context) {
         skip_whitespace(context);
 
         if(strcmp(identifier.text, "if") == 0) {
-            auto result = parse_expression(context);
-
-            if(!result.status) {
-                return { false };
-            }
+            expect(expression, parse_expression(context));
 
             skip_whitespace(context);
 
@@ -1814,19 +1754,15 @@ static Result<Statement> parse_statement(Context *context) {
                     ungetc(character, context->source_file);
                 }
 
-                auto result = parse_statement(context);
+                expect(statment, parse_statement(context));
 
-                if(!result.status) {
-                    return { false };
-                }
-
-                append(&statements, result.value);
+                append(&statements, statment);
             }
 
             Statement statement;
             statement.type = StatementType::LoneIf;
-            statement.range = result.value.range;
-            statement.lone_if.condition = result.value;
+            statement.range = expression.range;
+            statement.lone_if.condition = expression;
             statement.lone_if.statements = to_array(statements);
 
             return {
@@ -1834,11 +1770,7 @@ static Result<Statement> parse_statement(Context *context) {
                 statement
             };
         } else if(strcmp(identifier.text, "while") == 0) {
-            auto result = parse_expression(context);
-
-            if(!result.status) {
-                return { false };
-            }
+            expect(expression, parse_expression(context));
 
             skip_whitespace(context);
 
@@ -1859,19 +1791,15 @@ static Result<Statement> parse_statement(Context *context) {
                     ungetc(character, context->source_file);
                 }
 
-                auto result = parse_statement(context);
+                expect(statement, parse_statement(context));
 
-                if(!result.status) {
-                    return { false };
-                }
-
-                append(&statements, result.value);
+                append(&statements, statement);
             }
 
             Statement statement;
             statement.type = StatementType::WhileLoop;
-            statement.range = result.value.range;
-            statement.while_loop.condition = result.value;
+            statement.range = expression.range;
+            statement.while_loop.condition = expression;
             statement.while_loop.statements = to_array(statements);
 
             return {
@@ -1879,11 +1807,7 @@ static Result<Statement> parse_statement(Context *context) {
                 statement
             };
         } else if(strcmp(identifier.text, "return") == 0) {
-            auto result = parse_expression(context);
-
-            if(!result.status) {
-                return { false };
-            }
+            expect(expression, parse_expression(context));
 
             skip_whitespace(context);
             
@@ -1903,7 +1827,7 @@ static Result<Statement> parse_statement(Context *context) {
                 last_line,
                 last_character
             };
-            statement._return = result.value;
+            statement._return = expression;
 
             return {
                 true,
@@ -1955,11 +1879,7 @@ static Result<Statement> parse_statement(Context *context) {
                                     ungetc(character, context->source_file);
 
                                     while(true) {
-                                        auto name_result = expect_identifier(context);
-
-                                        if(!name_result.status) {
-                                            return { false };
-                                        }
+                                        expect(name, expect_identifier(context));
 
                                         skip_whitespace(context);
 
@@ -1969,15 +1889,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                                         skip_whitespace(context);
 
-                                        auto type_result = parse_expression(context);
-
-                                        if(!type_result.status) {
-                                            return { false };
-                                        }
+                                        expect(type, parse_expression(context));
 
                                         append(&members, {
-                                            name_result.value,
-                                            type_result.value
+                                            name,
+                                            type
                                         });
 
                                         skip_whitespace(context);
@@ -2030,11 +1946,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                                 append(&expression_stack, expression);
 
-                                auto result = parse_right_expressions(context, &operation_stack, &expression_stack, false);
-
-                                if(!result.status) {
-                                    return { false };
-                                }
+                                expect(right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, false));
 
                                 skip_whitespace(context);
 
@@ -2047,7 +1959,7 @@ static Result<Statement> parse_statement(Context *context) {
                                 statement.range = identifier.range;
                                 statement.constant_definition = {
                                     identifier,
-                                    result.value
+                                    right_expression
                                 };
 
                                 return {
@@ -2079,17 +1991,13 @@ static Result<Statement> parse_statement(Context *context) {
 
                                     skip_whitespace(context);
 
-                                    auto result = parse_expression(context);
-
-                                    if(!result.status) {
-                                        return { false };
-                                    }
+                                    expect(expression, parse_expression(context));
 
                                     List<FunctionParameter> parameters{};
 
                                     append(&parameters, FunctionParameter {
                                         first_identifier,
-                                        result.value
+                                        expression
                                     });
                                     
                                     unsigned int last_line;
@@ -2129,17 +2037,13 @@ static Result<Statement> parse_statement(Context *context) {
 
                                         skip_whitespace(context);
 
-                                        auto result = parse_expression(context);
-
-                                        if(!result.status) {
-                                            return { false };
-                                        }
+                                        expect(expression, parse_expression(context));
 
                                         skip_whitespace(context);
 
                                         FunctionParameter parameter {
                                             name_result.value,
-                                            result.value
+                                            expression
                                         };
 
                                         append(&parameters, parameter);
@@ -2172,11 +2076,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                                     append(&sub_expression_stack, expression);
 
-                                    auto result = parse_right_expressions(context, &sub_operation_stack, &sub_expression_stack, false);
-
-                                    if(!result.status) {
-                                        return { false };
-                                    }
+                                    expect(right_expression, parse_right_expressions(context, &sub_operation_stack, &sub_expression_stack, false));
 
                                     skip_whitespace(context);
 
@@ -2188,13 +2088,9 @@ static Result<Statement> parse_statement(Context *context) {
 
                                     List<Expression> expression_stack{};
 
-                                    append(&expression_stack, result.value);
+                                    append(&expression_stack, right_expression);
 
-                                    auto right_result = parse_right_expressions(context, &operation_stack, &expression_stack, false);
-
-                                    if(!right_result.status) {
-                                        return { false };
-                                    }
+                                    expect(outer_right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, false));
                                     
                                     auto last_line = context->line;
                                     auto last_character = context->character;
@@ -2214,7 +2110,7 @@ static Result<Statement> parse_statement(Context *context) {
                                     };
                                     statement.constant_definition = {
                                         identifier,
-                                        right_result.value
+                                        outer_right_expression
                                     };
 
                                     return {
@@ -2241,11 +2137,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                                 skip_whitespace(context);
 
-                                auto result = parse_expression(context);
-
-                                if(!result.status) {
-                                    return { false };
-                                }
+                                expect(expression, parse_expression(context));
 
                                 if(!expect_character(context, ')')) {
                                     return { false };
@@ -2257,13 +2149,9 @@ static Result<Statement> parse_statement(Context *context) {
 
                                 List<Expression> expression_stack{};
 
-                                append(&expression_stack, result.value);
+                                append(&expression_stack, expression);
 
-                                auto right_result = parse_right_expressions(context, &operation_stack, &expression_stack, false);
-
-                                if(!right_result.status) {
-                                    return { false };
-                                }
+                                expect(right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, false));
 
                                 auto last_line = context->line;
                                 auto last_character = context->character;
@@ -2283,7 +2171,7 @@ static Result<Statement> parse_statement(Context *context) {
                                 };
                                 statement.constant_definition = {
                                     identifier,
-                                    right_result.value
+                                    right_expression
                                 };
 
                                 return {
@@ -2294,11 +2182,7 @@ static Result<Statement> parse_statement(Context *context) {
                         } else {
                             ungetc(character, context->source_file);
 
-                            auto result = parse_expression(context);
-
-                            if(!result.status) {
-                                return { false };
-                            }
+                            expect(expression, parse_expression(context));
                             
                             auto last_line = context->line;
                             auto last_character = context->character;
@@ -2318,7 +2202,7 @@ static Result<Statement> parse_statement(Context *context) {
                             };
                             statement.constant_definition = {
                                 identifier,
-                                result.value
+                                expression
                             };
 
                             return {
@@ -2338,14 +2222,10 @@ static Result<Statement> parse_statement(Context *context) {
                         if(character != '=') {
                             ungetc(character, context->source_file);
 
-                            auto result = parse_expression(context);
-
-                            if(!result.status) {
-                                return { false };
-                            }
+                            expect(expression, parse_expression(context));
 
                             has_type = true;
-                            type = result.value;
+                            type = expression;
 
                             skip_whitespace(context);
 
@@ -2364,14 +2244,10 @@ static Result<Statement> parse_statement(Context *context) {
 
                             skip_whitespace(context);
 
-                            auto result = parse_expression(context);
-
-                            if(!result.status) {
-                                return { false };
-                            }
+                            expect(expression, parse_expression(context));
 
                             has_initializer = true;
-                            initializer = result.value;
+                            initializer = expression;
 
                             skip_whitespace(context);
                             
@@ -2469,11 +2345,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                             append(&expression_stack, expression);
 
-                            auto result = parse_right_expressions(context, &operation_stack, &expression_stack, true);
-
-                            if(!result.status) {
-                                return { false };
-                            }
+                            expect(right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, true));
 
                             skip_whitespace(context);
                             
@@ -2499,12 +2371,12 @@ static Result<Statement> parse_statement(Context *context) {
                                 context->source_file_path,
                                 after_identifier_line,
                                 after_identifier_character,
-                                result.value.range.end_line,
-                                result.value.range.end_character
+                                right_expression.range.end_line,
+                                right_expression.range.end_character
                             };
                             statement.expression.binary_operation.binary_operator = BinaryOperator::Equal;
                             statement.expression.binary_operation.left = heapify(expression);
-                            statement.expression.binary_operation.right = heapify(result.value);
+                            statement.expression.binary_operation.right = heapify(right_expression);
 
                             return {
                                 true,
@@ -2523,11 +2395,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                             skip_whitespace(context);
 
-                            auto result = parse_expression(context);
-
-                            if(!result.status) {
-                                return { false };
-                            }
+                            expect(value_expression, parse_expression(context));
 
                             skip_whitespace(context);
                             
@@ -2548,7 +2416,7 @@ static Result<Statement> parse_statement(Context *context) {
                                 last_character
                             };
                             statement.assignment.target = expression;
-                            statement.assignment.value = result.value;
+                            statement.assignment.value = value_expression;
 
                             return {
                                 true,
@@ -2578,23 +2446,15 @@ static Result<Statement> parse_statement(Context *context) {
 
                     append(&expression_stack, expression);
 
-                    auto result = parse_right_expressions(context, &operation_stack, &expression_stack, false);
-
-                    if(!result.status) {
-                        return { false };
-                    }
+                    expect(right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, false));
 
                     skip_whitespace(context);
 
-                    auto statement_result = parse_expression_statement_or_variable_assignment(context, result.value);
-
-                    if(!statement_result.status) {
-                        return { false };
-                    }
+                    expect(statement, parse_expression_statement_or_variable_assignment(context, right_expression));
 
                     return {
                         true,
-                        statement_result.value
+                        statement
                     };
                 } break;
             }
@@ -2612,30 +2472,22 @@ static Result<Statement> parse_statement(Context *context) {
             if(strcmp(identifier.text, "import") == 0) {
                 skip_whitespace(context);
 
-                auto result = parse_string(context);
+                expect(string, parse_string(context));
 
-                if(!result.status) {
-                    return { false };
-                }
-
-                auto import_path = allocate<char>(result.value.text.count + 1);
-                memcpy(import_path, result.value.text.elements, result.value.text.count);
-                import_path[result.value.text.count] = 0;
+                auto import_path = allocate<char>(string.text.count + 1);
+                memcpy(import_path, string.text.elements, string.text.count);
+                import_path[string.text.count] = 0;
 
                 auto source_file_directory = path_get_directory_component(context->source_file_path);
 
-                auto import_path_relative = allocate<char>(strlen(source_file_directory) + result.value.text.count + 1);
+                auto import_path_relative = allocate<char>(strlen(source_file_directory) + string.text.count + 1);
 
                 strcpy(import_path_relative, source_file_directory);
                 strcat(import_path_relative, import_path);
 
-                auto absolute_result = path_relative_to_absolute(import_path_relative);
+                expect(absolute, path_relative_to_absolute(import_path_relative));
 
-                if(!absolute_result.status) {
-                    return { false };
-                }
-
-                append<const char *>(context->remaining_files, absolute_result.value);
+                append<const char *>(context->remaining_files, absolute);
 
                 Statement statement;
                 statement.type = StatementType::Import;
@@ -2643,10 +2495,10 @@ static Result<Statement> parse_statement(Context *context) {
                     context->source_file_path,
                     first_line,
                     first_character,
-                    result.value.range.end_line,
-                    result.value.range.end_character
+                    string.range.end_line,
+                    string.range.end_character
                 };
-                statement.import = absolute_result.value;
+                statement.import = absolute;
 
                 return {
                     true,
@@ -2655,11 +2507,7 @@ static Result<Statement> parse_statement(Context *context) {
             } else if(strcmp(identifier.text, "library") == 0) {
                 skip_whitespace(context);
 
-                auto result = parse_string(context);
-
-                if(!result.status) {
-                    return { false };
-                }
+                expect(string, parse_string(context));
 
                 skip_whitespace(context);
 
@@ -2667,9 +2515,9 @@ static Result<Statement> parse_statement(Context *context) {
                     return { false };
                 }
 
-                auto library = allocate<char>(result.value.text.count + 1);
-                memcpy(library, result.value.text.elements, result.value.text.count);
-                library[result.value.text.count] = 0;
+                auto library = allocate<char>(string.text.count + 1);
+                memcpy(library, string.text.elements, string.text.count);
+                library[string.text.count] = 0;
 
                 Statement statement;
                 statement.type = StatementType::Library;
@@ -2677,8 +2525,8 @@ static Result<Statement> parse_statement(Context *context) {
                     context->source_file_path,
                     first_line,
                     first_character,
-                    result.value.range.end_line,
-                    result.value.range.end_character
+                    string.range.end_line,
+                    string.range.end_character
                 };
                 statement.library = library;
 
@@ -2703,35 +2551,23 @@ static Result<Statement> parse_statement(Context *context) {
     } else {
         ungetc(character, context->source_file);
 
-        auto expression_result = parse_expression(context);
+        expect(expression, parse_expression(context));
 
-        if(!expression_result.status) {
-            return { false };
-        }
-
-        auto statement_result = parse_expression_statement_or_variable_assignment(context, expression_result.value);
-
-        if(!statement_result.status) {
-            return { false };
-        }
+        expect(statement, parse_expression_statement_or_variable_assignment(context, expression));
 
         return {
             true,
-            statement_result.value
+            statement
         };
     }
 }
 
 Result<Array<File>> parse_source(const char *source_file_path) {
-    auto result = path_relative_to_absolute(source_file_path);
-
-    if(!result.status) {
-        return { false };
-    }
+    expect(absolute, path_relative_to_absolute(source_file_path));
 
     List<const char*> remaining_files{};
 
-    append<const char *>(&remaining_files, result.value);
+    append<const char *>(&remaining_files, absolute);
 
     List<File> files{};
 
@@ -2776,13 +2612,9 @@ Result<Array<File>> parse_source(const char *source_file_path) {
                     ungetc(character, source_file);
                 }
 
-                auto result = parse_statement(&context);
+                expect(statement, parse_statement(&context));
 
-                if(!result.status) {
-                    return { false };
-                }
-
-                append(&top_level_statements, result.value);
+                append(&top_level_statements, statement);
 
                 skip_whitespace(&context);
             }
