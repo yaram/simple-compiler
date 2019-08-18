@@ -9,14 +9,44 @@
 #include "platform.h"
 #include "path.h"
 
-int main(int argc, char *argv[]) {
-    if(argc < 2) {
+int main(int argument_count, char *arguments[]) {
+    const char *source_file_path = nullptr;
+#if defined(PLATFORM_UNIX)
+    const char *output_file_path = "out";
+#elif defined(PLATFORM_WINDOWS)
+    const char *output_file_path = "out.exe";
+#endif
+
+    int argument_index = 1;
+    while(argument_index < argument_count) {
+        auto argument = arguments[argument_index];
+
+        if(argument_index == argument_count - 1) {
+            source_file_path = argument;
+        } else if(strcmp(argument, "--output") == 0) {
+            argument_index += 1;
+
+            if(argument_index == argument_count - 1) {
+                fprintf(stderr, "Missing value for '--output' option\n");
+
+                return EXIT_FAILURE;
+            }
+
+            output_file_path = arguments[argument_index];
+        } else {
+            fprintf(stderr, "Unknown option '%s'\n", argument);
+
+            return EXIT_FAILURE;
+        }
+
+        argument_index += 1;
+    }
+
+    if(source_file_path == nullptr) {
         fprintf(stderr, "No source file provided\n");
 
         return EXIT_FAILURE;
     }
-
-    auto source_file_path = argv[1];
 
     clock_t total_time = 0;
 
@@ -130,11 +160,7 @@ int main(int argc, char *argv[]) {
 
         string_buffer_append(&buffer, "clang -fuse-ld=lld -o ");
 
-        string_buffer_append(&buffer, source_file_name);
-
-#if defined(PLATFORM_WINDOWS)
-        string_buffer_append(&buffer, ".exe");
-#endif
+        string_buffer_append(&buffer, output_file_path);
         
         for(auto library : c_source.libraries) {
             string_buffer_append(&buffer, " -l");
