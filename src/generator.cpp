@@ -4087,7 +4087,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
         case StatementType::WhileLoop: {
             string_buffer_append(&(context->implementation_source), "while(");
 
-            auto result = generate_runtime_expression(context, &(context->implementation_source), statement.lone_if.condition);
+            auto result = generate_runtime_expression(context, &(context->implementation_source), statement.while_loop.condition);
 
             if(!result.status) {
                 return false;
@@ -4096,7 +4096,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
             string_buffer_append(&(context->implementation_source), ")");
 
             if(result.value.type.category != TypeCategory::Boolean) {
-                error(statement.lone_if.condition.range, "Non-boolean while loop condition");
+                error(statement.while_loop.condition.range, "Non-boolean while loop condition");
 
                 return false;
             }
@@ -4105,7 +4105,7 @@ static bool generate_statement(GenerationContext *context, Statement statement) 
 
             string_buffer_append(&(context->implementation_source), "{");
 
-            for(auto child_statement : statement.lone_if.statements) {
+            for(auto child_statement : statement.while_loop.statements) {
                 if(!generate_statement(context, child_statement)) {
                     return false;
                 }
