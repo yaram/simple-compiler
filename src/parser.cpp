@@ -2569,11 +2569,17 @@ static Result<Statement> parse_statement(Context *context) {
 }
 
 Result<Array<File>> parse_source(const char *source_file_path) {
-    expect(absolute, path_relative_to_absolute(source_file_path));
+    auto result = path_relative_to_absolute(source_file_path);
+
+    if(!result.status) {
+        fprintf(stderr, "Cannot find source file '%s'\n", source_file_path);
+
+        return { false };
+    }
 
     List<const char*> remaining_files{};
 
-    append<const char *>(&remaining_files, absolute);
+    append<const char *>(&remaining_files, result.value);
 
     List<File> files{};
 
