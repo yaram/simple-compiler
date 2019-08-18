@@ -7,6 +7,7 @@
 #include "generator.h"
 #include "util.h"
 #include "platform.h"
+#include "path.h"
 
 int main(int argc, char *argv[]) {
     if(argc < 2) {
@@ -17,71 +18,121 @@ int main(int argc, char *argv[]) {
 
     auto source_file_path = argv[1];
 
-    auto parser_start_time = clock();
-    
-    auto parser_result = parse_source(source_file_path);
+    clock_t total_time = 0;
 
-    if(!parser_result.status) {
-        return EXIT_FAILURE;
+    Array<File> files;
+    {
+        auto start_time = clock();
+        
+        auto result = parse_source(source_file_path);
+
+        if(!result.status) {
+            return EXIT_FAILURE;
+        }
+
+        files = result.value;
+
+        auto end_time = clock();
+
+        auto time = end_time - start_time;
+
+        printf("Parser time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
+
+        total_time += time;
     }
 
-    auto parser_end_time = clock();
+    CSource c_source;
+    {
+        auto start_time = clock();
 
-    auto parser_time = parser_end_time - parser_start_time;
+        auto result = generate_c_source(files);
 
-    printf("Parser time: %.1fms\n", (double)parser_time / CLOCKS_PER_SEC * 1000);
+        if(!result.status) {
+            return EXIT_FAILURE;
+        }
 
-    auto generator_start_time = clock();
+        c_source = result.value;
 
-    auto generator_result = generate_c_source(parser_result.value);
+        auto end_time = clock();
 
-    if(!generator_result.status) {
-        return EXIT_FAILURE;
+        auto time = end_time - start_time;
+
+        printf("Generator time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
+
+        total_time += time;
     }
 
-    auto generator_end_time = clock();
+    {
+        auto start_time = clock();
 
-    auto generator_time = generator_end_time - generator_start_time;
+        const char *source_file_name;
+        {
+            auto full_name = path_get_file_component(source_file_path);
 
-    printf("Generator time: %.1fms\n", (double)generator_time / CLOCKS_PER_SEC * 1000);
+            auto dot_pointer = strchr(full_name, '.');
 
-    auto output_file = fopen("out.c", "w");
+            if(dot_pointer == nullptr) {
+                source_file_name = full_name;
+            } else {
+                auto length = (size_t)full_name - (size_t)dot_pointer;
 
-    fprintf(output_file, "%s", generator_result.value.source);
+                auto buffer = allocate<char>(length + 1);
 
-    fclose(output_file);
+                strncpy(buffer, full_name, length);
 
-    char *buffer{};
+                source_file_name = buffer;
+            }
+        }
 
-#if defined(PLATFORM_UNIX)
-    string_buffer_append(&buffer, "clang -o out ");
-#elif defined(PLATFORM_WINDOWS)
-    string_buffer_append(&buffer, "clang -o out.exe ");
+        char *c_file_path_buffer{};
+
+        string_buffer_append(&c_file_path_buffer, source_file_name);
+        string_buffer_append(&c_file_path_buffer, ".c");
+
+        auto c_file = fopen(c_file_path_buffer, "w");
+
+        if(c_file == nullptr) {
+            fprintf(stderr, "Unable to create C output file\n");
+
+            return EXIT_FAILURE;
+        }
+
+        fprintf(c_file, "%s", c_source.source);
+
+        fclose(c_file);
+
+        char *command_buffer{};
+
+        string_buffer_append(&command_buffer, "clang -o ");
+
+        string_buffer_append(&command_buffer, source_file_name);
+
+#if defined(PLATFORM_WINDOWS)
+        string_buffer_append(&command_buffer, ".exe");
 #endif
 
-    for(auto library : generator_result.value.libraries) {
-        string_buffer_append(&buffer, "-l");
+        for(auto library : c_source.libraries) {
+            string_buffer_append(&command_buffer, " -l ");
 
-        string_buffer_append(&buffer, library);
+            string_buffer_append(&command_buffer, library);
+        }
 
-        string_buffer_append(&buffer, " ");
+        string_buffer_append(&command_buffer, " ");
+
+        string_buffer_append(&command_buffer, c_file_path_buffer);
+
+        if(system(command_buffer) != 0) {
+            return EXIT_FAILURE;
+        }
+
+        auto end_time = clock();
+
+        auto time = end_time - start_time;
+
+        printf("Backend time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
+
+        total_time += time;
     }
-
-    string_buffer_append(&buffer, "out.c");
-
-    auto backend_start_time = clock();
-
-    if(system(buffer) != 0) {
-        return EXIT_FAILURE;
-    }
-
-    auto backend_end_time = clock();
-
-    auto backend_time = backend_end_time - backend_start_time;
-
-    printf("Backend time: %.1fms\n", (double)backend_time / CLOCKS_PER_SEC * 1000);
-
-    auto total_time = parser_time + generator_time + backend_end_time;
 
     printf("Total time: %.1fms\n", (double)total_time / CLOCKS_PER_SEC * 1000);
 
