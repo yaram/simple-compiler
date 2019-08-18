@@ -34,7 +34,7 @@ const char *path_get_file_component(const char *path) {
     auto path_file = basename(input_buffer);
 
     auto output_buffer = allocate<char>(strlen(path_file) + 1);
-    strcpy(path_file, output_buffer);
+    strcpy(output_buffer, path_file);
 
     return output_buffer;
 }
