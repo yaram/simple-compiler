@@ -62,27 +62,27 @@ int main(int argc, char *argv[]) {
         total_time += time;
     }
 
+    const char *source_file_name;
+    {
+        auto full_name = path_get_file_component(source_file_path);
+
+        auto dot_pointer = strchr(full_name, '.');
+
+        if(dot_pointer == nullptr) {
+            source_file_name = full_name;
+        } else {
+            auto length = (size_t)full_name - (size_t)dot_pointer;
+
+            auto buffer = allocate<char>(length + 1);
+
+            strncpy(buffer, full_name, length);
+
+            source_file_name = buffer;
+        }
+    }
+
     {
         auto start_time = clock();
-
-        const char *source_file_name;
-        {
-            auto full_name = path_get_file_component(source_file_path);
-
-            auto dot_pointer = strchr(full_name, '.');
-
-            if(dot_pointer == nullptr) {
-                source_file_name = full_name;
-            } else {
-                auto length = (size_t)full_name - (size_t)dot_pointer;
-
-                auto buffer = allocate<char>(length + 1);
-
-                strncpy(buffer, full_name, length);
-
-                source_file_name = buffer;
-            }
-        }
 
         char *c_file_path_buffer{};
 
@@ -103,21 +103,10 @@ int main(int argc, char *argv[]) {
 
         char *command_buffer{};
 
-        string_buffer_append(&command_buffer, "clang -o ");
+        string_buffer_append(&command_buffer, "clang -c -o ");
 
         string_buffer_append(&command_buffer, source_file_name);
-
-#if defined(PLATFORM_WINDOWS)
-        string_buffer_append(&command_buffer, ".exe");
-#endif
-
-        for(auto library : c_source.libraries) {
-            string_buffer_append(&command_buffer, " -l ");
-
-            string_buffer_append(&command_buffer, library);
-        }
-
-        string_buffer_append(&command_buffer, " ");
+        string_buffer_append(&command_buffer, ".o ");
 
         string_buffer_append(&command_buffer, c_file_path_buffer);
 
@@ -130,6 +119,42 @@ int main(int argc, char *argv[]) {
         auto time = end_time - start_time;
 
         printf("Backend time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
+
+        total_time += time;
+    }
+
+    {
+        auto start_time = clock();
+
+        char *buffer{};
+
+        string_buffer_append(&buffer, "clang -fuse-ld=lld -o ");
+
+        string_buffer_append(&buffer, source_file_name);
+
+#if defined(PLATFORM_WINDOWS)
+        string_buffer_append(&buffer, ".exe");
+#endif
+        
+        for(auto library : c_source.libraries) {
+            string_buffer_append(&buffer, " -l");
+
+            string_buffer_append(&buffer, library);
+        }
+
+        string_buffer_append(&buffer, " ");
+        string_buffer_append(&buffer, source_file_name);
+        string_buffer_append(&buffer, ".o");
+
+        if(system(buffer) != 0) {
+            return EXIT_FAILURE;
+        }
+
+        auto end_time = clock();
+
+        auto time = end_time - start_time;
+
+        printf("Linker time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
 
         total_time += time;
     }
