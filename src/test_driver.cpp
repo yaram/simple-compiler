@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include "platform.h"
 
 int main(int argc, char *argv[]) {
     if(argc != 3) {
@@ -17,7 +18,11 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    auto test_result = system("out");
+#if defined(PLATFORM_WINDOWS)
+    auto test_result = system("out.exe");
+#elif defined(PLATFORM_UNIX)
+    auto test_result = system("./out");
+#endif
 
     if(test_result != 0) {
         fprintf(stderr, "Expected 0, got %d\n", test_result);
