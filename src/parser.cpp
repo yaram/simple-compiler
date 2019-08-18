@@ -2474,6 +2474,12 @@ static Result<Statement> parse_statement(Context *context) {
 
                 expect(string, parse_string(context));
 
+                skip_whitespace(context);
+
+                if(!expect_character(context, ';')) {
+                    return { false };
+                }
+
                 auto import_path = allocate<char>(string.text.count + 1);
                 memcpy(import_path, string.text.elements, string.text.count);
                 import_path[string.text.count] = 0;
