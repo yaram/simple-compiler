@@ -1871,8 +1871,8 @@ static Result<Statement> parse_statement(Context *context) {
             Statement statement;
             statement.type = StatementType::WhileLoop;
             statement.range = result.value.range;
-            statement.lone_if.condition = result.value;
-            statement.lone_if.statements = to_array(statements);
+            statement.while_loop.condition = result.value;
+            statement.while_loop.statements = to_array(statements);
 
             return {
                 true,
