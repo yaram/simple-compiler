@@ -255,11 +255,29 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
                 for(auto parameter : expression.function_type.parameters) {
                     indent(indentation_level + 2);
                     debug_print_indentifier(parameter.name);
-                    printf(": ");
+                    printf(": {\n");
 
-                    debug_print_expression_indent(parameter.type, indentation_level + 2);
+                    indent(indentation_level + 3);
+                    printf("is_polymorphic_determiner: ");
+
+                    if(parameter.is_polymorphic_determiner) {
+                        printf("true\n");
+
+                        indent(indentation_level + 3);
+                        printf("polymorphic_determiner: ");
+                        debug_print_indentifier(parameter.polymorphic_determiner);
+                    } else {
+                        printf("false\n");
+
+                        indent(indentation_level + 3);
+                        printf("type: ");
+                        debug_print_expression_indent(parameter.type, indentation_level + 3);
+                    }
 
                     printf("\n");
+
+                    indent(indentation_level + 2);
+                    printf("}\n");
                 }
 
                 indent(indentation_level + 1);
@@ -307,11 +325,29 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
                 for(auto parameter : statement.function_declaration.parameters) {
                     indent(indentation_level + 2);
                     debug_print_indentifier(parameter.name);
-                    printf(": ");
+                    printf(": {\n");
 
-                    debug_print_expression_indent(parameter.type, indentation_level + 2);
+                    indent(indentation_level + 3);
+                    printf("is_polymorphic_determiner: ");
+
+                    if(parameter.is_polymorphic_determiner) {
+                        printf("true\n");
+
+                        indent(indentation_level + 3);
+                        printf("polymorphic_determiner: ");
+                        debug_print_indentifier(parameter.polymorphic_determiner);
+                    } else {
+                        printf("false\n");
+
+                        indent(indentation_level + 3);
+                        printf("type: ");
+                        debug_print_expression_indent(parameter.type, indentation_level + 3);
+                    }
 
                     printf("\n");
+
+                    indent(indentation_level + 2);
+                    printf("}\n");
                 }
 
                 indent(indentation_level + 1);

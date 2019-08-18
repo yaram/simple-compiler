@@ -633,6 +633,57 @@ static Result<String> parse_string(Context *context) {
 
 static Result<Expression> parse_expression(Context *context);
 
+static Result<FunctionParameter> parse_function_parameter(Context *context) {
+    expect(identifier, expect_identifier(context));
+
+    skip_whitespace(context);
+
+    if(!expect_character(context, ':')) {
+        return { false };
+    }
+
+    skip_whitespace(context);
+
+    auto character = fgetc(context->source_file);
+
+    FunctionParameter parameter = {
+        identifier
+    };
+
+    switch(character) {
+        case '$': {
+            context->character += 1;
+
+            skip_whitespace(context);
+
+            expect(name, expect_identifier(context));
+
+            parameter.is_polymorphic_determiner = true;
+            parameter.polymorphic_determiner = name;
+        } break;
+
+        case EOF: {
+            error(*context, "Unexpected End of File");
+
+            return { false };
+        } break;
+
+        default: {
+            ungetc(character, context->source_file);
+
+            expect(expression, parse_expression(context));
+
+            parameter.is_polymorphic_determiner = false;
+            parameter.type = expression;
+        } break;
+    }
+
+    return {
+        true,
+        parameter
+    };
+}
+
 static Result<Expression> parse_right_expressions(Context *context, List<Operation> *operation_stack, List<Expression> *expression_stack, bool start_with_non_left_recursive) {
     auto expect_non_left_recursive = start_with_non_left_recursive;
 
@@ -842,16 +893,45 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                         skip_whitespace(context);
 
-                        expect(first_parmameter, parse_expression(context));
+                        auto character = fgetc(context->source_file);
+
+                        FunctionParameter first_parameter = {
+                            identifier
+                        };
+
+                        switch(character) {
+                            context->character += 1;
+
+                            case '$': {
+                                skip_whitespace(context);
+
+                                expect(name, expect_identifier(context));
+
+                                first_parameter.is_polymorphic_determiner = true;
+                                first_parameter.polymorphic_determiner = name;
+                            } break;
+
+                            case EOF: {
+                                error(*context, "Unexpected End of File");
+
+                                return { false };
+                            } break;
+
+                            default: {
+                                ungetc(character, context->source_file);
+
+                                expect(expression, parse_expression(context));
+
+                                first_parameter.is_polymorphic_determiner = false;
+                                first_parameter.type = expression;
+                            } break;
+                        }
 
                         skip_whitespace(context);
 
                         List<FunctionParameter> parameters{};
 
-                        append(&parameters, {
-                            identifier,
-                            first_parmameter
-                        });
+                        append(&parameters, first_parameter);
 
                         while(true) {
                             auto character = fgetc(context->source_file);
@@ -877,31 +957,14 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                                 return { false };
                             }
 
-                            auto name_result = expect_identifier(context);
-
-                            skip_whitespace(context);
-
-                            if(!expect_character(context, ':')) {
-                                return { false };
-                            }
-
-                            skip_whitespace(context);
-
-                            expect(expression, parse_expression(context));
-
-                            skip_whitespace(context);
-
-                            FunctionParameter parameter {
-                                name_result.value,
-                                expression
-                            };
+                            expect(parameter, parse_function_parameter(context));
 
                             append(&parameters, parameter);
                         }
 
                         skip_whitespace(context);
 
-                        auto character = fgetc(context->source_file);
+                        character = fgetc(context->source_file);
 
                         Expression *return_type;
                         if(character == '-') {
@@ -1991,14 +2054,45 @@ static Result<Statement> parse_statement(Context *context) {
 
                                     skip_whitespace(context);
 
-                                    expect(expression, parse_expression(context));
+                                    auto character = fgetc(context->source_file);
+
+                                    FunctionParameter first_parameter = {
+                                        first_identifier
+                                    };
+
+                                    switch(character) {
+                                        context->character += 1;
+
+                                        case '$': {
+                                            skip_whitespace(context);
+
+                                            expect(name, expect_identifier(context));
+
+                                            first_parameter.is_polymorphic_determiner = true;
+                                            first_parameter.polymorphic_determiner = name;
+                                        } break;
+
+                                        case EOF: {
+                                            error(*context, "Unexpected End of File");
+
+                                            return { false };
+                                        } break;
+
+                                        default: {
+                                            ungetc(character, context->source_file);
+
+                                            expect(expression, parse_expression(context));
+
+                                            first_parameter.is_polymorphic_determiner = false;
+                                            first_parameter.type = expression;
+                                        } break;
+                                    }
+
+                                    skip_whitespace(context);
 
                                     List<FunctionParameter> parameters{};
 
-                                    append(&parameters, FunctionParameter {
-                                        first_identifier,
-                                        expression
-                                    });
+                                    append(&parameters, first_parameter);
                                     
                                     unsigned int last_line;
                                     unsigned int last_character;
@@ -2027,24 +2121,7 @@ static Result<Statement> parse_statement(Context *context) {
                                             return { false };
                                         }
 
-                                        auto name_result = expect_identifier(context);
-
-                                        skip_whitespace(context);
-
-                                        if(!expect_character(context, ':')) {
-                                            return { false };
-                                        }
-
-                                        skip_whitespace(context);
-
-                                        expect(expression, parse_expression(context));
-
-                                        skip_whitespace(context);
-
-                                        FunctionParameter parameter {
-                                            name_result.value,
-                                            expression
-                                        };
+                                        expect(parameter, parse_function_parameter(context));
 
                                         append(&parameters, parameter);
                                     }

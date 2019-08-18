@@ -149,7 +149,13 @@ struct StructMember {
 struct FunctionParameter {
     Identifier name;
 
-    Expression type;
+    bool is_polymorphic_determiner;
+
+    union {
+        Expression type;
+
+        Identifier polymorphic_determiner;
+    };
 };
 
 struct Statement {
