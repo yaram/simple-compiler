@@ -1491,7 +1491,7 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
 
                     skip_whitespace(context);
 
-                    expect(expression, parse_expression(context));
+                    expect(value_expression, parse_expression(context));
 
                     skip_whitespace(context);
 
@@ -1512,7 +1512,7 @@ static Result<Statement> parse_expression_statement_or_variable_assignment(Conte
                         last_character
                     };
                     statement.assignment.target = expression;
-                    statement.assignment.value = expression;
+                    statement.assignment.value = value_expression;
 
                     return {
                         true,
