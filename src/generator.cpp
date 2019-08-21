@@ -268,27 +268,38 @@ static Array<Declaration> get_declaration_children(Declaration declaration) {
 }
 
 static Result<Declaration> lookup_declaration(Declaration from, const char *name) {
-    auto current = from;
-
-    while(!current.is_top_level) {
-        for(auto child : get_declaration_children(current)) {
-            if(strcmp(child.name.text, name) == 0) {
+    if(from.is_top_level) {
+        for(auto declaration : from.file_module) {
+            if(strcmp(declaration.name.text, name) == 0) {
                 return {
                     true,
-                    child
+                    declaration
                 };
             }
         }
+    } else {
+        auto current = *from.parent;
 
-        current = *current.parent;
-    }
+        while(!current.is_top_level) {
+            for(auto child : get_declaration_children(current)) {
+                if(strcmp(child.name.text, name) == 0) {
+                    return {
+                        true,
+                        child
+                    };
+                }
+            }
 
-    for(auto declaration : current.file_module) {
-        if(strcmp(declaration.name.text, name) == 0) {
-            return {
-                true,
-                declaration
-            };
+            current = *current.parent;
+        }
+
+        for(auto declaration : current.file_module) {
+            if(strcmp(declaration.name.text, name) == 0) {
+                return {
+                    true,
+                    declaration
+                };
+            }
         }
     }
 
