@@ -148,9 +148,6 @@ struct GenerationContext {
 
     Type return_type;
 
-    char *forward_declaration_source;
-    char *implementation_source;
-
     List<const char*> global_names;
 
     List<List<Variable>> variable_context_stack;
@@ -3573,14 +3570,14 @@ static bool generate_default_value(GenerationContext *context, char **source, Ty
     }
 }
 
-static bool generate_statement(GenerationContext *context, Declaration from, Statement statement) {
+static bool generate_statement(GenerationContext *context, char **source, Declaration from, Statement statement) {
     switch(statement.type) {
         case StatementType::Expression: {
-            if(!generate_expression(context, from, &(context->implementation_source), statement.expression).status) {
+            if(!generate_expression(context, from, source, statement.expression).status) {
                 return false;
             }
 
-            string_buffer_append(&(context->implementation_source), ";");
+            string_buffer_append(source, ";");
 
             return true;
         } break;
@@ -3595,27 +3592,27 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
                     }
 
                     char *type_suffix_source{};
-                    if(!generate_type(context, &(context->implementation_source), &type_suffix_source, type, statement.variable_declaration.uninitialized.range)) {
+                    if(!generate_type(context, source, &type_suffix_source, type, statement.variable_declaration.uninitialized.range)) {
                         return false;
                     }
 
-                    string_buffer_append(&(context->implementation_source), " ");
+                    string_buffer_append(source, " ");
 
-                    string_buffer_append(&(context->implementation_source), statement.variable_declaration.name.text);
+                    string_buffer_append(source, statement.variable_declaration.name.text);
 
                     if(type_suffix_source != nullptr) {
-                        string_buffer_append(&(context->implementation_source), " ");
+                        string_buffer_append(source, " ");
 
-                        string_buffer_append(&(context->implementation_source), type_suffix_source);
+                        string_buffer_append(source, type_suffix_source);
                     }
 
-                    string_buffer_append(&(context->implementation_source), "=");
+                    string_buffer_append(source, "=");
 
-                    if(!generate_default_value(context, &(context->implementation_source), type, statement.variable_declaration.uninitialized.range)) {
+                    if(!generate_default_value(context, source, type, statement.variable_declaration.uninitialized.range)) {
                         return false;
                     }
 
-                    string_buffer_append(&(context->implementation_source), ";");
+                    string_buffer_append(source, ";");
 
                     return true;
                 } break;
@@ -3637,30 +3634,30 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
                     }
                     
                     char *type_suffix_source{};
-                    if(!generate_type(context, &(context->implementation_source), &type_suffix_source, actual_type, statement.variable_declaration.type_elided.range)) {
+                    if(!generate_type(context, source, &type_suffix_source, actual_type, statement.variable_declaration.type_elided.range)) {
                         return false;
                     }
 
-                    string_buffer_append(&(context->implementation_source), " ");
+                    string_buffer_append(source, " ");
 
-                    string_buffer_append(&(context->implementation_source), statement.variable_declaration.name.text);
+                    string_buffer_append(source, statement.variable_declaration.name.text);
 
                     if(type_suffix_source != nullptr) {
-                        string_buffer_append(&(context->implementation_source), " ");
+                        string_buffer_append(source, " ");
 
-                        string_buffer_append(&(context->implementation_source), type_suffix_source);
+                        string_buffer_append(source, type_suffix_source);
                     }
                     
-                    string_buffer_append(&(context->implementation_source), "=");
+                    string_buffer_append(source, "=");
 
                     if(initial_value.category == ExpressionValueCategory::Constant) {
                         if(initial_value.type.category == TypeCategory::StaticArray) {
-                            string_buffer_append(&(context->implementation_source), "{");
+                            string_buffer_append(source, "{");
 
                             for(size_t i = 0; i < initial_value.type.static_array.length; i += 1) {
                                 if(!generate_constant_value(
                                     context,
-                                    &(context->implementation_source),
+                                    source,
                                     *initial_value.type.static_array.type,
                                     initial_value.constant.static_array[i],
                                     statement.variable_declaration.type_elided.range
@@ -3669,15 +3666,15 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
                                 }
 
                                 if(i != initial_value.type.static_array.length - 1) {
-                                    string_buffer_append(&(context->implementation_source), ",");
+                                    string_buffer_append(source, ",");
                                 }
                             }
 
-                            string_buffer_append(&(context->implementation_source), "}");
+                            string_buffer_append(source, "}");
                         } else {
                             if(!generate_constant_value(
                                 context,
-                                &(context->implementation_source),
+                                source,
                                 initial_value.type,
                                 initial_value.constant,
                                 statement.variable_declaration.type_elided.range
@@ -3686,10 +3683,10 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
                             }
                         }
                     } else {
-                        string_buffer_append(&(context->implementation_source), initializer_source);
+                        string_buffer_append(source, initializer_source);
                     }
 
-                    string_buffer_append(&(context->implementation_source), ";");
+                    string_buffer_append(source, ";");
 
                     return true;
                 } break;
@@ -3718,30 +3715,30 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
                     }
 
                     char *type_suffix_source{};
-                    if(!generate_type(context, &(context->implementation_source), &type_suffix_source, type, statement.variable_declaration.fully_specified.type.range)) {
+                    if(!generate_type(context, source, &type_suffix_source, type, statement.variable_declaration.fully_specified.type.range)) {
                         return false;
                     }
 
-                    string_buffer_append(&(context->implementation_source), " ");
+                    string_buffer_append(source, " ");
 
-                    string_buffer_append(&(context->implementation_source), statement.variable_declaration.name.text);
+                    string_buffer_append(source, statement.variable_declaration.name.text);
 
                     if(type_suffix_source != nullptr) {
-                        string_buffer_append(&(context->implementation_source), " ");
+                        string_buffer_append(source, " ");
 
-                        string_buffer_append(&(context->implementation_source), type_suffix_source);
+                        string_buffer_append(source, type_suffix_source);
                     }
                     
-                    string_buffer_append(&(context->implementation_source), "=");
+                    string_buffer_append(source, "=");
 
                     if(initial_value.category == ExpressionValueCategory::Constant) {
                         if(initial_value.type.category == TypeCategory::StaticArray) {
-                            string_buffer_append(&(context->implementation_source), "{");
+                            string_buffer_append(source, "{");
 
                             for(size_t i = 0; i < initial_value.type.static_array.length; i += 1) {
                                 if(!generate_constant_value(
                                     context,
-                                    &(context->implementation_source),
+                                    source,
                                     *initial_value.type.static_array.type,
                                     initial_value.constant.static_array[i],
                                     statement.variable_declaration.fully_specified.initializer.range
@@ -3750,15 +3747,15 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
                                 }
 
                                 if(i != initial_value.type.static_array.length - 1) {
-                                    string_buffer_append(&(context->implementation_source), ",");
+                                    string_buffer_append(source, ",");
                                 }
                             }
 
-                            string_buffer_append(&(context->implementation_source), "}");
+                            string_buffer_append(source, "}");
                         } else {
                             if(!generate_constant_value(
                                 context,
-                                &(context->implementation_source),
+                                source,
                                 initial_value.type,
                                 initial_value.constant,
                                 statement.variable_declaration.fully_specified.initializer.range
@@ -3767,10 +3764,10 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
                             }
                         }
                     } else {
-                        string_buffer_append(&(context->implementation_source), initializer_source);
+                        string_buffer_append(source, initializer_source);
                     }
 
-                    string_buffer_append(&(context->implementation_source), ";");
+                    string_buffer_append(source, ";");
 
                     return true;
                 } break;
@@ -3782,7 +3779,7 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
         } break;
 
         case StatementType::Assignment: {
-            expect(target, generate_expression(context, from, &(context->implementation_source), statement.assignment.target));
+            expect(target, generate_expression(context, from, source, statement.assignment.target));
 
             if(target.category != ExpressionValueCategory::Assignable) {
                 error(statement.assignment.target.range, "Value is not assignable");
@@ -3790,9 +3787,9 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
                 return false;
             }
 
-            string_buffer_append(&(context->implementation_source), "=");
+            string_buffer_append(source, "=");
 
-            expect(value, generate_runtime_expression(context, from, &(context->implementation_source), statement.assignment.value));
+            expect(value, generate_runtime_expression(context, from, source, statement.assignment.value));
             
             if(
                 !(
@@ -3807,17 +3804,17 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
                 return false;
             }
 
-            string_buffer_append(&(context->implementation_source), ";");
+            string_buffer_append(source, ";");
 
             return true;
         } break;
 
         case StatementType::LoneIf: {
-            string_buffer_append(&(context->implementation_source), "if(");
+            string_buffer_append(source, "if(");
 
-            expect(condition, generate_runtime_expression(context, from, &(context->implementation_source), statement.lone_if.condition));
+            expect(condition, generate_runtime_expression(context, from, source, statement.lone_if.condition));
 
-            string_buffer_append(&(context->implementation_source), ")");
+            string_buffer_append(source, ")");
 
             if(condition.type.category != TypeCategory::Boolean) {
                 error(statement.lone_if.condition.range, "Non-boolean if statement condition");
@@ -3827,15 +3824,15 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
 
             append(&(context->variable_context_stack), List<Variable>{});
 
-            string_buffer_append(&(context->implementation_source), "{");
+            string_buffer_append(source, "{");
 
             for(auto child_statement : statement.lone_if.statements) {
-                if(!generate_statement(context, from, child_statement)) {
+                if(!generate_statement(context, source, from, child_statement)) {
                     return false;
                 }
             }
 
-            string_buffer_append(&(context->implementation_source), "}");
+            string_buffer_append(source, "}");
 
             context->variable_context_stack.count -= 1;
 
@@ -3843,11 +3840,11 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
         } break;
 
         case StatementType::WhileLoop: {
-            string_buffer_append(&(context->implementation_source), "while(");
+            string_buffer_append(source, "while(");
 
-            expect(condition, generate_runtime_expression(context, from, &(context->implementation_source), statement.while_loop.condition));
+            expect(condition, generate_runtime_expression(context, from, source, statement.while_loop.condition));
 
-            string_buffer_append(&(context->implementation_source), ")");
+            string_buffer_append(source, ")");
 
             if(condition.type.category != TypeCategory::Boolean) {
                 error(statement.while_loop.condition.range, "Non-boolean while loop condition");
@@ -3857,15 +3854,15 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
 
             append(&(context->variable_context_stack), List<Variable>{});
 
-            string_buffer_append(&(context->implementation_source), "{");
+            string_buffer_append(source, "{");
 
             for(auto child_statement : statement.while_loop.statements) {
-                if(!generate_statement(context, from, child_statement)) {
+                if(!generate_statement(context, source, from, child_statement)) {
                     return false;
                 }
             }
 
-            string_buffer_append(&(context->implementation_source), "}");
+            string_buffer_append(source, "}");
 
             context->variable_context_stack.count -= 1;
 
@@ -3873,7 +3870,7 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
         } break;
 
         case StatementType::Return: {
-            string_buffer_append(&(context->implementation_source), "return ");
+            string_buffer_append(source, "return ");
 
             char *expression_source{};
             expect(expression_value, generate_runtime_expression(context, from, &expression_source, statement._return));
@@ -3891,9 +3888,9 @@ static bool generate_statement(GenerationContext *context, Declaration from, Sta
                 return { false };
             }
 
-            string_buffer_append(&(context->implementation_source), expression_source);
+            string_buffer_append(source, expression_source);
 
-            string_buffer_append(&(context->implementation_source), ";");
+            string_buffer_append(source, ";");
 
             return true;
         } break;
@@ -3964,7 +3961,7 @@ static bool generate_function_signature(GenerationContext *context, char **sourc
     return true;
 }
 
-static bool generate_declaration(GenerationContext *context, Declaration declaration) {
+static bool generate_declaration(GenerationContext *context, char **forward_declaration_source, char **implementation_source, Declaration declaration) {
     expect(value, resolve_declaration(context, declaration, true));
 
     switch(declaration.category) {
@@ -3975,7 +3972,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
 
             if(!generate_function_signature(
                 context,
-                &(context->forward_declaration_source),
+                forward_declaration_source,
                 declaration.function_definition.mangled_name,
                 value.type,
                 declaration.name.range,
@@ -3984,17 +3981,17 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
                 return false;
             }
 
-            string_buffer_append(&(context->forward_declaration_source), ";");
+            string_buffer_append(forward_declaration_source, ";");
 
             for(auto child_declaration : declaration.function_definition.declarations) {
-                if(!generate_declaration(context, child_declaration)) {
+                if(!generate_declaration(context, forward_declaration_source, implementation_source, child_declaration)) {
                     return false;
                 }
             }
 
             if(!generate_function_signature(
                 context,
-                &(context->implementation_source),
+                implementation_source,
                 declaration.function_definition.mangled_name,
                 value.type,
                 declaration.name.range,
@@ -4003,7 +4000,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
                 return false;
             }
 
-            string_buffer_append(&(context->implementation_source), "{");
+            string_buffer_append(implementation_source, "{");
 
             append(&(context->variable_context_stack), List<Variable>{});
 
@@ -4018,14 +4015,14 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
             }
 
             for(auto statement : declaration.function_definition.statements) {
-                if(!generate_statement(context, declaration, statement)) {
+                if(!generate_statement(context, implementation_source, declaration, statement)) {
                     return false;
                 }
             }
 
             context->variable_context_stack.count -= 1;
 
-            string_buffer_append(&(context->implementation_source), "}");
+            string_buffer_append(implementation_source, "}");
 
             return true;
         } break;
@@ -4037,7 +4034,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
 
             if(!generate_function_signature(
                 context,
-                &(context->forward_declaration_source),
+                forward_declaration_source,
                 declaration.name.text,
                 value.type,
                 declaration.name.range,
@@ -4046,7 +4043,7 @@ static bool generate_declaration(GenerationContext *context, Declaration declara
                 return false;
             }
 
-            string_buffer_append(&(context->forward_declaration_source), ";");
+            string_buffer_append(forward_declaration_source, ";");
 
             return true;
         } break;
@@ -4212,11 +4209,14 @@ Result<CSource> generate_c_source(Array<File> files) {
         }
     };
 
+    char *forward_declaration_source{};
+    char *implementation_source{};
+
     for(size_t i = 0; i < files.count; i += 1) {
         auto file_module = file_modules[i];
 
         for(auto declaration : file_module.declarations) {
-            if(!generate_declaration(&context, declaration)) {
+            if(!generate_declaration(&context, &forward_declaration_source, &implementation_source, declaration)) {
                 return { false };
             }
         }
@@ -4328,12 +4328,12 @@ Result<CSource> generate_c_source(Array<File> files) {
         string_buffer_append(&full_source, "};");
     }
 
-    if(context.forward_declaration_source != nullptr) {
-        string_buffer_append(&full_source, context.forward_declaration_source);
+    if(forward_declaration_source != nullptr) {
+        string_buffer_append(&full_source, forward_declaration_source);
     }
 
-    if(context.implementation_source != nullptr) {
-        string_buffer_append(&full_source, context.implementation_source);
+    if(implementation_source != nullptr) {
+        string_buffer_append(&full_source, implementation_source);
     }
 
     return {
