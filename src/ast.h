@@ -158,10 +158,20 @@ struct FunctionParameter {
     };
 };
 
+struct File;
+
 struct Statement {
     StatementType type;
 
     FileRange range;
+
+    bool is_top_level;
+
+    union {
+        File *file;
+
+        Statement *parent;
+    };
 
     union {
         struct {
@@ -233,6 +243,12 @@ struct Statement {
 
         const char *library;
     };
+};
+
+struct File {
+    const char *path;
+
+    Array<Statement> statements;
 };
 
 void debug_print_statement(Statement statement);
