@@ -61,7 +61,6 @@ single_file_test(function_parameters)
 multi_file_test(imports)
 
 single_file_test(if_statements)
-single_file_test(while_statements)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     single_file_test(extern_libs_win32)
@@ -88,3 +87,5 @@ single_file_test(integer_casts)
 single_file_test(pointer_casts)
 
 single_file_test(type_elision)
+
+single_file_test(while_statements)
