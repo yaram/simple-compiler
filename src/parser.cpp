@@ -2568,6 +2568,39 @@ static Result<Statement> parse_statement(Context *context) {
     }
 }
 
+void set_statement_parents(Statement *statement) {
+    switch(statement->type) {
+        case StatementType::FunctionDeclaration: {
+            if(!statement->function_declaration.is_external) {
+                for(auto &child : statement->function_declaration.statements) {
+                    child.is_top_level = false;
+                    child.parent = statement;
+
+                    set_statement_parents(&child);
+                }
+            }
+        } break;
+
+        case StatementType::LoneIf: {
+            for(auto &child : statement->lone_if.statements) {
+                child.is_top_level = false;
+                child.parent = statement;
+
+                set_statement_parents(&child);
+            }
+        } break;
+       
+        case StatementType::WhileLoop: {
+            for(auto &child : statement->while_loop.statements) {
+                child.is_top_level = false;
+                child.parent = statement;
+
+                set_statement_parents(&child);
+            }
+        } break;
+    }
+}
+
 Result<Array<File>> parse_source(const char *source_file_path) {
     auto result = path_relative_to_absolute(source_file_path);
 
@@ -2635,6 +2668,15 @@ Result<Array<File>> parse_source(const char *source_file_path) {
                 source_file_path,
                 to_array(top_level_statements)
             });
+        }
+    }
+
+    for(auto &file : files) {
+        for(auto &statement : file.statements) {
+            statement.is_top_level = true;
+            statement.file = &file;
+
+            set_statement_parents(&statement);
         }
     }
 
