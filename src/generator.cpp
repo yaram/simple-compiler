@@ -14,8 +14,6 @@ const FileRange generated_range {
     0
 };
 
-struct Declaration;
-
 union ConstantValue {
     const char *function;
 
@@ -33,75 +31,13 @@ union ConstantValue {
 
     ConstantValue *_struct;
 
-    Array<Declaration> file_module;
+    Array<Statement> file_module;
 };
 
 struct TypedConstantValue {
     Type type;
 
     ConstantValue value;
-};
-
-enum struct DeclarationCategory {
-    FunctionDefinition,
-    ExternalFunction,
-    ConstantDefinition,
-    StructDefinition,
-    FileModuleImport,
-};
-
-struct Declaration {
-    DeclarationCategory category;
-
-    Identifier name;
-
-    bool is_top_level;
-
-    union {
-        Array<Declaration> file_module;
-
-        Declaration *parent;
-    };
-
-    union {
-        struct {
-            const char *mangled_name;
-
-            Array<FunctionParameter> parameters;
-
-            bool has_return_type;
-            Expression return_type;
-
-            Array<Declaration> declarations;
-
-            Array<Statement> statements;
-        } function_definition;
-
-        struct {
-            Array<FunctionParameter> parameters;
-
-            bool has_return_type;
-            Expression return_type;
-        } external_function;
-
-        Expression constant_definition;
-
-        struct {
-            const char *mangled_name;
-
-            Array<StructMember> members;
-        } struct_definition;
-
-        const char *file_module_import;
-    };
-};
-
-struct FileModule {
-    const char *path;
-
-    Array<Declaration> declarations;
-
-    Array<Statement> compiler_directives;
 };
 
 struct GlobalConstant {
@@ -171,7 +107,7 @@ struct RuntimeFunction {
 
     Array<Statement> statements;
 
-    Declaration declaration;
+    Statement declaration;
 };
 
 struct GenerationContext {
@@ -181,7 +117,7 @@ struct GenerationContext {
 
     Array<GlobalConstant> global_constants;
 
-    Array<FileModule> file_modules;
+    Array<File> file_modules;
 
     Type return_type;
 
@@ -287,25 +223,45 @@ static void error(FileRange range, const char *format, ...) {
     va_end(arguments);
 }
 
-static Array<Declaration> get_declaration_children(Declaration declaration) {
-    switch(declaration.category) {
-        case DeclarationCategory::FunctionDefinition: {
-            return declaration.function_definition.declarations;
+static bool match_declaration(Statement statement, const char *name) {
+    switch(statement.type) {
+        case StatementType::FunctionDeclaration: {
+            if(strcmp(statement.function_declaration.name.text, name) == 0) {
+                return true;
+            }
         } break;
 
-        default: {
-            return Array<Declaration>{};
+        case StatementType::ConstantDefinition: {
+            if(strcmp(statement.constant_definition.name.text, name) == 0) {
+                return true;
+            }
+        } break;
+
+        case StatementType::StructDefinition: {
+            if(strcmp(statement.struct_definition.name.text, name) == 0) {
+                return true;
+            }
+        } break;
+
+        case StatementType::Import: {
+            auto import_name = path_get_file_component(statement.import);
+
+            if(strcmp(import_name, name) == 0) {
+                return true;
+            }
         } break;
     }
+
+    return false;
 }
 
-static Result<Declaration> lookup_declaration(Declaration from, const char *name) {
+static Result<Statement> lookup_declaration(Statement from, const char *name) {
     if(from.is_top_level) {
-        for(auto declaration : from.file_module) {
-            if(strcmp(declaration.name.text, name) == 0) {
+        for(auto statement : from.file->statements) {
+            if(match_declaration(statement, name)) {
                 return {
                     true,
-                    declaration
+                    statement
                 };
             }
         }
@@ -313,23 +269,31 @@ static Result<Declaration> lookup_declaration(Declaration from, const char *name
         auto current = *from.parent;
 
         while(!current.is_top_level) {
-            for(auto child : get_declaration_children(current)) {
-                if(strcmp(child.name.text, name) == 0) {
-                    return {
-                        true,
-                        child
-                    };
+            switch(current.type) {
+                case StatementType::FunctionDeclaration: {
+                    for(auto statement : current.function_declaration.statements) {
+                        if(match_declaration(statement, name)) {
+                            return {
+                                true,
+                                statement
+                            };
+                        }
+                    }
+                } break;
+
+                default: {
+                    abort();
                 }
             }
 
             current = *current.parent;
         }
 
-        for(auto declaration : current.file_module) {
-            if(strcmp(declaration.name.text, name) == 0) {
+        for(auto statement : current.file->statements) {
+            if(match_declaration(statement, name)) {
                 return {
                     true,
-                    declaration
+                    statement
                 };
             }
         }
@@ -483,11 +447,11 @@ static ConstantValue compiler_size_to_native_size(GenerationContext context, siz
     return value;
 }
 
-static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Declaration from, Expression expression, bool print_errors);
+static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Statement from, Expression expression, bool print_errors);
 
-static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Declaration declaration, bool print_errors);
+static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Statement declaration, bool print_errors);
 
-static Result<TypedConstantValue> resolve_constant_named_reference(GenerationContext *context, Declaration from, Identifier name, bool print_errors) {
+static Result<TypedConstantValue> resolve_constant_named_reference(GenerationContext *context, Statement from, Identifier name, bool print_errors) {
     auto result = lookup_declaration(from, name.text);
 
     if(!result.status) {
@@ -1093,9 +1057,9 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
     };
 }
 
-static Result<Type> evaluate_type_expression(GenerationContext *context, Declaration from, Expression expression, bool print_errors);
+static Result<Type> evaluate_type_expression(GenerationContext *context, Statement from, Expression expression, bool print_errors);
 
-static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Declaration from, Expression expression, bool print_errors) {
+static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Statement from, Expression expression, bool print_errors) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             return resolve_constant_named_reference(context, from, expression.named_reference, print_errors);
@@ -1160,9 +1124,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 } break;
 
                 case TypeCategory::FileModule: {
-                    for(auto declaration : expression_value.value.file_module) {
-                        if(strcmp(declaration.name.text, expression.member_reference.name.text) == 0) {
-                            expect(value, resolve_declaration(context, declaration, print_errors));
+                    for(auto statement : expression_value.value.file_module) {
+                        if(match_declaration(statement, expression.member_reference.name.text)) {
+                            expect(value, resolve_declaration(context, statement, print_errors));
 
                             return {
                                 true,
@@ -1569,7 +1533,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
     }
 }
 
-static Result<Type> evaluate_type_expression(GenerationContext *context, Declaration from, Expression expression, bool print_errors) {
+static Result<Type> evaluate_type_expression(GenerationContext *context, Statement from, Expression expression, bool print_errors) {
     expect(expression_value, evaluate_constant_expression(context, from, expression, print_errors));
 
     if(expression_value.type.category != TypeCategory::Type) {
@@ -1584,144 +1548,6 @@ static Result<Type> evaluate_type_expression(GenerationContext *context, Declara
         true,
         expression_value.value.type
     };
-}
-
-static Result<Declaration> create_declaration(List<const char*> *name_stack, Statement statement) {
-    switch(statement.type) {
-        case StatementType::FunctionDeclaration: {
-            if(statement.function_declaration.is_external) {
-                Declaration declaration;
-                declaration.category = DeclarationCategory::ExternalFunction;
-                declaration.name = statement.function_declaration.name;
-
-                declaration.external_function = {
-                    statement.function_declaration.parameters,
-                    statement.function_declaration.has_return_type,
-                    statement.function_declaration.return_type
-                };
-
-                return {
-                    true,
-                    declaration
-                };
-            } else {
-                List<Declaration> child_declarations{};
-                List<Statement> child_statements{};
-
-                append(name_stack, statement.function_declaration.name.text);
-
-                for(auto child_statement : statement.function_declaration.statements) {
-                    auto result = create_declaration(name_stack, child_statement);
-
-                    if(result.status){
-                        append(&child_declarations, result.value);
-                    } else {
-                        append(&child_statements, child_statement);
-                    }
-                }
-
-                char* mangled_name{};
-
-                for(auto name : *name_stack) {
-                    string_buffer_append(&mangled_name, name);
-                }
-
-                name_stack->count -= 1;
-                
-                Declaration declaration;
-                declaration.category = DeclarationCategory::FunctionDefinition;
-                declaration.name = statement.function_declaration.name;
-
-                declaration.function_definition = {
-                    mangled_name,
-                    statement.function_declaration.parameters,
-                    statement.function_declaration.has_return_type,
-                    statement.function_declaration.return_type,
-                    to_array(child_declarations),
-                    to_array(child_statements)
-                };
-
-                return {
-                    true,
-                    declaration
-                };
-            }
-        } break;
-
-        case StatementType::ConstantDefinition: {
-            Declaration declaration;
-            declaration.category = DeclarationCategory::ConstantDefinition;
-            declaration.name = statement.constant_definition.name;
-            
-            declaration.constant_definition = statement.constant_definition.expression;
-
-            return {
-                true,
-                declaration
-            };
-        } break;
-
-        case StatementType::StructDefinition: {
-            char* mangled_name{};
-
-            for(auto name : *name_stack) {
-                string_buffer_append(&mangled_name, name);
-            }
-
-            string_buffer_append(&mangled_name, statement.struct_definition.name.text);
-
-            Declaration declaration;
-            declaration.category = DeclarationCategory::StructDefinition;
-            declaration.name = statement.struct_definition.name;
-
-            declaration.struct_definition = {
-                mangled_name,
-                statement.struct_definition.members
-            };
-
-            return {
-                true,
-                declaration
-            };
-        } break;
-
-        case StatementType::Import: {
-            Declaration declaration;
-            declaration.category = DeclarationCategory::FileModuleImport;
-
-            auto name = path_get_file_component(statement.import);
-
-            declaration.name = {
-                name,
-                statement.range
-            };
-
-            declaration.file_module_import = statement.import;
-
-            return {
-                true,
-                declaration
-            };
-        } break;
-
-        default: {
-            return { false };
-        } break;
-    }
-}
-
-static void set_child_declaration_parents(Declaration *declaration) {
-    switch(declaration->category) {
-        case DeclarationCategory::FunctionDefinition: {
-            for(auto &child : declaration->function_definition.declarations) {
-                child.parent = declaration;
-
-                child.is_top_level = false;
-
-                set_child_declaration_parents(&child);
-            }
-        } break;
-    }
 }
 
 static bool register_c_declaration(GenerationContext *context, CDeclaration c_declaration) {
@@ -1752,67 +1578,160 @@ static bool register_global_name(GenerationContext *context, const char *name, F
     return true;
 }
 
-static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Declaration declaration, bool print_errors) {
-    switch(declaration.category) {
-        case DeclarationCategory::FunctionDefinition: {
-            auto parameterTypes = allocate<Type>(declaration.function_definition.parameters.count);
-            auto runtimeParameters = allocate<RuntimeFunctionParameter>(declaration.function_definition.parameters.count);
+static const char *get_declaration_name(Statement declaration){
+    switch(declaration.type) {
+        case StatementType::FunctionDeclaration: {
+            return declaration.function_declaration.name.text;
+        } break;
+
+        case StatementType::ConstantDefinition: {
+            return declaration.constant_definition.name.text;
+        } break;
+
+        case StatementType::StructDefinition: {
+            return declaration.struct_definition.name.text;
+        } break;
+
+        case StatementType::Import: {
+            return path_get_file_component(declaration.import);
+        } break;
+
+        default: {
+            abort();
+        }
+    }
+}
+
+static const char* generate_mangled_name(GenerationContext context, Statement declaration) {
+    char *buffer{};
+
+    string_buffer_append(&buffer, get_declaration_name(declaration));
+
+    if(declaration.is_top_level) {
+        if(strcmp(declaration.file->path, context.file_modules[0].path) != 0)  {
+            string_buffer_append(&buffer, "_");
+            string_buffer_append(&buffer, path_get_file_component(declaration.file->path));
+        }
+    } else {
+        auto current = *declaration.parent;
+
+        while(true) {
+            string_buffer_append(&buffer, "_");
+            string_buffer_append(&buffer, get_declaration_name(current));
+
+            if(current.is_top_level) {
+                if(strcmp(current.file->path, context.file_modules[0].path) != 0)  {
+                    string_buffer_append(&buffer, "_");
+                    string_buffer_append(&buffer, path_get_file_component(current.file->path));
+                }
+
+                break;
+            }
+        }
+    }
+
+    return buffer;
+}
+
+static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Statement declaration, bool print_errors) {
+    switch(declaration.type) {
+        case StatementType::FunctionDeclaration: {
+            auto parameterTypes = allocate<Type>(declaration.function_declaration.parameters.count);
+            auto runtimeParameters = allocate<RuntimeFunctionParameter>(declaration.function_declaration.parameters.count);
             
-            for(size_t i = 0; i < declaration.function_definition.parameters.count; i += 1) {
-                expect(type, evaluate_type_expression(context, declaration, declaration.function_definition.parameters[i].type, print_errors));
+            for(size_t i = 0; i < declaration.function_declaration.parameters.count; i += 1) {
+                expect(type, evaluate_type_expression(context, declaration, declaration.function_declaration.parameters[i].type, print_errors));
 
                 parameterTypes[i] = type;
                 runtimeParameters[i] = {
-                    declaration.function_definition.parameters[i].name,
+                    declaration.function_declaration.parameters[i].name,
                     type
                 };
             }
 
             Type return_type;
-            if(declaration.function_definition.has_return_type) {
-                expect(return_type_value, evaluate_type_expression(context, declaration, declaration.function_definition.return_type, print_errors));
+            if(declaration.function_declaration.has_return_type) {
+                expect(return_type_value, evaluate_type_expression(context, declaration, declaration.function_declaration.return_type, print_errors));
 
                 return_type = return_type_value;
             } else {
                 return_type.category = TypeCategory::Void;
             }
 
-            auto is_registered = false;
-            for(auto function : context->runtime_functions) {
-                if(strcmp(function.mangled_name, declaration.function_definition.mangled_name) == 0) {
-                    is_registered = true;
+            const char *mangled_name;
+            if(declaration.function_declaration.is_external) {
+                mangled_name = declaration.function_declaration.name.text;
 
-                    break;
+                auto is_registered = false;
+                for(auto c_declaration : context->c_declarations) {
+                    if(c_declaration.type == CDeclarationType::ExternalFunction && strcmp(c_declaration.mangled_name, mangled_name) == 0) {
+                        is_registered = true;
+
+                        break;
+                    }
                 }
-            }
 
-            if(!is_registered) {
-                append(&context->runtime_functions, {
-                    declaration.function_definition.mangled_name,
-                    {
-                        declaration.function_definition.parameters.count,
-                        runtimeParameters
-                    },
-                    return_type,
-                    declaration.function_definition.statements,
-                    declaration
-                });
+                if(!is_registered) {
+                    CDeclaration c_declaration;
+                    c_declaration.type = CDeclarationType::ExternalFunction;
+                    c_declaration.mangled_name = mangled_name;
 
-                if(!register_global_name(context, declaration.function_definition.mangled_name, declaration.name.range)) {
-                    return { false };
+                    c_declaration.external_function = {
+                        {
+                            declaration.function_declaration.parameters.count,
+                            runtimeParameters
+                        },
+                        return_type
+                    };
+
+                    if(!register_c_declaration(context, c_declaration)) {
+                        return { false };
+                    }
+                    
+                    if(!register_global_name(context, mangled_name, declaration.function_declaration.name.range)) {
+                        return { false };
+                    }
+                }
+            } else {
+                mangled_name = generate_mangled_name(*context, declaration);
+
+                auto is_registered = false;
+                for(auto function : context->runtime_functions) {
+                    if(strcmp(function.mangled_name, mangled_name) == 0) {
+                        is_registered = true;
+
+                        break;
+                    }
+                }
+
+                if(!is_registered) {
+                    append(&context->runtime_functions, {
+                        mangled_name,
+                        {
+                            declaration.function_declaration.parameters.count,
+                            runtimeParameters
+                        },
+                        return_type,
+                        declaration.function_declaration.statements,
+                        declaration
+                    });
+
+                    if(!register_global_name(context, mangled_name, declaration.function_declaration.name.range)) {
+                        return { false };
+                    }
                 }
             }
 
             Type type;
             type.category = TypeCategory::Function;
             type.function.parameters = {
-                declaration.function_definition.parameters.count,
+                declaration.function_declaration.parameters.count,
                 parameterTypes
             };
             type.function.return_type = heapify(return_type);
 
             ConstantValue value;
-            value.function = declaration.function_definition.mangled_name;
+            value.function = mangled_name;
 
             return {
                 true,
@@ -1823,78 +1742,8 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             };
         } break;
 
-        case DeclarationCategory::ExternalFunction: {
-            auto parameterTypes = allocate<Type>(declaration.external_function.parameters.count);
-            auto runtimeParameters = allocate<RuntimeFunctionParameter>(declaration.external_function.parameters.count);
-            
-            for(size_t i = 0; i < declaration.external_function.parameters.count; i += 1) {
-                expect(type, evaluate_type_expression(context, declaration, declaration.external_function.parameters[i].type, print_errors));
-
-                parameterTypes[i] = type;
-                runtimeParameters[i] = {
-                    declaration.external_function.parameters[i].name,
-                    type
-                };
-            }
-
-            Type return_type;
-            if(declaration.external_function.has_return_type) {
-                expect(return_type_value, evaluate_type_expression(context, declaration, declaration.external_function.return_type, print_errors));
-
-                return_type = return_type_value;
-            } else {
-                return_type.category = TypeCategory::Void;
-            }
-
-            auto is_registered = false;
-            for(auto c_declaration : context->c_declarations) {
-                if(c_declaration.type == CDeclarationType::ExternalFunction && strcmp(c_declaration.mangled_name, declaration.name.text) == 0) {
-                    is_registered = true;
-
-                    break;
-                }
-            }
-
-            if(!is_registered) {
-                CDeclaration c_declaration;
-                c_declaration.type = CDeclarationType::ExternalFunction;
-                c_declaration.mangled_name = declaration.name.text;
-
-                c_declaration.external_function = {
-                    {
-                        declaration.external_function.parameters.count,
-                        runtimeParameters
-                    },
-                    return_type
-                };
-
-                if(!register_c_declaration(context, c_declaration)) {
-                    return { false };
-                }
-            }
-
-            Type type;
-            type.category = TypeCategory::Function;
-            type.function.parameters = {
-                declaration.external_function.parameters.count,
-                parameterTypes
-            };
-            type.function.return_type = heapify(return_type);
-
-            ConstantValue value;
-            value.function = declaration.name.text;
-
-            return {
-                true,
-                {
-                    type,
-                    value
-                }
-            };
-        } break;
-
-        case DeclarationCategory::ConstantDefinition: {
-            expect(expression_value, evaluate_constant_expression(context, declaration, declaration.constant_definition, print_errors));
+        case StatementType::ConstantDefinition: {
+            expect(expression_value, evaluate_constant_expression(context, declaration, declaration.constant_definition.expression, print_errors));
 
             return {
                 true,
@@ -1902,7 +1751,7 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             };
         } break;
 
-        case DeclarationCategory::StructDefinition: {
+        case StatementType::StructDefinition: {
             for(size_t i = 0; i < declaration.struct_definition.members.count; i += 1) {
                 for(size_t j = 0; j < declaration.struct_definition.members.count; j += 1) {
                     if(j != i && strcmp(declaration.struct_definition.members[i].name.text, declaration.struct_definition.members[j].name.text) == 0) {
@@ -1930,9 +1779,11 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
                 };
             }
 
+            auto mangled_name = generate_mangled_name(*context, declaration);
+
             auto is_registered = false;
             for(auto c_declaration : context->c_declarations) {
-                if(c_declaration.type == CDeclarationType::StructType && strcmp(c_declaration.mangled_name, declaration.struct_definition.mangled_name) == 0) {
+                if(c_declaration.type == CDeclarationType::StructType && strcmp(c_declaration.mangled_name, mangled_name) == 0) {
                     is_registered = true;
                 }
             }
@@ -1940,7 +1791,7 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             if(!is_registered) {
                 CDeclaration c_declaration;
                 c_declaration.type = CDeclarationType::StructType;
-                c_declaration.mangled_name = declaration.struct_definition.mangled_name;
+                c_declaration.mangled_name = mangled_name;
 
                 c_declaration.struct_type = {
                     declaration.struct_definition.members.count,
@@ -1957,7 +1808,7 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
 
             ConstantValue value;
             value.type.category = TypeCategory::Struct;
-            value.type._struct = declaration.struct_definition.mangled_name;
+            value.type._struct = mangled_name;
 
             return {
                 true,
@@ -1968,15 +1819,15 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             };
         } break;
 
-        case DeclarationCategory::FileModuleImport: {
+        case StatementType::Import: {
             Type type;
             type.category = TypeCategory::FileModule;
 
             ConstantValue value;
 
             for(auto file_module : context->file_modules) {
-                if(strcmp(declaration.file_module_import, file_module.path) == 0) {
-                    value.file_module = file_module.declarations;
+                if(strcmp(file_module.path, declaration.import) == 0) {
+                    value.file_module = file_module.statements;
                 }
             }
 
@@ -2427,9 +2278,9 @@ struct ExpressionValue {
     };
 };
 
-static Result<ExpressionValue> generate_expression(GenerationContext *context, Declaration from, char **source, Expression expression);
+static Result<ExpressionValue> generate_expression(GenerationContext *context, Statement from, char **source, Expression expression);
 
-static Result<ExpressionValue> generate_runtime_expression(GenerationContext *context, Declaration from, char **source, Expression expression) {
+static Result<ExpressionValue> generate_runtime_expression(GenerationContext *context, Statement from, char **source, Expression expression) {
     expect(expression_value, generate_expression(context, from, source, expression));
 
     switch(expression_value.category) {
@@ -2462,7 +2313,7 @@ static Result<ExpressionValue> generate_runtime_expression(GenerationContext *co
     }
 }
 
-static Result<ExpressionValue> generate_expression(GenerationContext *context, Declaration from, char **source, Expression expression) {
+static Result<ExpressionValue> generate_expression(GenerationContext *context, Statement from, char **source, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             for(size_t i = 0; i < context->variable_context_stack.count; i += 1) {
@@ -2684,9 +2535,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, D
                 case TypeCategory::FileModule: {
                     assert(expression_value.category == ExpressionValueCategory::Constant);
 
-                    for(auto declaration : expression_value.constant.file_module) {
-                        if(strcmp(declaration.name.text, expression.member_reference.name.text) == 0) {
-                            expect(constant_value, resolve_declaration(context, declaration, true));
+                    for(auto statement : expression_value.constant.file_module) {
+                        if(match_declaration(statement, expression.member_reference.name.text)) {
+                            expect(constant_value, resolve_declaration(context, statement, true));
 
                             ExpressionValue value;
                             value.category = ExpressionValueCategory::Constant;
@@ -3668,7 +3519,7 @@ static bool generate_default_value(GenerationContext *context, char **source, Ty
     }
 }
 
-static bool generate_statement(GenerationContext *context, char **source, Declaration from, Statement statement) {
+static bool generate_statement(GenerationContext *context, char **source, Statement from, Statement statement) {
     switch(statement.type) {
         case StatementType::Expression: {
             if(!generate_expression(context, from, source, statement.expression).status) {
@@ -3999,22 +3850,6 @@ static bool generate_statement(GenerationContext *context, char **source, Declar
     }
 }
 
-static bool generate_compiler_directive(GenerationContext *context, Statement directive) {
-    switch(directive.type) {
-        case StatementType::Library: {
-            for(auto library : context->libraries) {
-                if(strcmp(library, directive.library) == 0) {
-                    return true;
-                }
-            }
-
-            append(&(context->libraries), directive.library);
-        } break;
-    }
-
-    return true;
-}
-
 static bool generate_function_signature(GenerationContext *context, char **source, const char *name, Type return_type, Array<RuntimeFunctionParameter> parameters) {
     char *type_suffix_source{};
     if(!generate_type(context, source, &type_suffix_source, return_type, generated_range)) {
@@ -4084,61 +3919,6 @@ inline GlobalConstant create_base_integer_type(const char *name, IntegerType int
 Result<CSource> generate_c_source(Array<File> files) {
     assert(files.count > 0);
 
-    auto file_modules = allocate<FileModule>(files.count);
-
-    List<const char*> name_stack{};
-
-    for(size_t i = 0; i < files.count; i += 1) {
-        auto file = files[i];
-
-        if(i != 0) {
-            auto name = path_get_file_component(file.path);
-
-            append<const char*>(&name_stack, name);
-        }
-
-        List<Declaration> declarations{};
-
-        List<Statement> compiler_directives{};
-
-        for(auto statement : file.statements) {
-            switch(statement.type) {
-                case StatementType::Library: {
-                    append(&compiler_directives, statement);
-                } break;
-
-                default: {
-                    auto result = create_declaration(&name_stack, statement);
-
-                    if(result.status) {
-                        append(&declarations, result.value);
-                    } else {
-                        error(statement.range, "Only constant declarations and compiler directives are allowed in global scope");
-
-                        return { false };
-                    }
-                } break;
-            }
-        }
-
-        for(auto &declaration : declarations) {
-            declaration.is_top_level = true;
-            declaration.file_module = to_array(declarations);
-
-            set_child_declaration_parents(&declaration);
-        }
-
-        file_modules[i] = {
-            file.path,
-            to_array(declarations),
-            to_array(compiler_directives)
-        };
-
-        if(i != 0) {
-            name_stack.count -= 1;
-        }
-    }
-
     List<GlobalConstant> global_constants{};
 
     auto unsigned_size_integer_type = IntegerType::Unsigned64;
@@ -4192,22 +3972,25 @@ Result<CSource> generate_c_source(Array<File> files) {
         signed_size_integer_type,
         signed_size_integer_type,
         to_array(global_constants),
-        {
-            files.count,
-            file_modules
-        }
+        files
     };
 
     auto main_found = false;
-    for(auto declaration : file_modules[0].declarations) {
-        if(strcmp(declaration.name.text, "main") == 0) {
-            if(declaration.category != DeclarationCategory::FunctionDefinition) {
-                error(declaration.name.range, "'main' must be a function");
+    for(auto statement : files[0].statements) {
+        if(match_declaration(statement, "main")) {
+            if(statement.type != StatementType::FunctionDeclaration) {
+                error(statement.range, "'main' must be a function");
 
                 return { false };
             }
 
-            if(!resolve_declaration(&context, declaration, true).status) {
+            if(statement.function_declaration.is_external) {
+                error(statement.range, "'main' must not be external");
+
+                return { false };
+            }
+
+            if(!resolve_declaration(&context, statement, true).status) {
                 return { false };
             }
 
@@ -4421,9 +4204,23 @@ Result<CSource> generate_c_source(Array<File> files) {
     }
 
     for(size_t i = 0; i < files.count; i += 1) {
-        for(auto compiler_directive : file_modules[i].compiler_directives) {
-            if(!generate_compiler_directive(&context, compiler_directive)) {
-                return { false };
+        for(auto statement : files[i].statements) {
+            switch(statement.type) {
+                case StatementType::Library: {
+                    auto is_added = false;
+
+                    for(auto library : context.libraries) {
+                        if(strcmp(library, statement.library) == 0) {
+                            is_added = true;
+
+                            break;
+                        }
+                    }
+
+                    if(!is_added) {
+                        append(&context.libraries, statement.library);
+                    }
+                } break;
             }
         }
     }
