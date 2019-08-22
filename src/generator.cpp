@@ -134,7 +134,6 @@ struct RuntimeFunctionParameter {
 enum struct CDeclarationType {
     ArrayType,
     StructType,
-    Function,
     ExternalFunction,
     ArrayConstant
 };
@@ -153,16 +152,6 @@ struct CDeclaration {
             Array<RuntimeFunctionParameter> parameters;
 
             Type return_type;
-
-            Array<Statement> statements;
-
-            Declaration declaration;
-        } function;
-
-        struct {
-            Array<RuntimeFunctionParameter> parameters;
-
-            Type return_type;
         } external_function;
 
         struct {
@@ -171,6 +160,18 @@ struct CDeclaration {
             Array<ConstantValue> elements;
         } array_constant;
     };
+};
+
+struct RuntimeFunction {
+    const char *mangled_name;
+
+    Array<RuntimeFunctionParameter> parameters;
+
+    Type return_type;
+
+    Array<Statement> statements;
+
+    Declaration declaration;
 };
 
 struct GenerationContext {
@@ -189,6 +190,8 @@ struct GenerationContext {
     List<List<Variable>> variable_context_stack;
 
     List<CDeclaration> c_declarations;
+
+    List<RuntimeFunction> runtime_functions;
 
     List<const char*> libraries;
 };
@@ -1735,6 +1738,20 @@ static bool register_c_declaration(GenerationContext *context, CDeclaration c_de
     return true;
 }
 
+static bool register_global_name(GenerationContext *context, const char *name, FileRange name_range) {
+    for(auto global_name : context->global_names) {
+        if(strcmp(global_name, name) == 0) {
+            error(name_range, "Duplicate global name %s", name);
+
+            return false;
+        }
+    }
+
+    append(&(context->global_names), name);
+
+    return true;
+}
+
 static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Declaration declaration, bool print_errors) {
     switch(declaration.category) {
         case DeclarationCategory::FunctionDefinition: {
@@ -1761,8 +1778,8 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             }
 
             auto is_registered = false;
-            for(auto c_declaration : context->c_declarations) {
-                if(c_declaration.type == CDeclarationType::Function && strcmp(c_declaration.mangled_name, declaration.function_definition.mangled_name) == 0) {
+            for(auto function : context->runtime_functions) {
+                if(strcmp(function.mangled_name, declaration.function_definition.mangled_name) == 0) {
                     is_registered = true;
 
                     break;
@@ -1770,11 +1787,8 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             }
 
             if(!is_registered) {
-                CDeclaration c_declaration;
-                c_declaration.type = CDeclarationType::Function;
-                c_declaration.mangled_name = declaration.function_definition.mangled_name;
-
-                c_declaration.function = {
+                append(&context->runtime_functions, {
+                    declaration.function_definition.mangled_name,
                     {
                         declaration.function_definition.parameters.count,
                         runtimeParameters
@@ -1782,9 +1796,9 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
                     return_type,
                     declaration.function_definition.statements,
                     declaration
-                };
+                });
 
-                if(!register_c_declaration(context, c_declaration)) {
+                if(!register_global_name(context, declaration.function_definition.mangled_name, declaration.name.range)) {
                     return { false };
                 }
             }
@@ -1834,7 +1848,7 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
 
             auto is_registered = false;
             for(auto c_declaration : context->c_declarations) {
-                if(c_declaration.type == CDeclarationType::Function && strcmp(c_declaration.mangled_name, declaration.name.text) == 0) {
+                if(c_declaration.type == CDeclarationType::ExternalFunction && strcmp(c_declaration.mangled_name, declaration.name.text) == 0) {
                     is_registered = true;
 
                     break;
@@ -1979,20 +1993,6 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             abort();
         } break;
     }
-}
-
-static bool register_global_name(GenerationContext *context, const char *name, FileRange name_range) {
-    for(auto global_name : context->global_names) {
-        if(strcmp(global_name, name) == 0) {
-            error(name_range, "Duplicate global name %s", name);
-
-            return false;
-        }
-    }
-
-    append(&(context->global_names), name);
-
-    return true;
 }
 
 static bool add_new_variable(GenerationContext *context, Identifier name, Type type) {
@@ -4226,19 +4226,29 @@ Result<CSource> generate_c_source(Array<File> files) {
     char *forward_declaration_source{};
     char *implementation_source{};
 
+    List<const char*> generated_functions{};
+
     while(true) {
         auto done = true;
 
-        for(size_t i = 0; i < context.c_declarations.count; i += 1) {
-            auto c_declaration = context.c_declarations[i];
+        for(auto function : context.runtime_functions) {
+            auto generated = false;
 
-            if(c_declaration.type == CDeclarationType::Function) {
+            for(auto generated_function : generated_functions) {
+                if(strcmp(generated_function, function.mangled_name) == 0) {
+                    generated = true;
+
+                    break;
+                }
+            }
+
+            if(!generated) {
                 if(!generate_function_signature(
                     &context,
                     &forward_declaration_source,
-                    c_declaration.mangled_name,
-                    c_declaration.function.return_type,
-                    c_declaration.function.parameters
+                    function.mangled_name,
+                    function.return_type,
+                    function.parameters
                 )){
                     return { false };
                 }
@@ -4248,9 +4258,9 @@ Result<CSource> generate_c_source(Array<File> files) {
                 if(!generate_function_signature(
                     &context,
                     &implementation_source,
-                    c_declaration.mangled_name,
-                    c_declaration.function.return_type,
-                    c_declaration.function.parameters
+                    function.mangled_name,
+                    function.return_type,
+                    function.parameters
                 )){
                     return { false };
                 }
@@ -4259,16 +4269,16 @@ Result<CSource> generate_c_source(Array<File> files) {
 
                 append(&context.variable_context_stack, List<Variable>{});
 
-                context.return_type = c_declaration.function.return_type;
+                context.return_type = function.return_type;
 
-                for(auto parameter : c_declaration.function.parameters) {
+                for(auto parameter : function.parameters) {
                     if(!add_new_variable(&context, parameter.name, parameter.type)) {
                         return { false };
                     }
                 }
 
-                for(auto statement : c_declaration.function.statements) {
-                    if(!generate_statement(&context, &implementation_source, c_declaration.function.declaration, statement)) {
+                for(auto statement : function.statements) {
+                    if(!generate_statement(&context, &implementation_source, function.declaration, statement)) {
                         return { false };
                     }
                 }
@@ -4277,17 +4287,9 @@ Result<CSource> generate_c_source(Array<File> files) {
 
                 string_buffer_append(&implementation_source, "}");
 
-                // Remove c declaration from list
-
-                for(size_t j = i; j < context.c_declarations.count - 1; j += 1) {
-                    context.c_declarations[j] = context.c_declarations[j + 1];
-                }
-
-                context.c_declarations.count -= 1;
+                append(&generated_functions, function.mangled_name);
 
                 done = false;
-
-                break;
             }
         }
 
