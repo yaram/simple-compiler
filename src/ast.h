@@ -118,7 +118,7 @@ struct Expression {
     };
 };
 
-void debug_print_expression(Expression expression);
+void print_expression(Expression expression);
 
 enum struct StatementType {
     FunctionDeclaration,
@@ -251,4 +251,4 @@ struct File {
     Array<Statement> statements;
 };
 
-void debug_print_statement(Statement statement);
+void print_statement(Statement statement);

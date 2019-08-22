@@ -9,7 +9,7 @@ static void indent(unsigned int level) {
     }
 }
 
-static void debug_print_range(FileRange range) {
+static void print_range(FileRange range) {
     const size_t max_path_length = 17;
 
     auto path_length = strlen(range.path);
@@ -25,19 +25,19 @@ static void debug_print_range(FileRange range) {
     printf("(%u:%u)", range.start_line, range.start_character);
 }
 
-static void debug_print_indentifier(Identifier identifier) {
-    debug_print_range(identifier.range);
+static void print_indentifier(Identifier identifier) {
+    print_range(identifier.range);
 
     printf("%s", identifier.text);
 }
 
-static void debug_print_expression_indent(Expression expression, unsigned int indentation_level) {
-    debug_print_range(expression.range);
+static void print_expression_indent(Expression expression, unsigned int indentation_level) {
+    print_range(expression.range);
 
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             printf("NamedReference: ");
-            debug_print_indentifier(expression.named_reference);
+            print_indentifier(expression.named_reference);
         } break;
 
         case ExpressionType::MemberReference: {
@@ -45,12 +45,12 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
             indent(indentation_level + 1);
             printf("expression: ");
-            debug_print_expression_indent(*(expression.member_reference.expression), indentation_level + 1);
+            print_expression_indent(*(expression.member_reference.expression), indentation_level + 1);
             printf("\n");
 
             indent(indentation_level + 1);
             printf("name: ");
-            debug_print_indentifier(expression.member_reference.name);
+            print_indentifier(expression.member_reference.name);
             printf("\n");
 
             indent(indentation_level);
@@ -62,12 +62,12 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
             indent(indentation_level + 1);
             printf("expression: ");
-            debug_print_expression_indent(*(expression.index_reference.expression), indentation_level + 1);
+            print_expression_indent(*(expression.index_reference.expression), indentation_level + 1);
             printf("\n");
 
             indent(indentation_level + 1);
             printf("index: ");
-            debug_print_expression_indent(*(expression.index_reference.index), indentation_level + 1);
+            print_expression_indent(*(expression.index_reference.index), indentation_level + 1);
             printf("\n");
 
             indent(indentation_level);
@@ -87,7 +87,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
             for(auto element_expression : expression.array_literal) {
                 indent(indentation_level);
-                debug_print_expression_indent(element_expression, indentation_level);
+                print_expression_indent(element_expression, indentation_level);
                 printf("\n");
             }
 
@@ -100,7 +100,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
             indent(indentation_level + 1);
             printf("expression: ");
-            debug_print_expression_indent(*(expression.function_call.expression), indentation_level + 1);
+            print_expression_indent(*(expression.function_call.expression), indentation_level + 1);
             printf("\n");
             
             indent(indentation_level + 1);
@@ -111,7 +111,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
                 for(auto parameter : expression.function_call.parameters) {
                     indent(indentation_level + 2);
-                    debug_print_expression_indent(parameter, indentation_level + 2);
+                    print_expression_indent(parameter, indentation_level + 2);
 
                     printf("\n");
                 }
@@ -179,12 +179,12 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
             indent(indentation_level + 1);
             printf("left: ");
-            debug_print_expression_indent(*expression.binary_operation.left, indentation_level + 1);
+            print_expression_indent(*expression.binary_operation.left, indentation_level + 1);
             printf("\n");
 
             indent(indentation_level + 1);
             printf("right: ");
-            debug_print_expression_indent(*expression.binary_operation.right, indentation_level + 1);
+            print_expression_indent(*expression.binary_operation.right, indentation_level + 1);
             printf("\n");
             
             indent(indentation_level);
@@ -213,7 +213,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
             indent(indentation_level + 1);
             printf("expression: ");
-            debug_print_expression_indent(*(expression.unary_operation.expression), indentation_level + 1);
+            print_expression_indent(*(expression.unary_operation.expression), indentation_level + 1);
             printf("\n");
 
             indent(indentation_level);
@@ -225,12 +225,12 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
             indent(indentation_level + 1);
             printf("expression: ");
-            debug_print_expression_indent(*(expression.cast.expression), indentation_level + 1);
+            print_expression_indent(*(expression.cast.expression), indentation_level + 1);
             printf("\n");
 
             indent(indentation_level + 1);
             printf("type: ");
-            debug_print_expression_indent(*(expression.cast.type), indentation_level + 1);
+            print_expression_indent(*(expression.cast.type), indentation_level + 1);
             printf("\n");
 
             indent(indentation_level);
@@ -240,7 +240,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
         case ExpressionType::ArrayType: {
             printf("ArrayType: ");
 
-            debug_print_expression_indent(*(expression.array_type), indentation_level);
+            print_expression_indent(*(expression.array_type), indentation_level);
         } break;
 
         case ExpressionType::FunctionType: {
@@ -254,7 +254,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
                 for(auto parameter : expression.function_type.parameters) {
                     indent(indentation_level + 2);
-                    debug_print_indentifier(parameter.name);
+                    print_indentifier(parameter.name);
                     printf(": {\n");
 
                     indent(indentation_level + 3);
@@ -265,13 +265,13 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
 
                         indent(indentation_level + 3);
                         printf("polymorphic_determiner: ");
-                        debug_print_indentifier(parameter.polymorphic_determiner);
+                        print_indentifier(parameter.polymorphic_determiner);
                     } else {
                         printf("false\n");
 
                         indent(indentation_level + 3);
                         printf("type: ");
-                        debug_print_expression_indent(parameter.type, indentation_level + 3);
+                        print_expression_indent(parameter.type, indentation_level + 3);
                     }
 
                     printf("\n");
@@ -289,7 +289,7 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
                 indent(indentation_level + 1);
                 printf("return_type: ");
 
-                debug_print_expression_indent(*expression.function_type.return_type, indentation_level + 1);
+                print_expression_indent(*expression.function_type.return_type, indentation_level + 1);
             
                 printf("\n");
             }
@@ -300,12 +300,12 @@ static void debug_print_expression_indent(Expression expression, unsigned int in
     }
 }
 
-void debug_print_expression(Expression expression) {
-    debug_print_expression_indent(expression, 0);
+void print_expression(Expression expression) {
+    print_expression_indent(expression, 0);
 }
 
-static void debug_print_statement_indent(Statement statement, unsigned int indentation_level) {
-    debug_print_range(statement.range);
+static void print_statement_indent(Statement statement, unsigned int indentation_level) {
+    print_range(statement.range);
 
     switch(statement.type) {
         case StatementType::FunctionDeclaration: {
@@ -313,7 +313,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
 
             indent(indentation_level + 1);
             printf("name: ");
-            debug_print_indentifier(statement.function_declaration.name);
+            print_indentifier(statement.function_declaration.name);
             printf("\n");
             
             indent(indentation_level + 1);
@@ -324,7 +324,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
 
                 for(auto parameter : statement.function_declaration.parameters) {
                     indent(indentation_level + 2);
-                    debug_print_indentifier(parameter.name);
+                    print_indentifier(parameter.name);
                     printf(": {\n");
 
                     indent(indentation_level + 3);
@@ -335,13 +335,13 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
 
                         indent(indentation_level + 3);
                         printf("polymorphic_determiner: ");
-                        debug_print_indentifier(parameter.polymorphic_determiner);
+                        print_indentifier(parameter.polymorphic_determiner);
                     } else {
                         printf("false\n");
 
                         indent(indentation_level + 3);
                         printf("type: ");
-                        debug_print_expression_indent(parameter.type, indentation_level + 3);
+                        print_expression_indent(parameter.type, indentation_level + 3);
                     }
 
                     printf("\n");
@@ -359,7 +359,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
                 indent(indentation_level + 1);
                 printf("return_type: ");
 
-                debug_print_expression_indent(statement.function_declaration.return_type, indentation_level + 1);
+                print_expression_indent(statement.function_declaration.return_type, indentation_level + 1);
             
                 printf("\n");
             }
@@ -380,7 +380,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
 
                     for(auto child_statement : statement.function_declaration.statements) {
                         indent(indentation_level + 2);
-                        debug_print_statement_indent(child_statement, indentation_level + 2);
+                        print_statement_indent(child_statement, indentation_level + 2);
 
                         printf("\n");
                     }
@@ -400,13 +400,13 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
 
             indent(indentation_level + 1);
             printf("name: ");
-            debug_print_indentifier(statement.constant_definition.name);
+            print_indentifier(statement.constant_definition.name);
             printf("\n");
 
             indent(indentation_level + 1);
             printf("expression: ");
 
-            debug_print_expression_indent(statement.constant_definition.expression, indentation_level + 2);
+            print_expression_indent(statement.constant_definition.expression, indentation_level + 2);
 
             printf("\n");
 
@@ -419,7 +419,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
 
             indent(indentation_level + 1);
             printf("name: ");
-            debug_print_indentifier(statement.struct_definition.name);
+            print_indentifier(statement.struct_definition.name);
             printf("\n");
 
             indent(indentation_level + 1);
@@ -430,10 +430,10 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
 
                 for(auto member : statement.struct_definition.members) {
                     indent(indentation_level + 2);
-                    debug_print_indentifier(member.name);
+                    print_indentifier(member.name);
                     printf(": ");
 
-                    debug_print_expression_indent(member.type, indentation_level + 2);
+                    print_expression_indent(member.type, indentation_level + 2);
 
                     printf("\n");
                 }
@@ -450,7 +450,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
         case StatementType::Expression: {
             printf("Expression: ");
 
-            debug_print_expression_indent(statement.expression, indentation_level);
+            print_expression_indent(statement.expression, indentation_level);
         } break;
 
         case StatementType::VariableDeclaration: {
@@ -458,7 +458,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
 
             indent(indentation_level + 1);
             printf("name: ");
-            debug_print_indentifier(statement.variable_declaration.name);
+            print_indentifier(statement.variable_declaration.name);
             printf("\n");
 
             switch(statement.variable_declaration.type) {
@@ -466,7 +466,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
                     indent(indentation_level + 1);
                     printf("type: ");
 
-                    debug_print_expression_indent(statement.variable_declaration.uninitialized, indentation_level + 2);
+                    print_expression_indent(statement.variable_declaration.uninitialized, indentation_level + 2);
 
                     printf("\n");
                 } break;
@@ -475,7 +475,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
                     indent(indentation_level + 1);
                     printf("initializer: ");
 
-                    debug_print_expression_indent(statement.variable_declaration.type_elided, indentation_level + 2);
+                    print_expression_indent(statement.variable_declaration.type_elided, indentation_level + 2);
 
                     printf("\n");
                 } break;
@@ -484,14 +484,14 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
                     indent(indentation_level + 1);
                     printf("type: ");
 
-                    debug_print_expression_indent(statement.variable_declaration.fully_specified.type, indentation_level + 2);
+                    print_expression_indent(statement.variable_declaration.fully_specified.type, indentation_level + 2);
 
                     printf("\n");
                     
                     indent(indentation_level + 1);
                     printf("initializer: ");
 
-                    debug_print_expression_indent(statement.variable_declaration.fully_specified.initializer, indentation_level + 2);
+                    print_expression_indent(statement.variable_declaration.fully_specified.initializer, indentation_level + 2);
 
                     printf("\n");
                 } break;
@@ -507,14 +507,14 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             indent(indentation_level + 1);
             printf("target: ");
 
-            debug_print_expression_indent(statement.assignment.target, indentation_level + 2);
+            print_expression_indent(statement.assignment.target, indentation_level + 2);
 
             printf("\n");
             
             indent(indentation_level + 1);
             printf("value: ");
 
-            debug_print_expression_indent(statement.assignment.value, indentation_level + 2);
+            print_expression_indent(statement.assignment.value, indentation_level + 2);
 
             printf("\n");
 
@@ -528,7 +528,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             indent(indentation_level + 1);
             printf("condition: ");
 
-            debug_print_expression_indent(statement.lone_if.condition, indentation_level + 2);
+            print_expression_indent(statement.lone_if.condition, indentation_level + 2);
 
             printf("\n");
 
@@ -541,7 +541,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
                 for(auto child_statement : statement.lone_if.statements) {
                     indent(indentation_level + 2);
 
-                    debug_print_statement_indent(child_statement, indentation_level + 2);
+                    print_statement_indent(child_statement, indentation_level + 2);
 
                     printf("\n");
                 }
@@ -561,7 +561,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
             indent(indentation_level + 1);
             printf("condition: ");
 
-            debug_print_expression_indent(statement.while_loop.condition, indentation_level + 2);
+            print_expression_indent(statement.while_loop.condition, indentation_level + 2);
 
             printf("\n");
 
@@ -574,7 +574,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
                 for(auto child_statement : statement.while_loop.statements) {
                     indent(indentation_level + 2);
 
-                    debug_print_statement_indent(child_statement, indentation_level + 2);
+                    print_statement_indent(child_statement, indentation_level + 2);
 
                     printf("\n");
                 }
@@ -591,7 +591,7 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
         case StatementType::Return: {
             printf("Return: ");
 
-            debug_print_expression_indent(statement._return, indentation_level);
+            print_expression_indent(statement._return, indentation_level);
         } break;
 
         case StatementType::Import: {
@@ -600,6 +600,6 @@ static void debug_print_statement_indent(Statement statement, unsigned int inden
     }
 }
 
-void debug_print_statement(Statement statement) {
-    debug_print_statement_indent(statement, 0);
+void print_statement(Statement statement) {
+    print_statement_indent(statement, 0);
 }

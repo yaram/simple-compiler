@@ -11,11 +11,14 @@
 
 int main(int argument_count, char *arguments[]) {
     const char *source_file_path = nullptr;
+
 #if defined(PLATFORM_UNIX)
     const char *output_file_path = "out";
 #elif defined(PLATFORM_WINDOWS)
     const char *output_file_path = "out.exe";
 #endif
+
+    auto print_ast = false;
 
     int argument_index = 1;
     while(argument_index < argument_count) {
@@ -33,6 +36,8 @@ int main(int argument_count, char *arguments[]) {
             }
 
             output_file_path = arguments[argument_index];
+        } else if(strcmp(argument, "--print-ast") == 0) {
+            print_ast = true;
         } else {
             fprintf(stderr, "Unknown option '%s'\n", argument);
 
@@ -69,6 +74,16 @@ int main(int argument_count, char *arguments[]) {
         printf("Parser time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
 
         total_time += time;
+    }
+
+    if(print_ast) {
+        for(auto file : files) {
+            for(auto statement : file.statements) {
+                print_statement(statement);
+
+                printf("\n");
+            }
+        }
     }
 
     CSource c_source;
