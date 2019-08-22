@@ -4009,10 +4009,10 @@ static bool generate_compiler_directive(GenerationContext *context, Statement di
             }
 
             append(&(context->libraries), directive.library);
-
-            return true;
         } break;
     }
+
+    return true;
 }
 
 static bool generate_function_signature(GenerationContext *context, char **source, const char *name, Type return_type, Array<RuntimeFunctionParameter> parameters) {
