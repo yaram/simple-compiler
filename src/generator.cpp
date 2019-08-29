@@ -903,6 +903,35 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
             }
         } break;
 
+        case TypeCategory::StaticArray: {
+            switch(type.category) {
+                case TypeCategory::Pointer: {
+                    error(type_range, "Cannot cast static array to pointer in static context");
+
+                    return { false };
+                } break;
+
+                case TypeCategory::Array: {
+                    if(!types_equal(*value_type.static_array.type, *type.array)) {
+                        error(type_range, "Array element type and pointer type must be the same");
+
+                        return { false };
+                    }
+
+                    result.array = {
+                        value_type.static_array.length,
+                        value.static_array
+                    };
+                } break;
+
+                default: {
+                    error(type_range, "Cannot cast static array to this type");
+
+                    return { false };
+                } break;
+            }
+        } break;
+
         default: {
             error(value_range, "Cannot cast from this type");
 
@@ -3204,6 +3233,32 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                             }
                         } break;
 
+                        case TypeCategory::StaticArray: {
+                            switch(type.category) {
+                                case TypeCategory::Pointer: {
+                                    if(!types_equal(*expression_value.type.static_array.type, *type.pointer)) {
+                                        error(expression.cast.type->range, "Array element type and pointer type must be the same");
+
+                                        return { false };
+                                    }
+                                } break;
+
+                                case TypeCategory::Array: {
+                                    if(!types_equal(*expression_value.type.static_array.type, *type.array)) {
+                                        error(expression.cast.type->range, "Array element type and pointer type must be the same");
+
+                                        return { false };
+                                    }
+                                } break;
+
+                                default: {
+                                    error(expression.cast.type->range, "Cannot cast static array to this type");
+
+                                    return { false };
+                                } break;
+                            }
+                        } break;
+
                         default: {
                             error(expression.cast.expression->range, "Cannot cast from this type");
 
@@ -3232,24 +3287,45 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                 } break;
 
                 case ExpressionValueCategory::Constant: {
-                    expect(constant, evaluate_constant_conversion(
-                        *context,
-                        expression_value.constant,
-                        expression_value.type,
-                        expression.cast.expression->range,
-                        type,
-                        expression.cast.type->range
-                    ));
+                    if(expression_value.type.category == TypeCategory::StaticArray && type.category == TypeCategory::Pointer) {
+                        string_buffer_append(source, "(");
 
-                    ExpressionValue value;
-                    value.category = ExpressionValueCategory::Constant;
-                    value.type = type;
-                    value.constant = constant;
+                        generate_type(context, source, source, type, expression.cast.type->range);
 
-                    return {
-                        true,
-                        value
-                    };
+                        string_buffer_append(source, ")");
+
+                        if(!generate_constant_value(context, source, expression_value.type, expression_value.constant, expression.cast.expression->range)) {
+                            return { false };
+                        }
+
+                        ExpressionValue value;
+                        value.category = ExpressionValueCategory::Anonymous;
+                        value.type = type;
+
+                        return {
+                            true,
+                            value
+                        };
+                    } else {
+                        expect(constant, evaluate_constant_conversion(
+                            *context,
+                            expression_value.constant,
+                            expression_value.type,
+                            expression.cast.expression->range,
+                            type,
+                            expression.cast.type->range
+                        ));
+
+                        ExpressionValue value;
+                        value.category = ExpressionValueCategory::Constant;
+                        value.type = type;
+                        value.constant = constant;
+
+                        return {
+                            true,
+                            value
+                        };
+                    }
                 } break;
 
                 default: {
