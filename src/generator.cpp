@@ -106,8 +106,6 @@ struct RuntimeFunction {
     Type return_type;
 
     Array<Statement> statements;
-
-    Statement declaration;
 };
 
 struct GenerationContext {
@@ -266,9 +264,11 @@ static Result<Statement> lookup_declaration(Statement from, const char *name) {
             }
         }
     } else {
-        auto current = *from.parent;
+        Statement current;
 
-        while(!current.is_top_level) {
+        do {
+            current = *from.parent;
+
             switch(current.type) {
                 case StatementType::FunctionDeclaration: {
                     for(auto statement : current.function_declaration.statements) {
@@ -280,14 +280,8 @@ static Result<Statement> lookup_declaration(Statement from, const char *name) {
                         }
                     }
                 } break;
-
-                default: {
-                    abort();
-                }
             }
-
-            current = *current.parent;
-        }
+        } while(!current.is_top_level);
 
         for(auto statement : current.file->statements) {
             if(match_declaration(statement, name)) {
@@ -1581,8 +1575,7 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
                             runtimeParameters
                         },
                         return_type,
-                        declaration.function_declaration.statements,
-                        declaration
+                        declaration.function_declaration.statements
                     });
 
                     if(!register_global_name(context, mangled_name, declaration.function_declaration.name.range)) {
@@ -3527,10 +3520,10 @@ static bool generate_default_value(GenerationContext *context, char **source, Ty
     }
 }
 
-static bool generate_statement(GenerationContext *context, char **source, Statement from, Statement statement) {
+static bool generate_statement(GenerationContext *context, char **source, Statement statement) {
     switch(statement.type) {
         case StatementType::Expression: {
-            if(!generate_expression(context, from, source, statement.expression).status) {
+            if(!generate_expression(context, statement, source, statement.expression).status) {
                 return false;
             }
 
@@ -3542,7 +3535,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
         case StatementType::VariableDeclaration: {
             switch(statement.variable_declaration.type) {
                 case VariableDeclarationType::Uninitialized: {
-                    expect(type, evaluate_type_expression(context, from, statement.variable_declaration.uninitialized));
+                    expect(type, evaluate_type_expression(context, statement, statement.variable_declaration.uninitialized));
 
                     if(!add_new_variable(context, statement.variable_declaration.name, type)) {
                         return false;
@@ -3576,7 +3569,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
                 
                 case VariableDeclarationType::TypeElided: {
                     char *initializer_source{};
-                    expect(initial_value, generate_expression(context, from, &initializer_source, statement.variable_declaration.type_elided));
+                    expect(initial_value, generate_expression(context, statement, &initializer_source, statement.variable_declaration.type_elided));
 
                     Type actual_type;
                     if(initial_value.type.category == TypeCategory::Integer && initial_value.type.integer == IntegerType::Undetermined) {
@@ -3649,10 +3642,10 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
                 } break;
                 
                 case VariableDeclarationType::FullySpecified: {
-                    expect(type, evaluate_type_expression(context, from, statement.variable_declaration.fully_specified.type));
+                    expect(type, evaluate_type_expression(context, statement, statement.variable_declaration.fully_specified.type));
 
                     char *initializer_source{};
-                    expect(initial_value, generate_expression(context, from, &initializer_source, statement.variable_declaration.fully_specified.initializer));
+                    expect(initial_value, generate_expression(context, statement, &initializer_source, statement.variable_declaration.fully_specified.initializer));
 
                     if(
                         !(
@@ -3736,7 +3729,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
         } break;
 
         case StatementType::Assignment: {
-            expect(target, generate_expression(context, from, source, statement.assignment.target));
+            expect(target, generate_expression(context, statement, source, statement.assignment.target));
 
             if(target.category != ExpressionValueCategory::Assignable) {
                 error(statement.assignment.target.range, "Value is not assignable");
@@ -3752,7 +3745,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
 
             string_buffer_append(source, "=");
 
-            expect(value, generate_runtime_expression(context, from, source, statement.assignment.value));
+            expect(value, generate_runtime_expression(context, statement, source, statement.assignment.value));
             
             if(
                 !(
@@ -3775,7 +3768,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
         case StatementType::LoneIf: {
             string_buffer_append(source, "if(");
 
-            expect(condition, generate_runtime_expression(context, from, source, statement.lone_if.condition));
+            expect(condition, generate_runtime_expression(context, statement, source, statement.lone_if.condition));
 
             string_buffer_append(source, ")");
 
@@ -3790,7 +3783,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
             string_buffer_append(source, "{");
 
             for(auto child_statement : statement.lone_if.statements) {
-                if(!generate_statement(context, source, from, child_statement)) {
+                if(!generate_statement(context, source, child_statement)) {
                     return false;
                 }
             }
@@ -3805,7 +3798,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
         case StatementType::WhileLoop: {
             string_buffer_append(source, "while(");
 
-            expect(condition, generate_runtime_expression(context, from, source, statement.while_loop.condition));
+            expect(condition, generate_runtime_expression(context, statement, source, statement.while_loop.condition));
 
             string_buffer_append(source, ")");
 
@@ -3820,7 +3813,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
             string_buffer_append(source, "{");
 
             for(auto child_statement : statement.while_loop.statements) {
-                if(!generate_statement(context, source, from, child_statement)) {
+                if(!generate_statement(context, source, child_statement)) {
                     return false;
                 }
             }
@@ -3836,7 +3829,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
             string_buffer_append(source, "return ");
 
             char *expression_source{};
-            expect(expression_value, generate_runtime_expression(context, from, &expression_source, statement._return));
+            expect(expression_value, generate_runtime_expression(context, statement, &expression_source, statement._return));
 
             if(
                 !(
@@ -4075,8 +4068,24 @@ Result<CSource> generate_c_source(Array<File> files) {
                 }
 
                 for(auto statement : function.statements) {
-                    if(!generate_statement(&context, &implementation_source, function.declaration, statement)) {
-                        return { false };
+                    switch(statement.type) {
+                        case StatementType::Expression:
+                        case StatementType::VariableDeclaration:
+                        case StatementType::Assignment:
+                        case StatementType::LoneIf:
+                        case StatementType::WhileLoop:
+                        case StatementType::Return: {
+                            if(!generate_statement(&context, &implementation_source, statement)) {
+                                return { false };
+                            }
+                        } break;
+                        
+                        case StatementType::Library:
+                        case StatementType::Import: {
+                            error(statement.range, "Compiler directives only allowed in global scope");
+
+                            return { false };
+                        } break;
                     }
                 }
 
