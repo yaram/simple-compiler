@@ -1739,7 +1739,8 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
         } break;
 
         case TypeCategory::Pointer:
-        case TypeCategory::Struct: {
+        case TypeCategory::Struct:
+        case TypeCategory::StaticArray: {
             
         } break;
 
@@ -2042,6 +2043,14 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
             string_buffer_append(source, constant_mangled_name);
 
             string_buffer_append(source, "}");
+
+            return true;
+        } break;
+
+        case TypeCategory::StaticArray: {
+            expect(mangled_name, register_array_constant(context, *type.static_array.type, Array<ConstantValue>{ type.static_array.length, value.static_array }));
+
+            string_buffer_append(source, mangled_name);
 
             return true;
         } break;
@@ -2399,17 +2408,30 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
             switch(expression_value.category) {
                 case ExpressionValueCategory::Anonymous:
                 case ExpressionValueCategory::Assignable: {
-                    if(expression_value.type.category != TypeCategory::Array) {
-                        error(expression.index_reference.expression->range, "Cannot index a non-array");
+                    Type element_type;
+                    switch(expression_value.type.category) {
+                        case TypeCategory::Array: {
+                            string_buffer_append(source, "(");
 
-                        return { false };
+                            string_buffer_append(source, expression_source);
+
+                            string_buffer_append(source, ").pointer");
+
+                            element_type = *expression_value.type.array;
+                        } break;
+
+                        case TypeCategory::StaticArray: {
+                            string_buffer_append(source, expression_source);
+
+                            element_type = *expression_value.type.static_array.type;
+                        } break;
+
+                        default: {
+                            error(expression.index_reference.expression->range, "Cannot index a non-array");
+
+                            return { false };
+                        } break;
                     }
-
-                    string_buffer_append(source, "(");
-
-                    string_buffer_append(source, expression_source);
-
-                    string_buffer_append(source, ").pointer");
 
                     string_buffer_append(source, "[");
 
@@ -2425,7 +2447,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                     
                     ExpressionValue value;
                     value.category = ExpressionValueCategory::Assignable;
-                    value.type = *expression_value.type.array;
+                    value.type = element_type;
 
                     return {
                         true,
@@ -2446,17 +2468,30 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                     switch(index.category) {
                         case ExpressionValueCategory::Anonymous:
                         case ExpressionValueCategory::Assignable: {
-                            if(expression_value.type.category != TypeCategory::Array) {
-                                error(expression.index_reference.expression->range, "Cannot index a non-array");
+                            Type element_type;
+                            switch(expression_value.type.category) {
+                                case TypeCategory::Array: {
+                                    string_buffer_append(source, "(");
 
-                                return { false };
+                                    string_buffer_append(source, expression_source);
+
+                                    string_buffer_append(source, ").pointer");
+
+                                    element_type = *expression_value.type.array;
+                                } break;
+
+                                case TypeCategory::StaticArray: {
+                                    string_buffer_append(source, expression_source);
+
+                                    element_type = *expression_value.type.static_array.type;
+                                } break;
+
+                                default: {
+                                    error(expression.index_reference.expression->range, "Cannot index a non-array");
+
+                                    return { false };
+                                } break;
                             }
-
-                            string_buffer_append(source, "(");
-
-                            string_buffer_append(source, expression_source);
-
-                            string_buffer_append(source, ").pointer");
 
                             string_buffer_append(source, "[");
 
@@ -2466,7 +2501,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                             
                             ExpressionValue value;
                             value.category = ExpressionValueCategory::Assignable;
-                            value.type = *expression_value.type.array;
+                            value.type = element_type;
 
                             return {
                                 true,
@@ -3312,6 +3347,27 @@ static bool generate_default_value(GenerationContext *context, char **source, Ty
             return true;
         } break;
 
+        case TypeCategory::StaticArray: {
+            string_buffer_append(source, "{");
+
+            char *element_source{};
+            if(!generate_default_value(context, &element_source, *type.static_array.type, range)) {
+                return false;
+            }
+
+            for(size_t i = 0; i < type.static_array.length; i += 1) {
+                string_buffer_append(source, element_source);
+
+                if(i != type.static_array.length - 1) {
+                    string_buffer_append(source, ",");
+                }
+            }
+
+            string_buffer_append(source, "}");
+
+            return true;
+        } break;
+
         case TypeCategory::Struct: {
             auto c_declaration = retrieve_c_declaration(*context, type._struct);
 
@@ -3557,6 +3613,12 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
 
             if(target.category != ExpressionValueCategory::Assignable) {
                 error(statement.assignment.target.range, "Value is not assignable");
+
+                return false;
+            }
+
+            if(target.type.category == TypeCategory::StaticArray) {
+                error(statement.assignment.target.range, "Cannot assign to a static array");
 
                 return false;
             }
