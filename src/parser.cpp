@@ -1087,7 +1087,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                     append(expression_stack, expression);
                 }
-            } else if(character == '[') {
+            } else if(character == '{') {
                 context->character += 1;
 
                 skip_whitespace(context);
@@ -1099,7 +1099,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 auto character = fgetc(context->source_file);
 
-                if(character == ']') {
+                if(character == '}') {
                     context->character += 1;
                 } else {
                     ungetc(character, context->source_file);
@@ -1120,7 +1120,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                             context->character += 1;
 
                             skip_whitespace(context);
-                        } else if(character == ']') {
+                        } else if(character == '}') {
                             context->character += 1;
 
                             break;
@@ -1153,7 +1153,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 return { false };
             } else {
-                error(*context, "Expected a-z, A-Z, 0-9, '*', '!', '(', '[' or '\"'. Got '%c'", character);
+                error(*context, "Expected a-z, A-Z, 0-9, '*', '!', '(', '{' or '\"'. Got '%c'", character);
 
                 return { false };
             }
