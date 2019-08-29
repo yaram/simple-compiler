@@ -1074,8 +1074,11 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             array_type.integer = IntegerType::Unsigned8;
 
             Type type;
-            type.category = TypeCategory::Array;
-            type.array = heapify(array_type);
+            type.category = TypeCategory::StaticArray;
+            type.static_array = {
+                expression.string_literal.count,
+                heapify(array_type)
+            };
 
             auto characters = allocate<ConstantValue>(expression.string_literal.count);
 
@@ -1084,10 +1087,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             }
 
             ConstantValue value;
-            value.array = {
-                expression.string_literal.count,
-                characters
-            };
+            value.static_array = characters;
 
             return {
                 true,
@@ -2597,12 +2597,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
 
             ExpressionValue value;
             value.category = ExpressionValueCategory::Constant;
-            value.type.category = TypeCategory::Array;
-            value.type.array = heapify(array_type);
-            value.constant.array = {
+            value.type.category = TypeCategory::StaticArray;
+            value.type.static_array = {
                 expression.string_literal.count,
-                characters
+                heapify(array_type)
             };
+            value.constant.static_array = characters;
 
             return {
                 true,
