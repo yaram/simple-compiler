@@ -957,6 +957,16 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             expect(expression_value, evaluate_constant_expression(context, from, *expression.member_reference.expression));
 
             switch(expression_value.type.category) {
+                case TypeCategory::Pointer: {
+                    if(expression_value.type.pointer->category == TypeCategory::Struct) {
+                        error(expression.member_reference.expression->range, "Cannot access struct pointer members in static context");
+                    } else {
+                        error(expression.member_reference.expression->range, "Type %s has no members", type_description(expression_value.type));
+                    }
+
+                    return { false };
+                } break;
+
                 case TypeCategory::Array: {
                     if(strcmp(expression.member_reference.name.text, "length") == 0) {
                         Type type;
@@ -2247,6 +2257,41 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
             expect(expression_value, generate_expression(context, from, &expression_source, *expression.member_reference.expression));
 
             switch(expression_value.type.category) {
+                case TypeCategory::Pointer: {
+                    if(expression_value.type.pointer->category != TypeCategory::Struct) {
+                        error(expression.member_reference.expression->range, "Type %s has no members", type_description(expression_value.type));
+                    }
+
+                    auto c_declaration = retrieve_c_declaration(*context, expression_value.type.pointer->_struct);
+
+                    assert(c_declaration.type == CDeclarationType::StructType);
+
+                    for(size_t i = 0; i < c_declaration.struct_type.count; i += 1) {
+                        if(strcmp(c_declaration.struct_type[i].name.text, expression.member_reference.name.text) == 0) {
+                            string_buffer_append(source, "(");
+
+                            string_buffer_append(source, expression_source);
+
+                            string_buffer_append(source, ")->");
+
+                            string_buffer_append(source, expression.member_reference.name.text);
+
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Assignable;
+                            value.type = c_declaration.struct_type[i].type;
+
+                            return {
+                                true,
+                                value
+                            };
+                        }
+                    }
+
+                    error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+                    
+                    return { false };
+                } break;
+
                 case TypeCategory::Array: {
                     if(strcmp(expression.member_reference.name.text, "length") == 0) {
                         switch(expression_value.category) {
