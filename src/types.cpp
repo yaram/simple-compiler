@@ -1,7 +1,9 @@
 #include "types.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <assert.h>
 #include <string.h>
+#include "util.h"
 
 bool types_equal(Type a, Type b) {
     if(a.category != b.category) {
@@ -47,6 +49,134 @@ bool types_equal(Type a, Type b) {
 
         default: {
             return true;
+        } break;
+    }
+}
+
+const char *type_description(Type type) {
+    switch(type.category) {
+        case TypeCategory::Function: {
+            char *buffer{};
+
+            string_buffer_append(&buffer, "(");
+
+            for(size_t i = 0; i < type.function.parameters.count; i += 1) {
+                string_buffer_append(&buffer, type_description(type.function.parameters[i]));
+
+                if(i != type.function.parameters.count - 1) {
+                    string_buffer_append(&buffer, ",");
+                }
+            }
+
+            string_buffer_append(&buffer, ")");
+            
+            if(type.function.return_type != nullptr) {
+                string_buffer_append(&buffer, " -> ");
+                string_buffer_append(&buffer, type_description(*type.function.return_type));
+            }
+
+            return buffer;
+        } break;
+        
+        case TypeCategory::Integer: {
+            switch(type.integer) {
+                case IntegerType::Undetermined: {
+                    return "{integer}";
+                } break;
+
+                case IntegerType::Unsigned8: {
+                    return "u8";
+                } break;
+
+                case IntegerType::Unsigned16: {
+                    return "u16";
+                } break;
+
+                case IntegerType::Unsigned32: {
+                    return "u32";
+                } break;
+
+                case IntegerType::Unsigned64: {
+                    return "u64";
+                } break;
+
+                case IntegerType::Signed8: {
+                    return "i8";
+                } break;
+
+                case IntegerType::Signed16: {
+                    return "i16";
+                } break;
+
+                case IntegerType::Signed32: {
+                    return "i32";
+                } break;
+
+                case IntegerType::Signed64: {
+                    return "i64";
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        case TypeCategory::Boolean: {
+            return "bool";
+        } break;
+
+        case TypeCategory::Type: {
+            return "{type}";
+        } break;
+
+        case TypeCategory::Void: {
+            return "void";
+        } break;
+
+        case TypeCategory::Pointer: {
+            char *buffer{};
+
+            string_buffer_append(&buffer, "*");
+            string_buffer_append(&buffer, type_description(*type.pointer));
+
+            return buffer;
+        } break;
+
+        case TypeCategory::Array: {
+            char *buffer{};
+
+            string_buffer_append(&buffer, type_description(*type.array));
+            string_buffer_append(&buffer, "[]");
+
+            return buffer;
+        } break;
+
+        case TypeCategory::StaticArray: {
+            char *buffer{};
+
+            string_buffer_append(&buffer, type_description(*type.static_array.type));
+            string_buffer_append(&buffer, "[");
+
+            char length_buffer[32];
+            sprintf(length_buffer, "%z");
+            string_buffer_append(&buffer, length_buffer);
+
+            string_buffer_append(&buffer, "]");
+
+            return buffer;
+        } break;
+
+        case TypeCategory::Struct: {
+            return type._struct;
+        } break;
+
+        case TypeCategory::FileModule: {
+            return "{module}";
+        } break;
+
+        default: {
+            abort();
         } break;
     }
 }

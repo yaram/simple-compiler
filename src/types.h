@@ -54,3 +54,4 @@ struct Type {
 };
 
 bool types_equal(Type a, Type b);
+const char *type_description(Type type);

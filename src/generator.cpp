@@ -494,7 +494,7 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
         } break;
 
         default: {
-            error(range, "Cannot index a non-array");
+            error(range, "Cannot index %s", type_description(type));
 
             return { false };
         } break;
@@ -600,7 +600,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
         ) &&
         !types_equal(left_type, right_type)
     ) {
-        error(range, "Mismatched types for binary operation");
+        error(range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
 
         return { false };
     }
@@ -753,7 +753,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
         } break;
 
         default: {
-            error(range, "Cannot perform binary operations on this type");
+            error(range, "Cannot perform binary operations on %s", type_description(left_type));
 
             return { false };
         } break;
@@ -865,7 +865,7 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
                     } else if(value.type.integer == context.unsigned_size_integer_type) {
                         result.pointer = value.integer;
                     } else {
-                        error(value_range, "Cannot cast to pointer from this integer type");
+                        error(value_range, "Cannot cast from %s to pointer", type_description(value_type));
 
                         return { false };
                     }
@@ -885,7 +885,7 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
                     if(type.integer == context.unsigned_size_integer_type) {
                         result.pointer = value.integer;
                     } else {
-                        error(value_range, "Cannot cast from pointer to this integer type");
+                        error(value_range, "Cannot cast from pointer to %s", type_description(type));
 
                         return { false };
                     }
@@ -896,7 +896,7 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
                 } break;
 
                 default: {
-                    error(type_range, "Cannot cast pointer to this type");
+                    error(type_range, "Cannot cast pointer to %s", type_description(type));
 
                     return { false };
                 } break;
@@ -913,7 +913,7 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
 
                 case TypeCategory::Array: {
                     if(!types_equal(*value_type.static_array.type, *type.array)) {
-                        error(type_range, "Array element type and pointer type must be the same");
+                        error(type_range, "Static array and array type mismatch. Expected %s, got %s", type_description(*value_type.static_array.type), type_description(*type.array));
 
                         return { false };
                     }
@@ -925,7 +925,7 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
                 } break;
 
                 default: {
-                    error(type_range, "Cannot cast static array to this type");
+                    error(type_range, "Cannot cast static array to %s", type_description(type));
 
                     return { false };
                 } break;
@@ -933,7 +933,7 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
         } break;
 
         default: {
-            error(value_range, "Cannot cast from this type");
+            error(value_range, "Cannot cast from %s", type_description(value_type));
 
             return { false };
         } break;
@@ -1023,7 +1023,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 } break;
 
                 default: {
-                    error(expression.member_reference.expression->range, "This type has no members");
+                    error(expression.member_reference.expression->range, "%s has no members", type_description(expression_value.type));
 
                     return { false };
                 } break;
@@ -1036,7 +1036,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             expect(index, evaluate_constant_expression(context, from, *expression.index_reference.index));
 
             if(index.type.category != TypeCategory::Integer) {
-                error(expression.index_reference.index->range, "Index not an integer");
+                error(expression.index_reference.index->range, "Index is %s, expected to be an integer", type_description(index.type));
 
                 return { false };
             }
@@ -1140,7 +1140,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                     }
                 } else {
                     if(!types_equal(element_type, element.value.type)) {
-                        error(expression.array_literal[i].range, "Mismatched array literal type");
+                        error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.value.type));
 
                         return { false };
                     }
@@ -1210,7 +1210,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             switch(expression.unary_operation.unary_operator) {
                 case UnaryOperator::Pointer: {
                     if(expression_value.type.category != TypeCategory::Type) {
-                        error(expression.unary_operation.expression->range, "Cannot take pointers to constants of this type");
+                        error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
 
                         return { false };
                     }
@@ -1233,7 +1233,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
                 case UnaryOperator::BooleanInvert: {
                     if(expression_value.type.category != TypeCategory::Boolean) {
-                        error(expression.unary_operation.expression->range, "Cannot do boolean inversion on non-boolean");
+                        error(expression.unary_operation.expression->range, "Cannot do boolean inversion on %s", type_description(expression_value.type));
 
                         return { false };
                     }
@@ -1252,7 +1252,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
                 case UnaryOperator::Negation: {
                     if(expression_value.type.category != TypeCategory::Integer) {
-                        error(expression.unary_operation.expression->range, "Cannot do negation on non-integer");
+                        error(expression.unary_operation.expression->range, "Cannot do negation on %s", type_description(expression_value.type));
 
                         return { false };
                     }
@@ -1398,7 +1398,7 @@ static Result<Type> evaluate_type_expression(GenerationContext *context, Stateme
     expect(expression_value, evaluate_constant_expression(context, from, expression));
 
     if(expression_value.type.category != TypeCategory::Type) {
-        error(expression.range, "Value is not a type");
+        error(expression.range, "Expected a type, got %s", type_description(expression_value.type));
 
         return { false };
     }
@@ -1780,7 +1780,7 @@ static Result<const char *> maybe_register_array_type(GenerationContext *context
         } break;
 
         default: {
-            error(type_range, "Invalid array type\n");
+            error(type_range, "Invalid array type %s", type_description(type));
 
             return { false };
         } break;
@@ -2423,7 +2423,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                 } break;
 
                 default: {
-                    error(expression.member_reference.expression->range, "This type has no members");
+                    error(expression.member_reference.expression->range, "Type %s has no members", type_description(expression_value.type));
 
                     return { false };
                 } break;
@@ -2456,7 +2456,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                         } break;
 
                         default: {
-                            error(expression.index_reference.expression->range, "Cannot index a non-array");
+                            error(expression.index_reference.expression->range, "Cannot index %s", type_description(expression_value.type));
 
                             return { false };
                         } break;
@@ -2467,7 +2467,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                     expect(index, generate_runtime_expression(context, from, source, *expression.index_reference.index));
 
                     if(index.type.category != TypeCategory::Integer) {
-                        error(expression.index_reference.index->range, "Array index not an integer");
+                        error(expression.index_reference.index->range, "Non-integer array index. Got %s", type_description(index.type));
 
                         return { false };
                     }
@@ -2489,7 +2489,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                     expect(index, generate_expression(context, from, &index_source, *expression.index_reference.index));
                     
                     if(index.type.category != TypeCategory::Integer) {
-                        error(expression.index_reference.index->range, "Array index not an integer");
+                        error(expression.index_reference.index->range, "Non-integer array index. Got %s", type_description(index.type));
 
                         return { false };
                     }
@@ -2516,7 +2516,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                                 } break;
 
                                 default: {
-                                    error(expression.index_reference.expression->range, "Cannot index a non-array");
+                                    error(expression.index_reference.expression->range, "Cannot index %s", type_description(expression_value.type));
 
                                     return { false };
                                 } break;
@@ -2652,7 +2652,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                     }
                 } else {
                     if(!types_equal(element_type, element.type)) {
-                        error(expression.array_literal[i].range, "Mismatched array literal type");
+                        error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.type));
 
                         return { false };
                     }
@@ -2694,7 +2694,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
             string_buffer_append(source, ")");
 
             if(expression_value.type.category != TypeCategory::Function) {
-                error(expression.function_call.expression->range, "Cannot call a non-function");
+                error(expression.function_call.expression->range, "Cannot call %s", type_description(expression_value.type));
 
                 return { false };
             }
@@ -2724,7 +2724,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
 
                     string_buffer_append(source, ")");
                 } else if(!types_equal(parameter.type, function_type.parameters[i])) {
-                    error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d", i);
+                    error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_type.parameters[i]), type_description(parameter.type));
 
                     return { false };
                 }
@@ -2786,7 +2786,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                     ) &&
                     !types_equal(left.type, right.type)
                 ) {
-                    error(expression.range, "Mismatched types for binary operation");
+                    error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
 
                     return { false };
                 }
@@ -2929,7 +2929,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                     } break;
 
                     default: {
-                        error(expression.range, "Cannot perform binary operations on this type");
+                        error(expression.range, "Cannot perform binary operations on %s", type_description(left.type));
 
                         return { false };
                     } break;
@@ -2984,7 +2984,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                 case UnaryOperator::Pointer: {
                     switch(expression_value.category) {
                         case ExpressionValueCategory::Anonymous: {
-                            error(expression.unary_operation.expression->range, "Cannot take pointers anonymous values");
+                            error(expression.unary_operation.expression->range, "Cannot take pointers to anonymous values");
 
                             return { false };
                         } break;
@@ -3021,7 +3021,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                                 } break;
 
                                 default: {
-                                    error(expression.unary_operation.expression->range, "Cannot take pointers to constants of this type");
+                                    error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
 
                                     return { false };
                                 } break;
@@ -3054,7 +3054,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                 
                 case UnaryOperator::BooleanInvert: {
                     if(expression_value.type.category != TypeCategory::Boolean) {
-                        error(expression.unary_operation.expression->range, "Cannot do boolean inversion on non-boolean");
+                        error(expression.unary_operation.expression->range, "Cannot do boolean inversion on %s", type_description(expression_value.type));
 
                         return { false };
                     }
@@ -3092,7 +3092,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                 
                 case UnaryOperator::Negation: {
                     if(expression_value.type.category != TypeCategory::Integer) {
-                        error(expression.unary_operation.expression->range, "Cannot do negation on non-integer");
+                        error(expression.unary_operation.expression->range, "Cannot do negation on %s", type_description(expression_value.type));
 
                         return { false };
                     }
@@ -3197,14 +3197,14 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                                         expression_value.type.integer != IntegerType::Undetermined && 
                                         expression_value.type.integer != context->unsigned_size_integer_type
                                     ) {
-                                        error(expression.cast.expression->range, "Cannot cast to pointer from this integer type");
+                                        error(expression.cast.expression->range, "Cannot cast from %s to pointer", type_description(expression_value.type));
 
                                         return { false };
                                     }
                                 } break;
 
                                 default: {
-                                    error(expression.cast.type->range, "Cannot cast integer to this type");
+                                    error(expression.cast.type->range, "Cannot cast from integer to %s", type_description(type));
 
                                     return { false };
                                 } break;
@@ -3215,7 +3215,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                             switch(type.category) {
                                 case TypeCategory::Integer: {
                                     if(type.integer != context->unsigned_size_integer_type) {
-                                        error(expression.cast.expression->range, "Cannot cast from pointer to this integer type");
+                                        error(expression.cast.expression->range, "Cannot cast from pointer to %s", type_description(type));
 
                                         return { false };
                                     }
@@ -3226,7 +3226,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                                 } break;
 
                                 default: {
-                                    error(expression.cast.type->range, "Cannot cast pointer to this type");
+                                    error(expression.cast.type->range, "Cannot cast from pointer to %s", type_description(type));
 
                                     return { false };
                                 } break;
@@ -3237,7 +3237,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                             switch(type.category) {
                                 case TypeCategory::Pointer: {
                                     if(!types_equal(*expression_value.type.static_array.type, *type.pointer)) {
-                                        error(expression.cast.type->range, "Array element type and pointer type must be the same");
+                                        error(expression.cast.type->range, "Static array and pointer type mismatch. Expected %s, got %s", type_description(*expression_value.type.static_array.type), type_description(*type.pointer));
 
                                         return { false };
                                     }
@@ -3245,14 +3245,14 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
 
                                 case TypeCategory::Array: {
                                     if(!types_equal(*expression_value.type.static_array.type, *type.array)) {
-                                        error(expression.cast.type->range, "Array element type and pointer type must be the same");
+                                        error(expression.cast.type->range, "Static array and array type mismatch. Expected %s, got %s", type_description(*expression_value.type.static_array.type), type_description(*type.array));
 
                                         return { false };
                                     }
                                 } break;
 
                                 default: {
-                                    error(expression.cast.type->range, "Cannot cast static array to this type");
+                                    error(expression.cast.type->range, "Cannot cast from static array to %s", type_description(type));
 
                                     return { false };
                                 } break;
@@ -3260,7 +3260,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                         } break;
 
                         default: {
-                            error(expression.cast.expression->range, "Cannot cast from this type");
+                            error(expression.cast.expression->range, "Cannot cast from %s", type_description(expression_value.type));
 
                             return { false };
                         } break;
@@ -3288,6 +3288,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
 
                 case ExpressionValueCategory::Constant: {
                     if(expression_value.type.category == TypeCategory::StaticArray && type.category == TypeCategory::Pointer) {
+                        if(!types_equal(*expression_value.type.static_array.type, *type.pointer)) {
+                            error(expression.cast.type->range, "Static array and pointer type mismatch. Expected %s, got %s", type_description(*expression_value.type.static_array.type), type_description(*type.pointer));
+
+                            return { false };
+                        }
+
                         string_buffer_append(source, "(");
 
                         generate_type(context, source, source, type, expression.cast.type->range);
@@ -3611,7 +3617,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
                         ) &&
                         !types_equal(type, initial_value.type)
                     ) {
-                        error(statement.variable_declaration.fully_specified.initializer.range, "Assigning incorrect type");
+                        error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initial_value.type));
                         
                         return false;
                     }
@@ -3711,7 +3717,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
                 ) &&
                 !types_equal(target.type, value.type)
             ) {
-                error(statement.assignment.value.range, "Assigning incorrect type");
+                error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
 
                 return false;
             }
@@ -3729,7 +3735,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
             string_buffer_append(source, ")");
 
             if(condition.type.category != TypeCategory::Boolean) {
-                error(statement.lone_if.condition.range, "Non-boolean if statement condition");
+                error(statement.lone_if.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
 
                 return false;
             }
@@ -3759,7 +3765,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
             string_buffer_append(source, ")");
 
             if(condition.type.category != TypeCategory::Boolean) {
-                error(statement.while_loop.condition.range, "Non-boolean while loop condition");
+                error(statement.while_loop.condition.range, "Non-boolean while loop condition. Got %s", type_description(condition.type));
 
                 return false;
             }
@@ -3795,7 +3801,7 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
                 ) &&
                 !types_equal(context->return_type, expression_value.type)
             ) {
-                error(statement._return.range, "Mismatched return type");
+                error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(expression_value.type));
 
                 return { false };
             }
