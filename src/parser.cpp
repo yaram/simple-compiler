@@ -1148,6 +1148,50 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 expression.array_literal = to_array(elements);
 
                 append(expression_stack, expression);
+            } else if(character == '[') {
+                context->character += 1;
+
+                skip_whitespace(context);
+
+                auto last_line = context->line;
+                auto last_character = context->character;
+
+                auto character = fgetc(context->source_file);
+
+                Operation operation;
+                operation.range = {
+                    context->source_file_path,
+                    first_line,
+                    first_character,
+                    first_line,
+                    first_character
+                };
+
+                if(character == ']') {
+                    context->character += 1;
+
+                    operation.type = OperationType::ArrayType;
+                } else {
+                    ungetc(character, context->source_file);
+
+                    expect(expression, parse_expression(context));
+
+                    skip_whitespace(context);
+                    
+                    last_line = context->line;
+                    last_character = context->character;
+
+                    if(!expect_character(context, ']')) {
+                        return { false };
+                    }
+
+                    operation.type = OperationType::IndexReference;
+                    operation.index_reference = expression;
+                }
+
+                append(operation_stack, operation);
+
+                continue;
             } else if(character == EOF) {
                 error(*context, "Unexpected End of File");
 
@@ -1270,42 +1314,6 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 return { false };
             }
-        } else if(character == '[') {
-            context->character += 1;
-
-            skip_whitespace(context);
-
-            auto last_line = context->line;
-            auto last_character = context->character;
-
-            auto character = fgetc(context->source_file);
-
-            if(character == ']') {
-                context->character += 1;
-
-                operation.type = OperationType::ArrayType;
-            } else {
-                ungetc(character, context->source_file);
-
-                expect(expression, parse_expression(context));
-
-                skip_whitespace(context);
-                
-                last_line = context->line;
-                last_character = context->character;
-
-                if(!expect_character(context, ']')) {
-                    return { false };
-                }
-
-                operation.type = OperationType::IndexReference;
-                operation.index_reference = expression;
-            }
-
-            operation.range.end_line = last_line;
-            operation.range.end_character = last_character;
-
-            expect_non_left_recursive = false;
         } else if(character == '+') {
             context->character += 1;
 

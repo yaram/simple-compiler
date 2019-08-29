@@ -146,8 +146,8 @@ const char *type_description(Type type) {
         case TypeCategory::Array: {
             char *buffer{};
 
-            string_buffer_append(&buffer, type_description(*type.array));
             string_buffer_append(&buffer, "[]");
+            string_buffer_append(&buffer, type_description(*type.array));
 
             return buffer;
         } break;
@@ -155,7 +155,6 @@ const char *type_description(Type type) {
         case TypeCategory::StaticArray: {
             char *buffer{};
 
-            string_buffer_append(&buffer, type_description(*type.static_array.type));
             string_buffer_append(&buffer, "[");
 
             char length_buffer[32];
@@ -163,6 +162,7 @@ const char *type_description(Type type) {
             string_buffer_append(&buffer, length_buffer);
 
             string_buffer_append(&buffer, "]");
+            string_buffer_append(&buffer, type_description(*type.static_array.type));
 
             return buffer;
         } break;
