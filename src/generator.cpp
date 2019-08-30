@@ -2297,7 +2297,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                                 string_buffer_append(source, ").length");
 
                                 ExpressionValue value;
-                                value.category = ExpressionValueCategory::Anonymous;
+                                value.category = expression_value.category;
                                 value.type.category = TypeCategory::Integer;
                                 value.type.integer = context->unsigned_size_integer_type;
 
@@ -2335,7 +2335,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
                                 string_buffer_append(source, ").pointer");
 
                                 ExpressionValue value;
-                                value.category = ExpressionValueCategory::Anonymous;
+                                value.category = expression_value.category;
                                 value.type.category = TypeCategory::Pointer;
                                 value.type.pointer = expression_value.type.array;
 
