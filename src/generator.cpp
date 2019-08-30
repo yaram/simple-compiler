@@ -264,10 +264,10 @@ static Result<Statement> lookup_declaration(Statement from, const char *name) {
             }
         }
     } else {
-        Statement current;
+        auto current = from;
 
         do {
-            current = *from.parent;
+            current = *current.parent;
 
             switch(current.type) {
                 case StatementType::FunctionDeclaration: {
