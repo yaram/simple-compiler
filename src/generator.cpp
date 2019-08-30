@@ -15,7 +15,7 @@ const FileRange generated_range {
 };
 
 union ConstantValue {
-    const char *function;
+    Statement function;
 
     uint64_t integer;
 
@@ -1500,16 +1500,11 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
     switch(declaration.type) {
         case StatementType::FunctionDeclaration: {
             auto parameterTypes = allocate<Type>(declaration.function_declaration.parameters.count);
-            auto runtimeParameters = allocate<RuntimeFunctionParameter>(declaration.function_declaration.parameters.count);
             
             for(size_t i = 0; i < declaration.function_declaration.parameters.count; i += 1) {
                 expect(type, evaluate_type_expression(context, declaration, declaration.function_declaration.parameters[i].type));
 
                 parameterTypes[i] = type;
-                runtimeParameters[i] = {
-                    declaration.function_declaration.parameters[i].name,
-                    type
-                };
             }
 
             Type return_type;
@@ -1521,69 +1516,6 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
                 return_type.category = TypeCategory::Void;
             }
 
-            const char *mangled_name;
-            if(declaration.function_declaration.is_external) {
-                mangled_name = declaration.function_declaration.name.text;
-
-                auto is_registered = false;
-                for(auto c_declaration : context->c_declarations) {
-                    if(c_declaration.type == CDeclarationType::ExternalFunction && strcmp(c_declaration.mangled_name, mangled_name) == 0) {
-                        is_registered = true;
-
-                        break;
-                    }
-                }
-
-                if(!is_registered) {
-                    CDeclaration c_declaration;
-                    c_declaration.type = CDeclarationType::ExternalFunction;
-                    c_declaration.mangled_name = mangled_name;
-
-                    c_declaration.external_function = {
-                        {
-                            declaration.function_declaration.parameters.count,
-                            runtimeParameters
-                        },
-                        return_type
-                    };
-
-                    if(!register_c_declaration(context, c_declaration)) {
-                        return { false };
-                    }
-                    
-                    if(!register_global_name(context, mangled_name, declaration.function_declaration.name.range)) {
-                        return { false };
-                    }
-                }
-            } else {
-                mangled_name = generate_mangled_name(*context, declaration);
-
-                auto is_registered = false;
-                for(auto function : context->runtime_functions) {
-                    if(strcmp(function.mangled_name, mangled_name) == 0) {
-                        is_registered = true;
-
-                        break;
-                    }
-                }
-
-                if(!is_registered) {
-                    append(&context->runtime_functions, {
-                        mangled_name,
-                        {
-                            declaration.function_declaration.parameters.count,
-                            runtimeParameters
-                        },
-                        return_type,
-                        declaration.function_declaration.statements
-                    });
-
-                    if(!register_global_name(context, mangled_name, declaration.function_declaration.name.range)) {
-                        return { false };
-                    }
-                }
-            }
-
             Type type;
             type.category = TypeCategory::Function;
             type.function.parameters = {
@@ -1593,7 +1525,7 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             type.function.return_type = heapify(return_type);
 
             ConstantValue value;
-            value.function = mangled_name;
+            value.function = declaration;
 
             return {
                 true,
@@ -1972,7 +1904,79 @@ static bool generate_type(GenerationContext *context, char **prefix_source, char
 static bool generate_constant_value(GenerationContext *context, char **source, Type type, ConstantValue value, FileRange range) {
     switch(type.category) {
         case TypeCategory::Function: {
-            string_buffer_append(source, value.function);
+            auto runtimeParameters = allocate<RuntimeFunctionParameter>(value.function.function_declaration.parameters.count);
+            
+            for(size_t i = 0; i < value.function.function_declaration.parameters.count; i += 1) {
+                runtimeParameters[i] = {
+                    value.function.function_declaration.parameters[i].name,
+                    type.function.parameters[i]
+                };
+            }
+
+            const char *mangled_name;
+            if(value.function.function_declaration.is_external) {
+                mangled_name = value.function.function_declaration.name.text;
+
+                auto is_registered = false;
+                for(auto c_declaration : context->c_declarations) {
+                    if(c_declaration.type == CDeclarationType::ExternalFunction && strcmp(c_declaration.mangled_name, mangled_name) == 0) {
+                        is_registered = true;
+
+                        break;
+                    }
+                }
+
+                if(!is_registered) {
+                    CDeclaration c_declaration;
+                    c_declaration.type = CDeclarationType::ExternalFunction;
+                    c_declaration.mangled_name = mangled_name;
+
+                    c_declaration.external_function = {
+                        {
+                            value.function.function_declaration.parameters.count,
+                            runtimeParameters
+                        },
+                        *type.function.return_type
+                    };
+
+                    if(!register_c_declaration(context, c_declaration)) {
+                        return { false };
+                    }
+                    
+                    if(!register_global_name(context, mangled_name, value.function.function_declaration.name.range)) {
+                        return { false };
+                    }
+                }
+            } else {
+                mangled_name = generate_mangled_name(*context, value.function);
+
+                auto is_registered = false;
+                for(auto function : context->runtime_functions) {
+                    if(strcmp(function.mangled_name, mangled_name) == 0) {
+                        is_registered = true;
+
+                        break;
+                    }
+                }
+
+                if(!is_registered) {
+                    append(&context->runtime_functions, {
+                        mangled_name,
+                        {
+                            value.function.function_declaration.parameters.count,
+                            runtimeParameters
+                        },
+                        *type.function.return_type,
+                        value.function.function_declaration.statements
+                    });
+
+                    if(!register_global_name(context, mangled_name, value.function.function_declaration.name.range)) {
+                        return { false };
+                    }
+                }
+            }
+
+            string_buffer_append(source, mangled_name);
 
             return true;
         } break;
@@ -3029,22 +3033,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, S
 
                         case ExpressionValueCategory::Constant: {
                             switch(expression_value.type.category) {
-                                case TypeCategory::Function: {
-                                    string_buffer_append(source, "&");
-
-                                    string_buffer_append(source, expression_value.constant.function);
-
-                                    ExpressionValue value;
-                                    value.category = ExpressionValueCategory::Anonymous;
-                                    value.type.category = TypeCategory::Pointer;
-                                    value.type.pointer = heapify(expression_value.type);
-
-                                    return {
-                                        true,
-                                        value
-                                    };
-                                } break;
-
                                 case TypeCategory::Type: {
                                     ExpressionValue value;
                                     value.category = ExpressionValueCategory::Constant;
@@ -3997,7 +3985,30 @@ Result<CSource> generate_c_source(Array<File> files) {
                 return { false };
             }
 
-            if(!resolve_declaration(&context, statement).status) {
+            expect(value, resolve_declaration(&context, statement));
+            
+            auto runtimeParameters = allocate<RuntimeFunctionParameter>(statement.function_declaration.parameters.count);
+            
+            for(size_t i = 0; i < statement.function_declaration.parameters.count; i += 1) {
+                runtimeParameters[i] = {
+                    statement.function_declaration.parameters[i].name,
+                    value.type.function.parameters[i]
+                };
+            }
+            
+            auto mangled_name = generate_mangled_name(context, statement);
+
+            append(&context.runtime_functions, {
+                mangled_name,
+                {
+                    statement.function_declaration.parameters.count,
+                    runtimeParameters
+                },
+                *value.type.function.return_type,
+                statement.function_declaration.statements
+            });
+
+            if(!register_global_name(&context, mangled_name, statement.function_declaration.name.range)) {
                 return { false };
             }
 
