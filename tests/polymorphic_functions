@@ -1,0 +1,9 @@
+test :: (a: T, b: $T) -> T {
+    result : T = b - a;
+
+    return result;
+}
+
+main :: () -> i32 {
+    return test(1, 1 as i32);
+}

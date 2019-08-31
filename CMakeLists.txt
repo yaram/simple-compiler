@@ -89,3 +89,5 @@ single_file_test(pointer_casts)
 single_file_test(type_elision)
 
 single_file_test(while_statements)
+
+single_file_test(polymorphic_functions)
