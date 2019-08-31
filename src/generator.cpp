@@ -147,6 +147,8 @@ struct GenerationContext {
         Array<Statement> top_level_statements;
     };
 
+    Array<PolymorphicDeterminer> polymorphic_determiners;
+
     Type return_type;
 
     List<const char*> global_names;
@@ -326,6 +328,24 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Statement declaration);
 
 static Result<TypedConstantValue> resolve_constant_named_reference(GenerationContext *context, Identifier name) {
+    for(auto polymorphic_determiner : context->polymorphic_determiners) {
+        if(strcmp(polymorphic_determiner.name, name.text) == 0) {
+            Type type;
+            type.category = TypeCategory::Type;
+
+            ConstantValue value;
+            value.type = polymorphic_determiner.type;
+
+            return {
+                true,
+                {
+                    type,
+                    value
+                }
+            };
+        }
+    }
+
     auto old_determined_declaration = context->determined_declaration;
 
     if(context->is_top_level) {
@@ -1556,10 +1576,8 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
     switch(declaration.type) {
         case StatementType::FunctionDeclaration: {
             auto parameterTypes = allocate<Type>(declaration.function_declaration.parameters.count);
-            
-            for(size_t i = 0; i < declaration.function_declaration.parameters.count; i += 1) {
-                auto parameter = declaration.function_declaration.parameters[i];
 
+            for(auto parameter : declaration.function_declaration.parameters) {
                 if(parameter.is_polymorphic_determiner) {
                     Type type;
                     type.category = TypeCategory::Function;
@@ -1579,8 +1597,10 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
                         }
                     };
                 }
+            }
 
-                expect(type, evaluate_type_expression(context, parameter.type));
+            for(size_t i = 0; i < declaration.function_declaration.parameters.count; i += 1) {
+                expect(type, evaluate_type_expression(context, declaration.function_declaration.parameters[i].type));
 
                 parameterTypes[i] = type;
             }
@@ -2245,37 +2265,19 @@ struct ExpressionValue {
 
 static Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression);
 
-static Result<ExpressionValue> generate_runtime_expression(GenerationContext *context, char **source, Expression expression) {
+static Result<Type> generate_runtime_expression(GenerationContext *context, char **source, Expression expression) {
     expect(expression_value, generate_expression(context, source, expression));
 
-    switch(expression_value.category) {
-        case ExpressionValueCategory::Anonymous:
-        case ExpressionValueCategory::Assignable: {
-            return {
-                true,
-                expression_value
-            };
-        } break;
-
-        case ExpressionValueCategory::Constant: {
-            if(!generate_constant_value(context, source, expression_value.type, expression_value.constant, expression.range)) {
-                return { false };
-            }
-
-            ExpressionValue value;
-            value.category = ExpressionValueCategory::Anonymous;
-            value.type = expression_value.type;
-
-            return {
-                true,
-                value
-            };
-        } break;
-
-        default: {
-            abort();
-        } break;
+    if(expression_value.category == ExpressionValueCategory::Constant) {
+        if(!generate_constant_value(context, source, expression_value.type, expression_value.constant, expression.range)) {
+            return { false };
+        }
     }
+
+    return {
+        true,
+        expression_value.type
+    };
 }
 
 static Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression) {
@@ -2609,10 +2611,10 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
 
                     string_buffer_append(source, "[");
 
-                    expect(index, generate_runtime_expression(context, source, *expression.index_reference.index));
+                    expect(index_type, generate_runtime_expression(context, source, *expression.index_reference.index));
 
-                    if(index.type.category != TypeCategory::Integer) {
-                        error(expression.index_reference.index->range, "Non-integer array index. Got %s", type_description(index.type));
+                    if(index_type.category != TypeCategory::Integer) {
+                        error(expression.index_reference.index->range, "Non-integer array index. Got %s", type_description(index_type));
 
                         return { false };
                     }
@@ -2841,9 +2843,160 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                 return { false };
             }
 
+            struct ParameterValue {
+                const char *source;
+
+                Type type;
+            };
+
+            auto function_parameter_values = allocate<ParameterValue>(expression.function_call.parameters.count);
+
+            const char *function_source;
+            Type *function_parameters;
+            Type function_return_type;
+
             if(expression_value.type.function.is_polymorphic) {
-                abort();
+                auto function_declaration = expression_value.constant.function.declaration.function_declaration;
+                
+                if(expression.function_call.parameters.count != function_declaration.parameters.count) {
+                    error(expression.range, "Incorrect number of parameters. Expected %zu, got %zu", function_declaration.parameters.count, expression.function_call.parameters.count);
+
+                    return { false };
+                }
+
+                List<PolymorphicDeterminer> polymorphic_determiners{};
+
+                for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
+                    auto parameter = function_declaration.parameters[i];
+
+                    if(parameter.is_polymorphic_determiner) {
+                        for(auto polymorphic_determiner : polymorphic_determiners) {
+                            if(strcmp(polymorphic_determiner.name, parameter.polymorphic_determiner.text) == 0) {
+                                error(parameter.polymorphic_determiner.range, "Duplicate polymorphic parameter %s", parameter.polymorphic_determiner.text);
+
+                                return { false };
+                            }
+                        }
+
+                        char *parameter_source{};
+                        expect(parameter_type, generate_runtime_expression(context, &parameter_source, expression.function_call.parameters[i]));
+                        
+                        Type type;
+
+                        if(parameter_type.category == TypeCategory::Integer && parameter_type.integer == IntegerType::Undetermined) {
+                            type.category = TypeCategory::Integer;
+                            type.integer = context->default_integer_type;
+                        } else {
+                            type = parameter_type;
+                        }
+
+                        append(&polymorphic_determiners, {
+                            parameter.polymorphic_determiner.text,
+                            type
+                        });
+
+                        function_parameter_values[i] = {
+                            parameter_source,
+                            type
+                        };
+                    }
+                }
+
+                function_parameters = allocate<Type>(expression.function_call.parameters.count);
+
+                context->polymorphic_determiners = to_array(polymorphic_determiners);
+
+                for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
+                    auto parameter = function_declaration.parameters[i];
+
+                    if(parameter.is_polymorphic_determiner) {
+                        for(auto polymorphic_determiner : polymorphic_determiners) {
+                            if(strcmp(polymorphic_determiner.name, parameter.polymorphic_determiner.text) == 0) {
+                                function_parameters[i] = polymorphic_determiner.type;
+                            }
+
+                            break;
+                        }
+                    } else {
+                        expect(parameter_type, evaluate_type_expression(context, parameter.type));
+
+                        function_parameters[i] = parameter_type;
+
+                        char *parameter_value_source{};
+                        expect(parameter_value_type, generate_runtime_expression(context, &parameter_value_source, expression.function_call.parameters[i]));
+
+                        function_parameter_values[i] = {
+                            parameter_value_source,
+                            parameter_value_type
+                        };
+                    }
+                }
+
+                if(function_declaration.has_return_type) {
+                    expect(return_type, evaluate_type_expression(context, function_declaration.return_type));
+
+                    function_return_type = return_type;
+                } else {
+                    function_return_type.category = TypeCategory::Void;
+                }
+
+                context->polymorphic_determiners = {};
+
+                char *mangled_name_buffer{};
+
+                string_buffer_append(&mangled_name_buffer, "function_");
+
+                char buffer[32];
+                sprintf(buffer, "%zu", context->runtime_functions.count);
+                string_buffer_append(&mangled_name_buffer, buffer);
+
+                function_source = mangled_name_buffer;
+
+                auto runtime_function_parameters = allocate<RuntimeFunctionParameter>(expression.function_call.parameters.count);
+
+                for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
+                    runtime_function_parameters[i] = {
+                        function_declaration.parameters[i].name,
+                        function_parameters[i]
+                    };
+                }
+
+                RuntimeFunction runtime_function;
+                runtime_function.mangled_name = mangled_name_buffer;
+                runtime_function.parameters = {
+                    expression.function_call.parameters.count,
+                    runtime_function_parameters
+                };
+                runtime_function.return_type = function_return_type;
+                runtime_function.declaration = expression_value.constant.function.declaration;
+                runtime_function.polymorphic_determiners = to_array(polymorphic_determiners);
+
+                if(!expression_value.constant.function.declaration.is_top_level) {
+                    runtime_function.parent = expression_value.constant.function.parent;
+                }
+
+                append(&context->runtime_functions, runtime_function);
+
+                if(!register_global_name(context, mangled_name_buffer, function_declaration.name.range)) {
+                    return { false };
+                }
             } else {
+                if(expression.function_call.parameters.count != expression_value.type.function.parameters.count) {
+                    error(expression.range, "Incorrect number of parameters. Expected %zu, got %zu", expression_value.type.function.parameters.count, expression.function_call.parameters.count);
+
+                    return { false };
+                }
+                
+                for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
+                    char *parameter_source{};
+                    expect(parameter_type, generate_runtime_expression(context, &parameter_source, expression.function_call.parameters[i]));
+
+                    function_parameter_values[i] = {
+                        parameter_source,
+                        parameter_type
+                    };
+                }
+
                 if(!generate_constant_value(
                     context,
                     &expression_source,
@@ -2854,62 +3007,58 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
                     return { false };
                 }
 
-                string_buffer_append(source, "(");
-                string_buffer_append(source, expression_source);
-                string_buffer_append(source, ")");
+                function_source = expression_source;
+                function_parameters = expression_value.type.function.parameters.elements;
+                function_return_type = *expression_value.type.function.return_type;
+            }
 
-                auto function_type = expression_value.type.function;
+            string_buffer_append(source, "(");
+            string_buffer_append(source, function_source);
+            string_buffer_append(source, ")");
 
-                string_buffer_append(source, "(");
+            string_buffer_append(source, "(");
 
-                if(expression.function_call.parameters.count != function_type.parameters.count) {
-                    error(expression.range, "Incorrect number of parameters. Expected %zu, got %zu", function_type.parameters.count, expression.function_call.parameters.count);
+            for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
+                auto parameter = function_parameters[i];
+                auto parameter_value = function_parameter_values[i];
+
+                if(
+                    parameter_value.type.category == TypeCategory::Integer &&
+                    parameter.category == TypeCategory::Integer &&
+                    parameter_value.type.integer == IntegerType::Undetermined
+                ) {
+                    string_buffer_append(source, "(");
+
+                    generate_integer_type(source, parameter.integer);
+
+                    string_buffer_append(source, ")");
+                } else if(!types_equal(parameter_value.type, parameter)) {
+                    error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(parameter), type_description(parameter_value.type));
 
                     return { false };
                 }
 
-                for(size_t i = 0; i < function_type.parameters.count; i += 1) {
-                    char *parameter_source{};
-                    expect(parameter, generate_runtime_expression(context, &parameter_source, expression.function_call.parameters[i]));
+                string_buffer_append(source, "(");
 
-                    if(
-                        parameter.type.category == TypeCategory::Integer &&
-                        function_type.parameters[i].category == TypeCategory::Integer &&
-                        parameter.type.integer == IntegerType::Undetermined
-                    ) {
-                        string_buffer_append(source, "(");
-
-                        generate_integer_type(source, function_type.parameters[i].integer);
-
-                        string_buffer_append(source, ")");
-                    } else if(!types_equal(parameter.type, function_type.parameters[i])) {
-                        error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_type.parameters[i]), type_description(parameter.type));
-
-                        return { false };
-                    }
-
-                    string_buffer_append(source, "(");
-
-                    string_buffer_append(source, parameter_source);
-
-                    string_buffer_append(source, ")");
-
-                    if(i != function_type.parameters.count - 1) {
-                        string_buffer_append(source, ",");
-                    }
-                }
+                string_buffer_append(source, parameter_value.source);
 
                 string_buffer_append(source, ")");
 
-                ExpressionValue value;
-                value.category = ExpressionValueCategory::Anonymous;
-                value.type = *function_type.return_type;
-
-                return { 
-                    true,
-                    value
-                };
+                if(i != expression.function_call.parameters.count - 1) {
+                    string_buffer_append(source, ",");
+                }
             }
+
+            string_buffer_append(source, ")");
+
+            ExpressionValue value;
+            value.category = ExpressionValueCategory::Anonymous;
+            value.type = function_return_type;
+
+            return { 
+                true,
+                value
+            };
         } break;
 
         case ExpressionType::BinaryOperation: {
@@ -3860,17 +4009,17 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
 
             string_buffer_append(source, "=");
 
-            expect(value, generate_runtime_expression(context, source, statement.assignment.value));
+            expect(value_type, generate_runtime_expression(context, source, statement.assignment.value));
             
             if(
                 !(
                     target.type.category == TypeCategory::Integer &&
-                    value.type.category == TypeCategory::Integer &&
-                    value.type.integer == IntegerType::Undetermined
+                    value_type.category == TypeCategory::Integer &&
+                    value_type.integer == IntegerType::Undetermined
                 ) &&
-                !types_equal(target.type, value.type)
+                !types_equal(target.type, value_type)
             ) {
-                error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+                error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value_type));
 
                 return false;
             }
@@ -3883,12 +4032,12 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
         case StatementType::LoneIf: {
             string_buffer_append(source, "if(");
 
-            expect(condition, generate_runtime_expression(context, source, statement.lone_if.condition));
+            expect(condition_type, generate_runtime_expression(context, source, statement.lone_if.condition));
 
             string_buffer_append(source, ")");
 
-            if(condition.type.category != TypeCategory::Boolean) {
-                error(statement.lone_if.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
+            if(condition_type.category != TypeCategory::Boolean) {
+                error(statement.lone_if.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition_type));
 
                 return false;
             }
@@ -3913,12 +4062,12 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
         case StatementType::WhileLoop: {
             string_buffer_append(source, "while(");
 
-            expect(condition, generate_runtime_expression(context, source, statement.while_loop.condition));
+            expect(condition_type, generate_runtime_expression(context, source, statement.while_loop.condition));
 
             string_buffer_append(source, ")");
 
-            if(condition.type.category != TypeCategory::Boolean) {
-                error(statement.while_loop.condition.range, "Non-boolean while loop condition. Got %s", type_description(condition.type));
+            if(condition_type.category != TypeCategory::Boolean) {
+                error(statement.while_loop.condition.range, "Non-boolean while loop condition. Got %s", type_description(condition_type));
 
                 return false;
             }
@@ -3944,17 +4093,17 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
             string_buffer_append(source, "return ");
 
             char *expression_source{};
-            expect(expression_value, generate_runtime_expression(context, &expression_source, statement._return));
+            expect(expression_type, generate_runtime_expression(context, &expression_source, statement._return));
 
             if(
                 !(
                     context->return_type.category == TypeCategory::Integer &&
-                    expression_value.type.category == TypeCategory::Integer &&
-                    expression_value.type.integer == IntegerType::Undetermined
+                    expression_type.category == TypeCategory::Integer &&
+                    expression_type.integer == IntegerType::Undetermined
                 ) &&
-                !types_equal(context->return_type, expression_value.type)
+                !types_equal(context->return_type, expression_type)
             ) {
-                error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(expression_value.type));
+                error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(expression_type));
 
                 return { false };
             }
