@@ -32,6 +32,8 @@ struct Type {
 
     union {
         struct {
+            bool is_polymorphic;
+
             Array<Type> parameters;
 
             Type *return_type;

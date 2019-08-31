@@ -12,6 +12,10 @@ bool types_equal(Type a, Type b) {
 
     switch(a.category) {
         case TypeCategory::Function: {
+            if(a.function.is_polymorphic || b.function.is_polymorphic) {
+                return false;
+            }
+
             if(a.function.parameters.count != b.function.parameters.count) {
                 return false;
             }
@@ -56,26 +60,30 @@ bool types_equal(Type a, Type b) {
 const char *type_description(Type type) {
     switch(type.category) {
         case TypeCategory::Function: {
-            char *buffer{};
+            if(type.function.is_polymorphic) {
+                return "{polymorphic}";
+            } else {
+                char *buffer{};
 
-            string_buffer_append(&buffer, "(");
+                string_buffer_append(&buffer, "(");
 
-            for(size_t i = 0; i < type.function.parameters.count; i += 1) {
-                string_buffer_append(&buffer, type_description(type.function.parameters[i]));
+                for(size_t i = 0; i < type.function.parameters.count; i += 1) {
+                    string_buffer_append(&buffer, type_description(type.function.parameters[i]));
 
-                if(i != type.function.parameters.count - 1) {
-                    string_buffer_append(&buffer, ",");
+                    if(i != type.function.parameters.count - 1) {
+                        string_buffer_append(&buffer, ",");
+                    }
                 }
-            }
 
-            string_buffer_append(&buffer, ")");
-            
-            if(type.function.return_type != nullptr) {
-                string_buffer_append(&buffer, " -> ");
-                string_buffer_append(&buffer, type_description(*type.function.return_type));
-            }
+                string_buffer_append(&buffer, ")");
+                
+                if(type.function.return_type != nullptr) {
+                    string_buffer_append(&buffer, " -> ");
+                    string_buffer_append(&buffer, type_description(*type.function.return_type));
+                }
 
-            return buffer;
+                return buffer;
+            }
         } break;
         
         case TypeCategory::Integer: {
