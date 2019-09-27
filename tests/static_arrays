@@ -1,0 +1,6 @@
+main :: () -> i32 {
+    test: i32[3];
+    test[1] = 10;
+
+    return test[1] - 10;
+}
