@@ -1,121 +1,102 @@
 #pragma once
 
+#include <stdint.h>
 #include "array.h"
 
-enum struct IntegerSize {
+enum struct RegisterSize {
     Size8,
     Size16,
     Size32,
     Size64
 };
 
-enum struct Opcode {
-    IntegerAdd,
-    IntegerSubtract,
-    IntegerMultiply,
-    IntegerDivide,
-    IntegerModulo,
+enum struct BinaryOperationType {
+    Add,
+    Subtract,
+    SignedMultiply,
+    UnsignedMultiply,
+    SignedDivide,
+    UnsignedDivide,
+    SignedModulus,
+    UnsignedModulus,
+    Equality
+};
 
-    IntegerNegation,
-    IntegerConversion,
+enum struct InstructionType {
+    BinaryOperation,
 
-    IntegerEquality,
-    BooleanEquality,
+    Negation,
+    Conversion,
+
+    Constant,
 
     BooleanInvert,
 
+    Jump,
     Branch,
 
     FunctionCall,
     Return,
 
-    LoadLocal,
-    StoreLocal,
+    AllocateLocal,
 
-    LocalPointer,
-
-    LoadMemory,
-    StoreMemory
+    LoadInteger,
+    StoreInteger
 };
 
 struct Instruction {
-    Opcode opcode;
+    InstructionType type;
 
     union {
         struct {
-            IntegerSize size;
+            BinaryOperationType type;
+
+            RegisterSize size;
 
             size_t source_register_a;
             size_t source_register_b;
 
             size_t destination_register;
-        } integer_add;
+        } binary_operation;
 
         struct {
-            IntegerSize size;
+            RegisterSize size;
 
-            size_t source_register_a;
-            size_t source_register_b;
-
-            size_t destination_register;
-        } integer_subtract;
-
-        struct {
-            IntegerSize size;
-
-            size_t source_register_a;
-            size_t source_register_b;
-
-            size_t destination_register;
-        } integer_multiply;
-
-        struct {
-            IntegerSize size;
-
-            size_t source_register_a;
-            size_t source_register_b;
-
-            size_t destination_register;
-        } integer_divide;
-
-        struct {
-            IntegerSize size;
-
-            size_t source_register_a;
-            size_t source_register_b;
-
-            size_t destination_register;
-        } integer_modulo;
-
-        struct {
-            IntegerSize source_size;
             size_t source_register;
 
-            IntegerSize destination_size;
             size_t destination_register;
-        } integer_conversion;
+        } negation;
 
         struct {
-            IntegerSize size;
+            RegisterSize source_size;
+            size_t source_register;
 
-            size_t source_register_a;
-            size_t source_register_b;
-
+            RegisterSize destination_size;
             size_t destination_register;
-        } integer_equality;
+        } conversion;
 
         struct {
-            size_t source_register_a;
-            size_t source_register_b;
+            RegisterSize size;
 
             size_t destination_register;
-        } boolean_equality;
+
+            union {
+                uint8_t size_8;
+                uint16_t size_16;
+                uint32_t size_32;
+                uint64_t size_64;
+            };
+        } constant;
 
         struct {
             size_t source_register;
 
             size_t destination_register;
         } boolean_invert;
+
+        struct {
+            size_t destination_instruction;
+        } jump;
 
         struct {
             size_t condition_register;
@@ -134,34 +115,26 @@ struct Instruction {
         } return_;
 
         struct {
-            const char *source_local;
+            size_t size;
 
             size_t destination_register;
-        } load_local;
+        } allocate_local;
 
         struct {
-            size_t source_register;
+            RegisterSize size;
 
-            const char *destination_local;
-        } store_local;
-
-        struct {
-            const char *local;
-
-            size_t destination_register;
-        } local_pointer;
-
-        struct {
             size_t address_register;
 
             size_t destination_register;
-        } memory_load;
+        } load_integer;
 
         struct {
+            RegisterSize size;
+
             size_t source_register;
 
             size_t address_register;
-        } memory_store;
+        } store_integer;
     };
 };
 
