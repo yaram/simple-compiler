@@ -112,13 +112,6 @@ struct Instruction {
         } boolean_equality;
 
         struct {
-            size_t source_register_a;
-            size_t source_register_b;
-
-            size_t destination_register;
-        } boolean_equality;
-
-        struct {
             size_t source_register;
 
             size_t destination_register;
