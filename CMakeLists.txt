@@ -32,6 +32,7 @@ add_executable(compiler
 )
 
 target_compile_features(compiler PRIVATE cxx_std_11)
+target_include_directories(compiler SYSTEM PRIVATE thirdparty\new-std)
 
 add_executable(test_driver
     src/test_driver.cpp
