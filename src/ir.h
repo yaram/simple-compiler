@@ -69,12 +69,7 @@ struct Instruction {
 
             size_t destination_register;
 
-            union {
-                uint8_t size_8;
-                uint16_t size_16;
-                uint32_t size_32;
-                uint64_t size_64;
-            };
+            uint64_t value;
         } constant;
 
         struct {

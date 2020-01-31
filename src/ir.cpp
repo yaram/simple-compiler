@@ -71,21 +71,20 @@ void print_instruction(Instruction instruction) {
 
             switch(instruction.constant.size) {
                 case RegisterSize::Size8: {
-                    printf("%hhu", instruction.constant.size_8);
+                    printf("%hhu", (uint8_t)instruction.constant.value);
                 } break;
 
                 case RegisterSize::Size16: {
-                    printf("%hu", instruction.constant.size_16);
+                    printf("%hu", (uint16_t)instruction.constant.value);
                 } break;
 
                 case RegisterSize::Size32: {
-                    printf("%u", instruction.constant.size_32);
+                    printf("%u", (uint32_t)instruction.constant.value);
                 } break;
 
                 case RegisterSize::Size64: {
-                    printf("%llu", instruction.constant.size_64);
+                    printf("%llu", (uint64_t)instruction.constant.value);
                 } break;
-
             }
         } break;
 
