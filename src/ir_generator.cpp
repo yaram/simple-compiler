@@ -43,12 +43,6 @@ union ConstantValue {
 
     size_t pointer;
 
-    Array<ConstantValue> array;
-
-    ConstantValue *static_array;
-
-    ConstantValue *_struct;
-
     Array<Statement> file_module;
 };
 
@@ -64,12 +58,6 @@ struct GlobalConstant {
     Type type;
 
     ConstantValue value;
-};
-
-struct StructTypeMember {
-    Identifier name;
-
-    Type type;
 };
 
 struct Variable {
@@ -123,6 +111,8 @@ struct GenerationContext {
     List<const char*> global_names;
 
     List<List<Variable>> variable_context_stack;
+
+    size_t next_register;
 
     List<RuntimeFunction> runtime_functions;
 
@@ -278,6 +268,80 @@ static ConstantValue compiler_size_to_native_size(GenerationContext context, siz
     }
 
     return value;
+}
+
+static RegisterSize integer_type_to_register_size(IntegerType type) {
+    switch(type) {
+        case IntegerType::Signed8:
+        case IntegerType::Unsigned8: {
+            return RegisterSize::Size8;
+        } break;
+
+        case IntegerType::Signed16:
+        case IntegerType::Unsigned16: {
+            return RegisterSize::Size16;
+        } break;
+
+        case IntegerType::Signed32:
+        case IntegerType::Unsigned32: {
+            return RegisterSize::Size32;
+        } break;
+
+        case IntegerType::Signed64:
+        case IntegerType::Unsigned64: {
+            return RegisterSize::Size64;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
+static RegisterSize get_type_register_size(GenerationContext context, Type type) {
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            return integer_type_to_register_size(type.integer);
+        } break;
+
+        case TypeCategory::Pointer: {
+            return integer_type_to_register_size(context.unsigned_size_integer_type);
+        } break;
+
+        case TypeCategory::Boolean: {
+            return integer_type_to_register_size(context.unsigned_size_integer_type);
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
+static size_t get_type_size(GenerationContext context, Type type) {
+    auto register_size = get_type_register_size(context, type);
+
+    switch(register_size) {
+        case RegisterSize::Size8: {
+            return 1;
+        } break;
+
+        case RegisterSize::Size16: {
+            return 2;
+        } break;
+
+        case RegisterSize::Size32: {
+            return 4;
+        } break;
+
+        case RegisterSize::Size64: {
+            return 8;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
 }
 
 static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression expression);
@@ -1699,7 +1763,7 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
     }
 }
 
-static bool add_new_variable(GenerationContext *context, Identifier name, Type type) {
+static bool add_new_variable(GenerationContext *context, Identifier name, size_t address_register, Type type) {
     auto variable_context = &(context->variable_context_stack[context->variable_context_stack.count - 1]);
 
     for(auto variable : *variable_context) {
@@ -2205,9 +2269,9 @@ static bool generate_constant_value(GenerationContext *context, char **source, T
 }
 
 enum struct ExpressionValueCategory {
-    Anonymous,
     Constant,
-    Assignable
+    Register,
+    Address
 };
 
 struct ExpressionValue {
@@ -2216,13 +2280,23 @@ struct ExpressionValue {
     Type type;
 
     union {
+        size_t register_;
+
+        size_t address;
+
         ConstantValue constant;
     };
 };
 
-static Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression);
+static Result<ExpressionValue> generate_expression(GenerationContext *context, List<Instruction> *instructions, Expression expression);
 
-static Result<Type> generate_runtime_expression(GenerationContext *context, char **source, Expression expression) {
+struct RegisterExpressionValue {
+    Type type;
+
+    size_t register_index;
+};
+
+static Result<RegisterExpressionValue> generate_register_expression(GenerationContext *context, List<Instruction> *instructions, Expression expression) {
     expect(expression_value, generate_expression(context, source, expression));
 
     if(expression_value.category == ExpressionValueCategory::Constant) {
@@ -2237,7 +2311,7 @@ static Result<Type> generate_runtime_expression(GenerationContext *context, char
     };
 }
 
-static Result<ExpressionValue> generate_expression(GenerationContext *context, char **source, Expression expression) {
+static Result<ExpressionValue> generate_expression(GenerationContext *context, List<Instruction> *instructions, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             for(size_t i = 0; i < context->variable_context_stack.count; i += 1) {
@@ -3656,99 +3730,20 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, c
     }
 }
 
-static bool generate_default_value(GenerationContext *context, char **source, Type type, FileRange range) {
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            string_buffer_append(source, "0");
+static size_t allocate_register(GenerationContext *context) {
+    auto index = context->next_register;
 
-            return true;
-        } break;
+    context->next_register += 1;
 
-        case TypeCategory::Boolean: {
-            string_buffer_append(source, "false");
-
-            return true;
-        } break;
-
-        case TypeCategory::Pointer: {
-            string_buffer_append(source, "0");
-
-            return true;
-        } break;
-
-        case TypeCategory::Array: {
-            expect(mangled_name, maybe_register_array_type(context, *type.array, range));
-
-            string_buffer_append(source, "(struct ");
-
-            string_buffer_append(source, mangled_name);
-
-            string_buffer_append(source, "){0,0}");
-
-            return true;
-        } break;
-
-        case TypeCategory::StaticArray: {
-            string_buffer_append(source, "{");
-
-            char *element_source{};
-            if(!generate_default_value(context, &element_source, *type.static_array.type, range)) {
-                return false;
-            }
-
-            for(size_t i = 0; i < type.static_array.length; i += 1) {
-                string_buffer_append(source, element_source);
-
-                if(i != type.static_array.length - 1) {
-                    string_buffer_append(source, ",");
-                }
-            }
-
-            string_buffer_append(source, "}");
-
-            return true;
-        } break;
-
-        case TypeCategory::Struct: {
-            auto c_declaration = retrieve_c_declaration(*context, type._struct);
-
-            assert(c_declaration.type == CDeclarationType::StructType);
-
-            string_buffer_append(source, "(struct ");
-
-            string_buffer_append(source, c_declaration.mangled_name);
-
-            string_buffer_append(source, "){");
-
-            for(size_t i = 0; i < c_declaration.struct_type.count; i += 1) {
-                if(!generate_default_value(context, source, c_declaration.struct_type[i].type, range)) {
-                    return false;
-                }
-
-                if(i != c_declaration.struct_type.count - 1) {
-                    string_buffer_append(source, ",");
-                }
-            }
-
-            string_buffer_append(source, "}");
-
-            return true;
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
+    return index;
 }
 
-static bool generate_statement(GenerationContext *context, char **source, Statement statement) {
+static bool generate_statement(GenerationContext *context, List<Instruction> *instructions, Statement statement) {
     switch(statement.type) {
         case StatementType::Expression: {
-            if(!generate_expression(context, source, statement.expression).status) {
+            if(!generate_expression(context, instructions, statement.expression).status) {
                 return false;
             }
-
-            string_buffer_append(source, ";");
 
             return true;
         } break;
@@ -3756,189 +3751,84 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
         case StatementType::VariableDeclaration: {
             switch(statement.variable_declaration.type) {
                 case VariableDeclarationType::Uninitialized: {
-                    expect(type, evaluate_type_expression(context, statement.variable_declaration.uninitialized));
+                    expect(type, evaluate_type_expression(context, statement.variable_declaration.fully_specified.type));
 
-                    if(!add_new_variable(context, statement.variable_declaration.name, type)) {
+                    auto address_register = allocate_register(context);
+
+                    Instruction allocate;
+                    allocate.type = InstructionType::AllocateLocal;
+                    allocate.allocate_local.destination_register = address_register;
+                    allocate.allocate_local.size = get_type_size(*context, type);
+
+                    append(instructions, allocate);
+
+                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, type)) {
                         return false;
                     }
-
-                    char *type_suffix_source{};
-                    if(!generate_type(context, source, &type_suffix_source, type, statement.variable_declaration.uninitialized.range)) {
-                        return false;
-                    }
-
-                    string_buffer_append(source, " ");
-
-                    string_buffer_append(source, statement.variable_declaration.name.text);
-
-                    if(type_suffix_source != nullptr) {
-                        string_buffer_append(source, " ");
-
-                        string_buffer_append(source, type_suffix_source);
-                    }
-
-                    string_buffer_append(source, "=");
-
-                    if(!generate_default_value(context, source, type, statement.variable_declaration.uninitialized.range)) {
-                        return false;
-                    }
-
-                    string_buffer_append(source, ";");
 
                     return true;
                 } break;
 
                 case VariableDeclarationType::TypeElided: {
-                    char *initializer_source{};
-                    expect(initial_value, generate_expression(context, &initializer_source, statement.variable_declaration.type_elided));
+                    auto address_register = allocate_register(context);
 
-                    Type actual_type;
-                    if(initial_value.type.category == TypeCategory::Integer && initial_value.type.integer == IntegerType::Undetermined) {
-                        actual_type.category = TypeCategory::Integer;
-                        actual_type.integer = context->default_integer_type;
-                    } else {
-                        actual_type = initial_value.type;
-                    }
+                    Instruction allocate;
+                    allocate.type = InstructionType::AllocateLocal;
+                    allocate.allocate_local.destination_register = address_register;
 
-                    if(!add_new_variable(context, statement.variable_declaration.name, actual_type)) {
+                    auto allocate_index = append(instructions, allocate);
+
+                    expect(initializer_value, generate_register_expression(context, instructions, statement.variable_declaration.fully_specified.initializer));
+
+                    (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, initializer_value.type);
+
+                    Instruction store;
+                    store.type = InstructionType::StoreInteger;
+                    store.store_integer.size = get_type_register_size(*context, initializer_value.type);
+                    store.store_integer.address_register = address_register;
+                    store.store_integer.source_register = initializer_value.register_index;
+
+                    append(instructions, store);
+
+                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, initializer_value.type)) {
                         return false;
                     }
-
-                    char *type_suffix_source{};
-                    if(!generate_type(context, source, &type_suffix_source, actual_type, statement.variable_declaration.type_elided.range)) {
-                        return false;
-                    }
-
-                    string_buffer_append(source, " ");
-
-                    string_buffer_append(source, statement.variable_declaration.name.text);
-
-                    if(type_suffix_source != nullptr) {
-                        string_buffer_append(source, " ");
-
-                        string_buffer_append(source, type_suffix_source);
-                    }
-
-                    string_buffer_append(source, "=");
-
-                    if(initial_value.category == ExpressionValueCategory::Constant) {
-                        if(initial_value.type.category == TypeCategory::StaticArray) {
-                            string_buffer_append(source, "{");
-
-                            for(size_t i = 0; i < initial_value.type.static_array.length; i += 1) {
-                                if(!generate_constant_value(
-                                    context,
-                                    source,
-                                    *initial_value.type.static_array.type,
-                                    initial_value.constant.static_array[i],
-                                    statement.variable_declaration.type_elided.range
-                                )) {
-                                    return false;
-                                }
-
-                                if(i != initial_value.type.static_array.length - 1) {
-                                    string_buffer_append(source, ",");
-                                }
-                            }
-
-                            string_buffer_append(source, "}");
-                        } else {
-                            if(!generate_constant_value(
-                                context,
-                                source,
-                                initial_value.type,
-                                initial_value.constant,
-                                statement.variable_declaration.type_elided.range
-                            )) {
-                                return false;
-                            }
-                        }
-                    } else {
-                        string_buffer_append(source, initializer_source);
-                    }
-
-                    string_buffer_append(source, ";");
 
                     return true;
                 } break;
 
+
                 case VariableDeclarationType::FullySpecified: {
                     expect(type, evaluate_type_expression(context, statement.variable_declaration.fully_specified.type));
 
-                    char *initializer_source{};
-                    expect(initial_value, generate_expression(context, &initializer_source, statement.variable_declaration.fully_specified.initializer));
+                    auto address_register = allocate_register(context);
 
-                    if(
-                        !(
-                            type.category == TypeCategory::Integer &&
-                            initial_value.type.category == TypeCategory::Integer &&
-                            initial_value.type.integer == IntegerType::Undetermined
-                        ) &&
-                        !types_equal(type, initial_value.type)
-                    ) {
-                        error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initial_value.type));
+                    Instruction allocate;
+                    allocate.type = InstructionType::AllocateLocal;
+                    allocate.allocate_local.destination_register = address_register;
+                    allocate.allocate_local.size = get_type_size(*context, type);
+
+                    append(instructions, allocate);
+
+                    expect(initializer_value, generate_register_expression(context, instructions, statement.variable_declaration.fully_specified.initializer));
+
+                    if(!types_equal(type, initializer_value.type)) {
+                        error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
 
                         return false;
                     }
 
-                    if(!add_new_variable(context, statement.variable_declaration.name, type)) {
+                    Instruction store;
+                    store.type = InstructionType::StoreInteger;
+                    store.store_integer.size = get_type_register_size(*context, type);
+                    store.store_integer.address_register = address_register;
+                    store.store_integer.source_register = initializer_value.register_index;
+
+                    append(instructions, store);
+
+                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, type)) {
                         return false;
                     }
-
-                    char *type_suffix_source{};
-                    if(!generate_type(context, source, &type_suffix_source, type, statement.variable_declaration.fully_specified.type.range)) {
-                        return false;
-                    }
-
-                    string_buffer_append(source, " ");
-
-                    string_buffer_append(source, statement.variable_declaration.name.text);
-
-                    if(type_suffix_source != nullptr) {
-                        string_buffer_append(source, " ");
-
-                        string_buffer_append(source, type_suffix_source);
-                    }
-
-                    string_buffer_append(source, "=");
-
-                    if(initial_value.category == ExpressionValueCategory::Constant) {
-                        if(initial_value.type.category == TypeCategory::StaticArray) {
-                            string_buffer_append(source, "{");
-
-                            for(size_t i = 0; i < initial_value.type.static_array.length; i += 1) {
-                                if(!generate_constant_value(
-                                    context,
-                                    source,
-                                    *initial_value.type.static_array.type,
-                                    initial_value.constant.static_array[i],
-                                    statement.variable_declaration.fully_specified.initializer.range
-                                )) {
-                                    return false;
-                                }
-
-                                if(i != initial_value.type.static_array.length - 1) {
-                                    string_buffer_append(source, ",");
-                                }
-                            }
-
-                            string_buffer_append(source, "}");
-                        } else {
-                            if(!generate_constant_value(
-                                context,
-                                source,
-                                initial_value.type,
-                                initial_value.constant,
-                                statement.variable_declaration.fully_specified.initializer.range
-                            )) {
-                                return false;
-                            }
-                        }
-                    } else {
-                        string_buffer_append(source, initializer_source);
-                    }
-
-                    string_buffer_append(source, ";");
 
                     return true;
                 } break;
@@ -3950,124 +3840,125 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
         } break;
 
         case StatementType::Assignment: {
-            expect(target, generate_expression(context, source, statement.assignment.target));
+            expect(target, generate_expression(context, instructions, statement.assignment.target));
 
-            if(target.category != ExpressionValueCategory::Assignable) {
+            if(target.category != ExpressionValueCategory::Address) {
                 error(statement.assignment.target.range, "Value is not assignable");
 
                 return false;
             }
 
-            if(target.type.category == TypeCategory::StaticArray) {
-                error(statement.assignment.target.range, "Cannot assign to a static array");
+            expect(value, generate_register_expression(context, instructions, statement.assignment.value));
+
+            if(!types_equal(target.type, value.type)) {
+                error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
 
                 return false;
             }
 
-            string_buffer_append(source, "=");
+            Instruction store;
+            store.type = InstructionType::StoreInteger;
+            store.store_integer.size = get_type_register_size(*context, target.type);
+            store.store_integer.source_register = value.register_index;
+            store.store_integer.address_register = target.address;
 
-            expect(value_type, generate_runtime_expression(context, source, statement.assignment.value));
-
-            if(
-                !(
-                    target.type.category == TypeCategory::Integer &&
-                    value_type.category == TypeCategory::Integer &&
-                    value_type.integer == IntegerType::Undetermined
-                ) &&
-                !types_equal(target.type, value_type)
-            ) {
-                error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value_type));
-
-                return false;
-            }
-
-            string_buffer_append(source, ";");
+            append(instructions, store);
 
             return true;
         } break;
 
         case StatementType::LoneIf: {
-            string_buffer_append(source, "if(");
+            expect(condition, generate_register_expression(context, instructions, statement.lone_if.condition));
 
-            expect(condition_type, generate_runtime_expression(context, source, statement.lone_if.condition));
-
-            string_buffer_append(source, ")");
-
-            if(condition_type.category != TypeCategory::Boolean) {
-                error(statement.lone_if.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition_type));
+            if(condition.type.category != TypeCategory::Boolean) {
+                error(statement.lone_if.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
 
                 return false;
             }
 
-            append(&(context->variable_context_stack), List<Variable>{});
+            Instruction branch;
+            branch.type = InstructionType::Branch;
+            branch.branch.condition_register = condition.register_index;
+            branch.branch.destination_instruction = instructions->count + 2;
 
-            string_buffer_append(source, "{");
+            append(instructions, branch);
+
+            Instruction jump;
+            jump.type = InstructionType::Jump;
+
+            auto jump_index = append(instructions, jump);
+
+            append(&context->variable_context_stack, List<Variable>{});
 
             for(auto child_statement : statement.lone_if.statements) {
-                if(!generate_statement(context, source, child_statement)) {
+                if(!generate_statement(context, instructions, child_statement)) {
                     return false;
                 }
             }
 
-            string_buffer_append(source, "}");
-
             context->variable_context_stack.count -= 1;
+
+            (*instructions)[jump_index].jump.destination_instruction = instructions->count;
 
             return true;
         } break;
 
         case StatementType::WhileLoop: {
-            string_buffer_append(source, "while(");
+            expect(condition, generate_register_expression(context, instructions, statement.while_loop.condition));
 
-            expect(condition_type, generate_runtime_expression(context, source, statement.while_loop.condition));
-
-            string_buffer_append(source, ")");
-
-            if(condition_type.category != TypeCategory::Boolean) {
-                error(statement.while_loop.condition.range, "Non-boolean while loop condition. Got %s", type_description(condition_type));
+            if(condition.type.category != TypeCategory::Boolean) {
+                error(statement.while_loop.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
 
                 return false;
             }
 
-            append(&(context->variable_context_stack), List<Variable>{});
+            Instruction branch;
+            branch.type = InstructionType::Branch;
+            branch.branch.condition_register = condition.register_index;
+            branch.branch.destination_instruction = instructions->count + 2;
 
-            string_buffer_append(source, "{");
+            auto branch_index = append(instructions, branch);
+
+            Instruction jump_out;
+            jump_out.type = InstructionType::Jump;
+
+            auto jump_out_index = append(instructions, jump_out);
+
+            append(&context->variable_context_stack, List<Variable>{});
 
             for(auto child_statement : statement.while_loop.statements) {
-                if(!generate_statement(context, source, child_statement)) {
+                if(!generate_statement(context, instructions, child_statement)) {
                     return false;
                 }
             }
 
-            string_buffer_append(source, "}");
-
             context->variable_context_stack.count -= 1;
+
+            Instruction jump_loop;
+            jump_loop.type = InstructionType::Jump;
+            jump_loop.jump.destination_instruction = branch_index;
+
+            append(instructions, jump_loop);
+
+            (*instructions)[jump_out_index].jump.destination_instruction = instructions->count;
 
             return true;
         } break;
 
         case StatementType::Return: {
-            string_buffer_append(source, "return ");
+            expect(value, generate_register_expression(context, instructions, statement._return));
 
-            char *expression_source{};
-            expect(expression_type, generate_runtime_expression(context, &expression_source, statement._return));
-
-            if(
-                !(
-                    context->return_type.category == TypeCategory::Integer &&
-                    expression_type.category == TypeCategory::Integer &&
-                    expression_type.integer == IntegerType::Undetermined
-                ) &&
-                !types_equal(context->return_type, expression_type)
-            ) {
-                error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(expression_type));
+            if(!types_equal(context->return_type, value.type)) {
+                error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
 
                 return { false };
             }
 
-            string_buffer_append(source, expression_source);
+            Instruction return_;
+            return_.type = InstructionType::Return;
+            return_.return_.value_register = value.register_index;
 
-            string_buffer_append(source, ";");
+            append(instructions. return_);
 
             return true;
         } break;
@@ -4076,50 +3967,6 @@ static bool generate_statement(GenerationContext *context, char **source, Statem
             abort();
         } break;
     }
-}
-
-static bool generate_function_signature(GenerationContext *context, char **source, const char *name, Type return_type, Array<RuntimeFunctionParameter> parameters) {
-    char *type_suffix_source{};
-    if(!generate_type(context, source, &type_suffix_source, return_type, generated_range)) {
-        return false;
-    }
-
-    string_buffer_append(source, " ");
-
-    string_buffer_append(source, name);
-
-    if(type_suffix_source != nullptr) {
-        string_buffer_append(source, " ");
-
-        string_buffer_append(source, type_suffix_source);
-    }
-
-    string_buffer_append(source, "(");
-
-    for(size_t i = 0; i < parameters.count; i += 1) {
-        char *parameter_type_suffix_source{};
-        if(!generate_type(context, source, &parameter_type_suffix_source, parameters[i].type, generated_range)) {
-            return false;
-        }
-
-        string_buffer_append(source, " ");
-
-        string_buffer_append(source, parameters[i].name.text);
-
-        if(parameter_type_suffix_source != nullptr) {
-            string_buffer_append(source, " ");
-
-            string_buffer_append(source, parameter_type_suffix_source);
-        }
-
-        if(i != parameters.count - 1) {
-            string_buffer_append(source, ",");
-        }
-    }
-
-    string_buffer_append(source, ")");
-
-    return true;
 }
 
 inline GlobalConstant create_base_type(const char *name, Type type) {
@@ -4142,54 +3989,6 @@ inline GlobalConstant create_base_integer_type(const char *name, IntegerType int
     type.integer = integer_type;
 
     return create_base_type(name, type);
-}
-
-static RegisterSize integer_type_to_register_size(IntegerType type) {
-    switch(type) {
-        case IntegerType::Signed8:
-        case IntegerType::Unsigned8: {
-            return RegisterSize::Size8;
-        } break;
-
-        case IntegerType::Signed16:
-        case IntegerType::Unsigned16: {
-            return RegisterSize::Size16;
-        } break;
-
-        case IntegerType::Signed32:
-        case IntegerType::Unsigned32: {
-            return RegisterSize::Size32;
-        } break;
-
-        case IntegerType::Signed64:
-        case IntegerType::Unsigned64: {
-            return RegisterSize::Size64;
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-}
-
-static RegisterSize get_type_register_size(GenerationContext context, Type type) {
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            return integer_type_to_register_size(type.integer);
-        } break;
-
-        case TypeCategory::Pointer: {
-            return integer_type_to_register_size(context.unsigned_size_integer_type);
-        } break;
-
-        case TypeCategory::Boolean: {
-            return integer_type_to_register_size(context.unsigned_size_integer_type);
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
 }
 
 Result<IR> generate_ir(Array<File> files) {
@@ -4348,6 +4147,7 @@ Result<IR> generate_ir(Array<File> files) {
                     heapify(function.parent)
                 };
                 context.return_type = function.return_type;
+                context.next_register = function.parameters.count;
 
                 auto parameter_sizes = allocate<RegisterSize>(function.parameters.count);
 

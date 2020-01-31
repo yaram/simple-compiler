@@ -28,7 +28,7 @@ T *end(List<T> &list) {
 }
 
 template <typename T>
-void append(List<T> *list, T element) {
+size_t append(List<T> *list, T element) {
     const size_t initial_capacity = 16;
 
     if(list->capacity == 0) {
@@ -44,9 +44,13 @@ void append(List<T> *list, T element) {
         list->elements = new_elements;
     }
 
-    list->elements[list->count] = element;
+    auto index = list->count;
+
+    list->elements[index] = element;
 
     list->count += 1;
+
+    return index;
 }
 
 template <typename T>
