@@ -91,6 +91,9 @@ struct Instruction {
             const char *function_name;
 
             Array<size_t> parameter_registers;
+
+            bool has_return;
+            size_t return_register;
         } function_call;
 
         struct {
@@ -126,9 +129,10 @@ void print_instruction(Instruction instruction);
 struct Function {
     const char *name;
 
-    Array<const char*> parameter_locals;
+    Array<RegisterSize> parameter_sizes;
 
     bool has_return;
+    RegisterSize return_size;
 
     Array<Instruction> instructions;
 };

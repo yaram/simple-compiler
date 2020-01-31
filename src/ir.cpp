@@ -102,10 +102,20 @@ void print_instruction(Instruction instruction) {
         } break;
 
         case InstructionType::FunctionCall: {
-            printf("CALL %s", instruction.function_call.function_name);
+            printf("CALL %s (", instruction.function_call.function_name);
 
-            for(auto parameter_register : instruction.function_call.parameter_registers) {
-                printf(", %uz", parameter_register);
+            for(size_t i = 0; i < instruction.function_call.parameter_registers.count; i += 1) {
+                printf("%uz", instruction.function_call.parameter_registers[i]);
+
+                if(i != instruction.function_call.parameter_registers.count - 1) {
+                    printf(", ");
+                }
+            }
+
+            printf(")");
+
+            if(instruction.function_call.has_return) {
+                printf(" %uz", instruction.function_call.return_register);
             }
         } break;
 
