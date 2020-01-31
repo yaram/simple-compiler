@@ -4,4 +4,10 @@
 #include "ir.h"
 #include "result.h"
 
-Result<Array<Function>> generate_ir(Array<File> files);
+struct IR {
+    Array<Function> functions;
+
+    Array<const char*> libraries;
+};
+
+Result<IR> generate_ir(Array<File> files);
