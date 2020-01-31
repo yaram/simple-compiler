@@ -25,12 +25,9 @@ enum struct BinaryOperationType {
 enum struct InstructionType {
     BinaryOperation,
 
-    Negation,
     SignExtension,
 
     Constant,
-
-    BooleanInvert,
 
     Jump,
     Branch,
@@ -60,14 +57,6 @@ struct Instruction {
         } binary_operation;
 
         struct {
-            RegisterSize size;
-
-            size_t source_register;
-
-            size_t destination_register;
-        } negation;
-
-        struct {
             RegisterSize source_size;
             size_t source_register;
 
@@ -87,12 +76,6 @@ struct Instruction {
                 uint64_t size_64;
             };
         } constant;
-
-        struct {
-            size_t source_register;
-
-            size_t destination_register;
-        } boolean_invert;
 
         struct {
             size_t destination_instruction;
