@@ -121,6 +121,8 @@ struct Instruction {
     };
 };
 
+void print_instruction(Instruction instruction);
+
 struct Function {
     const char *name;
 
@@ -130,3 +132,5 @@ struct Function {
 
     Array<Instruction> instructions;
 };
+
+void print_function(Function function);
