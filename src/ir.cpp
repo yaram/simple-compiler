@@ -48,7 +48,7 @@ void print_instruction(Instruction instruction) {
             }
 
             printf(
-                " %s %uz, %uz, %uz",
+                " %s %zu, %zu, %zu",
                 register_size_names[(int)instruction.binary_operation.size],
                 instruction.binary_operation.source_register_a,
                 instruction.binary_operation.source_register_b,
@@ -58,7 +58,7 @@ void print_instruction(Instruction instruction) {
 
         case InstructionType::SignExtension: {
             printf(
-                "SEXT %s %uz, %s %uz",
+                "SEXT %s %zu, %s %zu",
                 register_size_names[(int)instruction.sign_extension.source_size],
                 instruction.sign_extension.source_register,
                 register_size_names[(int)instruction.sign_extension.destination_size],
@@ -90,12 +90,12 @@ void print_instruction(Instruction instruction) {
         } break;
 
         case InstructionType::Jump: {
-            printf("JMP %uz", instruction.jump.destination_instruction);
+            printf("JMP %zu", instruction.jump.destination_instruction);
         } break;
 
         case InstructionType::Branch: {
             printf(
-                "BR %uz, %uz",
+                "BR %zu, %zu",
                 instruction.branch.condition_register,
                 instruction.branch.destination_instruction
             );
@@ -105,7 +105,7 @@ void print_instruction(Instruction instruction) {
             printf("CALL %s (", instruction.function_call.function_name);
 
             for(size_t i = 0; i < instruction.function_call.parameter_registers.count; i += 1) {
-                printf("%uz", instruction.function_call.parameter_registers[i]);
+                printf("%zu", instruction.function_call.parameter_registers[i]);
 
                 if(i != instruction.function_call.parameter_registers.count - 1) {
                     printf(", ");
@@ -115,17 +115,17 @@ void print_instruction(Instruction instruction) {
             printf(")");
 
             if(instruction.function_call.has_return) {
-                printf(" %uz", instruction.function_call.return_register);
+                printf(" %zu", instruction.function_call.return_register);
             }
         } break;
 
         case InstructionType::Return: {
-            printf("RET %uz", instruction.return_.value_register);
+            printf("RET %zu", instruction.return_.value_register);
         } break;
 
         case InstructionType::AllocateLocal: {
             printf(
-                "LOCAL %s %uz",
+                "LOCAL %s %zu",
                 register_size_names[(int)instruction.allocate_local.size],
                 instruction.allocate_local.destination_register
             );
@@ -133,7 +133,7 @@ void print_instruction(Instruction instruction) {
 
         case InstructionType::LoadInteger: {
             printf(
-                "LOAD %s %uz, %uz",
+                "LOAD %s %zu, %zu",
                 register_size_names[(int)instruction.load_integer.size],
                 instruction.load_integer.address_register,
                 instruction.load_integer.destination_register
@@ -142,7 +142,7 @@ void print_instruction(Instruction instruction) {
 
         case InstructionType::StoreInteger: {
             printf(
-                "STORE %s %uz, %uz",
+                "STORE %s %zu, %zu",
                 register_size_names[(int)instruction.store_integer.size],
                 instruction.store_integer.source_register,
                 instruction.load_integer.address_register
@@ -156,7 +156,7 @@ void print_function(Function function) {
 
     for(size_t i = 0; i < function.parameter_sizes.count; i += 1) {
         printf(
-            "%uz: %s",
+            "%zu: %s",
             i,
             register_size_names[(int)function.parameter_sizes[i]]
         );
@@ -175,11 +175,11 @@ void print_function(Function function) {
     printf("\n");
 
     char buffer[20];
-    sprintf(buffer, "%uz", function.instructions.count - 1);
+    sprintf(buffer, "%zu", function.instructions.count - 1);
     size_t max_index_digits = strlen(buffer);
 
     for(size_t i = 0; i < function.instructions.count; i += 1) {
-        auto index_digits = printf("%uz", i);
+        auto index_digits = printf("%zu", i);
 
         for(size_t j = 0; j < max_index_digits - index_digits; j += 1) {
             printf(" ");
