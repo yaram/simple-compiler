@@ -26,7 +26,7 @@ enum struct InstructionType {
     BinaryOperation,
 
     Negation,
-    Conversion,
+    SignExtension,
 
     Constant,
 
@@ -73,7 +73,7 @@ struct Instruction {
 
             RegisterSize destination_size;
             size_t destination_register;
-        } conversion;
+        } sign_extension;
 
         struct {
             RegisterSize size;
