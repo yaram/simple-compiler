@@ -90,7 +90,7 @@ struct Instruction {
         struct {
             const char *function_name;
 
-            size_t *parameter_registers;
+            Array<size_t> parameter_registers;
         } function_call;
 
         struct {
