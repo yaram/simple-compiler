@@ -152,6 +152,28 @@ void print_instruction(Instruction instruction) {
 }
 
 void print_function(Function function) {
+    printf("%s (");
+
+    for(size_t i = 0; i < function.parameter_sizes.count; i += 1) {
+        printf(
+            "%uz: %s",
+            i,
+            register_size_names[(int)function.parameter_sizes[i]]
+        );
+
+        if(i != function.parameter_sizes.count - 1) {
+            printf(", ");
+        }
+    }
+
+    printf(")");
+
+    if(function.has_return) {
+        printf(" %s", register_size_names[(int)function.return_size]);
+    }
+
+    printf("\n");
+
     char buffer[20];
     sprintf(buffer, "%uz", function.instructions.count - 1);
     size_t max_index_digits = strlen(buffer);
