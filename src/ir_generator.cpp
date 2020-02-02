@@ -4037,10 +4037,13 @@ inline GlobalConstant create_base_type(const char *name, Type type) {
     };
 }
 
-inline GlobalConstant create_base_integer_type(const char *name, IntegerType integer_type) {
+inline GlobalConstant create_base_integer_type(const char *name, IntegerSize size, bool is_signed) {
     Type type;
     type.category = TypeCategory::Integer;
-    type.integer = integer_type;
+    type.integer = {
+        size,
+        is_signed
+    };
 
     return create_base_type(name, type);
 }
@@ -4050,21 +4053,20 @@ Result<IR> generate_ir(Array<File> files) {
 
     List<GlobalConstant> global_constants{};
 
-    auto unsigned_size_integer_type = IntegerType::Unsigned64;
-    auto signed_size_integer_type = IntegerType::Signed64;
+    auto address_integer_size = IntegerSize::Size64;
 
-    append(&global_constants, create_base_integer_type("u8", IntegerType::Unsigned8));
-    append(&global_constants, create_base_integer_type("u16", IntegerType::Unsigned16));
-    append(&global_constants, create_base_integer_type("u32", IntegerType::Unsigned32));
-    append(&global_constants, create_base_integer_type("u64", IntegerType::Unsigned64));
+    append(&global_constants, create_base_integer_type("u8", IntegerSize::Size8, false));
+    append(&global_constants, create_base_integer_type("u16", IntegerSize::Size16, false));
+    append(&global_constants, create_base_integer_type("u32", IntegerSize::Size32, false));
+    append(&global_constants, create_base_integer_type("u64", IntegerSize::Size64, false));
 
-    append(&global_constants, create_base_integer_type("i8", IntegerType::Signed8));
-    append(&global_constants, create_base_integer_type("i16", IntegerType::Signed16));
-    append(&global_constants, create_base_integer_type("i32", IntegerType::Signed32));
-    append(&global_constants, create_base_integer_type("i64", IntegerType::Signed64));
+    append(&global_constants, create_base_integer_type("i8", IntegerSize::Size8, true));
+    append(&global_constants, create_base_integer_type("i16", IntegerSize::Size16, true));
+    append(&global_constants, create_base_integer_type("i32", IntegerSize::Size32, true));
+    append(&global_constants, create_base_integer_type("i64", IntegerSize::Size64, true));
 
-    append(&global_constants, create_base_integer_type("usize", unsigned_size_integer_type));
-    append(&global_constants, create_base_integer_type("isize", signed_size_integer_type));
+    append(&global_constants, create_base_integer_type("usize", address_integer_size, false));
+    append(&global_constants, create_base_integer_type("isize", address_integer_size, true));
 
     Type base_boolean_type;
     base_boolean_type.category = TypeCategory::Boolean;
@@ -4097,9 +4099,8 @@ Result<IR> generate_ir(Array<File> files) {
     auto previous_resolved_declaration_count = 0;
 
     GenerationContext context {
-        unsigned_size_integer_type,
-        signed_size_integer_type,
-        signed_size_integer_type,
+        address_integer_size,
+        address_integer_size,
         to_array(global_constants),
         files
     };

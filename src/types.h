@@ -15,16 +15,11 @@ enum struct TypeCategory {
     FileModule
 };
 
-enum struct IntegerType {
-    Undetermined,
-    Unsigned8,
-    Unsigned16,
-    Unsigned32,
-    Unsigned64,
-    Signed8,
-    Signed16,
-    Signed32,
-    Signed64
+enum struct IntegerSize {
+    Size8,
+    Size16,
+    Size32,
+    Size64
 };
 
 struct Type {
@@ -39,7 +34,11 @@ struct Type {
             Type *return_type;
         } function;
 
-        IntegerType integer;
+        struct {
+            IntegerSize size;
+
+            bool is_signed;
+        } integer;
 
         Type *pointer;
 

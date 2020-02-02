@@ -30,9 +30,7 @@ bool types_equal(Type a, Type b) {
         } break;
         
         case TypeCategory::Integer: {
-            assert(a.integer != IntegerType::Undetermined && b.integer != IntegerType::Undetermined);
-
-            return a.integer == b.integer;
+            return a.integer.size == b.integer.size && (a.integer.is_signed == a.integer.is_signed);
         } break;
 
         case TypeCategory::Pointer: {
@@ -87,46 +85,50 @@ const char *type_description(Type type) {
         } break;
         
         case TypeCategory::Integer: {
-            switch(type.integer) {
-                case IntegerType::Undetermined: {
-                    return "{integer}";
-                } break;
+            if(type.integer.is_signed) {
+                switch(type.integer.size) {
+                    case IntegerSize::Size8: {
+                        return "i8";
+                    } break;
 
-                case IntegerType::Unsigned8: {
-                    return "u8";
-                } break;
+                    case IntegerSize::Size16: {
+                        return "i16";
+                    } break;
 
-                case IntegerType::Unsigned16: {
-                    return "u16";
-                } break;
+                    case IntegerSize::Size32: {
+                        return "i32";
+                    } break;
 
-                case IntegerType::Unsigned32: {
-                    return "u32";
-                } break;
+                    case IntegerSize::Size64: {
+                        return "i64";
+                    } break;
 
-                case IntegerType::Unsigned64: {
-                    return "u64";
-                } break;
+                    default: {
+                        abort();
+                    } break;
+                }
+            } else {
+                switch(type.integer.size) {
+                    case IntegerSize::Size8: {
+                        return "u8";
+                    } break;
 
-                case IntegerType::Signed8: {
-                    return "i8";
-                } break;
+                    case IntegerSize::Size16: {
+                        return "u16";
+                    } break;
 
-                case IntegerType::Signed16: {
-                    return "i16";
-                } break;
+                    case IntegerSize::Size32: {
+                        return "u32";
+                    } break;
 
-                case IntegerType::Signed32: {
-                    return "i32";
-                } break;
+                    case IntegerSize::Size64: {
+                        return "u64";
+                    } break;
 
-                case IntegerType::Signed64: {
-                    return "i64";
-                } break;
-
-                default: {
-                    abort();
-                } break;
+                    default: {
+                        abort();
+                    } break;
+                }
             }
         } break;
 
