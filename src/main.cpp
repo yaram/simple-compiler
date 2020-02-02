@@ -5,6 +5,7 @@
 #include <time.h>
 #include "parser.h"
 #include "ir_generator.h"
+#include "c_generator.h"
 #include "util.h"
 #include "platform.h"
 #include "path.h"
@@ -115,6 +116,130 @@ int main(int argument_count, char *arguments[]) {
             print_function(function);
             printf("\n");
         }
+    }
+
+    const char *c_source;
+    {
+        auto start_time = clock();
+
+        auto result = generate_c_source(ir.functions);
+
+        if(!result.status) {
+            return EXIT_FAILURE;
+        }
+
+        c_source = result.value;
+
+        auto end_time = clock();
+
+        auto time = end_time - start_time;
+
+        printf("C backend time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
+
+        total_time += time;
+    }
+
+    const char *output_file_name;
+    {
+        auto full_name = path_get_file_component(output_file_path);
+
+        auto dot_pointer = strchr(full_name, '.');
+
+        if(dot_pointer == nullptr) {
+            output_file_name = full_name;
+        } else {
+            auto length = (size_t)dot_pointer - (size_t)full_name;
+
+            if(length == 0) {
+                output_file_name = "out";
+            } else {
+                auto buffer = allocate<char>(length + 1);
+
+                memcpy(buffer, full_name, length);
+                buffer[length] = 0;
+
+                output_file_name = buffer;
+            }
+        }
+    }
+
+    auto output_file_directory = path_get_directory_component(output_file_path);
+
+    {
+        auto start_time = clock();
+
+        char *c_file_path_buffer{};
+
+        string_buffer_append(&c_file_path_buffer, output_file_directory);
+        string_buffer_append(&c_file_path_buffer, output_file_name);
+        string_buffer_append(&c_file_path_buffer, ".c");
+
+        auto c_file = fopen(c_file_path_buffer, "w");
+
+        if(c_file == nullptr) {
+            fprintf(stderr, "Unable to create C output file\n");
+
+            return EXIT_FAILURE;
+        }
+
+        fprintf(c_file, "%s", c_source);
+
+        fclose(c_file);
+
+        char *command_buffer{};
+
+        string_buffer_append(&command_buffer, "clang -c -o ");
+
+        string_buffer_append(&command_buffer, output_file_directory);
+        string_buffer_append(&command_buffer, output_file_name);
+        string_buffer_append(&command_buffer, ".o ");
+
+        string_buffer_append(&command_buffer, c_file_path_buffer);
+
+        if(system(command_buffer) != 0) {
+            return EXIT_FAILURE;
+        }
+
+        auto end_time = clock();
+
+        auto time = end_time - start_time;
+
+        printf("Backend time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
+
+        total_time += time;
+    }
+
+    {
+        auto start_time = clock();
+
+        char *buffer{};
+
+        string_buffer_append(&buffer, "clang -fuse-ld=lld -o ");
+
+        string_buffer_append(&buffer, output_file_path);
+        
+        for(auto library : ir.libraries) {
+            string_buffer_append(&buffer, " -l");
+
+            string_buffer_append(&buffer, library);
+        }
+
+        string_buffer_append(&buffer, " ");
+        string_buffer_append(&buffer, output_file_directory);
+        string_buffer_append(&buffer, output_file_name);
+        string_buffer_append(&buffer, ".o");
+
+        if(system(buffer) != 0) {
+            return EXIT_FAILURE;
+        }
+
+        auto end_time = clock();
+
+        auto time = end_time - start_time;
+
+        printf("Linker time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
+
+        total_time += time;
     }
 
     printf("Total time: %.1fms\n", (double)total_time / CLOCKS_PER_SEC * 1000);
