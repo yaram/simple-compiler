@@ -25,7 +25,7 @@ enum struct BinaryOperationType {
 enum struct InstructionType {
     BinaryOperation,
 
-    SignExtension,
+    IntegerUpcast,
 
     Constant,
 
@@ -57,12 +57,14 @@ struct Instruction {
         } binary_operation;
 
         struct {
+            bool is_signed;
+
             RegisterSize source_size;
             size_t source_register;
 
             RegisterSize destination_size;
             size_t destination_register;
-        } sign_extension;
+        } integer_upcast;
 
         struct {
             RegisterSize size;

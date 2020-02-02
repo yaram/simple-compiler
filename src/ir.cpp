@@ -56,13 +56,21 @@ void print_instruction(Instruction instruction) {
             );
         } break;
 
-        case InstructionType::SignExtension: {
+        case InstructionType::IntegerUpcast: {
+            char postfix;
+            if(instruction.integer_upcast.is_signed) {
+                postfix = 'S';
+            } else {
+                postfix = 'U';
+            }
+
             printf(
-                "SEXT %s %zu, %s %zu",
-                register_size_names[(int)instruction.sign_extension.source_size],
-                instruction.sign_extension.source_register,
-                register_size_names[(int)instruction.sign_extension.destination_size],
-                instruction.sign_extension.destination_register
+                "CAST%c %s %zu, %s %zu",
+                postfix,
+                register_size_names[(int)instruction.integer_upcast.source_size],
+                instruction.integer_upcast.source_register,
+                register_size_names[(int)instruction.integer_upcast.destination_size],
+                instruction.integer_upcast.destination_register
             );
         } break;
 

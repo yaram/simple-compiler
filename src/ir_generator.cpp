@@ -2367,17 +2367,18 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         case TypeCategory::Integer: {
                             switch(type.category) {
                                 case TypeCategory::Integer: {
-                                    if(expression_value.type.integer.is_signed && type.integer.is_signed) {
+                                    if(type.integer.size > expression_value.type.integer.size) {
                                         result_regsiter_index = allocate_register(context);
 
-                                        Instruction sign_extension;
-                                        sign_extension.type = InstructionType::SignExtension;
-                                        sign_extension.sign_extension.source_size = integer_size_to_register_size(expression_value.type.integer.size);
-                                        sign_extension.sign_extension.source_register = register_index;
-                                        sign_extension.sign_extension.destination_size = integer_size_to_register_size(type.integer.size);
-                                        sign_extension.sign_extension.destination_register = result_regsiter_index;
+                                        Instruction integer_upcast;
+                                        integer_upcast.type = InstructionType::IntegerUpcast;
+                                        integer_upcast.integer_upcast.is_signed = expression_value.type.integer.is_signed && type.integer.is_signed;
+                                        integer_upcast.integer_upcast.source_size = integer_size_to_register_size(expression_value.type.integer.size);
+                                        integer_upcast.integer_upcast.source_register = register_index;
+                                        integer_upcast.integer_upcast.destination_size = integer_size_to_register_size(type.integer.size);
+                                        integer_upcast.integer_upcast.destination_register = result_regsiter_index;
 
-                                        append(instructions, sign_extension);
+                                        append(instructions, integer_upcast);
                                     } else {
                                         result_regsiter_index = register_index;
                                     }
