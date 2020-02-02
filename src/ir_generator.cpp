@@ -243,34 +243,6 @@ static bool match_declaration(Statement statement, const char *name) {
     return false;
 }
 
-static ConstantValue compiler_size_to_native_size(GenerationContext context, size_t size) {
-    ConstantValue value;
-
-    switch(context.unsigned_size_integer_type) {
-        case IntegerType::Unsigned8: {
-            value.integer = (uint8_t)size;
-        } break;
-
-        case IntegerType::Unsigned16: {
-            value.integer = (uint16_t)size;
-        } break;
-
-        case IntegerType::Unsigned32: {
-            value.integer = (uint32_t)size;
-        } break;
-
-        case IntegerType::Unsigned64: {
-            value.integer = (uint64_t)size;
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-
-    return value;
-}
-
 static RegisterSize integer_size_to_register_size(IntegerSize size) {
     switch(size) {
         case IntegerSize::Size8: {
@@ -434,139 +406,6 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
     error(name.range, "Cannot find named reference %s", name.text);
 
     return { false };
-}
-
-static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantValue value, FileRange range, IntegerType index_type, ConstantValue index_value, FileRange index_range) {
-    size_t index;
-    switch(index_type) {
-        case IntegerType::Undetermined: {
-            if((int64_t)index_value.integer < 0) {
-                error(index_range, "Array index %lld out of bounds", (int64_t)index_value.integer);
-
-                return { false };
-            }
-
-            index = (size_t)(int64_t)index_value.integer;
-        } break;
-
-        case IntegerType::Unsigned8: {
-            index = (size_t)(uint8_t)index_value.integer;
-        } break;
-
-        case IntegerType::Unsigned16: {
-            index = (size_t)(uint16_t)index_value.integer;
-        } break;
-
-        case IntegerType::Unsigned32: {
-            index = (size_t)(uint32_t)index_value.integer;
-        } break;
-
-        case IntegerType::Unsigned64: {
-            index = (size_t)(uint64_t)index_value.integer;
-        } break;
-
-        case IntegerType::Signed8: {
-            if((int8_t)index_value.integer < 0) {
-                error(index_range, "Array index %hhd out of bounds", (int8_t)index_value.integer);
-
-                return { false };
-            }
-
-            index = (size_t)(int8_t)index_value.integer;
-        } break;
-
-        case IntegerType::Signed16: {
-            if((int16_t)index_value.integer < 0) {
-                error(index_range, "Array index %hd out of bounds", (int16_t)index_value.integer);
-
-                return { false };
-            }
-
-            index = (size_t)(int16_t)index_value.integer;
-        } break;
-
-        case IntegerType::Signed32: {
-            if((int32_t)index_value.integer < 0) {
-                error(index_range, "Array index %d out of bounds", (int32_t)index_value.integer);
-
-                return { false };
-            }
-
-            index = (size_t)(int32_t)index_value.integer;
-        } break;
-
-        case IntegerType::Signed64: {
-            if((int64_t)index_value.integer < 0) {
-                error(index_range, "Array index %lld out of bounds", (int64_t)index_value.integer);
-
-                return { false };
-            }
-
-            index = (size_t)(int64_t)index_value.integer;
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-
-    switch(type.category) {
-        case TypeCategory::Type: {
-            Type type_type;
-            type_type.category = TypeCategory::Type;
-
-            ConstantValue type_value;
-            type_value.type.category = TypeCategory::StaticArray;
-            type_value.type.static_array.length = index;
-            type_value.type.static_array.type = heapify(value.type);
-
-            return {
-                true,
-                {
-                    type_type,
-                    type_value
-                }
-            };
-        } break;
-
-        case TypeCategory::Array: {
-            if(index >= value.array.count) {
-                error(index_range, "Array index %zu out of bounds", index);
-
-                return { false };
-            }
-
-            return {
-                true,
-                {
-                    *type.array,
-                    value.array[index]
-                }
-            };
-        } break;
-
-        case TypeCategory::StaticArray: {
-            if(index >= type.static_array.length) {
-                error(index_range, "Array index %zu out of bounds", index);
-
-                return { false };
-            }
-
-            return {
-                true,
-                {
-                    *type.static_array.type,
-                    value.static_array[index]
-                }
-            };
-        } break;
-
-        default: {
-            error(range, "Cannot index %s", type_description(type));
-
-            return { false };
-        } break;
-    }
 }
 
 static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOperator binary_operator, FileRange range, Type left_type, ConstantValue left_value, Type right_type, ConstantValue right_value) {
@@ -891,16 +730,6 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             expect(expression_value, evaluate_constant_expression(context, *expression.member_reference.expression));
 
             switch(expression_value.type.category) {
-                case TypeCategory::Pointer: {
-                    if(expression_value.type.pointer->category == TypeCategory::Struct) {
-                        error(expression.member_reference.expression->range, "Cannot access struct pointer members in static context");
-                    } else {
-                        error(expression.member_reference.expression->range, "Type %s has no members", type_description(expression_value.type));
-                    }
-
-                    return { false };
-                } break;
-
                 case TypeCategory::FileModule: {
                     for(auto statement : expression_value.value.file_module) {
                         if(match_declaration(statement, expression.member_reference.name.text)) {
@@ -935,27 +764,6 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                     return { false };
                 } break;
             }
-        } break;
-
-        case ExpressionType::IndexReference: {
-            expect(expression_value, evaluate_constant_expression(context, *expression.index_reference.expression));
-
-            expect(index, evaluate_constant_expression(context, *expression.index_reference.index));
-
-            if(index.type.category != TypeCategory::Integer) {
-                error(expression.index_reference.index->range, "Index is %s, expected to be an integer", type_description(index.type));
-
-                return { false };
-            }
-
-            return evaluate_constant_index(
-                expression_value.type,
-                expression_value.value,
-                expression.index_reference.expression->range,
-                index.type.integer,
-                index.value,
-                expression.index_reference.index->range
-            );
         } break;
 
         case ExpressionType::IntegerLiteral: {
@@ -2254,7 +2062,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             return_.type = InstructionType::Return;
             return_.return_.value_register = value.register_index;
 
-            append(instructions. return_);
+            append(instructions, return_);
 
             return true;
         } break;
@@ -2451,7 +2259,7 @@ Result<IR> generate_ir(Array<File> files) {
                 for(size_t i = 0; i < function.parameters.count; i += 1) {
                     auto parameter = function.parameters[i];
 
-                    if(!add_new_variable(&context, parameter.name, parameter.type)) {
+                    if(!add_new_variable(&context, parameter.name, allocate_register(&context), parameter.type)) {
                         return { false };
                     }
 
@@ -2483,6 +2291,7 @@ Result<IR> generate_ir(Array<File> files) {
                 }
 
                 context.variable_context_stack.count -= 1;
+                context.next_register = 0;
 
                 Function ir_function;
                 ir_function.name = function.mangled_name;
