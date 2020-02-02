@@ -68,6 +68,7 @@ Result<const char *> generate_c_source(Array<Function> functions) {
 
     for(auto function : functions) {
         generate_function_signature(&forward_declaration_source, function);
+        string_buffer_append(&forward_declaration_source, ";");
 
         generate_function_signature(&implementation_source, function);
 
@@ -256,18 +257,18 @@ Result<const char *> generate_c_source(Array<Function> functions) {
                 } break;
 
                 case InstructionType::Return: {
-                    if(function.has_return) {
-                        string_buffer_append(&implementation_source, "return");
+                    string_buffer_append(&implementation_source, "return");
 
+                    if(function.has_return) {
                         string_buffer_append(&implementation_source, "(");
                         generate_type(&implementation_source, function.return_size, false);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
                         string_buffer_append(&implementation_source, instruction.return_.value_register);
-                    } else {
-                        string_buffer_append(&implementation_source, "return;");
                     }
+
+                    string_buffer_append(&implementation_source, ";");
                 } break;
 
                 case InstructionType::AllocateLocal: {
@@ -281,6 +282,10 @@ Result<const char *> generate_c_source(Array<Function> functions) {
                     string_buffer_append(&implementation_source, " reg_");
                     string_buffer_append(&implementation_source, instruction.allocate_local.destination_register);
                     string_buffer_append(&implementation_source, "=");
+
+                    string_buffer_append(&implementation_source, "(");
+                    generate_type(&implementation_source, RegisterSize::Size64, false);
+                    string_buffer_append(&implementation_source, ")");
 
                     string_buffer_append(&implementation_source, "&local_");
                     string_buffer_append(&implementation_source, instruction.allocate_local.destination_register);
@@ -296,9 +301,9 @@ Result<const char *> generate_c_source(Array<Function> functions) {
 
                     string_buffer_append(&implementation_source, "*");
 
-                    string_buffer_append(&implementation_source, "(*");
+                    string_buffer_append(&implementation_source, "(");
                     generate_type(&implementation_source, instruction.load_integer.size, false);
-                    string_buffer_append(&implementation_source, ")");
+                    string_buffer_append(&implementation_source, "*)");
 
                     string_buffer_append(&implementation_source, "reg_");
                     string_buffer_append(&implementation_source, instruction.load_integer.address_register);
@@ -307,16 +312,16 @@ Result<const char *> generate_c_source(Array<Function> functions) {
                 } break;
 
                 case InstructionType::StoreInteger: {
-                    string_buffer_append(&implementation_source, "*(*");
+                    string_buffer_append(&implementation_source, "*(");
                     generate_type(&implementation_source, instruction.store_integer.size, false);
-                    string_buffer_append(&implementation_source, ")reg_");
+                    string_buffer_append(&implementation_source, "*)reg_");
                     string_buffer_append(&implementation_source, instruction.store_integer.address_register);
                     string_buffer_append(&implementation_source, "=");
 
                     string_buffer_append(&implementation_source, "(");
                     generate_type(&implementation_source, instruction.store_integer.size, false);
                     string_buffer_append(&implementation_source, ")");
-                    string_buffer_append(&implementation_source, " reg_");
+                    string_buffer_append(&implementation_source, "reg_");
                     string_buffer_append(&implementation_source, instruction.store_integer.source_register);
 
                     string_buffer_append(&implementation_source, ";");
