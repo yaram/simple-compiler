@@ -1,13 +1,6 @@
 #pragma once
 
-#include "parser.h"
-#include "ast.h"
+#include "ir.h"
 #include "result.h"
 
-struct CSource {
-    const char *source;
-
-    Array<const char*> libraries;
-};
-
-Result<CSource> generate_c_source(Array<File> files);
+Result<const char *> generate_c_source(Array<Function> functions);

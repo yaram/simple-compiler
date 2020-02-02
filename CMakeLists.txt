@@ -31,6 +31,9 @@ add_executable(compiler
     src/ir_generator.h
     src/ir_generator.cpp
 
+    src/c_generator.h
+    src/c_generator.cpp
+
     src/main.cpp
 )
 

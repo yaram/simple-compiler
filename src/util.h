@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdlib.h>
+#include <stdint.h>
 
 template <typename T>
 inline T *heapify(T value) {
@@ -17,3 +18,4 @@ inline T *allocate(size_t count) {
 }
 
 void string_buffer_append(char **string_buffer, const char *string);
+void string_buffer_append(char **string_buffer, size_t number);
