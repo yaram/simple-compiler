@@ -48,7 +48,7 @@ void print_instruction(Instruction instruction) {
             }
 
             printf(
-                " %s %zu, %zu, %zu",
+                " %s r%zu, r%zu, r%zu",
                 register_size_names[(int)instruction.binary_operation.size],
                 instruction.binary_operation.source_register_a,
                 instruction.binary_operation.source_register_b,
@@ -65,7 +65,7 @@ void print_instruction(Instruction instruction) {
             }
 
             printf(
-                "CAST%c %s %zu, %s %zu",
+                "CAST%c %s r%zu, %s r%zu",
                 postfix,
                 register_size_names[(int)instruction.integer_upcast.source_size],
                 instruction.integer_upcast.source_register,
@@ -94,15 +94,17 @@ void print_instruction(Instruction instruction) {
                     printf("%llu", (uint64_t)instruction.constant.value);
                 } break;
             }
+
+            printf(", r%zu", instruction.constant.destination_register);
         } break;
 
         case InstructionType::Jump: {
-            printf("JMP %zu", instruction.jump.destination_instruction);
+            printf("JMP r%zu", instruction.jump.destination_instruction);
         } break;
 
         case InstructionType::Branch: {
             printf(
-                "BR %zu, %zu",
+                "BR r%zu, r%zu",
                 instruction.branch.condition_register,
                 instruction.branch.destination_instruction
             );
@@ -112,7 +114,7 @@ void print_instruction(Instruction instruction) {
             printf("CALL %s (", instruction.function_call.function_name);
 
             for(size_t i = 0; i < instruction.function_call.parameter_registers.count; i += 1) {
-                printf("%zu", instruction.function_call.parameter_registers[i]);
+                printf("r%zu", instruction.function_call.parameter_registers[i]);
 
                 if(i != instruction.function_call.parameter_registers.count - 1) {
                     printf(", ");
@@ -122,17 +124,17 @@ void print_instruction(Instruction instruction) {
             printf(")");
 
             if(instruction.function_call.has_return) {
-                printf(" %zu", instruction.function_call.return_register);
+                printf(" r%zu", instruction.function_call.return_register);
             }
         } break;
 
         case InstructionType::Return: {
-            printf("RET %zu", instruction.return_.value_register);
+            printf("RET r%zu", instruction.return_.value_register);
         } break;
 
         case InstructionType::AllocateLocal: {
             printf(
-                "LOCAL %s %zu",
+                "LOCAL %s r%zu",
                 register_size_names[(int)instruction.allocate_local.size],
                 instruction.allocate_local.destination_register
             );
@@ -140,7 +142,7 @@ void print_instruction(Instruction instruction) {
 
         case InstructionType::LoadInteger: {
             printf(
-                "LOAD %s %zu, %zu",
+                "LOAD %s r%zu, r%zu",
                 register_size_names[(int)instruction.load_integer.size],
                 instruction.load_integer.address_register,
                 instruction.load_integer.destination_register
@@ -149,7 +151,7 @@ void print_instruction(Instruction instruction) {
 
         case InstructionType::StoreInteger: {
             printf(
-                "STORE %s %zu, %zu",
+                "STORE %s r%zu, r%zu",
                 register_size_names[(int)instruction.store_integer.size],
                 instruction.store_integer.source_register,
                 instruction.load_integer.address_register
@@ -159,11 +161,11 @@ void print_instruction(Instruction instruction) {
 }
 
 void print_function(Function function) {
-    printf("%s (");
+    printf("%s (", function.name);
 
     for(size_t i = 0; i < function.parameter_sizes.count; i += 1) {
         printf(
-            "%zu: %s",
+            "r%zu: %s",
             i,
             register_size_names[(int)function.parameter_sizes[i]]
         );
