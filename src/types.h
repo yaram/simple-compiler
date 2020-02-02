@@ -1,6 +1,7 @@
 #pragma once
 
 #include "array.h"
+#include "architecture.h"
 
 enum struct TypeCategory {
     Function,
@@ -13,13 +14,6 @@ enum struct TypeCategory {
     StaticArray,
     Struct,
     FileModule
-};
-
-enum struct IntegerSize {
-    Size8,
-    Size16,
-    Size32,
-    Size64
 };
 
 struct Type {
@@ -35,7 +29,7 @@ struct Type {
         } function;
 
         struct {
-            IntegerSize size;
+            RegisterSize size;
 
             bool is_signed;
         } integer;

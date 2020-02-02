@@ -90,11 +90,16 @@ int main(int argument_count, char *arguments[]) {
         }
     }
 
+    ArchitectureInfo architecture_info {
+        RegisterSize::Size64,
+        RegisterSize::Size64
+    };
+
     IR ir;
     {
         auto start_time = clock();
 
-        auto result = generate_ir(files);
+        auto result = generate_ir(files, architecture_info);
 
         if(!result.status) {
             return EXIT_FAILURE;
@@ -122,7 +127,7 @@ int main(int argument_count, char *arguments[]) {
     {
         auto start_time = clock();
 
-        auto result = generate_c_source(ir.functions);
+        auto result = generate_c_source(ir.functions, architecture_info);
 
         if(!result.status) {
             return EXIT_FAILURE;

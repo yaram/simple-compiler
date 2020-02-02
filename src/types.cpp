@@ -87,19 +87,19 @@ const char *type_description(Type type) {
         case TypeCategory::Integer: {
             if(type.integer.is_signed) {
                 switch(type.integer.size) {
-                    case IntegerSize::Size8: {
+                    case RegisterSize::Size8: {
                         return "i8";
                     } break;
 
-                    case IntegerSize::Size16: {
+                    case RegisterSize::Size16: {
                         return "i16";
                     } break;
 
-                    case IntegerSize::Size32: {
+                    case RegisterSize::Size32: {
                         return "i32";
                     } break;
 
-                    case IntegerSize::Size64: {
+                    case RegisterSize::Size64: {
                         return "i64";
                     } break;
 
@@ -109,19 +109,19 @@ const char *type_description(Type type) {
                 }
             } else {
                 switch(type.integer.size) {
-                    case IntegerSize::Size8: {
+                    case RegisterSize::Size8: {
                         return "u8";
                     } break;
 
-                    case IntegerSize::Size16: {
+                    case RegisterSize::Size16: {
                         return "u16";
                     } break;
 
-                    case IntegerSize::Size32: {
+                    case RegisterSize::Size32: {
                         return "u32";
                     } break;
 
-                    case IntegerSize::Size64: {
+                    case RegisterSize::Size64: {
                         return "u64";
                     } break;
 

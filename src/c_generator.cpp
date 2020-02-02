@@ -62,7 +62,7 @@ static bool generate_function_signature(char **source, Function function) {
     return true;
 }
 
-Result<const char *> generate_c_source(Array<Function> functions) {
+Result<const char *> generate_c_source(Array<Function> functions, ArchitectureInfo architecture_info) {
     char *forward_declaration_source{};
     char *implementation_source{};
 
@@ -205,7 +205,7 @@ Result<const char *> generate_c_source(Array<Function> functions) {
                     string_buffer_append(&implementation_source, "if(");
 
                     string_buffer_append(&implementation_source, "(");
-                    generate_type(&implementation_source, RegisterSize::Size64, false);
+                    generate_type(&implementation_source, architecture_info.default_size, false);
                     string_buffer_append(&implementation_source, ")");
 
                     string_buffer_append(&implementation_source, "reg_");
@@ -278,13 +278,13 @@ Result<const char *> generate_c_source(Array<Function> functions) {
                     string_buffer_append(&implementation_source, instruction.allocate_local.size);
                     string_buffer_append(&implementation_source, "];");
 
-                    generate_type(&implementation_source, RegisterSize::Size64, false);
+                    generate_type(&implementation_source, architecture_info.address_size, false);
                     string_buffer_append(&implementation_source, " reg_");
                     string_buffer_append(&implementation_source, instruction.allocate_local.destination_register);
                     string_buffer_append(&implementation_source, "=");
 
                     string_buffer_append(&implementation_source, "(");
-                    generate_type(&implementation_source, RegisterSize::Size64, false);
+                    generate_type(&implementation_source, architecture_info.address_size, false);
                     string_buffer_append(&implementation_source, ")");
 
                     string_buffer_append(&implementation_source, "&local_");

@@ -2,13 +2,7 @@
 
 #include <stdint.h>
 #include "array.h"
-
-enum struct RegisterSize {
-    Size8,
-    Size16,
-    Size32,
-    Size64
-};
+#include "architecture.h"
 
 enum struct BinaryOperationType {
     Add,

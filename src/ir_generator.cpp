@@ -90,8 +90,8 @@ struct RuntimeFunction {
 };
 
 struct GenerationContext {
-    IntegerSize address_integer_size;
-    IntegerSize default_integer_size;
+    RegisterSize address_integer_size;
+    RegisterSize default_integer_size;
 
     Array<GlobalConstant> global_constants;
 
@@ -243,42 +243,18 @@ static bool match_declaration(Statement statement, const char *name) {
     return false;
 }
 
-static RegisterSize integer_size_to_register_size(IntegerSize size) {
-    switch(size) {
-        case IntegerSize::Size8: {
-            return RegisterSize::Size8;
-        } break;
-
-        case IntegerSize::Size16: {
-            return RegisterSize::Size16;
-        } break;
-
-        case IntegerSize::Size32: {
-            return RegisterSize::Size32;
-        } break;
-
-        case IntegerSize::Size64: {
-            return RegisterSize::Size64;
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-}
-
 static RegisterSize get_type_register_size(GenerationContext context, Type type) {
     switch(type.category) {
         case TypeCategory::Integer: {
-            return integer_size_to_register_size(type.integer.size);
+            return type.integer.size;
         } break;
 
         case TypeCategory::Pointer: {
-            return integer_size_to_register_size(context.address_integer_size);
+            return context.address_integer_size;
         } break;
 
         case TypeCategory::Boolean: {
-            return integer_size_to_register_size(context.default_integer_size);
+            return context.default_integer_size;
         } break;
 
         default: {
@@ -423,22 +399,22 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
             uint64_t right;
             if(left_type.integer.is_signed) {
                 switch(left_type.integer.size) {
-                    case IntegerSize::Size8: {
+                    case RegisterSize::Size8: {
                         left = (int64_t)(int8_t)left_value.integer;
                         right = (int64_t)(int8_t)right_value.integer;
                     } break;
 
-                    case IntegerSize::Size16: {
+                    case RegisterSize::Size16: {
                         left = (int64_t)(int16_t)left_value.integer;
                         right = (int64_t)(int16_t)right_value.integer;
                     } break;
 
-                    case IntegerSize::Size32: {
+                    case RegisterSize::Size32: {
                         left = (int64_t)(int32_t)left_value.integer;
                         right = (int64_t)(int32_t)right_value.integer;
                     } break;
 
-                    case IntegerSize::Size64: {
+                    case RegisterSize::Size64: {
                         left = left_value.integer;
                         right = right_value.integer;
                     } break;
@@ -449,22 +425,22 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
                 }
             } else {
                 switch(left_type.integer.size) {
-                    case IntegerSize::Size8: {
+                    case RegisterSize::Size8: {
                         left = (uint8_t)left_value.integer;
                         right = (uint8_t)right_value.integer;
                     } break;
 
-                    case IntegerSize::Size16: {
+                    case RegisterSize::Size16: {
                         left = (uint16_t)left_value.integer;
                         right = (uint16_t)right_value.integer;
                     } break;
 
-                    case IntegerSize::Size32: {
+                    case RegisterSize::Size32: {
                         left = (uint32_t)left_value.integer;
                         right = (uint32_t)right_value.integer;
                     } break;
 
-                    case IntegerSize::Size64: {
+                    case RegisterSize::Size64: {
                         left = left_value.integer;
                         right = right_value.integer;
                     } break;
@@ -534,19 +510,19 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
             if(result.type.category == TypeCategory::Integer) {
                 if(left_type.integer.is_signed) {
                     switch(left_type.integer.size) {
-                        case IntegerSize::Size8: {
+                        case RegisterSize::Size8: {
                             result.value.integer = (int64_t)(int8_t)result_value;
                         } break;
 
-                        case IntegerSize::Size16: {
+                        case RegisterSize::Size16: {
                             result.value.integer = (int64_t)(int16_t)result_value;
                         } break;
 
-                        case IntegerSize::Size32: {
+                        case RegisterSize::Size32: {
                             result.value.integer = (int64_t)(int32_t)result_value;
                         } break;
 
-                        case IntegerSize::Size64: {
+                        case RegisterSize::Size64: {
                             result.value.integer = result_value;
                         } break;
 
@@ -556,19 +532,19 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
                     }
                 } else {
                     switch(left_type.integer.size) {
-                        case IntegerSize::Size8: {
+                        case RegisterSize::Size8: {
                             result.value.integer = (uint8_t)result_value;
                         } break;
 
-                        case IntegerSize::Size16: {
+                        case RegisterSize::Size16: {
                             result.value.integer = (uint16_t)result_value;
                         } break;
 
-                        case IntegerSize::Size32: {
+                        case RegisterSize::Size32: {
                             result.value.integer = (uint32_t)result_value;
                         } break;
 
-                        case IntegerSize::Size64: {
+                        case RegisterSize::Size64: {
                             result.value.integer = result_value;
                         } break;
 
@@ -618,19 +594,19 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
                 case TypeCategory::Integer: {
                     if(value_type.integer.is_signed && type.integer.is_signed) {
                         switch(value_type.integer.size) {
-                            case IntegerSize::Size8: {
+                            case RegisterSize::Size8: {
                                 result.integer = (int8_t)value.integer;
                             } break;
 
-                            case IntegerSize::Size16: {
+                            case RegisterSize::Size16: {
                                 result.integer = (int16_t)value.integer;
                             } break;
 
-                            case IntegerSize::Size32: {
+                            case RegisterSize::Size32: {
                                 result.integer = (int32_t)value.integer;
                             } break;
 
-                            case IntegerSize::Size64: {
+                            case RegisterSize::Size64: {
                                 result.integer = value.integer;
                             } break;
 
@@ -640,19 +616,19 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
                         }
                     } else {
                         switch(value_type.integer.size) {
-                            case IntegerSize::Size8: {
+                            case RegisterSize::Size8: {
                                 result.integer = (uint8_t)value.integer;
                             } break;
 
-                            case IntegerSize::Size16: {
+                            case RegisterSize::Size16: {
                                 result.integer = (uint16_t)value.integer;
                             } break;
 
-                            case IntegerSize::Size32: {
+                            case RegisterSize::Size32: {
                                 result.integer = (uint32_t)value.integer;
                             } break;
 
-                            case IntegerSize::Size64: {
+                            case RegisterSize::Size64: {
                                 result.integer = value.integer;
                             } break;
 
@@ -1829,9 +1805,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                         Instruction integer_upcast;
                                         integer_upcast.type = InstructionType::IntegerUpcast;
                                         integer_upcast.integer_upcast.is_signed = expression_value.type.integer.is_signed && type.integer.is_signed;
-                                        integer_upcast.integer_upcast.source_size = integer_size_to_register_size(expression_value.type.integer.size);
+                                        integer_upcast.integer_upcast.source_size = expression_value.type.integer.size;
                                         integer_upcast.integer_upcast.source_register = register_index;
-                                        integer_upcast.integer_upcast.destination_size = integer_size_to_register_size(type.integer.size);
+                                        integer_upcast.integer_upcast.destination_size = type.integer.size;
                                         integer_upcast.integer_upcast.destination_register = result_regsiter_index;
 
                                         append(instructions, integer_upcast);
@@ -2202,7 +2178,7 @@ inline GlobalConstant create_base_type(const char *name, Type type) {
     };
 }
 
-inline GlobalConstant create_base_integer_type(const char *name, IntegerSize size, bool is_signed) {
+inline GlobalConstant create_base_integer_type(const char *name, RegisterSize size, bool is_signed) {
     Type type;
     type.category = TypeCategory::Integer;
     type.integer = {
@@ -2213,25 +2189,23 @@ inline GlobalConstant create_base_integer_type(const char *name, IntegerSize siz
     return create_base_type(name, type);
 }
 
-Result<IR> generate_ir(Array<File> files) {
+Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
     assert(files.count > 0);
 
     List<GlobalConstant> global_constants{};
 
-    auto address_integer_size = IntegerSize::Size64;
+    append(&global_constants, create_base_integer_type("u8", RegisterSize::Size8, false));
+    append(&global_constants, create_base_integer_type("u16", RegisterSize::Size16, false));
+    append(&global_constants, create_base_integer_type("u32", RegisterSize::Size32, false));
+    append(&global_constants, create_base_integer_type("u64", RegisterSize::Size64, false));
 
-    append(&global_constants, create_base_integer_type("u8", IntegerSize::Size8, false));
-    append(&global_constants, create_base_integer_type("u16", IntegerSize::Size16, false));
-    append(&global_constants, create_base_integer_type("u32", IntegerSize::Size32, false));
-    append(&global_constants, create_base_integer_type("u64", IntegerSize::Size64, false));
+    append(&global_constants, create_base_integer_type("i8", RegisterSize::Size8, true));
+    append(&global_constants, create_base_integer_type("i16", RegisterSize::Size16, true));
+    append(&global_constants, create_base_integer_type("i32", RegisterSize::Size32, true));
+    append(&global_constants, create_base_integer_type("i64", RegisterSize::Size64, true));
 
-    append(&global_constants, create_base_integer_type("i8", IntegerSize::Size8, true));
-    append(&global_constants, create_base_integer_type("i16", IntegerSize::Size16, true));
-    append(&global_constants, create_base_integer_type("i32", IntegerSize::Size32, true));
-    append(&global_constants, create_base_integer_type("i64", IntegerSize::Size64, true));
-
-    append(&global_constants, create_base_integer_type("usize", address_integer_size, false));
-    append(&global_constants, create_base_integer_type("isize", address_integer_size, true));
+    append(&global_constants, create_base_integer_type("usize", architecute_info.address_size, false));
+    append(&global_constants, create_base_integer_type("isize", architecute_info.address_size, true));
 
     Type base_boolean_type;
     base_boolean_type.category = TypeCategory::Boolean;
@@ -2264,8 +2238,8 @@ Result<IR> generate_ir(Array<File> files) {
     auto previous_resolved_declaration_count = 0;
 
     GenerationContext context {
-        address_integer_size,
-        address_integer_size,
+        architecute_info.address_size,
+        architecute_info.default_size,
         to_array(global_constants),
         files
     };
