@@ -812,6 +812,52 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             };
         } break;
 
+        case ExpressionType::UnaryOperation: {
+            expect(expression_value, evaluate_constant_expression(context, *expression.unary_operation.expression));
+
+            switch(expression.unary_operation.unary_operator) {
+                case UnaryOperator::Pointer: {
+                    switch(expression_value.type.category) {
+                        case TypeCategory::Type: {
+                            Type type;
+                            type.category = TypeCategory::Type;
+
+                            ConstantValue value;
+                            value.type.category = TypeCategory::Pointer;
+                            value.type.pointer = heapify(expression_value.value.type);
+
+                            return {
+                                true,
+                                {
+                                    type,
+                                    value
+                                }
+                            };
+                        } break;
+
+                        case TypeCategory::Function:
+                        case TypeCategory::Integer:
+                        case TypeCategory::Boolean:
+                        case TypeCategory::Void:
+                        case TypeCategory::Pointer:
+                        case TypeCategory::FileModule: {
+                            error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
+
+                            return { false };
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
         case ExpressionType::Cast: {
             expect(expression_value, evaluate_constant_expression(context, *expression.cast.expression));
 
@@ -1669,6 +1715,75 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     true,
                     value
                 };
+            }
+        } break;
+
+        case ExpressionType::UnaryOperation: {
+            expect(expression_value, generate_expression(context, instructions, *expression.unary_operation.expression));
+
+            switch(expression.unary_operation.unary_operator) {
+                case UnaryOperator::Pointer: {
+                    switch(expression_value.category) {
+                        case ExpressionValueCategory::Constant: {
+                            switch(expression_value.type.category) {
+                                case TypeCategory::Type: {
+                                    ExpressionValue value;
+                                    value.category = ExpressionValueCategory::Constant;
+                                    value.type.category = TypeCategory::Type;
+                                    value.constant.type.category = TypeCategory::Pointer;
+                                    value.constant.type.pointer = heapify(expression_value.constant.type);
+
+                                    return {
+                                        true,
+                                        value
+                                    };
+                                } break;
+
+                                case TypeCategory::Function:
+                                case TypeCategory::Integer:
+                                case TypeCategory::Boolean:
+                                case TypeCategory::Void:
+                                case TypeCategory::Pointer:
+                                case TypeCategory::FileModule: {
+                                    error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
+
+                                    return { false };
+                                } break;
+
+                                default: {
+                                    abort();
+                                } break;
+                            }
+                        } break;
+
+                        case ExpressionValueCategory::Register: {
+                            error(expression.unary_operation.expression->range, "Cannot take pointers to anonymous values");
+
+                            return { false };
+                        } break;
+
+                        case ExpressionValueCategory::Address: {
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Register;
+                            value.type.category = TypeCategory::Pointer;
+                            value.type.pointer = heapify(expression_value.type);
+                            value.register_ = expression_value.register_;
+
+                            return {
+                                true,
+                                value
+                            };
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                }
+
+                default: {
+                    abort();
+                } break;
             }
         } break;
 
