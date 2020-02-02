@@ -1855,14 +1855,14 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
         case StatementType::VariableDeclaration: {
             switch(statement.variable_declaration.type) {
                 case VariableDeclarationType::Uninitialized: {
-                    expect(type, evaluate_type_expression(context, statement.variable_declaration.fully_specified.type));
+                    expect(type, evaluate_type_expression(context, statement.variable_declaration.uninitialized));
 
                     auto address_register = allocate_register(context);
 
                     Instruction allocate;
                     allocate.type = InstructionType::AllocateLocal;
-                    allocate.allocate_local.destination_register = address_register;
                     allocate.allocate_local.size = get_type_size(*context, type);
+                    allocate.allocate_local.destination_register = address_register;
 
                     append(instructions, allocate);
 
@@ -1882,7 +1882,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     auto allocate_index = append(instructions, allocate);
 
-                    expect(initializer_value, generate_register_expression(context, instructions, statement.variable_declaration.fully_specified.initializer));
+                    expect(initializer_value, generate_register_expression(context, instructions, statement.variable_declaration.type_elided));
 
                     (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, initializer_value.type);
 
@@ -1909,8 +1909,8 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     Instruction allocate;
                     allocate.type = InstructionType::AllocateLocal;
-                    allocate.allocate_local.destination_register = address_register;
                     allocate.allocate_local.size = get_type_size(*context, type);
+                    allocate.allocate_local.destination_register = address_register;
 
                     append(instructions, allocate);
 
