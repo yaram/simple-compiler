@@ -270,25 +270,21 @@ static ConstantValue compiler_size_to_native_size(GenerationContext context, siz
     return value;
 }
 
-static RegisterSize integer_type_to_register_size(IntegerType type) {
-    switch(type) {
-        case IntegerType::Signed8:
-        case IntegerType::Unsigned8: {
+static RegisterSize integer_size_to_register_size(IntegerSize size) {
+    switch(size) {
+        case IntegerSize::Size8: {
             return RegisterSize::Size8;
         } break;
 
-        case IntegerType::Signed16:
-        case IntegerType::Unsigned16: {
+        case IntegerSize::Size16: {
             return RegisterSize::Size16;
         } break;
 
-        case IntegerType::Signed32:
-        case IntegerType::Unsigned32: {
+        case IntegerSize::Size32: {
             return RegisterSize::Size32;
         } break;
 
-        case IntegerType::Signed64:
-        case IntegerType::Unsigned64: {
+        case IntegerSize::Size64: {
             return RegisterSize::Size64;
         } break;
 
@@ -301,15 +297,15 @@ static RegisterSize integer_type_to_register_size(IntegerType type) {
 static RegisterSize get_type_register_size(GenerationContext context, Type type) {
     switch(type.category) {
         case TypeCategory::Integer: {
-            return integer_type_to_register_size(type.integer);
+            return integer_size_to_register_size(type.integer.size);
         } break;
 
         case TypeCategory::Pointer: {
-            return integer_type_to_register_size(context.unsigned_size_integer_type);
+            return integer_size_to_register_size(context.address_integer_size);
         } break;
 
         case TypeCategory::Boolean: {
-            return integer_type_to_register_size(context.unsigned_size_integer_type);
+            return integer_size_to_register_size(context.default_integer_size);
         } break;
 
         default: {
