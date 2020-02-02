@@ -25,9 +25,6 @@ add_executable(compiler
     src/types.h
     src/types.cpp
 
-    src/c_generator.h
-    src/c_generator.cpp
-
     src/ir.h
     src/ir.cpp
 
