@@ -157,6 +157,14 @@ void print_instruction(Instruction instruction) {
                 instruction.load_integer.address_register
             );
         } break;
+
+        case InstructionType::ReferenceStatic: {
+            printf(
+                "STATIC %s r%zu",
+                instruction.reference_static.name,
+                instruction.reference_static.destination_register
+            );
+        } break;
     }
 }
 

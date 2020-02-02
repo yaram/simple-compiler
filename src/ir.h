@@ -32,7 +32,9 @@ enum struct InstructionType {
     AllocateLocal,
 
     LoadInteger,
-    StoreInteger
+    StoreInteger,
+
+    ReferenceStatic
 };
 
 struct Instruction {
@@ -112,6 +114,12 @@ struct Instruction {
 
             size_t address_register;
         } store_integer;
+
+        struct {
+            const char *name;
+
+            size_t destination_register;
+        } reference_static;
     };
 };
 
@@ -129,3 +137,9 @@ struct Function {
 };
 
 void print_function(Function function);
+
+struct StaticConstant {
+    const char *name;
+
+    Array<uint8_t> data;
+};
