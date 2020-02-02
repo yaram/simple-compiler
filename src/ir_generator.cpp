@@ -884,53 +884,55 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
         case TypeCategory::Integer: {
             switch(type.category) {
                 case TypeCategory::Integer: {
-                    switch(value_type.integer) {
-                        case IntegerType::Undetermined: {
-                            result.integer = (uint64_t)(int64_t)value.integer;
-                        } break;
+                    if(value_type.integer.is_signed && type.integer.is_signed) {
+                        switch(value_type.integer.size) {
+                            case IntegerSize::Size8: {
+                                result.integer = (int8_t)value.integer;
+                            } break;
 
-                        case IntegerType::Unsigned8: {
-                            result.integer = (uint64_t)(uint8_t)value.integer;
-                        } break;
+                            case IntegerSize::Size16: {
+                                result.integer = (int16_t)value.integer;
+                            } break;
 
-                        case IntegerType::Unsigned16: {
-                            result.integer = (uint64_t)(uint16_t)value.integer;
-                        } break;
+                            case IntegerSize::Size32: {
+                                result.integer = (int32_t)value.integer;
+                            } break;
 
-                        case IntegerType::Unsigned32: {
-                            result.integer = (uint64_t)(uint32_t)value.integer;
-                        } break;
+                            case IntegerSize::Size64: {
+                                result.integer = value.integer;
+                            } break;
 
-                        case IntegerType::Unsigned64: {
-                            result.integer = value.integer;
-                        } break;
+                            default: {
+                                abort();
+                            } break;
+                        }
+                    } else {
+                        switch(value_type.integer.size) {
+                            case IntegerSize::Size8: {
+                                result.integer = (uint8_t)value.integer;
+                            } break;
 
-                        case IntegerType::Signed8: {
-                            result.integer = (uint64_t)(int8_t)value.integer;
-                        } break;
+                            case IntegerSize::Size16: {
+                                result.integer = (uint16_t)value.integer;
+                            } break;
 
-                        case IntegerType::Signed16: {
-                            result.integer = (uint64_t)(int16_t)value.integer;
-                        } break;
+                            case IntegerSize::Size32: {
+                                result.integer = (uint32_t)value.integer;
+                            } break;
 
-                        case IntegerType::Signed32: {
-                            result.integer = (uint64_t)(int32_t)value.integer;
-                        } break;
+                            case IntegerSize::Size64: {
+                                result.integer = value.integer;
+                            } break;
 
-                        case IntegerType::Signed64: {
-                            result.integer = (uint64_t)(int64_t)value.integer;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
+                            default: {
+                                abort();
+                            } break;
+                        }
                     }
                 } break;
 
                 case TypeCategory::Pointer: {
-                    if(value_type.integer == IntegerType::Undetermined) {
-                        result.pointer = (int64_t)value.integer;
-                    } else if(value.type.integer == context.unsigned_size_integer_type) {
+                    if(value.type.integer.size == context.address_integer_size) {
                         result.pointer = value.integer;
                     } else {
                         error(value_range, "Cannot cast from %s to pointer", type_description(value_type));
@@ -950,8 +952,8 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
         case TypeCategory::Pointer: {
             switch(type.category) {
                 case TypeCategory::Integer: {
-                    if(type.integer == context.unsigned_size_integer_type) {
-                        result.pointer = value.integer;
+                    if(type.integer.size == context.address_integer_size) {
+                        result.integer = value.pointer;
                     } else {
                         error(value_range, "Cannot cast from pointer to %s", type_description(type));
 
@@ -965,35 +967,6 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
 
                 default: {
                     error(type_range, "Cannot cast pointer to %s", type_description(type));
-
-                    return { false };
-                } break;
-            }
-        } break;
-
-        case TypeCategory::StaticArray: {
-            switch(type.category) {
-                case TypeCategory::Pointer: {
-                    error(type_range, "Cannot cast static array to pointer in static context");
-
-                    return { false };
-                } break;
-
-                case TypeCategory::Array: {
-                    if(!types_equal(*value_type.static_array.type, *type.array)) {
-                        error(type_range, "Static array and array type mismatch. Expected %s, got %s", type_description(*value_type.static_array.type), type_description(*type.array));
-
-                        return { false };
-                    }
-
-                    result.array = {
-                        value_type.static_array.length,
-                        value.static_array
-                    };
-                } break;
-
-                default: {
-                    error(type_range, "Cannot cast static array to %s", type_description(type));
 
                     return { false };
                 } break;
@@ -1031,54 +1004,6 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                     } else {
                         error(expression.member_reference.expression->range, "Type %s has no members", type_description(expression_value.type));
                     }
-
-                    return { false };
-                } break;
-
-                case TypeCategory::Array: {
-                    if(strcmp(expression.member_reference.name.text, "length") == 0) {
-                        Type type;
-                        type.category = TypeCategory::Integer;
-                        type.integer = context->unsigned_size_integer_type;
-
-                        auto value = compiler_size_to_native_size(*context, expression_value.value.array.count);
-
-                        return {
-                            true,
-                            {
-                                type,
-                                value
-                            }
-                        };
-                    } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
-                        error(expression.member_reference.name.range, "Cannot access array pointer in constant context");
-
-                        return { false };
-                    } else {
-                        error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
-
-                        return { false };
-                    }
-                } break;
-
-                case TypeCategory::Struct: {
-                    auto c_declaration = retrieve_c_declaration(*context, expression_value.type._struct);
-
-                    assert(c_declaration.type == CDeclarationType::StructType);
-
-                    for(size_t i = 0; i < c_declaration.struct_type.count; i += 1) {
-                        if(strcmp(c_declaration.struct_type[i].name.text, expression.member_reference.name.text) == 0) {
-                            return {
-                                true,
-                                {
-                                    c_declaration.struct_type[i].type,
-                                    expression_value.value._struct[i]
-                                }
-                            };
-                        }
-                    }
-
-                    error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
 
                     return { false };
                 } break;
@@ -1143,120 +1068,13 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
         case ExpressionType::IntegerLiteral: {
             Type type;
             type.category = TypeCategory::Integer;
-            type.integer = IntegerType::Undetermined;
+            type.integer = {
+                context->default_integer_size,
+                true
+            };
 
             ConstantValue value;
             value.integer = expression.integer_literal;
-
-            return {
-                true,
-                {
-                    type,
-                    value
-                }
-            };
-        } break;
-
-        case ExpressionType::StringLiteral: {
-            Type array_type;
-            array_type.category = TypeCategory::Integer;
-            array_type.integer = IntegerType::Unsigned8;
-
-            Type type;
-            type.category = TypeCategory::StaticArray;
-            type.static_array = {
-                expression.string_literal.count,
-                heapify(array_type)
-            };
-
-            auto characters = allocate<ConstantValue>(expression.string_literal.count);
-
-            for(size_t i = 0; i < expression.string_literal.count; i += 1) {
-                characters[i].integer = expression.string_literal[i];
-            }
-
-            ConstantValue value;
-            value.static_array = characters;
-
-            return {
-                true,
-                {
-                    type,
-                    value
-                }
-            };
-        } break;
-
-        case ExpressionType::ArrayLiteral: {
-            if(expression.array_literal.count == 0) {
-                error(expression.range, "Empty array literal");
-
-                return { false };
-            }
-
-            Type element_type;
-
-            auto elements = allocate<ConstantValue>(expression.array_literal.count);
-
-            for(size_t i = 0; i < expression.array_literal.count; i += 1) {
-                expect(element, evaluate_constant_expression(context, expression.array_literal[i]));
-
-                if(i == 0) {
-                    element_type = element.type;
-                }
-
-                ConstantValue value;
-                if(
-                    element_type.category == TypeCategory::Integer &&
-                    element.type.category == TypeCategory::Integer&&
-                    (
-                        element_type.integer == IntegerType::Undetermined ||
-                        element.type.integer == IntegerType::Undetermined
-                    )
-                ) {
-                    if(element_type.integer == IntegerType::Undetermined && element_type.integer == IntegerType::Undetermined) {
-                        value.integer = element.value.integer;
-                    } else if(element_type.integer == IntegerType::Undetermined) {
-                        for(size_t j = 0; j < i; j += 1) {
-                            elements[j] = determine_constant_integer(element.type.integer, elements[j]);
-                        }
-
-                        value.integer = element.value.integer;
-
-                        element_type.integer = element.type.integer;
-                    } else {
-                        value = determine_constant_integer(element_type.integer, element.value);
-                    }
-                } else {
-                    if(!types_equal(element_type, element.value.type)) {
-                        error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.value.type));
-
-                        return { false };
-                    }
-
-                    value.integer = element.value.integer;
-                }
-
-                elements[i] = value;
-            }
-
-            if(element_type.category == TypeCategory::Integer && element_type.integer == IntegerType::Undetermined) {
-                for(size_t i = 0; i < expression.array_literal.count; i += 1) {
-                    elements[i] = determine_constant_integer(context->default_integer_type, elements[i]);
-                }
-
-                element_type.integer = context->default_integer_type;
-            }
-
-            Type type;
-            type.category = TypeCategory::StaticArray;
-            type.static_array = {
-                expression.array_literal.count,
-                heapify(element_type)
-            };
-
-            ConstantValue value;
-            value.static_array = elements;
 
             return {
                 true,
@@ -1291,118 +1109,6 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 true,
                 value
             };
-        } break;
-
-        case ExpressionType::UnaryOperation: {
-            expect(expression_value, evaluate_constant_expression(context, *expression.unary_operation.expression));
-
-            switch(expression.unary_operation.unary_operator) {
-                case UnaryOperator::Pointer: {
-                    if(expression_value.type.category != TypeCategory::Type) {
-                        error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
-
-                        return { false };
-                    }
-
-                    Type type;
-                    type.category = TypeCategory::Type;
-
-                    ConstantValue value;
-                    value.type.category = TypeCategory::Pointer;
-                    value.type.pointer = heapify(expression_value.value.type);
-
-                    return {
-                        true,
-                        {
-                            type,
-                            value
-                        }
-                    };
-                } break;
-
-                case UnaryOperator::BooleanInvert: {
-                    if(expression_value.type.category != TypeCategory::Boolean) {
-                        error(expression.unary_operation.expression->range, "Cannot do boolean inversion on %s", type_description(expression_value.type));
-
-                        return { false };
-                    }
-
-                    ConstantValue value;
-                    value.boolean = !expression_value.value.boolean;
-
-                    return {
-                        true,
-                        {
-                            expression_value.type,
-                            value
-                        }
-                    };
-                } break;
-
-                case UnaryOperator::Negation: {
-                    if(expression_value.type.category != TypeCategory::Integer) {
-                        error(expression.unary_operation.expression->range, "Cannot do negation on %s", type_description(expression_value.type));
-
-                        return { false };
-                    }
-
-                    ConstantValue value;
-
-                    switch(expression_value.type.integer) {
-                        case IntegerType::Undetermined: {
-                            value.integer = (uint64_t)-(int64_t)expression_value.value.integer;
-                        } break;
-
-                        case IntegerType::Unsigned8: {
-                            value.integer = (uint64_t)-(uint8_t)expression_value.value.integer;
-                        } break;
-
-                        case IntegerType::Unsigned16: {
-                            value.integer = (uint64_t)-(uint16_t)expression_value.value.integer;
-                        } break;
-
-                        case IntegerType::Unsigned32: {
-                            value.integer = (uint64_t)-(uint32_t)expression_value.value.integer;
-                        } break;
-
-                        case IntegerType::Unsigned64: {
-                            value.integer = (uint64_t)-(uint64_t)expression_value.value.integer;
-                        } break;
-
-                        case IntegerType::Signed8: {
-                            value.integer = (uint64_t)-(int8_t)(int64_t)expression_value.value.integer;
-                        } break;
-
-                        case IntegerType::Signed16: {
-                            value.integer = (uint64_t)-(int16_t)(int64_t)expression_value.value.integer;
-                        } break;
-
-                        case IntegerType::Signed32: {
-                            value.integer = (uint64_t)-(int32_t)(int64_t)expression_value.value.integer;
-                        } break;
-
-                        case IntegerType::Signed64: {
-                            value.integer = (uint64_t)-(int64_t)(int64_t)expression_value.value.integer;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-
-                    return {
-                        true,
-                        {
-                            expression_value.type,
-                            value
-                        }
-                    };
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
         } break;
 
         case ExpressionType::Cast: {
@@ -1650,72 +1356,6 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             return {
                 true,
                 expression_value
-            };
-        } break;
-
-        case StatementType::StructDefinition: {
-            for(size_t i = 0; i < declaration.struct_definition.members.count; i += 1) {
-                for(size_t j = 0; j < declaration.struct_definition.members.count; j += 1) {
-                    if(j != i && strcmp(declaration.struct_definition.members[i].name.text, declaration.struct_definition.members[j].name.text) == 0) {
-                        error(declaration.struct_definition.members[i].name.range, "Duplicate struct member name %s", declaration.struct_definition.members[i].name.text);
-
-                        return { false };
-                    }
-                }
-
-                if(!evaluate_type_expression(context, declaration.struct_definition.members[i].type).status) {
-                    return { false };
-                }
-            }
-
-            auto members = allocate<StructTypeMember>(declaration.struct_definition.members.count);
-
-            for(size_t i = 0; i < declaration.struct_definition.members.count; i += 1) {
-                auto result = evaluate_type_expression(context, declaration.struct_definition.members[i].type);
-
-                members[i] = {
-                    declaration.struct_definition.members[i].name,
-                    result.value
-                };
-            }
-
-            auto mangled_name = generate_mangled_name(*context, declaration);
-
-            auto is_registered = false;
-            for(auto c_declaration : context->c_declarations) {
-                if(c_declaration.type == CDeclarationType::StructType && strcmp(c_declaration.mangled_name, mangled_name) == 0) {
-                    is_registered = true;
-                }
-            }
-
-            if(!is_registered) {
-                CDeclaration c_declaration;
-                c_declaration.type = CDeclarationType::StructType;
-                c_declaration.mangled_name = mangled_name;
-
-                c_declaration.struct_type = {
-                    declaration.struct_definition.members.count,
-                    members
-                };
-
-                if(!register_c_declaration(context, c_declaration)) {
-                    return { false };
-                }
-            }
-
-            Type type;
-            type.category = TypeCategory::Type;
-
-            ConstantValue value;
-            value.type.category = TypeCategory::Struct;
-            value.type._struct = mangled_name;
-
-            return {
-                true,
-                {
-                    type,
-                    value
-                }
             };
         } break;
 
