@@ -19,6 +19,7 @@ int main(int argument_count, char *arguments[]) {
 #endif
 
     auto print_ast = false;
+    auto print_ir = false;
 
     int argument_index = 1;
     while(argument_index < argument_count) {
@@ -38,6 +39,8 @@ int main(int argument_count, char *arguments[]) {
             output_file_path = arguments[argument_index];
         } else if(strcmp(argument, "--print-ast") == 0) {
             print_ast = true;
+        } else if(strcmp(argument, "--print-ir") == 0) {
+            print_ir = true;
         } else {
             fprintf(stderr, "Unknown option '%s'\n", argument);
 
@@ -86,7 +89,7 @@ int main(int argument_count, char *arguments[]) {
         }
     }
 
-    Array<Function> ir;
+    IR ir;
     {
         auto start_time = clock();
 
@@ -105,6 +108,13 @@ int main(int argument_count, char *arguments[]) {
         printf("Generator time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
 
         total_time += time;
+    }
+
+    if(print_ir) {
+        for(auto function : ir.functions) {
+            print_function(function);
+            printf("\n");
+        }
     }
 
     printf("Total time: %.1fms\n", (double)total_time / CLOCKS_PER_SEC * 1000);
