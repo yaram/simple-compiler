@@ -99,12 +99,12 @@ void print_instruction(Instruction instruction) {
         } break;
 
         case InstructionType::Jump: {
-            printf("JMP r%zu", instruction.jump.destination_instruction);
+            printf("JMP %zu", instruction.jump.destination_instruction);
         } break;
 
         case InstructionType::Branch: {
             printf(
-                "BR r%zu, r%zu",
+                "BR r%zu, %zu",
                 instruction.branch.condition_register,
                 instruction.branch.destination_instruction
             );
