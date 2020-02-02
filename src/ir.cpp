@@ -134,8 +134,8 @@ void print_instruction(Instruction instruction) {
 
         case InstructionType::AllocateLocal: {
             printf(
-                "LOCAL %s r%zu",
-                register_size_names[(int)instruction.allocate_local.size],
+                "LOCAL %zu, r%zu",
+                instruction.allocate_local.size,
                 instruction.allocate_local.destination_register
             );
         } break;
