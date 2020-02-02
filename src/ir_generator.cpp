@@ -2218,7 +2218,7 @@ Result<IR> generate_ir(Array<File> files) {
         return { false };
     }
 
-    List<Function> functions;
+    List<Function> functions{};
 
     while(true) {
         auto done = true;
