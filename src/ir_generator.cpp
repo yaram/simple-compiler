@@ -569,105 +569,8 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
     }
 }
 
-template <typename T>
-static TypedConstantValue perform_constant_integer_binary_operation(BinaryOperator binary_operator, IntegerType type, IntegerType left_type, ConstantValue left_value, IntegerType right_type, ConstantValue right_value) {
-    T left;
-    if(left_type == IntegerType::Undetermined) {
-        left = (T)(int64_t)left_value.integer;
-    } else {
-        left = (T)left_value.integer;
-    }
-
-    T right;
-    if(right_type == IntegerType::Undetermined) {
-        right = (T)(int64_t)right_value.integer;
-    } else {
-        right = (T)right_value.integer;
-    }
-
-    Type result_type;
-    ConstantValue result_value;
-    switch(binary_operator) {
-        case BinaryOperator::Addition: {
-            result_value.integer = (uint64_t)(left + right);
-
-            result_type.category = TypeCategory::Integer;
-            result_type.integer = type;
-        } break;
-
-        case BinaryOperator::Subtraction: {
-            result_value.integer = (uint64_t)(left - right);
-
-            result_type.category = TypeCategory::Integer;
-            result_type.integer = type;
-        } break;
-
-        case BinaryOperator::Multiplication: {
-            result_value.integer = (uint64_t)(left * right);
-
-            result_type.category = TypeCategory::Integer;
-            result_type.integer = type;
-        } break;
-
-        case BinaryOperator::Division: {
-            result_value.integer = (uint64_t)(left / right);
-
-            result_type.category = TypeCategory::Integer;
-            result_type.integer = type;
-        } break;
-
-        case BinaryOperator::Modulo: {
-            result_value.integer = (uint64_t)(left % right);
-
-            result_type.category = TypeCategory::Integer;
-            result_type.integer = type;
-        } break;
-
-        case BinaryOperator::Equal: {
-            result_value.boolean = left == right;
-
-            result_type.category = TypeCategory::Boolean;
-        } break;
-
-        case BinaryOperator::NotEqual: {
-            result_value.boolean = left != right;
-
-            result_type.category = TypeCategory::Boolean;
-        } break;
-
-        case BinaryOperator::BitwiseAnd: {
-            result_value.integer = (uint64_t)(left & right);
-
-            result_type.category = TypeCategory::Integer;
-            result_type.integer = type;
-        } break;
-
-        case BinaryOperator::BitwiseOr: {
-            result_value.integer = (uint64_t)(left | right);
-
-            result_type.category = TypeCategory::Integer;
-            result_type.integer = type;
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-
-    return {
-        result_type,
-        result_value
-    };
-}
-
 static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOperator binary_operator, FileRange range, Type left_type, ConstantValue left_value, Type right_type, ConstantValue right_value) {
-    if(
-        !(
-            left_type.category == TypeCategory::Integer && right_type.category == TypeCategory::Integer &&
-            (left_type.integer == IntegerType::Undetermined || right_type.integer == IntegerType::Undetermined)
-        ) &&
-        !types_equal(left_type, right_type)
-    ) {
+    if(!types_equal(left_type, right_type)) {
         error(range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
 
         return { false };
@@ -675,119 +578,165 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
 
     TypedConstantValue result;
 
-
     switch(left_type.category) {
         case TypeCategory::Integer: {
-            if(left_type.integer == IntegerType::Undetermined && right_type.integer == IntegerType::Undetermined) {
-                result = perform_constant_integer_binary_operation<int64_t>(
-                    binary_operator,
-                    IntegerType::Undetermined,
-                    left_type.integer,
-                    left_value,
-                    right_type.integer,
-                    right_value
-                );
-            } else {
-                IntegerType type;
-                if(left_type.integer != IntegerType::Undetermined) {
-                    type = left_type.integer;
-                } else if(right_type.integer != IntegerType::Undetermined) {
-                    type = right_type.integer;
-                }
-
-                TypedConstantValue result;
-                switch(type) {
-                    case IntegerType::Unsigned8: {
-                        result = perform_constant_integer_binary_operation<uint8_t>(
-                            binary_operator,
-                            type,
-                            left_type.integer,
-                            left_value,
-                            right_type.integer,
-                            right_value
-                        );
+            uint64_t left;
+            uint64_t right;
+            if(left_type.integer.is_signed) {
+                switch(left_type.integer.size) {
+                    case IntegerSize::Size8: {
+                        left = (int64_t)(int8_t)left_value.integer;
+                        right = (int64_t)(int8_t)right_value.integer;
                     } break;
 
-                    case IntegerType::Unsigned16: {
-                        result = perform_constant_integer_binary_operation<uint16_t>(
-                            binary_operator,
-                            type,
-                            left_type.integer,
-                            left_value,
-                            right_type.integer,
-                            right_value
-                        );
+                    case IntegerSize::Size16: {
+                        left = (int64_t)(int16_t)left_value.integer;
+                        right = (int64_t)(int16_t)right_value.integer;
                     } break;
 
-                    case IntegerType::Unsigned32: {
-                        result = perform_constant_integer_binary_operation<uint32_t>(
-                            binary_operator,
-                            type,
-                            left_type.integer,
-                            left_value,
-                            right_type.integer,
-                            right_value
-                        );
+                    case IntegerSize::Size32: {
+                        left = (int64_t)(int32_t)left_value.integer;
+                        right = (int64_t)(int32_t)right_value.integer;
                     } break;
 
-                    case IntegerType::Unsigned64: {
-                        result = perform_constant_integer_binary_operation<uint64_t>(
-                            binary_operator,
-                            type,
-                            left_type.integer,
-                            left_value,
-                            right_type.integer,
-                            right_value
-                        );
-                    } break;
-
-                    case IntegerType::Signed8: {
-                        result = perform_constant_integer_binary_operation<int8_t>(
-                            binary_operator,
-                            type,
-                            left_type.integer,
-                            left_value,
-                            right_type.integer,
-                            right_value
-                        );
-                    } break;
-
-                    case IntegerType::Signed16: {
-                        result = perform_constant_integer_binary_operation<int16_t>(
-                            binary_operator,
-                            type,
-                            left_type.integer,
-                            left_value,
-                            right_type.integer,
-                            right_value
-                        );
-                    } break;
-
-                    case IntegerType::Signed32: {
-                        result = perform_constant_integer_binary_operation<int32_t>(
-                            binary_operator,
-                            type,
-                            left_type.integer,
-                            left_value,
-                            right_type.integer,
-                            right_value
-                        );
-                    } break;
-
-                    case IntegerType::Signed64: {
-                        result = perform_constant_integer_binary_operation<int64_t>(
-                            binary_operator,
-                            type,
-                            left_type.integer,
-                            left_value,
-                            right_type.integer,
-                            right_value
-                        );
+                    case IntegerSize::Size64: {
+                        left = left_value.integer;
+                        right = right_value.integer;
                     } break;
 
                     default: {
                         abort();
                     } break;
+                }
+            } else {
+                switch(left_type.integer.size) {
+                    case IntegerSize::Size8: {
+                        left = (uint8_t)left_value.integer;
+                        right = (uint8_t)right_value.integer;
+                    } break;
+
+                    case IntegerSize::Size16: {
+                        left = (uint16_t)left_value.integer;
+                        right = (uint16_t)right_value.integer;
+                    } break;
+
+                    case IntegerSize::Size32: {
+                        left = (uint32_t)left_value.integer;
+                        right = (uint32_t)right_value.integer;
+                    } break;
+
+                    case IntegerSize::Size64: {
+                        left = left_value.integer;
+                        right = right_value.integer;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            }
+
+            uint64_t result_value;
+
+            switch(binary_operator) {
+                case BinaryOperator::Addition: {
+                    result_value = left + right;
+
+                    result.type = left_type;
+                } break;
+
+                case BinaryOperator::Subtraction: {
+                    result_value = left - right;
+
+                    result.type = left_type;
+                } break;
+
+                case BinaryOperator::Equal: {
+                    result.value.boolean = left == right;
+
+                    result.type.category = TypeCategory::Boolean;
+                } break;
+
+                case BinaryOperator::Multiplication: {
+                    if(left_type.integer.is_signed) {
+                        result_value = (int64_t)left * (int64_t)right;
+                    } else {
+                        result_value = left * right;
+                    }
+
+                    result.type = left_type;
+                } break;
+
+                case BinaryOperator::Division: {
+                    if(left_type.integer.is_signed) {
+                        result_value = (int64_t)left / (int64_t)right;
+                    } else {
+                        result_value = left / right;
+                    }
+
+                    result.type = left_type;
+                } break;
+
+                case BinaryOperator::Modulo: {
+                    if(left_type.integer.is_signed) {
+                        result_value = (int64_t)left % (int64_t)right;
+                    } else {
+                        result_value = left % right;
+                    }
+
+                    result.type = left_type;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+
+            if(result.type.category == TypeCategory::Integer) {
+                if(left_type.integer.is_signed) {
+                    switch(left_type.integer.size) {
+                        case IntegerSize::Size8: {
+                            result.value.integer = (int64_t)(int8_t)result_value;
+                        } break;
+
+                        case IntegerSize::Size16: {
+                            result.value.integer = (int64_t)(int16_t)result_value;
+                        } break;
+
+                        case IntegerSize::Size32: {
+                            result.value.integer = (int64_t)(int32_t)result_value;
+                        } break;
+
+                        case IntegerSize::Size64: {
+                            result.value.integer = result_value;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } else {
+                    switch(left_type.integer.size) {
+                        case IntegerSize::Size8: {
+                            result.value.integer = (uint8_t)result_value;
+                        } break;
+
+                        case IntegerSize::Size16: {
+                            result.value.integer = (uint16_t)result_value;
+                        } break;
+
+                        case IntegerSize::Size32: {
+                            result.value.integer = (uint32_t)result_value;
+                        } break;
+
+                        case IntegerSize::Size64: {
+                            result.value.integer = result_value;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
                 }
             }
         } break;
@@ -798,18 +747,6 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
             switch(binary_operator) {
                 case BinaryOperator::Equal: {
                     result.value.boolean = left_value.boolean == right_value.boolean;
-                } break;
-
-                case BinaryOperator::NotEqual: {
-                    result.value.boolean = left_value.boolean != right_value.boolean;
-                } break;
-
-                case BinaryOperator::BooleanAnd: {
-                    result.value.boolean = left_value.boolean && right_value.boolean;
-                } break;
-
-                case BinaryOperator::BooleanOr: {
-                    result.value.boolean = left_value.boolean || right_value.boolean;
                 } break;
 
                 default: {
@@ -831,50 +768,6 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
         true,
         result
     };
-}
-
-static ConstantValue determine_constant_integer(IntegerType target_type, ConstantValue undetermined_value) {
-    ConstantValue value;
-
-    switch(target_type) {
-        case IntegerType::Unsigned8: {
-            value.integer = (uint8_t)(int64_t)undetermined_value.integer;
-        } break;
-
-        case IntegerType::Unsigned16: {
-            value.integer = (uint16_t)(int64_t)undetermined_value.integer;
-        } break;
-
-        case IntegerType::Unsigned32: {
-            value.integer = (uint32_t)(int64_t)undetermined_value.integer;
-        } break;
-
-        case IntegerType::Unsigned64: {
-            value.integer = (uint64_t)(int64_t)undetermined_value.integer;
-        } break;
-
-        case IntegerType::Signed8: {
-            value.integer = (int8_t)(int64_t)undetermined_value.integer;
-        } break;
-
-        case IntegerType::Signed16: {
-            value.integer = (int16_t)(int64_t)undetermined_value.integer;
-        } break;
-
-        case IntegerType::Signed32: {
-            value.integer = (int32_t)(int64_t)undetermined_value.integer;
-        } break;
-
-        case IntegerType::Signed64: {
-            value.integer = (int64_t)(int64_t)undetermined_value.integer;
-        } break;
-
-        default: {
-            abort();
-        }
-    }
-
-    return value;
 }
 
 static Result<ConstantValue> evaluate_constant_conversion(GenerationContext context, ConstantValue value, Type value_type, FileRange value_range, Type type, FileRange type_range) {
