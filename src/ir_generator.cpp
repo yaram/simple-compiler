@@ -592,7 +592,7 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
         case TypeCategory::Integer: {
             switch(type.category) {
                 case TypeCategory::Integer: {
-                    if(value_type.integer.is_signed && type.integer.is_signed) {
+                    if(value_type.integer.is_signed) {
                         switch(value_type.integer.size) {
                             case RegisterSize::Size8: {
                                 result.integer = (int8_t)value.integer;
@@ -1804,7 +1804,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                                         Instruction integer_upcast;
                                         integer_upcast.type = InstructionType::IntegerUpcast;
-                                        integer_upcast.integer_upcast.is_signed = expression_value.type.integer.is_signed && type.integer.is_signed;
+                                        integer_upcast.integer_upcast.is_signed = expression_value.type.integer.is_signed;
                                         integer_upcast.integer_upcast.source_size = expression_value.type.integer.size;
                                         integer_upcast.integer_upcast.source_register = register_index;
                                         integer_upcast.integer_upcast.destination_size = type.integer.size;
