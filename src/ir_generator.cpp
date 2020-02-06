@@ -43,6 +43,14 @@ union ConstantValue {
 
     size_t pointer;
 
+    struct {
+        size_t length;
+
+        size_t pointer;
+    } array;
+
+    ConstantValue *static_array;
+
     Array<Statement> file_module;
 };
 
@@ -118,6 +126,8 @@ struct GenerationContext {
     List<RuntimeFunction> runtime_functions;
 
     List<const char*> libraries;
+
+    List<StaticConstant> static_constants;
 };
 
 static void error(FileRange range, const char *format, ...) {
@@ -263,10 +273,8 @@ static RegisterSize get_type_register_size(GenerationContext context, Type type)
     }
 }
 
-static size_t get_type_size(GenerationContext context, Type type) {
-    auto register_size = get_type_register_size(context, type);
-
-    switch(register_size) {
+static size_t register_size_to_byte_size(RegisterSize size) {
+    switch(size) {
         case RegisterSize::Size8: {
             return 1;
         } break;
@@ -287,6 +295,12 @@ static size_t get_type_size(GenerationContext context, Type type) {
             abort();
         } break;
     }
+}
+
+static size_t get_type_size(GenerationContext context, Type type) {
+    auto register_size = get_type_register_size(context, type);
+
+    return register_size_to_byte_size(register_size);
 }
 
 static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression expression);
@@ -382,6 +396,125 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
     error(name.range, "Cannot find named reference %s", name.text);
 
     return { false };
+}
+
+static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantValue value, FileRange range, Type index_type, ConstantValue index_value, FileRange index_range) {
+    if(index_type.category != TypeCategory::Integer) {
+        error(index_range, "Expected an integer, got %s", type_description(index_type));
+    }
+
+    size_t index;
+    if(index_type.integer.is_signed) {
+        switch(index_type.integer.size) {
+            case RegisterSize::Size8: {
+                index = (uint8_t)index_value.integer;
+            } break;
+
+            case RegisterSize::Size16: {
+                index = (uint16_t)index_value.integer;
+            } break;
+
+            case RegisterSize::Size32: {
+                index = (uint32_t)index_value.integer;
+            } break;
+
+            case RegisterSize::Size64: {
+                index = index_value.integer;
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+    } else {
+        switch(index_type.integer.size) {
+            case RegisterSize::Size8: {
+                if((int8_t)index_value.integer < 0) {
+                    error(index_range, "Array index %hhd out of bounds", (int8_t)index_value.integer);
+
+                    return { false };
+                }
+
+                index = (uint8_t)index_value.integer;
+            } break;
+
+            case RegisterSize::Size16: {
+                if((int16_t)index_value.integer < 0) {
+                    error(index_range, "Array index %hd out of bounds", (int16_t)index_value.integer);
+
+                    return { false };
+                }
+
+                index = (uint16_t)index_value.integer;
+            } break;
+
+            case RegisterSize::Size32: {
+                if((int32_t)index_value.integer < 0) {
+                    error(index_range, "Array index %d out of bounds", (int32_t)index_value.integer);
+
+                    return { false };
+                }
+
+                index = (uint32_t)index_value.integer;
+            } break;
+
+            case RegisterSize::Size64: {
+                if((int8_t)index_value.integer < 0) {
+                    error(index_range, "Array index %lld out of bounds", (int64_t)index_value.integer);
+
+                    return { false };
+                }
+
+                index = index_value.integer;
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+    }
+
+    switch(type.category) {
+        case TypeCategory::Type: {
+            Type type_type;
+            type_type.category = TypeCategory::Type;
+
+            ConstantValue type_value;
+            type_value.type.category = TypeCategory::StaticArray;
+            type_value.type.static_array.length = index;
+            type_value.type.static_array.type = heapify(value.type);
+
+            return {
+                true,
+                {
+                    type_type,
+                    type_value
+                }
+            };
+        } break;
+
+        case TypeCategory::StaticArray: {
+            if(index >= type.static_array.length) {
+                error(index_range, "Array index %zu out of bounds", index);
+
+                return { false };
+            }
+
+            return {
+                true,
+                {
+                    *type.static_array.type,
+                    value.static_array[index]
+                }
+            };
+        } break;
+
+        default: {
+            error(range, "Cannot index %s", type_description(type));
+
+            return { false };
+        } break;
+    }
 }
 
 static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOperator binary_operator, FileRange range, Type left_type, ConstantValue left_value, Type right_type, ConstantValue right_value) {
@@ -706,6 +839,47 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             expect(expression_value, evaluate_constant_expression(context, *expression.member_reference.expression));
 
             switch(expression_value.type.category) {
+                case TypeCategory::Array: {
+                    if(strcmp(expression.member_reference.name.text, "length") == 0) {
+                        Type type;
+                        type.category = TypeCategory::Integer;
+                        type.integer = {
+                            context->address_integer_size,
+                            false
+                        };
+
+                        ConstantValue value;
+                        value.integer = expression_value.value.array.length;
+
+                        return {
+                            true,
+                            {
+                                type,
+                                value
+                            }
+                        };
+                    } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
+                        Type type;
+                        type.category = TypeCategory::Pointer;
+                        type.pointer = expression_value.type.array;
+
+                        ConstantValue value;
+                        value.pointer = expression_value.value.array.length;
+
+                        return {
+                            true,
+                            {
+                                type,
+                                value
+                            }
+                        };
+                    } else {
+                        error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+
+                        return { false };
+                    }
+                } break;
+
                 case TypeCategory::FileModule: {
                     for(auto statement : expression_value.value.file_module) {
                         if(match_declaration(statement, expression.member_reference.name.text)) {
@@ -740,6 +914,21 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                     return { false };
                 } break;
             }
+        } break;
+
+        case ExpressionType::IndexReference: {
+            expect(expression_value, evaluate_constant_expression(context, *expression.index_reference.expression));
+
+            expect(index, evaluate_constant_expression(context, *expression.index_reference.index));
+
+            return evaluate_constant_index(
+                expression_value.type,
+                expression_value.value,
+                expression.index_reference.expression->range,
+                index.type,
+                index.value,
+                expression.index_reference.index->range
+            );
         } break;
 
         case ExpressionType::IntegerLiteral: {
@@ -1218,6 +1407,152 @@ static size_t generate_register_value(GenerationContext *context, List<Instructi
     return register_index;
 }
 
+template <typename T>
+T *write_integers(Array<ConstantValue> values) {
+    auto data = allocate<T>(values.count);
+
+    for(size_t i = 0; i < values.count; i += 1) {
+        data[i] = values[i].integer;
+    }
+
+    return data;
+}
+
+template <typename T>
+T *write_booleans(Array<ConstantValue> values) {
+    auto data = allocate<T>(values.count);
+
+    for(size_t i = 0; i < values.count; i += 1) {
+        if(values[i].boolean) {
+            data[i] = 1;
+        } else {
+            data[i] = 0;
+        }
+    }
+
+    return data;
+}
+
+template <typename T>
+T *write_pointers(Array<ConstantValue> values) {
+    auto data = allocate<T>(values.count);
+
+    for(size_t i = 0; i < values.count; i += 1) {
+        data[i] = values[i].pointer;
+    }
+
+    return data;
+}
+
+static const char *register_static_array_constant(GenerationContext *context, Type type, Array<ConstantValue> values) {
+    uint8_t *data;
+    size_t element_size;
+
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            switch(type.integer.size) {
+                case RegisterSize::Size8: {
+                    data = write_integers<uint8_t>(values);
+                    element_size = 1;
+                } break;
+
+                case RegisterSize::Size16: {
+                    data = (uint8_t*)write_integers<uint16_t>(values);
+                    element_size = 2;
+                } break;
+
+                case RegisterSize::Size32: {
+                    data = (uint8_t*)write_integers<uint32_t>(values);
+                    element_size = 4;
+                } break;
+
+                case RegisterSize::Size64: {
+                    data = (uint8_t*)write_integers<uint64_t>(values);
+                    element_size = 8;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        case TypeCategory::Boolean: {
+            switch(context->default_integer_size) {
+                case RegisterSize::Size8: {
+                    data = write_booleans<uint8_t>(values);
+                    element_size = 1;
+                } break;
+
+                case RegisterSize::Size16: {
+                    data = (uint8_t*)write_booleans<uint16_t>(values);
+                    element_size = 2;
+                } break;
+
+                case RegisterSize::Size32: {
+                    data = (uint8_t*)write_booleans<uint32_t>(values);
+                    element_size = 4;
+                } break;
+
+                case RegisterSize::Size64: {
+                    data = (uint8_t*)write_booleans<uint64_t>(values);
+                    element_size = 8;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        case TypeCategory::Pointer: {
+            switch(context->address_integer_size) {
+                case RegisterSize::Size8: {
+                    data = write_pointers<uint8_t>(values);
+                    element_size = 1;
+                } break;
+
+                case RegisterSize::Size16: {
+                    data = (uint8_t*)write_pointers<uint16_t>(values);
+                    element_size = 2;
+                } break;
+
+                case RegisterSize::Size32: {
+                    data = (uint8_t*)write_pointers<uint32_t>(values);
+                    element_size = 4;
+                } break;
+
+                case RegisterSize::Size64: {
+                    data = (uint8_t*)write_pointers<uint64_t>(values);
+                    element_size = 8;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+
+    char *name_buffer{};
+    string_buffer_append(&name_buffer, "constant_");
+    string_buffer_append(&name_buffer, context->static_constants.count);
+
+    append(&context->static_constants, {
+        name_buffer,
+        {
+            values.count * element_size,
+            data
+        }
+    });
+
+    return name_buffer;
+}
+
 struct RegisterExpressionValue {
     Type type;
 
@@ -1272,10 +1607,401 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             };
         } break;
 
+        case ExpressionType::IndexReference: {
+            expect(expression_value, generate_expression(context, instructions, *expression.index_reference.expression));
+
+            expect(index, generate_expression(context, instructions, *expression.index_reference.index));
+
+            if(expression_value.category == ExpressionValueCategory::Constant && index.category == ExpressionValueCategory::Constant) {
+                expect(constant, evaluate_constant_index(
+                    expression_value.type,
+                    expression_value.constant,
+                    expression.index_reference.expression->range,
+                    index.type,
+                    index.constant,
+                    expression.index_reference.index->range
+                ));
+
+                ExpressionValue value;
+                value.category = ExpressionValueCategory::Constant;
+                value.type = constant.type;
+                value.constant = constant.value;
+
+                return {
+                    true,
+                    value
+                };
+            }
+
+            if(index.type.category != TypeCategory::Integer) {
+                error(expression.index_reference.index->range, "Expected an integer, got %s", type_description(index.type));
+
+                return { false };
+            }
+
+            auto index_register = generate_register_value(context, instructions, index);
+
+            size_t base_address_register;
+            Type element_type;
+            bool assignable;
+            switch(expression_value.category) {
+                case ExpressionValueCategory::Constant: {
+                    switch(expression_value.type.category) {
+                        case TypeCategory::Array: {
+                            base_address_register = allocate_register(context);
+                            element_type = *expression_value.type.array;
+                            assignable = true;
+
+                            Instruction constant;
+                            constant.type = InstructionType::Constant;
+                            constant.constant.size = context->address_integer_size;
+                            constant.constant.destination_register = base_address_register;
+                            constant.constant.value = expression_value.constant.array.pointer;
+
+                            append(instructions, constant);
+                        } break;
+
+                        case TypeCategory::StaticArray: {
+                            base_address_register = allocate_register(context);
+                            element_type = *expression_value.type.static_array.type;
+                            assignable = false;
+
+                            auto constant_name = register_static_array_constant(
+                                context,
+                                *expression_value.type.static_array.type,
+                                Array<ConstantValue> {
+                                    expression_value.type.static_array.length,
+                                    expression_value.constant.static_array
+                                }
+                            );
+
+                            auto constant_address_register = allocate_register(context);
+
+                            Instruction reference;
+                            reference.type = InstructionType::ReferenceStatic;
+                            reference.reference_static.name = constant_name;
+                            reference.reference_static.destination_register = constant_address_register;
+
+                            append(instructions, reference);
+
+                            Instruction load;
+                            load.type = InstructionType::LoadInteger;
+                            load.load_integer.size = context->address_integer_size;
+                            load.load_integer.address_register = constant_address_register;
+                            load.load_integer.destination_register = base_address_register;
+
+                            append(instructions, load);
+                        } break;
+
+                        default: {
+                            error(expression.index_reference.expression->range, "Cannot index %s", type_description(expression_value.type));
+
+                            return { false };
+                        } break;
+                    }
+                } break;
+
+                case ExpressionValueCategory::Register: {
+                    switch(expression_value.type.category) {
+                        case TypeCategory::Array: {
+                            base_address_register = allocate_register(context);
+                            element_type = *expression_value.type.array;
+                            assignable = true;
+
+                            Instruction load;
+                            load.type = InstructionType::LoadInteger;
+                            load.load_integer.size = context->address_integer_size;
+                            load.load_integer.address_register = expression_value.register_;
+                            load.load_integer.destination_register = base_address_register;
+
+                            append(instructions, load);
+                        } break;
+
+                        case TypeCategory::StaticArray: {
+                            base_address_register = expression_value.register_;
+                            element_type = *expression_value.type.static_array.type;
+                            assignable = true;
+                        } break;
+
+                        default: {
+                            error(expression.index_reference.expression->range, "Cannot index %s", type_description(expression_value.type));
+
+                            return { false };
+                        } break;
+                    }
+                } break;
+
+                case ExpressionValueCategory::Address: {
+                    switch(expression_value.type.category) {
+                        case TypeCategory::Array: {
+                            base_address_register = allocate_register(context);
+                            element_type = *expression_value.type.array;
+                            assignable = true;
+
+                            Instruction load;
+                            load.type = InstructionType::LoadInteger;
+                            load.load_integer.size = context->address_integer_size;
+                            load.load_integer.address_register = expression_value.address;
+                            load.load_integer.destination_register = base_address_register;
+
+                            append(instructions, load);
+                        } break;
+
+                        case TypeCategory::StaticArray: {
+                            base_address_register = expression_value.address;
+                            element_type = *expression_value.type.static_array.type;
+                            assignable = true;
+                        } break;
+
+                        default: {
+                            error(expression.index_reference.expression->range, "Cannot index %s", type_description(expression_value.type));
+
+                            return { false };
+                        } break;
+                    }
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+
+            auto element_size_register = allocate_register(context);
+
+            Instruction constant;
+            constant.type = InstructionType::Constant;
+            constant.constant.size = context->address_integer_size;
+            constant.constant.destination_register = element_size_register;
+            constant.constant.value = get_type_size(*context, element_type);
+
+            append(instructions, constant);
+
+            auto offset_register = allocate_register(context);
+
+            Instruction multiply;
+            multiply.type = InstructionType::BinaryOperation;
+            multiply.binary_operation.type = BinaryOperationType::UnsignedMultiply;
+            multiply.binary_operation.size = context->address_integer_size;
+            multiply.binary_operation.source_register_a = element_size_register;
+            multiply.binary_operation.source_register_b = index_register;
+            multiply.binary_operation.destination_register = offset_register;
+
+            append(instructions, multiply);
+
+            auto final_address_register = allocate_register(context);
+
+            Instruction add;
+            add.type = InstructionType::BinaryOperation;
+            add.binary_operation.type = BinaryOperationType::Add;
+            add.binary_operation.size = context->address_integer_size;
+            add.binary_operation.source_register_a = base_address_register;
+            add.binary_operation.source_register_b = offset_register;
+            add.binary_operation.destination_register = final_address_register;
+
+            append(instructions, add);
+
+            ExpressionValue value;
+            value.type = element_type;
+
+            if(assignable) {
+                auto register_index = allocate_register(context);
+
+                Instruction load;
+                load.type = InstructionType::LoadInteger;
+                load.load_integer.size = get_type_register_size(*context, element_type);
+                load.load_integer.address_register = final_address_register;
+                load.load_integer.destination_register = register_index;
+
+                append(instructions, load);
+
+                value.category = ExpressionValueCategory::Register;
+                value.register_ = register_index;
+            } else {
+                value.category = ExpressionValueCategory::Address;
+                value.address = final_address_register;
+            }
+
+            return {
+                true,
+                value
+            };
+        } break;
+
         case ExpressionType::MemberReference: {
             expect(expression_value, generate_expression(context, instructions, *expression.member_reference.expression));
 
             switch(expression_value.type.category) {
+                case TypeCategory::Array: {
+                    if(strcmp(expression.member_reference.name.text, "length") == 0) {
+                        switch(expression_value.category) {
+                            case ExpressionValueCategory::Constant: {
+                                ExpressionValue value;
+                                value.category = ExpressionValueCategory::Constant;
+                                value.type.category = TypeCategory::Integer;
+                                value.type.integer = {
+                                    context->address_integer_size,
+                                    false
+                                };
+                                value.constant.integer = expression_value.constant.array.length;
+
+                                return {
+                                    true,
+                                    value
+                                };
+                            } break;
+
+                            case ExpressionValueCategory::Register: {
+                                auto offset_register = allocate_register(context);
+
+                                Instruction constant;
+                                constant.type = InstructionType::Constant;
+                                constant.constant.size = context->address_integer_size;
+                                constant.constant.destination_register = offset_register;
+                                constant.constant.value = register_size_to_byte_size(context->address_integer_size);
+
+                                append(instructions, constant);
+
+                                auto address_register = allocate_register(context);
+
+                                Instruction add;
+                                add.type = InstructionType::BinaryOperation;
+                                add.binary_operation.type = BinaryOperationType::Add;
+                                add.binary_operation.size = context->address_integer_size;
+                                add.binary_operation.source_register_a = expression_value.register_;
+                                add.binary_operation.source_register_b = offset_register;
+                                add.binary_operation.destination_register = address_register;
+
+                                append(instructions, add);
+
+                                auto value_register = allocate_register(context);
+
+                                Instruction load;
+                                load.type = InstructionType::LoadInteger;
+                                load.load_integer.size = context->address_integer_size;
+                                load.load_integer.address_register = address_register;
+                                load.load_integer.destination_register = value_register;
+
+                                append(instructions, load);
+
+                                ExpressionValue value;
+                                value.category = ExpressionValueCategory::Register;
+                                value.type.category = TypeCategory::Integer;
+                                value.type.integer = {
+                                    context->address_integer_size,
+                                    false
+                                };
+                                value.register_ = value_register;
+
+                                return {
+                                    true,
+                                    value
+                                };
+                            } break;
+
+                            case ExpressionValueCategory::Address: {
+                                auto offset_register = allocate_register(context);
+
+                                Instruction constant;
+                                constant.type = InstructionType::Constant;
+                                constant.constant.size = context->address_integer_size;
+                                constant.constant.destination_register = offset_register;
+                                constant.constant.value = register_size_to_byte_size(context->address_integer_size);
+
+                                append(instructions, constant);
+
+                                auto address_register = allocate_register(context);
+
+                                Instruction add;
+                                add.type = InstructionType::BinaryOperation;
+                                add.binary_operation.type = BinaryOperationType::Add;
+                                add.binary_operation.size = context->address_integer_size;
+                                add.binary_operation.source_register_a = expression_value.register_;
+                                add.binary_operation.source_register_b = offset_register;
+                                add.binary_operation.destination_register = address_register;
+
+                                append(instructions, add);
+
+                                ExpressionValue value;
+                                value.category = ExpressionValueCategory::Address;
+                                value.type.category = TypeCategory::Integer;
+                                value.type.integer = {
+                                    context->address_integer_size,
+                                    false
+                                };
+                                value.address = address_register;
+
+                                return {
+                                    true,
+                                    value
+                                };
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+                    } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
+                        switch(expression_value.category) {
+                            case ExpressionValueCategory::Constant: {
+                                ExpressionValue value;
+                                value.category = ExpressionValueCategory::Constant;
+                                value.type.category = TypeCategory::Pointer;
+                                value.type.pointer = expression_value.type.array;
+                                value.constant.pointer = expression_value.constant.array.pointer;
+
+                                return {
+                                    true,
+                                    value
+                                };
+                            } break;
+
+                            case ExpressionValueCategory::Register: {
+                                auto value_register = allocate_register(context);
+
+                                Instruction load;
+                                load.type = InstructionType::LoadInteger;
+                                load.load_integer.size = context->address_integer_size;
+                                load.load_integer.address_register = expression_value.register_;
+                                load.load_integer.destination_register = value_register;
+
+                                append(instructions, load);
+
+                                ExpressionValue value;
+                                value.category = ExpressionValueCategory::Register;
+                                value.type.category = TypeCategory::Pointer;
+                                value.type.pointer = expression_value.type.array;
+                                value.register_ = value_register;
+
+                                return {
+                                    true,
+                                    value
+                                };
+                            } break;
+
+                            case ExpressionValueCategory::Address: {
+                                ExpressionValue value;
+                                value.category = ExpressionValueCategory::Address;
+                                value.type.category = TypeCategory::Pointer;
+                                value.type.pointer = expression_value.type.array;
+                                value.register_ = expression_value.address;
+
+                                return {
+                                    true,
+                                    value
+                                };
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+                    } else {
+                        error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+
+                        return { false };
+                    }
+                } break;
+
                 case TypeCategory::FileModule: {
                     assert(expression_value.category == ExpressionValueCategory::Constant);
 

@@ -8,6 +8,8 @@ struct IR {
     Array<Function> functions;
 
     Array<const char*> libraries;
+
+    Array<StaticConstant> constants;
 };
 
 Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info);
