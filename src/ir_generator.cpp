@@ -500,6 +500,20 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
 
     switch(type.category) {
         case TypeCategory::Type: {
+            switch(type.category) {
+                case TypeCategory::Integer:
+                case TypeCategory::Boolean:
+                case TypeCategory::Pointer: {
+
+                } break;
+
+                default: {
+                    error(range, "Cannot have arrays of type %s", type_description(type));
+
+                    return { false };
+                } break;
+            }
+
             Type type_type;
             type_type.category = TypeCategory::Type;
 
@@ -999,6 +1013,20 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 }
 
                 elements[i] = element.value;
+            }
+
+            switch(element_type.category) {
+                case TypeCategory::Integer:
+                case TypeCategory::Boolean:
+                case TypeCategory::Pointer: {
+
+                } break;
+
+                default: {
+                    error(expression.range, "Cannot have arrays of type %s", type_description(element_type));
+
+                    return { false };
+                } break;
             }
 
             Type type;
@@ -2471,6 +2499,20 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 }
 
                 element_values[i] = element_value;
+            }
+
+            switch(element_type.category) {
+                case TypeCategory::Integer:
+                case TypeCategory::Boolean:
+                case TypeCategory::Pointer: {
+
+                } break;
+
+                default: {
+                    error(expression.range, "Cannot have arrays of type %s", type_description(element_type));
+
+                    return { false };
+                } break;
             }
 
             auto all_constant = true;
