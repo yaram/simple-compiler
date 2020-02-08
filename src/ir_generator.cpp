@@ -3744,7 +3744,8 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
         true,
         {
             to_array(functions),
-            to_array(context.libraries)
+            to_array(context.libraries),
+            to_array(context.static_constants)
         }
     };
 }
