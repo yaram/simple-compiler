@@ -62,9 +62,30 @@ static bool generate_function_signature(char **source, Function function) {
     return true;
 }
 
-Result<const char *> generate_c_source(Array<Function> functions, ArchitectureInfo architecture_info) {
+Result<const char *> generate_c_source(Array<Function> functions, Array<StaticConstant> constants, ArchitectureInfo architecture_info) {
     char *forward_declaration_source{};
     char *implementation_source{};
+
+    for(auto constant : constants) {
+        generate_type(&forward_declaration_source, RegisterSize::Size8, false);
+        string_buffer_append(&forward_declaration_source, " ");
+        string_buffer_append(&forward_declaration_source, constant.name);
+        string_buffer_append(&forward_declaration_source, "[]");
+
+        string_buffer_append(&forward_declaration_source, "=");
+
+        string_buffer_append(&forward_declaration_source, "{");
+
+        for(size_t i = 0; i < constant.data.count; i += 1) {
+            string_buffer_append(&forward_declaration_source, constant.data.elements[i]);
+
+            if(i != constant.data.count - 1) {
+                string_buffer_append(&forward_declaration_source, ",");
+            }
+        }
+
+        string_buffer_append(&forward_declaration_source, "};");
+    }
 
     for(auto function : functions) {
         generate_function_signature(&forward_declaration_source, function);
@@ -323,6 +344,18 @@ Result<const char *> generate_c_source(Array<Function> functions, ArchitectureIn
                     string_buffer_append(&implementation_source, ")");
                     string_buffer_append(&implementation_source, "reg_");
                     string_buffer_append(&implementation_source, instruction.store_integer.source_register);
+
+                    string_buffer_append(&implementation_source, ";");
+                } break;
+
+                case InstructionType::ReferenceStatic: {
+                    generate_type(&implementation_source, architecture_info.address_size, false);
+                    string_buffer_append(&implementation_source, " reg_");
+                    string_buffer_append(&implementation_source, instruction.reference_static.destination_register);
+                    string_buffer_append(&implementation_source, "=");
+
+                    string_buffer_append(&implementation_source, "&");
+                    string_buffer_append(&implementation_source, instruction.reference_static.name);
 
                     string_buffer_append(&implementation_source, ";");
                 } break;
