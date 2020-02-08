@@ -127,7 +127,7 @@ int main(int argument_count, char *arguments[]) {
     {
         auto start_time = clock();
 
-        auto result = generate_c_source(ir.functions, architecture_info);
+        auto result = generate_c_source(ir.functions, ir.constants, architecture_info);
 
         if(!result.status) {
             return EXIT_FAILURE;
