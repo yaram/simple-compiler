@@ -74,13 +74,14 @@ struct Variable {
     Type type;
     FileRange type_range;
 
-    size_t address_register;
+    size_t register_index;
 };
 
 struct RuntimeFunctionParameter {
     Identifier name;
 
     Type type;
+    FileRange type_range;
 };
 
 struct RuntimeFunction {
@@ -115,6 +116,7 @@ struct GenerationContext {
 
     Array<PolymorphicDeterminer> polymorphic_determiners;
 
+    Array<Variable> parameters;
     Type return_type;
 
     List<const char*> global_names;
@@ -1343,7 +1345,7 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
     }
 }
 
-static bool add_new_variable(GenerationContext *context, Identifier name, size_t address_register, Type type) {
+static bool add_new_variable(GenerationContext *context, Identifier name, size_t address_register, Type type, FileRange type_range) {
     auto variable_context = &(context->variable_context_stack[context->variable_context_stack.count - 1]);
 
     for(auto variable : *variable_context) {
@@ -1355,9 +1357,11 @@ static bool add_new_variable(GenerationContext *context, Identifier name, size_t
         }
     }
 
-    append(variable_context, Variable{
+    append(variable_context, Variable {
         name,
-        type
+        type,
+        type_range,
+        address_register
     });
 
     return true;
@@ -1433,15 +1437,30 @@ static size_t generate_register_value(GenerationContext *context, List<Instructi
         } break;
 
         case ExpressionValueCategory::Address: {
-            register_index = allocate_register(context);
+            switch(value.type.category) {
+                case TypeCategory::Integer:
+                case TypeCategory::Boolean:
+                case TypeCategory::Pointer: {
+                    register_index = allocate_register(context);
 
-            Instruction load;
-            load.type = InstructionType::LoadInteger;
-            load.load_integer.size = get_type_register_size(*context, value.type);
-            load.load_integer.address_register = value.address;
-            load.load_integer.destination_register = register_index;
+                    Instruction load;
+                    load.type = InstructionType::LoadInteger;
+                    load.load_integer.size = get_type_register_size(*context, value.type);
+                    load.load_integer.address_register = value.address;
+                    load.load_integer.destination_register = register_index;
 
-            append(instructions, load);
+                    append(instructions, load);
+                } break;
+
+                case TypeCategory::Array:
+                case TypeCategory::StaticArray: {
+                    register_index = value.address;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
         } break;
 
         default: {
@@ -1915,13 +1934,27 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         ExpressionValue value;
                         value.category = ExpressionValueCategory::Address;
                         value.type = variable.type;
-                        value.address = variable.address_register;
+                        value.address = variable.register_index;
 
                         return {
                             true,
                             value
                         };
                     }
+                }
+            }
+
+            for(auto parameter : context->parameters) {
+                if(strcmp(parameter.name.text, expression.named_reference.text) == 0) {
+                    ExpressionValue value;
+                    value.category = ExpressionValueCategory::Register;
+                    value.type = parameter.type;
+                    value.address = parameter.register_index;
+
+                    return {
+                        true,
+                        value
+                    };
                 }
             }
 
@@ -2611,7 +2644,8 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
                     runtime_function_parameters[i] = {
                         function_declaration.parameters[i].name,
-                        function_parameters[i]
+                        function_parameters[i],
+                        expression_value.constant.function.declaration.function_declaration.parameters[i].type.range
                     };
                 }
 
@@ -2693,10 +2727,8 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 }
             }
 
+            bool has_return;
             size_t return_register;
-            if(function_return_type.category == TypeCategory::Void) {
-                return_register = allocate_register(context);
-            }
 
             Instruction call;
             call.type = InstructionType::FunctionCall;
@@ -2705,19 +2737,97 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 expression.function_call.parameters.count,
                 function_parameter_registers
             };
-            if(function_return_type.category == TypeCategory::Void) {
-                call.function_call.has_return = true;
-                call.function_call.return_register = return_register;
-            } else {
-                call.function_call.has_return = false;
-            }
 
-            append(instructions, call);
+            switch(function_return_type.category) {
+                case TypeCategory::Integer:
+                case TypeCategory::Boolean:
+                case TypeCategory::Pointer: {
+                    has_return = true;
+                    return_register = allocate_register(context);
+
+                    call.function_call.has_return = true;
+                    call.function_call.return_register = return_register;
+
+                    append(instructions, call);
+                } break;
+
+                case TypeCategory::Void: {
+                    has_return = false;
+
+                    call.function_call.has_return = false;
+
+                    append(instructions, call);
+                } break;
+
+                case TypeCategory::Array: {
+                    has_return = true;
+                    return_register = allocate_register(context);
+
+                    Instruction alloc;
+                    alloc.type = InstructionType::AllocateLocal;
+                    alloc.allocate_local.size = register_size_to_byte_size(context->address_integer_size) * 2;
+                    alloc.allocate_local.destination_register = return_register;
+
+                    append(instructions, alloc);
+
+                    auto address_return_register = allocate_register(context);
+
+                    call.function_call.has_return = true;
+                    call.function_call.return_register = address_return_register;
+
+                    append(instructions, call);
+
+                    generate_array_copy(context, instructions, address_return_register, return_register);
+                } break;
+
+                case TypeCategory::StaticArray: {
+                    has_return = true;
+                    return_register = allocate_register(context);
+
+                    auto length = function_return_type.static_array.length * get_type_size(*context, *function_return_type.static_array.type);
+
+                    Instruction alloc;
+                    alloc.type = InstructionType::AllocateLocal;
+                    alloc.allocate_local.size = length;
+                    alloc.allocate_local.destination_register = return_register;
+
+                    append(instructions, alloc);
+
+                    auto address_return_register = allocate_register(context);
+
+                    call.function_call.has_return = true;
+                    call.function_call.return_register = address_return_register;
+
+                    append(instructions, call);
+
+                    auto length_register = allocate_register(context);
+
+                    Instruction constant;
+                    constant.type = InstructionType::Constant;
+                    constant.constant.size = context->address_integer_size;
+                    constant.constant.destination_register = length_register;
+                    constant.constant.value = length;
+
+                    append(instructions, constant);
+
+                    Instruction copy;
+                    copy.type = InstructionType::CopyMemory;
+                    copy.copy_memory.length_register = length_register;
+                    copy.copy_memory.source_address_register = address_return_register;
+                    copy.copy_memory.destination_address_register = return_register;
+
+                    append(instructions, copy);
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
 
             ExpressionValue value;
             value.category = ExpressionValueCategory::Register;
             value.type.category = function_return_type.category;
-            if(function_return_type.category != TypeCategory::Void) {
+            if(has_return) {
                 value.register_ = return_register;
             }
 
@@ -3133,7 +3243,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     append(instructions, allocate);
 
-                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, type)) {
+                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, type, statement.variable_declaration.uninitialized.range)) {
                         return false;
                     }
 
@@ -3155,7 +3265,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     generate_variable_assignment(context, instructions, address_register, initializer_value);
 
-                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, initializer_value.type)) {
+                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, initializer_value.type, statement.variable_declaration.type_elided.range)) {
                         return false;
                     }
 
@@ -3185,7 +3295,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     generate_variable_assignment(context, instructions, address_register, initializer_value);
 
-                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, type)) {
+                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, type, statement.variable_declaration.fully_specified.type.range)) {
                         return false;
                     }
 
@@ -3492,26 +3602,34 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
 
                 append(&context.variable_context_stack, List<Variable>{});
 
+                auto parameters = allocate<Variable>(function.parameters.count);
+                auto parameter_sizes = allocate<RegisterSize>(function.parameters.count);
+
+                for(size_t i = 0; i < function.parameters.count; i += 1) {
+                    auto parameter = function.parameters[i];
+
+                    parameters[i] = {
+                        parameter.name,
+                        parameter.type,
+                        parameter.type_range,
+                        i
+                    };
+
+                    parameter_sizes[i] = get_type_register_size(context, parameter.type);
+                }
+
                 context.is_top_level = false;
                 context.determined_declaration = {
                     function.declaration,
                     function.polymorphic_determiners,
                     heapify(function.parent)
                 };
+                context.parameters = {
+                    function.parameters.count,
+                    parameters
+                };
                 context.return_type = function.return_type;
                 context.next_register = function.parameters.count;
-
-                auto parameter_sizes = allocate<RegisterSize>(function.parameters.count);
-
-                for(size_t i = 0; i < function.parameters.count; i += 1) {
-                    auto parameter = function.parameters[i];
-
-                    if(!add_new_variable(&context, parameter.name, allocate_register(&context), parameter.type)) {
-                        return { false };
-                    }
-
-                    parameter_sizes[i] = get_type_register_size(context, parameter.type);
-                }
 
                 List<Instruction> instructions{};
 
