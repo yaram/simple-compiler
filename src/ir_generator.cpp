@@ -1620,6 +1620,292 @@ static Result<RegisterExpressionValue> generate_register_expression(GenerationCo
     };
 }
 
+static void generate_array_copy(GenerationContext *context, List<Instruction> *instructions, size_t source_address_register, size_t destination_address_register) {
+    auto pointer_register = allocate_register(context);
+
+    Instruction load_pointer;
+    load_pointer.type = InstructionType::LoadInteger;
+    load_pointer.load_integer.size = context->address_integer_size;
+    load_pointer.load_integer.address_register = source_address_register;
+    load_pointer.load_integer.destination_register = pointer_register;
+
+    append(instructions, load_pointer);
+
+    Instruction store_pointer;
+    store_pointer.type = InstructionType::StoreInteger;
+    store_pointer.store_integer.size = context->address_integer_size;
+    store_pointer.store_integer.source_register = pointer_register;
+    store_pointer.store_integer.address_register = destination_address_register;
+
+    append(instructions, store_pointer);
+
+    auto offset_register = allocate_register(context);
+
+    Instruction constant;
+    constant.type = InstructionType::Constant;
+    constant.constant.size = context->address_integer_size;
+    constant.constant.destination_register = offset_register;
+    constant.constant.value = register_size_to_byte_size(context->address_integer_size);
+
+    append(instructions, constant);
+
+    auto source_length_address_register = allocate_register(context);
+
+    Instruction source_add;
+    source_add.type = InstructionType::BinaryOperation;
+    source_add.binary_operation.type = BinaryOperationType::Add;
+    source_add.binary_operation.size = context->address_integer_size;
+    source_add.binary_operation.source_register_a = source_address_register;
+    source_add.binary_operation.source_register_b = offset_register;
+    source_add.binary_operation.destination_register = source_length_address_register;
+
+    append(instructions, source_add);
+
+    auto length_register = allocate_register(context);
+
+    Instruction load_length;
+    load_length.type = InstructionType::LoadInteger;
+    load_length.load_integer.size = context->address_integer_size;
+    load_length.load_integer.address_register = source_length_address_register;
+    load_length.load_integer.destination_register = length_register;
+
+    append(instructions, load_length);
+
+    auto destination_length_address_register = allocate_register(context);
+
+    Instruction destination_add;
+    destination_add.type = InstructionType::BinaryOperation;
+    destination_add.binary_operation.type = BinaryOperationType::Add;
+    destination_add.binary_operation.size = context->address_integer_size;
+    destination_add.binary_operation.source_register_a = destination_address_register;
+    destination_add.binary_operation.source_register_b = offset_register;
+    destination_add.binary_operation.destination_register = destination_length_address_register;
+
+    append(instructions, destination_add);
+
+    Instruction store_length;
+    store_length.type = InstructionType::StoreInteger;
+    store_length.store_integer.size = context->address_integer_size;
+    store_length.store_integer.source_register = length_register;
+    store_length.store_integer.address_register = destination_length_address_register;
+
+    append(instructions, store_length);
+}
+
+static void generate_variable_assignment(GenerationContext *context, List<Instruction> *instructions, size_t address_register, ExpressionValue value) {
+    switch(value.type.category) {
+        case TypeCategory::Integer:
+        case TypeCategory::Boolean:
+        case TypeCategory::Pointer: {
+            auto register_index = generate_register_value(context, instructions, value);
+
+            Instruction store;
+            store.type = InstructionType::StoreInteger;
+            store.store_integer.size = get_type_register_size(*context, value.type);
+            store.store_integer.address_register = address_register;
+            store.store_integer.source_register = register_index;
+
+            append(instructions, store);
+        } break;
+
+        case TypeCategory::Array: {
+            switch(value.category) {
+                case ExpressionValueCategory::Constant: {
+                    auto pointer_register = allocate_register(context);
+
+                    Instruction pointer_constant;
+                    pointer_constant.type = InstructionType::Constant;
+                    pointer_constant.constant.size = context->address_integer_size;
+                    pointer_constant.constant.destination_register = pointer_register;
+                    pointer_constant.constant.value = value.constant.array.pointer;
+
+                    append(instructions, pointer_constant);
+
+                    Instruction store_pointer;
+                    store_pointer.type = InstructionType::StoreInteger;
+                    store_pointer.store_integer.size = context->address_integer_size;
+                    store_pointer.store_integer.source_register = pointer_register;
+                    store_pointer.store_integer.address_register = address_register;
+
+                    append(instructions, store_pointer);
+
+                    auto offset_register = allocate_register(context);
+
+                    Instruction size_constant;
+                    size_constant.type = InstructionType::Constant;
+                    size_constant.constant.size = context->address_integer_size;
+                    size_constant.constant.destination_register = offset_register;
+                    size_constant.constant.value = register_size_to_byte_size(context->address_integer_size);
+
+                    append(instructions, size_constant);
+
+                    auto length_register = allocate_register(context);
+
+                    Instruction length_constant;
+                    length_constant.type = InstructionType::Constant;
+                    length_constant.constant.size = context->address_integer_size;
+                    length_constant.constant.destination_register = pointer_register;
+                    length_constant.constant.value = value.constant.array.length;
+
+                    append(instructions, length_constant);
+
+                    auto length_address_register = allocate_register(context);
+
+                    Instruction add;
+                    add.type = InstructionType::BinaryOperation;
+                    add.binary_operation.type = BinaryOperationType::Add;
+                    add.binary_operation.size = context->address_integer_size;
+                    add.binary_operation.source_register_a = address_register;
+                    add.binary_operation.source_register_b = offset_register;
+                    add.binary_operation.destination_register = length_address_register;
+
+                    append(instructions, add);
+
+                    Instruction store_length;
+                    store_length.type = InstructionType::StoreInteger;
+                    store_length.store_integer.size = context->address_integer_size;
+                    store_length.store_integer.source_register = length_register;
+                    store_length.store_integer.address_register = length_address_register;
+
+                    append(instructions, store_length);
+                } break;
+
+                case ExpressionValueCategory::Register: {
+                    generate_array_copy(context, instructions, value.register_, address_register);
+                } break;
+
+                case ExpressionValueCategory::Address: {
+                    generate_array_copy(context, instructions, value.address, address_register);
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        case TypeCategory::StaticArray: {
+            switch(value.category) {
+                case ExpressionValueCategory::Constant: {
+                    auto element_size_register = allocate_register(context);
+
+                    Instruction constant;
+                    constant.type = InstructionType::Constant;
+                    constant.constant.size = context->address_integer_size;
+                    constant.constant.destination_register = element_size_register;
+                    constant.constant.value = get_type_size(*context, *value.type.static_array.type);
+
+                    append(instructions, constant);
+
+                    auto current_address_register = address_register;
+                    for(size_t i = 0; i < value.type.static_array.length; i += 1) {
+                        auto value_register = allocate_register(context);
+
+                        Instruction constant;
+                        constant.type = InstructionType::Constant;
+                        constant.constant.size = get_type_register_size(*context, *value.type.static_array.type);
+                        constant.constant.destination_register = value_register;
+
+                        switch(value.type.static_array.type->category) {
+                            case TypeCategory::Integer: {
+                                constant.constant.value = value.constant.static_array[i].integer;
+                            } break;
+
+                            case TypeCategory::Boolean: {
+                                if(value.constant.static_array[i].boolean) {
+                                    constant.constant.value = 1;
+                                } else {
+                                    constant.constant.value = 0;
+                                }
+                            } break;
+
+                            case TypeCategory::Pointer: {
+                                constant.constant.value = value.constant.static_array[i].pointer;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+
+                        Instruction store;
+                        store.type = InstructionType::StoreInteger;
+                        store.store_integer.size = get_type_register_size(*context, *value.type.static_array.type);
+                        store.store_integer.source_register = value_register;
+                        store.store_integer.address_register = current_address_register;
+
+                        append(instructions, store);
+
+                        if(i != value.type.static_array.length - 1) {
+                            auto new_address_register = allocate_register(context);
+
+                            Instruction add;
+                            add.type = InstructionType::BinaryOperation;
+                            add.binary_operation.type = BinaryOperationType::Add;
+                            add.binary_operation.size = context->address_integer_size;
+                            add.binary_operation.source_register_a = current_address_register;
+                            add.binary_operation.source_register_b = element_size_register;
+                            add.binary_operation.destination_register = new_address_register;
+
+                            append(instructions, add);
+
+                            current_address_register = new_address_register;
+                        }
+                    }
+                } break;
+
+                case ExpressionValueCategory::Register: {
+                    auto length_register = allocate_register(context);
+
+                    Instruction constant;
+                    constant.type = InstructionType::Constant;
+                    constant.constant.size = context->address_integer_size;
+                    constant.constant.destination_register = length_register;
+                    constant.constant.value = value.type.static_array.length * get_type_size(*context, *value.type.static_array.type);
+
+                    append(instructions, constant);
+
+                    Instruction copy;
+                    copy.type = InstructionType::CopyMemory;
+                    copy.copy_memory.length_register = length_register;
+                    copy.copy_memory.source_address_register = value.register_;
+                    copy.copy_memory.destination_address_register = address_register;
+
+                    append(instructions, copy);
+                } break;
+
+                case ExpressionValueCategory::Address: {
+                    auto length_register = allocate_register(context);
+
+                    Instruction constant;
+                    constant.type = InstructionType::Constant;
+                    constant.constant.size = context->address_integer_size;
+                    constant.constant.destination_register = length_register;
+                    constant.constant.value = value.type.static_array.length * get_type_size(*context, *value.type.static_array.type);
+
+                    append(instructions, constant);
+
+                    Instruction copy;
+                    copy.type = InstructionType::CopyMemory;
+                    copy.copy_memory.length_register = length_register;
+                    copy.copy_memory.source_address_register = value.address;
+                    copy.copy_memory.destination_address_register = address_register;
+
+                    append(instructions, copy);
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 static Result<ExpressionValue> generate_expression(GenerationContext *context, List<Instruction> *instructions, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
@@ -2181,7 +2467,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 append(instructions, constant);
 
                 auto address_register = base_address_register;
-                // Iterate over members, generating a register value and storing them
                 for(size_t i = 0; i < expression.array_literal.count; i += 1) {
                     auto value_register = generate_register_value(context, instructions, element_values[i]);
 
@@ -2223,7 +2508,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     true,
                     value
                 };
-
             }
         } break;
 
@@ -2865,17 +3149,11 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     auto allocate_index = append(instructions, allocate);
 
-                    expect(initializer_value, generate_register_expression(context, instructions, statement.variable_declaration.type_elided));
+                    expect(initializer_value, generate_expression(context, instructions, statement.variable_declaration.type_elided));
 
                     (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, initializer_value.type);
 
-                    Instruction store;
-                    store.type = InstructionType::StoreInteger;
-                    store.store_integer.size = get_type_register_size(*context, initializer_value.type);
-                    store.store_integer.address_register = address_register;
-                    store.store_integer.source_register = initializer_value.register_index;
-
-                    append(instructions, store);
+                    generate_variable_assignment(context, instructions, address_register, initializer_value);
 
                     if(!add_new_variable(context, statement.variable_declaration.name, address_register, initializer_value.type)) {
                         return false;
@@ -2897,7 +3175,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     append(instructions, allocate);
 
-                    expect(initializer_value, generate_register_expression(context, instructions, statement.variable_declaration.fully_specified.initializer));
+                    expect(initializer_value, generate_expression(context, instructions, statement.variable_declaration.fully_specified.initializer));
 
                     if(!types_equal(type, initializer_value.type)) {
                         error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
@@ -2905,13 +3183,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                         return false;
                     }
 
-                    Instruction store;
-                    store.type = InstructionType::StoreInteger;
-                    store.store_integer.size = get_type_register_size(*context, type);
-                    store.store_integer.address_register = address_register;
-                    store.store_integer.source_register = initializer_value.register_index;
-
-                    append(instructions, store);
+                    generate_variable_assignment(context, instructions, address_register, initializer_value);
 
                     if(!add_new_variable(context, statement.variable_declaration.name, address_register, type)) {
                         return false;
@@ -2935,7 +3207,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 return false;
             }
 
-            expect(value, generate_register_expression(context, instructions, statement.assignment.value));
+            expect(value, generate_expression(context, instructions, statement.assignment.value));
 
             if(!types_equal(target.type, value.type)) {
                 error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
@@ -2943,13 +3215,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 return false;
             }
 
-            Instruction store;
-            store.type = InstructionType::StoreInteger;
-            store.store_integer.size = get_type_register_size(*context, target.type);
-            store.store_integer.source_register = value.register_index;
-            store.store_integer.address_register = target.address;
-
-            append(instructions, store);
+            generate_variable_assignment(context, instructions, target.address, value);
 
             return true;
         } break;
