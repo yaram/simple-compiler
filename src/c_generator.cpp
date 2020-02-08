@@ -360,6 +360,30 @@ Result<const char *> generate_c_source(Array<Function> functions, Array<StaticCo
                     string_buffer_append(&implementation_source, ";");
                 } break;
 
+                case InstructionType::CopyMemory: {
+                    string_buffer_append(&implementation_source, "for(");
+                    generate_type(&implementation_source, architecture_info.address_size, false);
+                    string_buffer_append(&implementation_source, " i=0;i<reg_");
+                    string_buffer_append(&implementation_source, instruction.copy_memory.length_register);
+                    string_buffer_append(&implementation_source, ";i++)");
+
+                    string_buffer_append(&implementation_source, "{");
+
+                    string_buffer_append(&implementation_source, "((char*)");
+                    string_buffer_append(&implementation_source, instruction.copy_memory.source_address_register);
+                    string_buffer_append(&implementation_source, ")[i]");
+
+                    string_buffer_append(&implementation_source, "=");
+
+                    string_buffer_append(&implementation_source, "((char*)");
+                    string_buffer_append(&implementation_source, instruction.copy_memory.source_address_register);
+                    string_buffer_append(&implementation_source, ")[i]");
+
+                    string_buffer_append(&implementation_source, ";");
+
+                    string_buffer_append(&implementation_source, "}");
+                } break;
+
                 default: {
                     abort();
                 } break;
