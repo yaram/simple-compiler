@@ -300,9 +300,31 @@ static size_t register_size_to_byte_size(RegisterSize size) {
 }
 
 static size_t get_type_size(GenerationContext context, Type type) {
-    auto register_size = get_type_register_size(context, type);
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            return register_size_to_byte_size(type.integer.size);
+        } break;
 
-    return register_size_to_byte_size(register_size);
+        case TypeCategory::Boolean: {
+            return register_size_to_byte_size(context.default_integer_size);
+        } break;
+
+        case TypeCategory::Pointer: {
+            return register_size_to_byte_size(context.address_integer_size);
+        } break;
+
+        case TypeCategory::Array: {
+            return 2 * register_size_to_byte_size(context.address_integer_size);
+        } break;
+
+        case TypeCategory::StaticArray: {
+            return type.static_array.length * get_type_size(context, *type.static_array.type);
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
 }
 
 static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression expression);
