@@ -154,7 +154,7 @@ void print_instruction(Instruction instruction) {
                 "STORE %s r%zu, r%zu",
                 register_size_names[(int)instruction.store_integer.size],
                 instruction.store_integer.source_register,
-                instruction.load_integer.address_register
+                instruction.store_integer.address_register
             );
         } break;
 
