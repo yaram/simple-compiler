@@ -34,6 +34,8 @@ enum struct InstructionType {
     LoadInteger,
     StoreInteger,
 
+    CopyMemory,
+
     ReferenceStatic
 };
 
@@ -114,6 +116,14 @@ struct Instruction {
 
             size_t address_register;
         } store_integer;
+
+        struct {
+            size_t length_register;
+
+            size_t source_address_register;
+
+            size_t destination_address_register;
+        } copy_memory;
 
         struct {
             const char *name;

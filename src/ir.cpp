@@ -158,6 +158,15 @@ void print_instruction(Instruction instruction) {
             );
         } break;
 
+        case InstructionType::CopyMemory: {
+            printf(
+                "COPY r%zu, r%zu, r%zu",
+                instruction.copy_memory.length_register,
+                instruction.copy_memory.source_address_register,
+                instruction.copy_memory.destination_address_register
+            );
+        } break;
+
         case InstructionType::ReferenceStatic: {
             printf(
                 "STATIC %s r%zu",
