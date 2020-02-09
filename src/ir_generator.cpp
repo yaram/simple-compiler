@@ -2849,32 +2849,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                         expect(value, generate_expression(context, instructions, expression.function_call.parameters[i]));
 
-                        size_t register_index;
-                        switch(value.type.category) {
-                            case TypeCategory::Integer: {
-                                register_index = generate_integer_register_value(context, instructions, value);
-                            } break;
-
-                            case TypeCategory::Boolean: {
-                                register_index = generate_boolean_register_value(context, instructions, value);
-                            } break;
-
-                            case TypeCategory::Pointer: {
-                                register_index = generate_pointer_register_value(context, instructions, value);
-                            } break;
-
-                            case TypeCategory::Array: {
-
-                            } break;
-
-                            case TypeCategory::StaticArray: {
-
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
+                        auto register_index = generate_function_parameter_or_return_register(context, instructions, value);
 
                         append(&polymorphic_determiners, {
                             parameter.polymorphic_determiner.text,
