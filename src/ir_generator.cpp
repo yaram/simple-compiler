@@ -255,25 +255,7 @@ static bool match_declaration(Statement statement, const char *name) {
     return false;
 }
 
-static RegisterSize get_type_register_size(GenerationContext context, Type type) {
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            return type.integer.size;
-        } break;
-
-        case TypeCategory::Pointer: {
-            return context.address_integer_size;
-        } break;
-
-        case TypeCategory::Boolean: {
-            return context.default_integer_size;
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-}
+const size_t max_register_size = 8;
 
 static size_t register_size_to_byte_size(RegisterSize size) {
     switch(size) {
@@ -296,6 +278,20 @@ static size_t register_size_to_byte_size(RegisterSize size) {
         default: {
             abort();
         } break;
+    }
+}
+
+static RegisterSize get_smallest_fitting_register_size(size_t size) {
+    if(size == 1) {
+        return RegisterSize::Size8;
+    } else if(size == 2) {
+        return RegisterSize::Size16;
+    } else if(size <= 4) {
+        return RegisterSize::Size32;
+    } else if(size <= 8) {
+        return RegisterSize::Size64;
+    } else {
+        abort();
     }
 }
 
@@ -1445,24 +1441,149 @@ static size_t allocate_register(GenerationContext *context) {
     return index;
 }
 
-static size_t generate_register_value(GenerationContext *context, List<Instruction> *instructions, ExpressionValue value) {
-    size_t register_index;
-
+static size_t generate_boolean_register_value(GenerationContext *context, List<Instruction> *instructions, ExpressionValue value) {
     switch(value.category) {
         case ExpressionValueCategory::Constant: {
-            register_index = allocate_register(context);
+            auto register_index = allocate_register(context);
 
             Instruction constant;
             constant.type = InstructionType::Constant;
-            constant.constant.size = get_type_register_size(*context, value.type);
+            constant.constant.size = context->default_integer_size;
+            constant.constant.destination_register = register_index;
+
+            if(value.constant.boolean) {
+                constant.constant.value = 1;
+            } else {
+                constant.constant.value = 0;
+            }
+
+            append(instructions, constant);
+
+            return register_index;
+        } break;
+
+        case ExpressionValueCategory::Register: {
+            return value.register_;
+        } break;
+
+        case ExpressionValueCategory::Address: {
+            auto register_index = allocate_register(context);
+
+            Instruction load;
+            load.type = InstructionType::LoadInteger;
+            load.load_integer.size = context->default_integer_size;
+            load.load_integer.address_register = value.address;
+            load.load_integer.destination_register = register_index;
+
+            append(instructions, load);
+
+            return register_index;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
+static size_t generate_pointer_register_value(GenerationContext *context, List<Instruction> *instructions, ExpressionValue value) {
+    switch(value.category) {
+        case ExpressionValueCategory::Constant: {
+            auto register_index = allocate_register(context);
+
+            Instruction constant;
+            constant.type = InstructionType::Constant;
+            constant.constant.size = context->address_integer_size;
+            constant.constant.destination_register = register_index;
+            constant.constant.value = value.constant.pointer;
+
+            append(instructions, constant);
+
+            return register_index;
+        } break;
+
+        case ExpressionValueCategory::Register: {
+            return value.register_;
+        } break;
+
+        case ExpressionValueCategory::Address: {
+            auto register_index = allocate_register(context);
+
+            Instruction load;
+            load.type = InstructionType::LoadInteger;
+            load.load_integer.size = context->address_integer_size;
+            load.load_integer.address_register = value.address;
+            load.load_integer.destination_register = register_index;
+
+            append(instructions, load);
+
+            return register_index;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
+static size_t generate_integer_register_value(GenerationContext *context, List<Instruction> *instructions, ExpressionValue value) {
+    switch(value.category) {
+        case ExpressionValueCategory::Constant: {
+            auto register_index = allocate_register(context);
+
+            Instruction constant;
+            constant.type = InstructionType::Constant;
+            constant.constant.size = value.type.integer.size;
+            constant.constant.destination_register = register_index;
+            constant.constant.value = value.constant.integer;
+
+            append(instructions, constant);
+
+            return register_index;
+        } break;
+
+        case ExpressionValueCategory::Register: {
+            return value.register_;
+        } break;
+
+        case ExpressionValueCategory::Address: {
+            auto register_index = allocate_register(context);
+
+            Instruction load;
+            load.type = InstructionType::LoadInteger;
+            load.load_integer.size = value.type.integer.size;
+            load.load_integer.address_register = value.address;
+            load.load_integer.destination_register = register_index;
+
+            append(instructions, load);
+
+            return register_index;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
+static size_t generate_anonymous_register_sized_value(GenerationContext *context, List<Instruction> *instructions, ExpressionValue value) {
+    switch(value.category) {
+        case ExpressionValueCategory::Constant: {
+            auto register_index = allocate_register(context);
+
+            Instruction constant;
+            constant.type = InstructionType::Constant;
             constant.constant.destination_register = register_index;
 
             switch(value.type.category) {
                 case TypeCategory::Integer: {
+                    constant.constant.size = value.type.integer.size;
                     constant.constant.value = value.constant.integer;
                 } break;
 
                 case TypeCategory::Boolean: {
+                    constant.constant.size = context->default_integer_size;
+
                     if(value.constant.boolean) {
                         constant.constant.value = 1;
                     } else {
@@ -1471,6 +1592,8 @@ static size_t generate_register_value(GenerationContext *context, List<Instructi
                 } break;
 
                 case TypeCategory::Pointer: {
+                    constant.constant.size = context->address_integer_size;
+
                     constant.constant.value = value.constant.pointer;
                 } break;
 
@@ -1479,46 +1602,35 @@ static size_t generate_register_value(GenerationContext *context, List<Instructi
                 } break;
             }
 
+            return register_index;
+
             append(instructions, constant);
         } break;
 
         case ExpressionValueCategory::Register: {
-            register_index = value.register_;
+            return value.register_;
         } break;
 
         case ExpressionValueCategory::Address: {
-            switch(value.type.category) {
-                case TypeCategory::Integer:
-                case TypeCategory::Boolean:
-                case TypeCategory::Pointer: {
-                    register_index = allocate_register(context);
+            auto register_index = allocate_register(context);
 
-                    Instruction load;
-                    load.type = InstructionType::LoadInteger;
-                    load.load_integer.size = get_type_register_size(*context, value.type);
-                    load.load_integer.address_register = value.address;
-                    load.load_integer.destination_register = register_index;
+            auto size = get_type_size(*context, value.type);
 
-                    append(instructions, load);
-                } break;
+            Instruction load;
+            load.type = InstructionType::LoadInteger;
+            load.load_integer.size = get_smallest_fitting_register_size(size);
+            load.load_integer.address_register = value.address;
+            load.load_integer.destination_register = register_index;
 
-                case TypeCategory::Array:
-                case TypeCategory::StaticArray: {
-                    register_index = value.address;
-                } break;
+            append(instructions, load);
 
-                default: {
-                    abort();
-                } break;
-            }
+            return register_index;
         } break;
 
         default: {
             abort();
         } break;
     }
-
-    return register_index;
 }
 
 template <typename T>
@@ -1667,28 +1779,6 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
     return name_buffer;
 }
 
-struct RegisterExpressionValue {
-    Type type;
-
-    size_t register_index;
-};
-
-static Result<ExpressionValue> generate_expression(GenerationContext *context, List<Instruction> *instructions, Expression expression);
-
-static Result<RegisterExpressionValue> generate_register_expression(GenerationContext *context, List<Instruction> *instructions, Expression expression) {
-    expect(value, generate_expression(context, instructions, expression));
-
-    auto register_index = generate_register_value(context, instructions, value);
-
-    return {
-        true,
-        {
-            value.type,
-            register_index
-        }
-    };
-}
-
 static void generate_array_copy(GenerationContext *context, List<Instruction> *instructions, size_t source_address_register, size_t destination_address_register) {
     auto pointer_register = allocate_register(context);
 
@@ -1763,14 +1853,36 @@ static void generate_array_copy(GenerationContext *context, List<Instruction> *i
 
 static void generate_variable_assignment(GenerationContext *context, List<Instruction> *instructions, size_t address_register, ExpressionValue value) {
     switch(value.type.category) {
-        case TypeCategory::Integer:
-        case TypeCategory::Boolean:
-        case TypeCategory::Pointer: {
-            auto register_index = generate_register_value(context, instructions, value);
+        case TypeCategory::Integer: {
+            auto register_index = generate_integer_register_value(context, instructions, value);
 
             Instruction store;
             store.type = InstructionType::StoreInteger;
-            store.store_integer.size = get_type_register_size(*context, value.type);
+            store.store_integer.size = value.type.integer.size;
+            store.store_integer.address_register = address_register;
+            store.store_integer.source_register = register_index;
+
+            append(instructions, store);
+        } break;
+
+        case TypeCategory::Boolean: {
+            auto register_index = generate_boolean_register_value(context, instructions, value);
+
+            Instruction store;
+            store.type = InstructionType::StoreInteger;
+            store.store_integer.size = context->default_integer_size;
+            store.store_integer.address_register = address_register;
+            store.store_integer.source_register = register_index;
+
+            append(instructions, store);
+        } break;
+
+        case TypeCategory::Pointer: {
+            auto register_index = generate_pointer_register_value(context, instructions, value);
+
+            Instruction store;
+            store.type = InstructionType::StoreInteger;
+            store.store_integer.size = context->address_integer_size;
             store.store_integer.address_register = address_register;
             store.store_integer.source_register = register_index;
 
@@ -1945,6 +2057,151 @@ static void generate_variable_assignment(GenerationContext *context, List<Instru
     }
 }
 
+static size_t generate_function_parameter_or_return_register(GenerationContext *context, List<Instruction> *instructions, ExpressionValue value) {
+    switch(value.type.category) {
+        case TypeCategory::Integer: {
+            return generate_integer_register_value(context, instructions, value);
+        } break;
+
+        case TypeCategory::Boolean: {
+            return generate_boolean_register_value(context, instructions, value);
+        } break;
+
+        case TypeCategory::Pointer: {
+            return generate_pointer_register_value(context, instructions, value);
+        } break;
+
+        case TypeCategory::Array: {
+            switch(value.category) {
+                case ExpressionValueCategory::Constant: {
+                    auto local_register = allocate_register(context);
+
+                    Instruction alloc;
+                    alloc.type = InstructionType::AllocateLocal;
+                    alloc.allocate_local.size = register_size_to_byte_size(context->address_integer_size);
+                    alloc.allocate_local.destination_register = local_register;
+
+                    append(instructions, alloc);
+
+                    auto pointer_register = allocate_register(context);
+
+                    Instruction pointer_constant;
+                    pointer_constant.type = InstructionType::Constant;
+                    pointer_constant.constant.size = context->address_integer_size;
+                    pointer_constant.constant.destination_register = pointer_register;
+                    pointer_constant.constant.value = value.constant.array.pointer;
+
+                    append(instructions, pointer_constant);
+
+                    Instruction store_pointer;
+                    store_pointer.type = InstructionType::StoreInteger;
+                    store_pointer.store_integer.size = context->address_integer_size;
+                    store_pointer.store_integer.source_register = pointer_register;
+                    store_pointer.store_integer.address_register = local_register;
+
+                    append(instructions, store_pointer);
+
+                    auto offset_register = allocate_register(context);
+
+                    Instruction size_constant;
+                    size_constant.type = InstructionType::Constant;
+                    size_constant.constant.size = context->address_integer_size;
+                    size_constant.constant.destination_register = offset_register;
+                    size_constant.constant.value = register_size_to_byte_size(context->address_integer_size);
+
+                    append(instructions, size_constant);
+
+                    auto length_register = allocate_register(context);
+
+                    Instruction length_constant;
+                    length_constant.type = InstructionType::Constant;
+                    length_constant.constant.size = context->address_integer_size;
+                    length_constant.constant.destination_register = pointer_register;
+                    length_constant.constant.value = value.constant.array.length;
+
+                    append(instructions, length_constant);
+
+                    auto length_address_register = allocate_register(context);
+
+                    Instruction add;
+                    add.type = InstructionType::BinaryOperation;
+                    add.binary_operation.type = BinaryOperationType::Add;
+                    add.binary_operation.size = context->address_integer_size;
+                    add.binary_operation.source_register_a = local_register;
+                    add.binary_operation.source_register_b = offset_register;
+                    add.binary_operation.destination_register = length_address_register;
+
+                    append(instructions, add);
+
+                    Instruction store_length;
+                    store_length.type = InstructionType::StoreInteger;
+                    store_length.store_integer.size = context->address_integer_size;
+                    store_length.store_integer.source_register = length_register;
+                    store_length.store_integer.address_register = length_address_register;
+
+                    append(instructions, store_length);
+
+                    return local_register;
+                } break;
+
+                case ExpressionValueCategory::Register: {
+                    return value.register_;
+                } break;
+
+                case ExpressionValueCategory::Address: {
+                    return value.address;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        case TypeCategory::StaticArray: {
+            switch(value.category) {
+                case ExpressionValueCategory::Constant: {
+                    auto constant_name = register_static_array_constant(
+                        context,
+                        *value.type.static_array.type,
+                        Array<ConstantValue> {
+                            value.type.static_array.length,
+                            value.constant.static_array
+                        }
+                    );
+
+                    auto constant_address_register = allocate_register(context);
+
+                    Instruction reference;
+                    reference.type = InstructionType::ReferenceStatic;
+                    reference.reference_static.name = constant_name;
+                    reference.reference_static.destination_register = constant_address_register;
+
+                    append(instructions, reference);
+
+                    return constant_address_register;
+                } break;
+
+                case ExpressionValueCategory::Register: {
+                    return value.register_;
+                } break;
+
+                case ExpressionValueCategory::Address: {
+                    return value.address;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 static Result<ExpressionValue> generate_expression(GenerationContext *context, List<Instruction> *instructions, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
@@ -2023,7 +2280,40 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 return { false };
             }
 
-            auto index_register = generate_register_value(context, instructions, index);
+            size_t index_register;
+            switch(index.category) {
+                case ExpressionValueCategory::Constant: {
+                    index_register = allocate_register(context);
+
+                    Instruction constant;
+                    constant.type = InstructionType::Constant;
+                    constant.constant.size = index.type.integer.size;
+                    constant.constant.destination_register = index_register;
+                    constant.constant.value = index.constant.integer;
+
+                    append(instructions, constant);
+                } break;
+
+                case ExpressionValueCategory::Register: {
+                    index_register = index.register_;
+                } break;
+
+                case ExpressionValueCategory::Address: {
+                    index_register = allocate_register(context);
+
+                    Instruction load;
+                    load.type = InstructionType::LoadInteger;
+                    load.load_integer.size = index.type.integer.size;
+                    load.load_integer.address_register = index.address;
+                    load.load_integer.destination_register = index_register;
+
+                    append(instructions, load);
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
 
             size_t base_address_register;
             Type element_type;
@@ -2190,9 +2480,28 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             if(assignable) {
                 auto register_index = allocate_register(context);
 
+                RegisterSize size;
+                switch(element_type.category) {
+                    case TypeCategory::Integer: {
+                        size = element_type.integer.size;
+                    } break;
+
+                    case TypeCategory::Boolean: {
+                        size = context->default_integer_size;
+                    } break;
+
+                    case TypeCategory::Pointer: {
+                        size = context->address_integer_size;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
                 Instruction load;
                 load.type = InstructionType::LoadInteger;
-                load.load_integer.size = get_type_register_size(*context, element_type);
+                load.load_integer.size = size;
                 load.load_integer.address_register = final_address_register;
                 load.load_integer.destination_register = register_index;
 
@@ -2535,11 +2844,32 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                 auto address_register = base_address_register;
                 for(size_t i = 0; i < expression.array_literal.count; i += 1) {
-                    auto value_register = generate_register_value(context, instructions, element_values[i]);
+                    size_t value_register;
+                    RegisterSize value_size;
+                    switch(element_type.category) {
+                        case TypeCategory::Integer: {
+                            value_register = generate_integer_register_value(context, instructions, element_values[i]);
+                            value_size = element_type.integer.size;
+                        } break;
+
+                        case TypeCategory::Boolean: {
+                            value_register = generate_boolean_register_value(context, instructions, element_values[i]);
+                            value_size = context->default_integer_size;
+                        } break;
+
+                        case TypeCategory::Pointer: {
+                            value_register = generate_pointer_register_value(context, instructions, element_values[i]);
+                            value_size = context->address_integer_size;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
 
                     Instruction store;
                     store.type = InstructionType::StoreInteger;
-                    store.store_integer.size = get_type_register_size(*context, element_type);
+                    store.store_integer.size = value_size;
                     store.store_integer.source_register = value_register;
                     store.store_integer.address_register = address_register;
 
@@ -2616,14 +2946,41 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                             }
                         }
 
-                        expect(value, generate_register_expression(context, instructions, expression.function_call.parameters[i]));
+                        expect(value, generate_expression(context, instructions, expression.function_call.parameters[i]));
+
+                        size_t register_index;
+                        switch(value.type.category) {
+                            case TypeCategory::Integer: {
+                                register_index = generate_integer_register_value(context, instructions, value);
+                            } break;
+
+                            case TypeCategory::Boolean: {
+                                register_index = generate_boolean_register_value(context, instructions, value);
+                            } break;
+
+                            case TypeCategory::Pointer: {
+                                register_index = generate_pointer_register_value(context, instructions, value);
+                            } break;
+
+                            case TypeCategory::Array: {
+
+                            } break;
+
+                            case TypeCategory::StaticArray: {
+
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
 
                         append(&polymorphic_determiners, {
                             parameter.polymorphic_determiner.text,
                             value.type
                         });
 
-                        function_parameter_registers[i] = value.register_index;
+                        function_parameter_registers[i] = register_index;
                     }
                 }
 
@@ -2647,9 +3004,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                         function_parameters[i] = type;
 
-                        expect(value, generate_register_expression(context, instructions, expression.function_call.parameters[i]));
+                        expect(value, generate_expression(context, instructions, expression.function_call.parameters[i]));
 
-                        function_parameter_registers[i] = value.register_index;
+                        function_parameter_registers[i] = generate_function_parameter_or_return_register(context, instructions, value);
                     }
                 }
 
@@ -2711,9 +3068,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                 for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
                     char *parameter_source{};
-                    expect(value, generate_register_expression(context, instructions, expression.function_call.parameters[i]));
+                    expect(value, generate_expression(context, instructions, expression.function_call.parameters[i]));
 
-                    function_parameter_registers[i] = value.register_index;
+                    function_parameter_registers[i] = generate_function_parameter_or_return_register(context, instructions, value);
                 }
 
                 function_name = generate_mangled_name(*context, expression_value.constant.function.declaration);
@@ -2902,22 +3259,19 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     return { false };
                 }
 
-                auto left_register = generate_register_value(context, instructions, left);
-
-                auto right_register = generate_register_value(context, instructions, right);
-
                 auto result_register = allocate_register(context);
 
                 Instruction operation;
                 operation.type = InstructionType::BinaryOperation;
-                operation.binary_operation.size = get_type_register_size(*context, left.type);
-                operation.binary_operation.source_register_a = left_register;
-                operation.binary_operation.source_register_b = right_register;
                 operation.binary_operation.destination_register = result_register;
 
                 Type result_type;
                 switch(left.type.category) {
                     case TypeCategory::Integer: {
+                        operation.binary_operation.size = left.type.integer.size;
+                        operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, left);
+                        operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, right);
+
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Addition: {
                                 operation.binary_operation.type = BinaryOperationType::Add;
@@ -3112,15 +3466,15 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                 case ExpressionValueCategory::Register:
                 case ExpressionValueCategory::Address: {
-                    auto register_index = generate_register_value(context, instructions, expression_value);
-
-                    size_t result_regsiter_index;
+                    size_t result_register_index;
                     switch(expression_value.type.category) {
                         case TypeCategory::Integer: {
+                            auto register_index = generate_integer_register_value(context, instructions, expression_value);
+
                             switch(type.category) {
                                 case TypeCategory::Integer: {
                                     if(type.integer.size > expression_value.type.integer.size) {
-                                        result_regsiter_index = allocate_register(context);
+                                        result_register_index = allocate_register(context);
 
                                         Instruction integer_upcast;
                                         integer_upcast.type = InstructionType::IntegerUpcast;
@@ -3128,11 +3482,11 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                         integer_upcast.integer_upcast.source_size = expression_value.type.integer.size;
                                         integer_upcast.integer_upcast.source_register = register_index;
                                         integer_upcast.integer_upcast.destination_size = type.integer.size;
-                                        integer_upcast.integer_upcast.destination_register = result_regsiter_index;
+                                        integer_upcast.integer_upcast.destination_register = result_register_index;
 
                                         append(instructions, integer_upcast);
                                     } else {
-                                        result_regsiter_index = register_index;
+                                        result_register_index = register_index;
                                     }
                                 } break;
 
@@ -3143,7 +3497,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                         return { false };
                                     }
 
-                                    result_regsiter_index = register_index;
+                                    result_register_index = register_index;
                                 } break;
 
                                 default: {
@@ -3155,6 +3509,8 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         } break;
 
                         case TypeCategory::Pointer: {
+                            auto register_index = generate_pointer_register_value(context, instructions, expression_value);
+
                             switch(type.category) {
                                 case TypeCategory::Integer: {
                                     if(type.integer.size != context->address_integer_size) {
@@ -3163,11 +3519,11 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                         return { false };
                                     }
 
-                                    result_regsiter_index = register_index;
+                                    result_register_index = register_index;
                                 } break;
 
                                 case TypeCategory::Pointer: {
-                                    result_regsiter_index = register_index;
+                                    result_register_index = register_index;
                                 } break;
 
                                 default: {
@@ -3188,7 +3544,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     ExpressionValue value;
                     value.category = ExpressionValueCategory::Register;
                     value.type = type;
-                    value.register_ = result_regsiter_index;
+                    value.register_ = result_register_index;
 
                     return {
                         true,
@@ -3365,7 +3721,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
         } break;
 
         case StatementType::LoneIf: {
-            expect(condition, generate_register_expression(context, instructions, statement.lone_if.condition));
+            expect(condition, generate_expression(context, instructions, statement.lone_if.condition));
 
             if(condition.type.category != TypeCategory::Boolean) {
                 error(statement.lone_if.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
@@ -3375,7 +3731,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             Instruction branch;
             branch.type = InstructionType::Branch;
-            branch.branch.condition_register = condition.register_index;
+            branch.branch.condition_register = generate_boolean_register_value(context, instructions, condition);
             branch.branch.destination_instruction = instructions->count + 2;
 
             append(instructions, branch);
@@ -3401,7 +3757,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
         } break;
 
         case StatementType::WhileLoop: {
-            expect(condition, generate_register_expression(context, instructions, statement.while_loop.condition));
+            expect(condition, generate_expression(context, instructions, statement.while_loop.condition));
 
             if(condition.type.category != TypeCategory::Boolean) {
                 error(statement.while_loop.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
@@ -3409,9 +3765,11 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 return false;
             }
 
+            auto condition_register = generate_boolean_register_value(context, instructions, condition);
+
             Instruction branch;
             branch.type = InstructionType::Branch;
-            branch.branch.condition_register = condition.register_index;
+            branch.branch.condition_register = condition_register;
             branch.branch.destination_instruction = instructions->count + 2;
 
             auto branch_index = append(instructions, branch);
@@ -3443,7 +3801,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
         } break;
 
         case StatementType::Return: {
-            expect(value, generate_register_expression(context, instructions, statement._return));
+            expect(value, generate_expression(context, instructions, statement._return));
 
             if(!types_equal(context->return_type, value.type)) {
                 error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
@@ -3453,7 +3811,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             Instruction return_;
             return_.type = InstructionType::Return;
-            return_.return_.value_register = value.register_index;
+            return_.return_.value_register = generate_function_parameter_or_return_register(context, instructions, value);
 
             append(instructions, return_);
 
@@ -3649,7 +4007,13 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
                         i
                     };
 
-                    parameter_sizes[i] = get_type_register_size(context, parameter.type);
+                    auto size = get_type_size(context, parameter.type);
+
+                    if(size <= max_register_size) {
+                        parameter_sizes[i] = get_smallest_fitting_register_size(size);
+                    } else {
+                        parameter_sizes[i] = architecute_info.address_size;
+                    }
                 }
 
                 context.is_top_level = false;
@@ -3702,7 +4066,34 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
 
                 if(function.return_type.category != TypeCategory::Void) {
                     ir_function.has_return = true;
-                    ir_function.return_size = get_type_register_size(context, function.return_type);
+
+                    auto size = get_type_size(context, function.return_type);
+
+                    switch(function.return_type.category) {
+                        case TypeCategory::Integer: {
+                            ir_function.return_size = function.return_type.integer.size;
+                        } break;
+
+                        case TypeCategory::Boolean: {
+                            ir_function.return_size = architecute_info.default_size;
+                        } break;
+
+                        case TypeCategory::Pointer: {
+                            ir_function.return_size = architecute_info.address_size;
+                        } break;
+
+                        case TypeCategory::Array: {
+                            ir_function.return_size = architecute_info.address_size;
+                        } break;
+
+                        case TypeCategory::StaticArray: {
+                            ir_function.return_size = architecute_info.address_size;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
                 } else {
                     ir_function.has_return = false;
                 }
