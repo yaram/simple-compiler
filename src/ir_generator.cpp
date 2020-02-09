@@ -500,7 +500,7 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
 
     switch(type.category) {
         case TypeCategory::Type: {
-            switch(type.category) {
+            switch(value.type.category) {
                 case TypeCategory::Integer:
                 case TypeCategory::Boolean:
                 case TypeCategory::Pointer: {
