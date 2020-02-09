@@ -2860,7 +2860,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
             ExpressionValue value;
             value.category = ExpressionValueCategory::Register;
-            value.type.category = function_return_type.category;
+            value.type = function_return_type;
             if(has_return) {
                 value.register_ = return_register;
             }
