@@ -2260,22 +2260,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 }
                             );
 
-                            auto constant_address_register = allocate_register(context);
-
                             Instruction reference;
                             reference.type = InstructionType::ReferenceStatic;
                             reference.reference_static.name = constant_name;
-                            reference.reference_static.destination_register = constant_address_register;
+                            reference.reference_static.destination_register = base_address_register;
 
                             append(instructions, reference);
-
-                            Instruction load;
-                            load.type = InstructionType::LoadInteger;
-                            load.load_integer.size = context->address_integer_size;
-                            load.load_integer.address_register = constant_address_register;
-                            load.load_integer.destination_register = base_address_register;
-
-                            append(instructions, load);
                         } break;
 
                         default: {
