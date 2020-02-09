@@ -8,12 +8,6 @@
 #include "util.h"
 #include "path.h"
 
-const FileRange generated_range {
-    "<generated>",
-    0,
-    0
-};
-
 struct PolymorphicDeterminer {
     const char *name;
 
@@ -255,8 +249,6 @@ static bool match_declaration(Statement statement, const char *name) {
     return false;
 }
 
-const size_t max_register_size = 8;
-
 static size_t register_size_to_byte_size(RegisterSize size) {
     switch(size) {
         case RegisterSize::Size8: {
@@ -278,20 +270,6 @@ static size_t register_size_to_byte_size(RegisterSize size) {
         default: {
             abort();
         } break;
-    }
-}
-
-static RegisterSize get_smallest_fitting_register_size(size_t size) {
-    if(size == 1) {
-        return RegisterSize::Size8;
-    } else if(size == 2) {
-        return RegisterSize::Size16;
-    } else if(size <= 4) {
-        return RegisterSize::Size32;
-    } else if(size <= 8) {
-        return RegisterSize::Size64;
-    } else {
-        abort();
     }
 }
 
@@ -1552,73 +1530,6 @@ static size_t generate_integer_register_value(GenerationContext *context, List<I
             Instruction load;
             load.type = InstructionType::LoadInteger;
             load.load_integer.size = value.type.integer.size;
-            load.load_integer.address_register = value.address;
-            load.load_integer.destination_register = register_index;
-
-            append(instructions, load);
-
-            return register_index;
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-}
-
-static size_t generate_anonymous_register_sized_value(GenerationContext *context, List<Instruction> *instructions, ExpressionValue value) {
-    switch(value.category) {
-        case ExpressionValueCategory::Constant: {
-            auto register_index = allocate_register(context);
-
-            Instruction constant;
-            constant.type = InstructionType::Constant;
-            constant.constant.destination_register = register_index;
-
-            switch(value.type.category) {
-                case TypeCategory::Integer: {
-                    constant.constant.size = value.type.integer.size;
-                    constant.constant.value = value.constant.integer;
-                } break;
-
-                case TypeCategory::Boolean: {
-                    constant.constant.size = context->default_integer_size;
-
-                    if(value.constant.boolean) {
-                        constant.constant.value = 1;
-                    } else {
-                        constant.constant.value = 0;
-                    }
-                } break;
-
-                case TypeCategory::Pointer: {
-                    constant.constant.size = context->address_integer_size;
-
-                    constant.constant.value = value.constant.pointer;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            return register_index;
-
-            append(instructions, constant);
-        } break;
-
-        case ExpressionValueCategory::Register: {
-            return value.register_;
-        } break;
-
-        case ExpressionValueCategory::Address: {
-            auto register_index = allocate_register(context);
-
-            auto size = get_type_size(*context, value.type);
-
-            Instruction load;
-            load.type = InstructionType::LoadInteger;
-            load.load_integer.size = get_smallest_fitting_register_size(size);
             load.load_integer.address_register = value.address;
             load.load_integer.destination_register = register_index;
 
@@ -4009,10 +3920,30 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
 
                     auto size = get_type_size(context, parameter.type);
 
-                    if(size <= max_register_size) {
-                        parameter_sizes[i] = get_smallest_fitting_register_size(size);
-                    } else {
-                        parameter_sizes[i] = architecute_info.address_size;
+                    switch(function.return_type.category) {
+                        case TypeCategory::Integer: {
+                            parameter_sizes[i] = function.return_type.integer.size;
+                        } break;
+
+                        case TypeCategory::Boolean: {
+                            parameter_sizes[i] = architecute_info.default_size;
+                        } break;
+
+                        case TypeCategory::Pointer: {
+                            parameter_sizes[i] = architecute_info.address_size;
+                        } break;
+
+                        case TypeCategory::Array: {
+                            parameter_sizes[i] = architecute_info.address_size;
+                        } break;
+
+                        case TypeCategory::StaticArray: {
+                            parameter_sizes[i] = architecute_info.address_size;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
                     }
                 }
 
@@ -4066,8 +3997,6 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
 
                 if(function.return_type.category != TypeCategory::Void) {
                     ir_function.has_return = true;
-
-                    auto size = get_type_size(context, function.return_type);
 
                     switch(function.return_type.category) {
                         case TypeCategory::Integer: {
