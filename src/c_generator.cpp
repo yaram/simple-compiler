@@ -91,306 +91,308 @@ Result<const char *> generate_c_source(Array<Function> functions, Array<StaticCo
         generate_function_signature(&forward_declaration_source, function);
         string_buffer_append(&forward_declaration_source, ";");
 
-        generate_function_signature(&implementation_source, function);
+        if(!function.is_external) {
+            generate_function_signature(&implementation_source, function);
 
-        string_buffer_append(&implementation_source, "{");
+            string_buffer_append(&implementation_source, "{");
 
-        for(size_t i = 0 ; i < function.instructions.count; i += 1) {
-            auto instruction = function.instructions[i];
+            for(size_t i = 0 ; i < function.instructions.count; i += 1) {
+                auto instruction = function.instructions[i];
 
-            string_buffer_append(&implementation_source, function.name);
-            string_buffer_append(&implementation_source, "_");
-            string_buffer_append(&implementation_source, i);
-            string_buffer_append(&implementation_source, ":");
+                string_buffer_append(&implementation_source, function.name);
+                string_buffer_append(&implementation_source, "_");
+                string_buffer_append(&implementation_source, i);
+                string_buffer_append(&implementation_source, ":");
 
-            switch(instruction.type) {
-                case InstructionType::BinaryOperation: {
-                    generate_type(&implementation_source, instruction.binary_operation.size, false);
-                    string_buffer_append(&implementation_source, " reg_");
-                    string_buffer_append(&implementation_source, instruction.binary_operation.destination_register);
-
-                    string_buffer_append(&implementation_source, "=");
-
-                    char *operator_;
-                    bool is_signed;
-
-                    switch(instruction.binary_operation.type) {
-                        case BinaryOperationType::Add: {
-                            operator_ = "+";
-                            is_signed = false;
-                        } break;
-
-                        case BinaryOperationType::Subtract: {
-                            operator_ = "-";
-                            is_signed = false;
-                        } break;
-
-                        case BinaryOperationType::SignedMultiply: {
-                            operator_ = "*";
-                            is_signed = true;
-                        } break;
-
-                        case BinaryOperationType::UnsignedMultiply: {
-                            operator_ = "*";
-                            is_signed = false;
-                        } break;
-
-                        case BinaryOperationType::SignedDivide: {
-                            operator_ = "/";
-                            is_signed = true;
-                        } break;
-
-                        case BinaryOperationType::UnsignedDivide: {
-                            operator_ = "/";
-                            is_signed = false;
-                        } break;
-
-                        case BinaryOperationType::SignedModulus: {
-                            operator_ = "%";
-                            is_signed = true;
-                        } break;
-
-                        case BinaryOperationType::UnsignedModulus: {
-                            operator_ = "%";
-                            is_signed = false;
-                        } break;
-
-                        case BinaryOperationType::Equality: {
-                            operator_ = "==";
-                            is_signed = false;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-
-                    string_buffer_append(&implementation_source, "(");
-                    generate_type(&implementation_source, instruction.binary_operation.size, is_signed);
-                    string_buffer_append(&implementation_source, ")");
-
-                    string_buffer_append(&implementation_source, "reg_");
-                    string_buffer_append(&implementation_source, instruction.binary_operation.source_register_a);
-
-                    string_buffer_append(&implementation_source, operator_);
-
-                    string_buffer_append(&implementation_source, "(");
-                    generate_type(&implementation_source, instruction.binary_operation.size, is_signed);
-                    string_buffer_append(&implementation_source, ")");
-
-                    string_buffer_append(&implementation_source, "reg_");
-                    string_buffer_append(&implementation_source, instruction.binary_operation.source_register_b);
-
-                    string_buffer_append(&implementation_source, ";");
-                } break;
-
-                case InstructionType::IntegerUpcast: {
-                    generate_type(&implementation_source, instruction.integer_upcast.destination_size, false);
-                    string_buffer_append(&implementation_source, " reg_");
-                    string_buffer_append(&implementation_source, instruction.integer_upcast.destination_register);
-                    string_buffer_append(&implementation_source, "=");
-
-                    string_buffer_append(&implementation_source, "(");
-                    generate_type(&implementation_source, instruction.integer_upcast.destination_size, instruction.integer_upcast.is_signed);
-                    string_buffer_append(&implementation_source, ")(");
-                    generate_type(&implementation_source, instruction.integer_upcast.source_size, instruction.integer_upcast.is_signed);
-                    string_buffer_append(&implementation_source, ")");
-
-                    string_buffer_append(&implementation_source, "reg_");
-                    string_buffer_append(&implementation_source, instruction.integer_upcast.source_register);
-
-                    string_buffer_append(&implementation_source, ";");
-                } break;
-
-                case InstructionType::Constant: {
-                    generate_type(&implementation_source, instruction.constant.size, false);
-                    string_buffer_append(&implementation_source, " reg_");
-                    string_buffer_append(&implementation_source, instruction.constant.destination_register);
-                    string_buffer_append(&implementation_source, "=");
-
-                    string_buffer_append(&implementation_source, instruction.constant.value);
-
-                    string_buffer_append(&implementation_source, ";");
-                } break;
-
-                case InstructionType::Jump: {
-                    string_buffer_append(&implementation_source, "goto ");
-                    string_buffer_append(&implementation_source, function.name);
-                    string_buffer_append(&implementation_source, "_");
-                    string_buffer_append(&implementation_source, instruction.jump.destination_instruction);
-
-                    string_buffer_append(&implementation_source, ";");
-                } break;
-
-                case InstructionType::Branch: {
-                    string_buffer_append(&implementation_source, "if(");
-
-                    string_buffer_append(&implementation_source, "(");
-                    generate_type(&implementation_source, architecture_info.default_size, false);
-                    string_buffer_append(&implementation_source, ")");
-
-                    string_buffer_append(&implementation_source, "reg_");
-                    string_buffer_append(&implementation_source, instruction.branch.condition_register);
-
-                    string_buffer_append(&implementation_source, ")");
-
-                    string_buffer_append(&implementation_source, "{");
-
-                    string_buffer_append(&implementation_source, "goto ");
-                    string_buffer_append(&implementation_source, function.name);
-                    string_buffer_append(&implementation_source, "_");
-                    string_buffer_append(&implementation_source, instruction.branch.destination_instruction);
-                    string_buffer_append(&implementation_source, ";");
-
-                    string_buffer_append(&implementation_source, "}");
-                } break;
-
-                case InstructionType::FunctionCall: {
-                    Function callee;
-                    for(auto function : functions) {
-                        if(strcmp(function.name, instruction.function_call.function_name) == 0) {
-                            callee = function;
-
-                            break;
-                        }
-                    }
-
-                    if(instruction.function_call.has_return) {
-                        generate_type(&implementation_source, callee.return_size, false);
+                switch(instruction.type) {
+                    case InstructionType::BinaryOperation: {
+                        generate_type(&implementation_source, instruction.binary_operation.size, false);
                         string_buffer_append(&implementation_source, " reg_");
-                        string_buffer_append(&implementation_source, instruction.function_call.return_register);
+                        string_buffer_append(&implementation_source, instruction.binary_operation.destination_register);
+
                         string_buffer_append(&implementation_source, "=");
-                    }
 
-                    string_buffer_append(&implementation_source, callee.name);
-                    string_buffer_append(&implementation_source, "(");
+                        char *operator_;
+                        bool is_signed;
 
-                    for(size_t i = 0; i < instruction.function_call.parameter_registers.count; i += 1) {
-                        string_buffer_append(&implementation_source, " reg_");
-                        string_buffer_append(&implementation_source, instruction.function_call.parameter_registers[i]);
+                        switch(instruction.binary_operation.type) {
+                            case BinaryOperationType::Add: {
+                                operator_ = "+";
+                                is_signed = false;
+                            } break;
 
-                        if(i != instruction.function_call.parameter_registers.count - 1) {
-                            string_buffer_append(&implementation_source, ",");
+                            case BinaryOperationType::Subtract: {
+                                operator_ = "-";
+                                is_signed = false;
+                            } break;
+
+                            case BinaryOperationType::SignedMultiply: {
+                                operator_ = "*";
+                                is_signed = true;
+                            } break;
+
+                            case BinaryOperationType::UnsignedMultiply: {
+                                operator_ = "*";
+                                is_signed = false;
+                            } break;
+
+                            case BinaryOperationType::SignedDivide: {
+                                operator_ = "/";
+                                is_signed = true;
+                            } break;
+
+                            case BinaryOperationType::UnsignedDivide: {
+                                operator_ = "/";
+                                is_signed = false;
+                            } break;
+
+                            case BinaryOperationType::SignedModulus: {
+                                operator_ = "%";
+                                is_signed = true;
+                            } break;
+
+                            case BinaryOperationType::UnsignedModulus: {
+                                operator_ = "%";
+                                is_signed = false;
+                            } break;
+
+                            case BinaryOperationType::Equality: {
+                                operator_ = "==";
+                                is_signed = false;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
                         }
-                    }
 
-                    string_buffer_append(&implementation_source, ");");
-                } break;
-
-                case InstructionType::Return: {
-                    string_buffer_append(&implementation_source, "return");
-
-                    if(function.has_return) {
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, function.return_size, false);
+                        generate_type(&implementation_source, instruction.binary_operation.size, is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
-                        string_buffer_append(&implementation_source, instruction.return_.value_register);
-                    }
+                        string_buffer_append(&implementation_source, instruction.binary_operation.source_register_a);
 
-                    string_buffer_append(&implementation_source, ";");
-                } break;
+                        string_buffer_append(&implementation_source, operator_);
 
-                case InstructionType::AllocateLocal: {
-                    string_buffer_append(&implementation_source, "char local_");
-                    string_buffer_append(&implementation_source, instruction.allocate_local.destination_register);
-                    string_buffer_append(&implementation_source, "[");
-                    string_buffer_append(&implementation_source, instruction.allocate_local.size);
-                    string_buffer_append(&implementation_source, "];");
+                        string_buffer_append(&implementation_source, "(");
+                        generate_type(&implementation_source, instruction.binary_operation.size, is_signed);
+                        string_buffer_append(&implementation_source, ")");
 
-                    generate_type(&implementation_source, architecture_info.address_size, false);
-                    string_buffer_append(&implementation_source, " reg_");
-                    string_buffer_append(&implementation_source, instruction.allocate_local.destination_register);
-                    string_buffer_append(&implementation_source, "=");
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, instruction.binary_operation.source_register_b);
 
-                    string_buffer_append(&implementation_source, "(");
-                    generate_type(&implementation_source, architecture_info.address_size, false);
-                    string_buffer_append(&implementation_source, ")");
+                        string_buffer_append(&implementation_source, ";");
+                    } break;
 
-                    string_buffer_append(&implementation_source, "&local_");
-                    string_buffer_append(&implementation_source, instruction.allocate_local.destination_register);
+                    case InstructionType::IntegerUpcast: {
+                        generate_type(&implementation_source, instruction.integer_upcast.destination_size, false);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, instruction.integer_upcast.destination_register);
+                        string_buffer_append(&implementation_source, "=");
 
-                    string_buffer_append(&implementation_source, ";");
-                } break;
+                        string_buffer_append(&implementation_source, "(");
+                        generate_type(&implementation_source, instruction.integer_upcast.destination_size, instruction.integer_upcast.is_signed);
+                        string_buffer_append(&implementation_source, ")(");
+                        generate_type(&implementation_source, instruction.integer_upcast.source_size, instruction.integer_upcast.is_signed);
+                        string_buffer_append(&implementation_source, ")");
 
-                case InstructionType::LoadInteger: {
-                    generate_type(&implementation_source, instruction.load_integer.size, false);
-                    string_buffer_append(&implementation_source, " reg_");
-                    string_buffer_append(&implementation_source, instruction.load_integer.destination_register);
-                    string_buffer_append(&implementation_source, "=");
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, instruction.integer_upcast.source_register);
 
-                    string_buffer_append(&implementation_source, "*");
+                        string_buffer_append(&implementation_source, ";");
+                    } break;
 
-                    string_buffer_append(&implementation_source, "(");
-                    generate_type(&implementation_source, instruction.load_integer.size, false);
-                    string_buffer_append(&implementation_source, "*)");
+                    case InstructionType::Constant: {
+                        generate_type(&implementation_source, instruction.constant.size, false);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, instruction.constant.destination_register);
+                        string_buffer_append(&implementation_source, "=");
 
-                    string_buffer_append(&implementation_source, "reg_");
-                    string_buffer_append(&implementation_source, instruction.load_integer.address_register);
+                        string_buffer_append(&implementation_source, instruction.constant.value);
 
-                    string_buffer_append(&implementation_source, ";");
-                } break;
+                        string_buffer_append(&implementation_source, ";");
+                    } break;
 
-                case InstructionType::StoreInteger: {
-                    string_buffer_append(&implementation_source, "*(");
-                    generate_type(&implementation_source, instruction.store_integer.size, false);
-                    string_buffer_append(&implementation_source, "*)reg_");
-                    string_buffer_append(&implementation_source, instruction.store_integer.address_register);
-                    string_buffer_append(&implementation_source, "=");
+                    case InstructionType::Jump: {
+                        string_buffer_append(&implementation_source, "goto ");
+                        string_buffer_append(&implementation_source, function.name);
+                        string_buffer_append(&implementation_source, "_");
+                        string_buffer_append(&implementation_source, instruction.jump.destination_instruction);
 
-                    string_buffer_append(&implementation_source, "(");
-                    generate_type(&implementation_source, instruction.store_integer.size, false);
-                    string_buffer_append(&implementation_source, ")");
-                    string_buffer_append(&implementation_source, "reg_");
-                    string_buffer_append(&implementation_source, instruction.store_integer.source_register);
+                        string_buffer_append(&implementation_source, ";");
+                    } break;
 
-                    string_buffer_append(&implementation_source, ";");
-                } break;
+                    case InstructionType::Branch: {
+                        string_buffer_append(&implementation_source, "if(");
 
-                case InstructionType::ReferenceStatic: {
-                    generate_type(&implementation_source, architecture_info.address_size, false);
-                    string_buffer_append(&implementation_source, " reg_");
-                    string_buffer_append(&implementation_source, instruction.reference_static.destination_register);
-                    string_buffer_append(&implementation_source, "=");
+                        string_buffer_append(&implementation_source, "(");
+                        generate_type(&implementation_source, architecture_info.default_size, false);
+                        string_buffer_append(&implementation_source, ")");
 
-                    string_buffer_append(&implementation_source, "&");
-                    string_buffer_append(&implementation_source, instruction.reference_static.name);
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, instruction.branch.condition_register);
 
-                    string_buffer_append(&implementation_source, ";");
-                } break;
+                        string_buffer_append(&implementation_source, ")");
 
-                case InstructionType::CopyMemory: {
-                    string_buffer_append(&implementation_source, "for(");
-                    generate_type(&implementation_source, architecture_info.address_size, false);
-                    string_buffer_append(&implementation_source, " i=0;i<reg_");
-                    string_buffer_append(&implementation_source, instruction.copy_memory.length_register);
-                    string_buffer_append(&implementation_source, ";i++)");
+                        string_buffer_append(&implementation_source, "{");
 
-                    string_buffer_append(&implementation_source, "{");
+                        string_buffer_append(&implementation_source, "goto ");
+                        string_buffer_append(&implementation_source, function.name);
+                        string_buffer_append(&implementation_source, "_");
+                        string_buffer_append(&implementation_source, instruction.branch.destination_instruction);
+                        string_buffer_append(&implementation_source, ";");
 
-                    string_buffer_append(&implementation_source, "((char*)");
-                    string_buffer_append(&implementation_source, instruction.copy_memory.source_address_register);
-                    string_buffer_append(&implementation_source, ")[i]");
+                        string_buffer_append(&implementation_source, "}");
+                    } break;
 
-                    string_buffer_append(&implementation_source, "=");
+                    case InstructionType::FunctionCall: {
+                        Function callee;
+                        for(auto function : functions) {
+                            if(strcmp(function.name, instruction.function_call.function_name) == 0) {
+                                callee = function;
 
-                    string_buffer_append(&implementation_source, "((char*)");
-                    string_buffer_append(&implementation_source, instruction.copy_memory.source_address_register);
-                    string_buffer_append(&implementation_source, ")[i]");
+                                break;
+                            }
+                        }
 
-                    string_buffer_append(&implementation_source, ";");
+                        if(instruction.function_call.has_return) {
+                            generate_type(&implementation_source, callee.return_size, false);
+                            string_buffer_append(&implementation_source, " reg_");
+                            string_buffer_append(&implementation_source, instruction.function_call.return_register);
+                            string_buffer_append(&implementation_source, "=");
+                        }
 
-                    string_buffer_append(&implementation_source, "}");
-                } break;
+                        string_buffer_append(&implementation_source, callee.name);
+                        string_buffer_append(&implementation_source, "(");
 
-                default: {
-                    abort();
-                } break;
+                        for(size_t i = 0; i < instruction.function_call.parameter_registers.count; i += 1) {
+                            string_buffer_append(&implementation_source, " reg_");
+                            string_buffer_append(&implementation_source, instruction.function_call.parameter_registers[i]);
+
+                            if(i != instruction.function_call.parameter_registers.count - 1) {
+                                string_buffer_append(&implementation_source, ",");
+                            }
+                        }
+
+                        string_buffer_append(&implementation_source, ");");
+                    } break;
+
+                    case InstructionType::Return: {
+                        string_buffer_append(&implementation_source, "return");
+
+                        if(function.has_return) {
+                            string_buffer_append(&implementation_source, "(");
+                            generate_type(&implementation_source, function.return_size, false);
+                            string_buffer_append(&implementation_source, ")");
+
+                            string_buffer_append(&implementation_source, "reg_");
+                            string_buffer_append(&implementation_source, instruction.return_.value_register);
+                        }
+
+                        string_buffer_append(&implementation_source, ";");
+                    } break;
+
+                    case InstructionType::AllocateLocal: {
+                        string_buffer_append(&implementation_source, "char local_");
+                        string_buffer_append(&implementation_source, instruction.allocate_local.destination_register);
+                        string_buffer_append(&implementation_source, "[");
+                        string_buffer_append(&implementation_source, instruction.allocate_local.size);
+                        string_buffer_append(&implementation_source, "];");
+
+                        generate_type(&implementation_source, architecture_info.address_size, false);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, instruction.allocate_local.destination_register);
+                        string_buffer_append(&implementation_source, "=");
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_type(&implementation_source, architecture_info.address_size, false);
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "&local_");
+                        string_buffer_append(&implementation_source, instruction.allocate_local.destination_register);
+
+                        string_buffer_append(&implementation_source, ";");
+                    } break;
+
+                    case InstructionType::LoadInteger: {
+                        generate_type(&implementation_source, instruction.load_integer.size, false);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, instruction.load_integer.destination_register);
+                        string_buffer_append(&implementation_source, "=");
+
+                        string_buffer_append(&implementation_source, "*");
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_type(&implementation_source, instruction.load_integer.size, false);
+                        string_buffer_append(&implementation_source, "*)");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, instruction.load_integer.address_register);
+
+                        string_buffer_append(&implementation_source, ";");
+                    } break;
+
+                    case InstructionType::StoreInteger: {
+                        string_buffer_append(&implementation_source, "*(");
+                        generate_type(&implementation_source, instruction.store_integer.size, false);
+                        string_buffer_append(&implementation_source, "*)reg_");
+                        string_buffer_append(&implementation_source, instruction.store_integer.address_register);
+                        string_buffer_append(&implementation_source, "=");
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_type(&implementation_source, instruction.store_integer.size, false);
+                        string_buffer_append(&implementation_source, ")");
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, instruction.store_integer.source_register);
+
+                        string_buffer_append(&implementation_source, ";");
+                    } break;
+
+                    case InstructionType::ReferenceStatic: {
+                        generate_type(&implementation_source, architecture_info.address_size, false);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, instruction.reference_static.destination_register);
+                        string_buffer_append(&implementation_source, "=");
+
+                        string_buffer_append(&implementation_source, "&");
+                        string_buffer_append(&implementation_source, instruction.reference_static.name);
+
+                        string_buffer_append(&implementation_source, ";");
+                    } break;
+
+                    case InstructionType::CopyMemory: {
+                        string_buffer_append(&implementation_source, "for(");
+                        generate_type(&implementation_source, architecture_info.address_size, false);
+                        string_buffer_append(&implementation_source, " i=0;i<reg_");
+                        string_buffer_append(&implementation_source, instruction.copy_memory.length_register);
+                        string_buffer_append(&implementation_source, ";i++)");
+
+                        string_buffer_append(&implementation_source, "{");
+
+                        string_buffer_append(&implementation_source, "((char*)");
+                        string_buffer_append(&implementation_source, instruction.copy_memory.source_address_register);
+                        string_buffer_append(&implementation_source, ")[i]");
+
+                        string_buffer_append(&implementation_source, "=");
+
+                        string_buffer_append(&implementation_source, "((char*)");
+                        string_buffer_append(&implementation_source, instruction.copy_memory.source_address_register);
+                        string_buffer_append(&implementation_source, ")[i]");
+
+                        string_buffer_append(&implementation_source, ";");
+
+                        string_buffer_append(&implementation_source, "}");
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
             }
-        }
 
-        string_buffer_append(&implementation_source, "}");
+            string_buffer_append(&implementation_source, "}");
+        }
     }
 
     char *source{};
