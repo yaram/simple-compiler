@@ -402,29 +402,15 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
     }
 
     size_t index;
-    if(index_type.integer.is_signed) {
-        switch(index_type.integer.size) {
-            case RegisterSize::Size8: {
-                index = (uint8_t)index_value.integer;
-            } break;
+    if(index_type.integer.is_undetermined) {
+        if((int64_t)index_value.integer < 0) {
+            error(index_range, "Array index %lld out of bounds", (int64_t)index_value.integer);
 
-            case RegisterSize::Size16: {
-                index = (uint16_t)index_value.integer;
-            } break;
-
-            case RegisterSize::Size32: {
-                index = (uint32_t)index_value.integer;
-            } break;
-
-            case RegisterSize::Size64: {
-                index = index_value.integer;
-            } break;
-
-            default: {
-                abort();
-            } break;
+            return { false };
         }
-    } else {
+
+        index = index_value.integer;
+    } else if(index_type.integer.is_signed) {
         switch(index_type.integer.size) {
             case RegisterSize::Size8: {
                 if((int8_t)index_value.integer < 0) {
@@ -463,6 +449,28 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
                     return { false };
                 }
 
+                index = index_value.integer;
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+    } else {
+        switch(index_type.integer.size) {
+            case RegisterSize::Size8: {
+                index = (uint8_t)index_value.integer;
+            } break;
+
+            case RegisterSize::Size16: {
+                index = (uint16_t)index_value.integer;
+            } break;
+
+            case RegisterSize::Size32: {
+                index = (uint32_t)index_value.integer;
+            } break;
+
+            case RegisterSize::Size64: {
                 index = index_value.integer;
             } break;
 
@@ -529,146 +537,65 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
     }
 }
 
-static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOperator binary_operator, FileRange range, Type left_type, ConstantValue left_value, Type right_type, ConstantValue right_value) {
-    if(!types_equal(left_type, right_type)) {
-        error(range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
-
-        return { false };
-    }
-
-    TypedConstantValue result;
-
+static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationContext context, BinaryOperator binary_operator, FileRange range, Type left_type, ConstantValue left_value, Type right_type, ConstantValue right_value) {
     switch(left_type.category) {
         case TypeCategory::Integer: {
+            if(right_type.category != TypeCategory::Integer) {
+                error(range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
+
+                return { false };
+            }
+
+            RegisterSize size;
+            bool is_signed;
+            bool is_undetermined;
+
             uint64_t left;
             uint64_t right;
-            if(left_type.integer.is_signed) {
-                switch(left_type.integer.size) {
-                    case RegisterSize::Size8: {
-                        left = (int64_t)(int8_t)left_value.integer;
-                        right = (int64_t)(int8_t)right_value.integer;
-                    } break;
 
-                    case RegisterSize::Size16: {
-                        left = (int64_t)(int16_t)left_value.integer;
-                        right = (int64_t)(int16_t)right_value.integer;
-                    } break;
+            if(left_type.integer.is_undetermined && right_type.integer.is_undetermined) {
+                is_undetermined = true;
 
-                    case RegisterSize::Size32: {
-                        left = (int64_t)(int32_t)left_value.integer;
-                        right = (int64_t)(int32_t)right_value.integer;
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        left = left_value.integer;
-                        right = right_value.integer;
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
+                left = left_value.integer;
+                right = right_value.integer;
             } else {
-                switch(left_type.integer.size) {
-                    case RegisterSize::Size8: {
-                        left = (uint8_t)left_value.integer;
-                        right = (uint8_t)right_value.integer;
-                    } break;
+                is_undetermined = false;
 
-                    case RegisterSize::Size16: {
-                        left = (uint16_t)left_value.integer;
-                        right = (uint16_t)right_value.integer;
-                    } break;
+                if(left_type.integer.is_undetermined) {
+                    size = right_type.integer.size;
+                    is_signed = right_type.integer.is_signed;
+                } else if(right_type.integer.is_undetermined) {
+                    size = left_type.integer.size;
+                    is_signed = left_type.integer.is_signed;
+                } else if(left_type.integer.size == right_type.integer.size && left_type.integer.is_signed == right_type.integer.is_signed) {
+                    size = left_type.integer.size;
+                    is_signed = left_type.integer.is_signed;
+                } else {
+                    error(range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
 
-                    case RegisterSize::Size32: {
-                        left = (uint32_t)left_value.integer;
-                        right = (uint32_t)right_value.integer;
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        left = left_value.integer;
-                        right = right_value.integer;
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
+                    return { false };
                 }
-            }
 
-            uint64_t result_value;
-
-            switch(binary_operator) {
-                case BinaryOperator::Addition: {
-                    result_value = left + right;
-
-                    result.type = left_type;
-                } break;
-
-                case BinaryOperator::Subtraction: {
-                    result_value = left - right;
-
-                    result.type = left_type;
-                } break;
-
-                case BinaryOperator::Equal: {
-                    result.value.boolean = left == right;
-
-                    result.type.category = TypeCategory::Boolean;
-                } break;
-
-                case BinaryOperator::Multiplication: {
-                    if(left_type.integer.is_signed) {
-                        result_value = (int64_t)left * (int64_t)right;
-                    } else {
-                        result_value = left * right;
-                    }
-
-                    result.type = left_type;
-                } break;
-
-                case BinaryOperator::Division: {
-                    if(left_type.integer.is_signed) {
-                        result_value = (int64_t)left / (int64_t)right;
-                    } else {
-                        result_value = left / right;
-                    }
-
-                    result.type = left_type;
-                } break;
-
-                case BinaryOperator::Modulo: {
-                    if(left_type.integer.is_signed) {
-                        result_value = (int64_t)left % (int64_t)right;
-                    } else {
-                        result_value = left % right;
-                    }
-
-                    result.type = left_type;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            if(result.type.category == TypeCategory::Integer) {
-                if(left_type.integer.is_signed) {
-                    switch(left_type.integer.size) {
+                if(is_signed) {
+                    switch(size) {
                         case RegisterSize::Size8: {
-                            result.value.integer = (int64_t)(int8_t)result_value;
+                            left = (int8_t)left_value.integer;
+                            right = (int8_t)right_value.integer;
                         } break;
 
                         case RegisterSize::Size16: {
-                            result.value.integer = (int64_t)(int16_t)result_value;
+                            left = (int16_t)left_value.integer;
+                            right = (int16_t)right_value.integer;
                         } break;
 
                         case RegisterSize::Size32: {
-                            result.value.integer = (int64_t)(int32_t)result_value;
+                            left = (int32_t)left_value.integer;
+                            right = (int32_t)right_value.integer;
                         } break;
 
                         case RegisterSize::Size64: {
-                            result.value.integer = result_value;
+                            left = left_value.integer;
+                            right = right_value.integer;
                         } break;
 
                         default: {
@@ -676,21 +603,25 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
                         } break;
                     }
                 } else {
-                    switch(left_type.integer.size) {
+                    switch(size) {
                         case RegisterSize::Size8: {
-                            result.value.integer = (uint8_t)result_value;
+                            left = (uint8_t)left_value.integer;
+                            right = (uint8_t)right_value.integer;
                         } break;
 
                         case RegisterSize::Size16: {
-                            result.value.integer = (uint16_t)result_value;
+                            left = (uint16_t)left_value.integer;
+                            right = (uint16_t)right_value.integer;
                         } break;
 
                         case RegisterSize::Size32: {
-                            result.value.integer = (uint32_t)result_value;
+                            left = (uint32_t)left_value.integer;
+                            right = (uint32_t)right_value.integer;
                         } break;
 
                         case RegisterSize::Size64: {
-                            result.value.integer = result_value;
+                            left = left_value.integer;
+                            right = right_value.integer;
                         } break;
 
                         default: {
@@ -699,14 +630,149 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
                     }
                 }
             }
+
+            switch(binary_operator) {
+                case BinaryOperator::Addition: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Integer;
+                    if(is_undetermined) {
+                        result.type.integer.is_undetermined = true;
+                    } else {
+                        result.type.integer.size = size;
+                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.is_undetermined = true;
+                    }
+
+                    result.value.integer = left + right;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                case BinaryOperator::Subtraction: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Integer;
+                    if(is_undetermined) {
+                        result.type.integer.is_undetermined = true;
+                    } else {
+                        result.type.integer.size = size;
+                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.is_undetermined = true;
+                    }
+
+                    result.value.integer = left - right;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                case BinaryOperator::Multiplication: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Integer;
+                    if(is_undetermined) {
+                        result.type.integer.is_undetermined = true;
+                    } else {
+                        result.type.integer.size = size;
+                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.is_undetermined = true;
+                    }
+
+                    if(is_undetermined || is_signed) {
+                        result.value.integer = (int64_t)left * (int64_t)right;
+                    } else {
+                        result.value.integer = left * right;
+                    }
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                case BinaryOperator::Division: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Integer;
+                    if(is_undetermined) {
+                        result.type.integer.is_undetermined = true;
+                    } else {
+                        result.type.integer.size = size;
+                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.is_undetermined = true;
+                    }
+
+                    if(is_undetermined || is_signed) {
+                        result.value.integer = (int64_t)left / (int64_t)right;
+                    } else {
+                        result.value.integer = left / right;
+                    }
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                case BinaryOperator::Modulo: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Integer;
+                    if(is_undetermined) {
+                        result.type.integer.is_undetermined = true;
+                    } else {
+                        result.type.integer.size = size;
+                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.is_undetermined = true;
+                    }
+
+                    if(is_undetermined || is_signed) {
+                        result.value.integer = (int64_t)left % (int64_t)right;
+                    } else {
+                        result.value.integer = left % right;
+                    }
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                case BinaryOperator::Equal: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Boolean;
+                    result.value.boolean = left == right;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
         } break;
 
         case TypeCategory::Boolean: {
-            result.type.category = TypeCategory::Boolean;
+            if(right_type.category != TypeCategory::Boolean) {
+                error(range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
+
+                return { false };
+            }
 
             switch(binary_operator) {
                 case BinaryOperator::Equal: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Boolean;
                     result.value.boolean = left_value.boolean == right_value.boolean;
+
+                    return {
+                        true,
+                        result
+                    };
                 } break;
 
                 default: {
@@ -723,11 +789,6 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(BinaryOpera
             return { false };
         } break;
     }
-
-    return {
-        true,
-        result
-    };
 }
 
 static Result<ConstantValue> evaluate_constant_conversion(GenerationContext context, ConstantValue value, Type value_type, FileRange value_range, Type type, FileRange type_range) {
@@ -737,7 +798,9 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
         case TypeCategory::Integer: {
             switch(type.category) {
                 case TypeCategory::Integer: {
-                    if(value_type.integer.is_signed) {
+                    if(value_type.integer.is_undetermined) {
+                        result.integer = value.integer;
+                    } else if(value_type.integer.is_signed) {
                         switch(value_type.integer.size) {
                             case RegisterSize::Size8: {
                                 result.integer = (int8_t)value.integer;
@@ -785,7 +848,9 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
                 } break;
 
                 case TypeCategory::Pointer: {
-                    if(value.type.integer.size == context.address_integer_size) {
+                    if(value.type.integer.is_undetermined) {
+                        result.pointer = value.integer;
+                    } else if(value.type.integer.size == context.address_integer_size) {
                         result.pointer = value.integer;
                     } else {
                         error(value_range, "Cannot cast from %s to pointer", type_description(value_type));
@@ -946,10 +1011,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
         case ExpressionType::IntegerLiteral: {
             Type type;
             type.category = TypeCategory::Integer;
-            type.integer = {
-                context->default_integer_size,
-                true
-            };
+            type.integer.is_undetermined = true;
 
             ConstantValue value;
             value.integer = expression.integer_literal;
@@ -972,54 +1034,93 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
             auto elements = allocate<ConstantValue>(expression.array_literal.count);
 
-            Type element_type;
-            for(size_t i = 0; i < expression.array_literal.count; i += 1) {
-                expect(element, evaluate_constant_expression(context, expression.array_literal[i]));
+            expect(first_element, evaluate_constant_expression(context, expression.array_literal[0]));
+            elements[0] = first_element.value;
 
-                if(i == 0) {
-                    element_type = element.type;
-                }
+            switch(first_element.type.category) {
+                case TypeCategory::Integer: {
+                    auto element_type = first_element.type;
 
-                if(!types_equal(element_type, element.type)) {
-                    error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.type));
+                    for(size_t i = 1; i < expression.array_literal.count; i += 1) {
+                        expect(element, evaluate_constant_expression(context, expression.array_literal[i]));
 
-                    return { false };
-                }
+                        if(element.type.category != TypeCategory::Integer) {
+                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.type));
 
-                elements[i] = element.value;
-            }
+                            return { false };
+                        }
 
-            switch(element_type.category) {
-                case TypeCategory::Integer:
+                        if(element_type.integer.is_undetermined) {
+                            if(!element.type.integer.is_undetermined) {
+                                element_type = element.type;
+                            }
+                        } else if(element.type.integer.size != element_type.integer.size || element.type.integer.is_signed != element_type.integer.is_signed) {
+                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.type));
+
+                            return { false };
+                        }
+
+                        elements[i] = element.value;
+                    }
+
+                    Type type;
+                    type.category = TypeCategory::StaticArray;
+                    type.static_array = {
+                        expression.array_literal.count,
+                        heapify(type)
+                    };
+
+                    ConstantValue value;
+                    value.static_array = elements;
+
+                    return {
+                        true,
+                        {
+                            type,
+                            value
+                        }
+                    };
+                } break;
+
                 case TypeCategory::Boolean:
                 case TypeCategory::Pointer: {
+                    for(size_t i = 1; i < expression.array_literal.count; i += 1) {
+                        expect(element, evaluate_constant_expression(context, expression.array_literal[i]));
 
+                        if(!types_equal(first_element.type, element.type)) {
+                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(first_element.type), type_description(element.type));
+
+                            return { false };
+                        }
+
+                        elements[i] = element.value;
+                    }
+
+                    Type type;
+                    type.category = TypeCategory::StaticArray;
+                    type.static_array = {
+                        expression.array_literal.count,
+                        heapify(first_element.type)
+                    };
+
+                    ConstantValue value;
+                    value.static_array = elements;
+
+                    return {
+                        true,
+                        {
+                            type,
+                            value
+                        }
+                    };
                 } break;
 
                 default: {
-                    error(expression.range, "Cannot have arrays of type %s", type_description(element_type));
+                    error(expression.range, "Cannot have arrays of type %s", type_description(first_element.type));
 
                     return { false };
                 } break;
             }
-
-            Type type;
-            type.category = TypeCategory::StaticArray;
-            type.static_array = {
-                expression.array_literal.count,
-                heapify(element_type)
-            };
-
-            ConstantValue value;
-            value.static_array = elements;
-
-            return {
-                true,
-                {
-                    type,
-                    value
-                }
-            };
         } break;
 
         case ExpressionType::FunctionCall: {
@@ -1034,6 +1135,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             expect(right, evaluate_constant_expression(context, *expression.binary_operation.right));
 
             expect(value, evaluate_constant_binary_operation(
+                *context,
                 expression.binary_operation.binary_operator,
                 expression.range,
                 left.type,
@@ -1504,14 +1606,14 @@ static size_t generate_pointer_register_value(GenerationContext *context, List<I
     }
 }
 
-static size_t generate_integer_register_value(GenerationContext *context, List<Instruction> *instructions, ExpressionValue value) {
+static size_t generate_integer_register_value(GenerationContext *context, List<Instruction> *instructions, RegisterSize actual_size, ExpressionValue value) {
     switch(value.category) {
         case ExpressionValueCategory::Constant: {
             auto register_index = allocate_register(context);
 
             Instruction constant;
             constant.type = InstructionType::Constant;
-            constant.constant.size = value.type.integer.size;
+            constant.constant.size = actual_size;
             constant.constant.destination_register = register_index;
             constant.constant.value = value.constant.integer;
 
@@ -1529,7 +1631,7 @@ static size_t generate_integer_register_value(GenerationContext *context, List<I
 
             Instruction load;
             load.type = InstructionType::LoadInteger;
-            load.load_integer.size = value.type.integer.size;
+            load.load_integer.size = actual_size;
             load.load_integer.address_register = value.address;
             load.load_integer.destination_register = register_index;
 
@@ -1542,6 +1644,10 @@ static size_t generate_integer_register_value(GenerationContext *context, List<I
             abort();
         } break;
     }
+}
+
+static size_t generate_integer_register_value(GenerationContext *context, List<Instruction> *instructions, ExpressionValue value) {
+    return generate_integer_register_value(context, instructions, value.type.integer.size, value);
 }
 
 template <typename T>
@@ -1954,151 +2060,6 @@ static void generate_variable_assignment(GenerationContext *context, List<Instru
                     copy.copy_memory.destination_address_register = address_register;
 
                     append(instructions, copy);
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-}
-
-static size_t generate_function_parameter_or_return_register(GenerationContext *context, List<Instruction> *instructions, ExpressionValue value) {
-    switch(value.type.category) {
-        case TypeCategory::Integer: {
-            return generate_integer_register_value(context, instructions, value);
-        } break;
-
-        case TypeCategory::Boolean: {
-            return generate_boolean_register_value(context, instructions, value);
-        } break;
-
-        case TypeCategory::Pointer: {
-            return generate_pointer_register_value(context, instructions, value);
-        } break;
-
-        case TypeCategory::Array: {
-            switch(value.category) {
-                case ExpressionValueCategory::Constant: {
-                    auto local_register = allocate_register(context);
-
-                    Instruction alloc;
-                    alloc.type = InstructionType::AllocateLocal;
-                    alloc.allocate_local.size = register_size_to_byte_size(context->address_integer_size);
-                    alloc.allocate_local.destination_register = local_register;
-
-                    append(instructions, alloc);
-
-                    auto pointer_register = allocate_register(context);
-
-                    Instruction pointer_constant;
-                    pointer_constant.type = InstructionType::Constant;
-                    pointer_constant.constant.size = context->address_integer_size;
-                    pointer_constant.constant.destination_register = pointer_register;
-                    pointer_constant.constant.value = value.constant.array.pointer;
-
-                    append(instructions, pointer_constant);
-
-                    Instruction store_pointer;
-                    store_pointer.type = InstructionType::StoreInteger;
-                    store_pointer.store_integer.size = context->address_integer_size;
-                    store_pointer.store_integer.source_register = pointer_register;
-                    store_pointer.store_integer.address_register = local_register;
-
-                    append(instructions, store_pointer);
-
-                    auto offset_register = allocate_register(context);
-
-                    Instruction size_constant;
-                    size_constant.type = InstructionType::Constant;
-                    size_constant.constant.size = context->address_integer_size;
-                    size_constant.constant.destination_register = offset_register;
-                    size_constant.constant.value = register_size_to_byte_size(context->address_integer_size);
-
-                    append(instructions, size_constant);
-
-                    auto length_register = allocate_register(context);
-
-                    Instruction length_constant;
-                    length_constant.type = InstructionType::Constant;
-                    length_constant.constant.size = context->address_integer_size;
-                    length_constant.constant.destination_register = pointer_register;
-                    length_constant.constant.value = value.constant.array.length;
-
-                    append(instructions, length_constant);
-
-                    auto length_address_register = allocate_register(context);
-
-                    Instruction add;
-                    add.type = InstructionType::BinaryOperation;
-                    add.binary_operation.type = BinaryOperationType::Add;
-                    add.binary_operation.size = context->address_integer_size;
-                    add.binary_operation.source_register_a = local_register;
-                    add.binary_operation.source_register_b = offset_register;
-                    add.binary_operation.destination_register = length_address_register;
-
-                    append(instructions, add);
-
-                    Instruction store_length;
-                    store_length.type = InstructionType::StoreInteger;
-                    store_length.store_integer.size = context->address_integer_size;
-                    store_length.store_integer.source_register = length_register;
-                    store_length.store_integer.address_register = length_address_register;
-
-                    append(instructions, store_length);
-
-                    return local_register;
-                } break;
-
-                case ExpressionValueCategory::Register: {
-                    return value.register_;
-                } break;
-
-                case ExpressionValueCategory::Address: {
-                    return value.address;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-        } break;
-
-        case TypeCategory::StaticArray: {
-            switch(value.category) {
-                case ExpressionValueCategory::Constant: {
-                    auto constant_name = register_static_array_constant(
-                        context,
-                        *value.type.static_array.type,
-                        Array<ConstantValue> {
-                            value.type.static_array.length,
-                            value.constant.static_array
-                        }
-                    );
-
-                    auto constant_address_register = allocate_register(context);
-
-                    Instruction reference;
-                    reference.type = InstructionType::ReferenceStatic;
-                    reference.reference_static.name = constant_name;
-                    reference.reference_static.destination_register = constant_address_register;
-
-                    append(instructions, reference);
-
-                    return constant_address_register;
-                } break;
-
-                case ExpressionValueCategory::Register: {
-                    return value.register_;
-                } break;
-
-                case ExpressionValueCategory::Address: {
-                    return value.address;
                 } break;
 
                 default: {
@@ -2643,10 +2604,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             ExpressionValue value;
             value.category = ExpressionValueCategory::Constant;
             value.type.category = TypeCategory::Integer;
-            value.type.integer = {
-                context->default_integer_size,
-                true
-            };
+            value.type.integer.is_undetermined = true;
             value.constant.integer = expression.integer_literal;
 
             return {
@@ -2663,45 +2621,70 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             }
 
             auto element_values = allocate<ExpressionValue>(expression.array_literal.count);
+            expect(first_element_value, generate_expression(context, instructions, expression.array_literal[0]));
+            element_values[0] = first_element_value;
 
-            Type element_type;
-            for(size_t i = 0; i < expression.array_literal.count; i += 1) {
-                expect(element_value, generate_expression(context, instructions, expression.array_literal[i]));
+            auto all_constant = first_element_value.category == ExpressionValueCategory::Constant;
+            auto element_type = first_element_value.type;
+            switch(first_element_value.type.category) {
+                case TypeCategory::Integer: {
+                    for(size_t i = 1; i < expression.array_literal.count; i += 1) {
+                        expect(element_value, generate_expression(context, instructions, expression.array_literal[i]));
 
-                if(i == 0) {
-                    element_type = element_value.type;
-                }
+                        if(element_value.category != ExpressionValueCategory::Constant) {
+                            all_constant = false;
+                        }
 
-                if(!types_equal(element_type, element_value.type)) {
-                    error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
+                        if(element_value.type.category != TypeCategory::Integer) {
+                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
 
-                    return { false };
-                }
+                            return { false };
+                        }
 
-                element_values[i] = element_value;
-            }
+                        if(element_type.integer.is_undetermined) {
+                            if(!element_value.type.integer.is_undetermined) {
+                                element_type = element_value.type;
+                            }
+                        } else if(element_value.type.integer.size != element_type.integer.size || element_value.type.integer.is_signed != element_type.integer.is_signed) {
+                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
 
-            switch(element_type.category) {
-                case TypeCategory::Integer:
+                            return { false };
+                        }
+
+                        element_values[i] = element_value;
+                    }
+
+                    if(element_type.integer.is_undetermined) {
+                        element_type.integer.size = context->default_integer_size;
+                        element_type.integer.is_signed = true;
+                        element_type.integer.is_undetermined = false;
+                    }
+                } break;
+
                 case TypeCategory::Boolean:
                 case TypeCategory::Pointer: {
+                    for(size_t i = 0; i < expression.array_literal.count; i += 1) {
+                        expect(element_value, generate_expression(context, instructions, expression.array_literal[i]));
 
+                        if(element_value.category != ExpressionValueCategory::Constant) {
+                            all_constant = false;
+                        }
+
+                        if(!types_equal(element_type, element_value.type)) {
+                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
+
+                            return { false };
+                        }
+
+                        element_values[i] = element_value;
+                    }
                 } break;
 
                 default: {
-                    error(expression.range, "Cannot have arrays of type %s", type_description(element_type));
+                    error(expression.range, "Cannot have arrays of type %s", type_description(first_element_value.type));
 
                     return { false };
                 } break;
-            }
-
-            auto all_constant = true;
-            for(size_t i = 0; i < expression.array_literal.count; i += 1) {
-                if(element_values[i].category != ExpressionValueCategory::Constant) {
-                    all_constant = false;
-
-                    break;
-                }
             }
 
             if(all_constant) {
@@ -2818,24 +2801,25 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 return { false };
             }
 
+            if(expression.function_call.parameters.count != expression_value.type.function.parameters.count) {
+                error(expression.range, "Incorrect number of parameters. Expected %zu, got %zu", expression_value.type.function.parameters.count, expression.function_call.parameters.count);
+
+                return { false };
+            }
+
+            auto parameter_count = expression.function_call.parameters.count;
+
             auto function_declaration = expression_value.constant.function.declaration.function_declaration;
 
-            auto function_parameter_registers = allocate<size_t>(expression.function_call.parameters.count);
-
             const char *function_name;
-            Type *function_parameters;
+            auto function_parameter_values = allocate<ExpressionValue>(parameter_count);
+            Type *function_parameter_types;
             Type function_return_type;
 
             if(expression_value.type.function.is_polymorphic) {
-                if(expression.function_call.parameters.count != function_declaration.parameters.count) {
-                    error(expression.range, "Incorrect number of parameters. Expected %zu, got %zu", function_declaration.parameters.count, expression.function_call.parameters.count);
-
-                    return { false };
-                }
-
                 List<PolymorphicDeterminer> polymorphic_determiners{};
 
-                for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
+                for(size_t i = 0; i < parameter_count; i += 1) {
                     auto parameter = function_declaration.parameters[i];
 
                     if(parameter.is_polymorphic_determiner) {
@@ -2849,28 +2833,33 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                         expect(value, generate_expression(context, instructions, expression.function_call.parameters[i]));
 
-                        auto register_index = generate_function_parameter_or_return_register(context, instructions, value);
+                        Type actual_type;
+                        if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
+                            
+                        } else {
+                            actual_type = value.type;
+                        }
 
                         append(&polymorphic_determiners, {
                             parameter.polymorphic_determiner.text,
-                            value.type
+                            actual_type
                         });
 
-                        function_parameter_registers[i] = register_index;
+                        function_parameter_values[i] = value;
                     }
                 }
 
-                function_parameters = allocate<Type>(expression.function_call.parameters.count);
+                function_parameter_types = allocate<Type>(parameter_count);
 
                 context->polymorphic_determiners = to_array(polymorphic_determiners);
 
-                for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
+                for(size_t i = 0; i < parameter_count; i += 1) {
                     auto parameter = function_declaration.parameters[i];
 
                     if(parameter.is_polymorphic_determiner) {
                         for(auto polymorphic_determiner : polymorphic_determiners) {
                             if(strcmp(polymorphic_determiner.name, parameter.polymorphic_determiner.text) == 0) {
-                                function_parameters[i] = polymorphic_determiner.type;
+                                function_parameter_types[i] = polymorphic_determiner.type;
                             }
 
                             break;
@@ -2878,11 +2867,11 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     } else {
                         expect(type, evaluate_type_expression(context, parameter.type));
 
-                        function_parameters[i] = type;
+                        function_parameter_types[i] = type;
 
                         expect(value, generate_expression(context, instructions, expression.function_call.parameters[i]));
 
-                        function_parameter_registers[i] = generate_function_parameter_or_return_register(context, instructions, value);
+                        function_parameter_values[i] = value;
                     }
                 }
 
@@ -2911,7 +2900,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
                     runtime_function_parameters[i] = {
                         function_declaration.parameters[i].name,
-                        function_parameters[i],
+                        function_parameter_types[i],
                         expression_value.constant.function.declaration.function_declaration.parameters[i].type.range
                     };
                 }
@@ -2936,21 +2925,15 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     return { false };
                 }
             } else {
-                if(expression.function_call.parameters.count != expression_value.type.function.parameters.count) {
-                    error(expression.range, "Incorrect number of parameters. Expected %zu, got %zu", expression_value.type.function.parameters.count, expression.function_call.parameters.count);
-
-                    return { false };
-                }
-
                 for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
                     char *parameter_source{};
                     expect(value, generate_expression(context, instructions, expression.function_call.parameters[i]));
 
-                    function_parameter_registers[i] = generate_function_parameter_or_return_register(context, instructions, value);
+                    function_parameter_values[i] = value;
                 }
 
                 function_name = generate_mangled_name(*context, expression_value.constant.function.declaration);
-                function_parameters = expression_value.type.function.parameters.elements;
+                function_parameter_types = expression_value.type.function.parameters.elements;
                 function_return_type = *expression_value.type.function.return_type;
 
                 auto is_registered = false;
@@ -2968,7 +2951,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
                         runtime_function_parameters[i] = {
                             function_declaration.parameters[i].name,
-                            function_parameters[i]
+                            function_parameter_types[i]
                         };
                     }
 
@@ -2994,6 +2977,197 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 }
             }
 
+            auto function_parameter_registers = allocate<size_t>(parameter_count);
+
+            for(size_t i = 0; i < parameter_count; i += 1) {
+                auto value = function_parameter_values[i];
+
+                switch(value.type.category) {
+                    case TypeCategory::Integer: {
+                        if(function_parameter_types[i].category != TypeCategory::Integer) {
+                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+
+                            return { false };
+                        }
+
+                        if(value.type.integer.is_undetermined) {
+                            function_parameter_registers[i] = generate_integer_register_value(context, instructions, function_parameter_types[i].integer.size, value);
+                        } else if(value.type.integer.size == function_parameter_types[i].integer.size && value.type.integer.is_signed == function_parameter_types[i].integer.is_signed) {
+                            function_parameter_registers[i] = generate_integer_register_value(context, instructions, value);
+                        } else {
+                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+
+                            return { false };
+                        }
+                    } break;
+
+                    case TypeCategory::Boolean: {
+                        if(function_parameter_types[i].category != TypeCategory::Boolean) {
+                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+
+                            return { false };
+                        }
+
+                        function_parameter_registers[i] = generate_boolean_register_value(context, instructions, value);
+                    } break;
+
+                    case TypeCategory::Pointer: {
+                        if(function_parameter_types[i].category != TypeCategory::Pointer || !types_equal(*value.type.pointer, *function_parameter_types[i].pointer)) {
+                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+
+                            return { false };
+                        }
+
+                        function_parameter_registers[i] = generate_pointer_register_value(context, instructions, value);
+                    } break;
+
+                    case TypeCategory::Array: {
+                        if(function_parameter_types[i].category != TypeCategory::Array || !types_equal(*value.type.array, *function_parameter_types[i].array)) {
+                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+
+                            return { false };
+                        }
+
+                        switch(value.category) {
+                            case ExpressionValueCategory::Constant: {
+                                auto local_register = allocate_register(context);
+
+                                Instruction alloc;
+                                alloc.type = InstructionType::AllocateLocal;
+                                alloc.allocate_local.size = register_size_to_byte_size(context->address_integer_size);
+                                alloc.allocate_local.destination_register = local_register;
+
+                                append(instructions, alloc);
+
+                                auto pointer_register = allocate_register(context);
+
+                                Instruction pointer_constant;
+                                pointer_constant.type = InstructionType::Constant;
+                                pointer_constant.constant.size = context->address_integer_size;
+                                pointer_constant.constant.destination_register = pointer_register;
+                                pointer_constant.constant.value = value.constant.array.pointer;
+
+                                append(instructions, pointer_constant);
+
+                                Instruction store_pointer;
+                                store_pointer.type = InstructionType::StoreInteger;
+                                store_pointer.store_integer.size = context->address_integer_size;
+                                store_pointer.store_integer.source_register = pointer_register;
+                                store_pointer.store_integer.address_register = local_register;
+
+                                append(instructions, store_pointer);
+
+                                auto offset_register = allocate_register(context);
+
+                                Instruction size_constant;
+                                size_constant.type = InstructionType::Constant;
+                                size_constant.constant.size = context->address_integer_size;
+                                size_constant.constant.destination_register = offset_register;
+                                size_constant.constant.value = register_size_to_byte_size(context->address_integer_size);
+
+                                append(instructions, size_constant);
+
+                                auto length_register = allocate_register(context);
+
+                                Instruction length_constant;
+                                length_constant.type = InstructionType::Constant;
+                                length_constant.constant.size = context->address_integer_size;
+                                length_constant.constant.destination_register = pointer_register;
+                                length_constant.constant.value = value.constant.array.length;
+
+                                append(instructions, length_constant);
+
+                                auto length_address_register = allocate_register(context);
+
+                                Instruction add;
+                                add.type = InstructionType::BinaryOperation;
+                                add.binary_operation.type = BinaryOperationType::Add;
+                                add.binary_operation.size = context->address_integer_size;
+                                add.binary_operation.source_register_a = local_register;
+                                add.binary_operation.source_register_b = offset_register;
+                                add.binary_operation.destination_register = length_address_register;
+
+                                append(instructions, add);
+
+                                Instruction store_length;
+                                store_length.type = InstructionType::StoreInteger;
+                                store_length.store_integer.size = context->address_integer_size;
+                                store_length.store_integer.source_register = length_register;
+                                store_length.store_integer.address_register = length_address_register;
+
+                                append(instructions, store_length);
+
+                                function_parameter_registers[i] = local_register;
+                            } break;
+
+                            case ExpressionValueCategory::Register: {
+                                function_parameter_registers[i] = value.register_;
+                            } break;
+
+                            case ExpressionValueCategory::Address: {
+                                function_parameter_registers[i] = value.address;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+                    } break;
+
+                    case TypeCategory::StaticArray: {
+                        if(
+                            function_parameter_types[i].category != TypeCategory::StaticArray ||
+                            !types_equal(*value.type.static_array.type, *function_parameter_types[i].static_array.type) ||
+                            value.type.static_array.length != function_parameter_types[i].static_array.length
+                        ) {
+                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+
+                            return { false };
+                        }
+
+                        switch(value.category) {
+                            case ExpressionValueCategory::Constant: {
+                                auto constant_name = register_static_array_constant(
+                                    context,
+                                    *value.type.static_array.type,
+                                    Array<ConstantValue> {
+                                        value.type.static_array.length,
+                                        value.constant.static_array
+                                    }
+                                );
+
+                                auto constant_address_register = allocate_register(context);
+
+                                Instruction reference;
+                                reference.type = InstructionType::ReferenceStatic;
+                                reference.reference_static.name = constant_name;
+                                reference.reference_static.destination_register = constant_address_register;
+
+                                append(instructions, reference);
+
+                                function_parameter_registers[i] = constant_address_register;
+                            } break;
+
+                            case ExpressionValueCategory::Register: {
+                                function_parameter_registers[i] = value.register_;
+                            } break;
+
+                            case ExpressionValueCategory::Address: {
+                                function_parameter_registers[i] = value.address;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            }
+
             bool has_return;
             size_t return_register;
 
@@ -3001,7 +3175,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             call.type = InstructionType::FunctionCall;
             call.function_call.function_name = function_name;
             call.function_call.parameter_registers = {
-                expression.function_call.parameters.count,
+                parameter_count,
                 function_parameter_registers
             };
 
@@ -3111,6 +3285,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
             if(left.category == ExpressionValueCategory::Constant && right.category == ExpressionValueCategory::Constant) {
                 expect(constant, evaluate_constant_binary_operation(
+                    *context,
                     expression.binary_operation.binary_operator,
                     expression.range,
                     left.type,
@@ -3129,12 +3304,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     value
                 };
             } else {
-                if(!types_equal(left.type, right.type)) {
-                    error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
-
-                    return { false };
-                }
-
                 auto result_register = allocate_register(context);
 
                 Instruction operation;
@@ -3144,21 +3313,44 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 Type result_type;
                 switch(left.type.category) {
                     case TypeCategory::Integer: {
-                        operation.binary_operation.size = left.type.integer.size;
-                        operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, left);
-                        operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, right);
+                        if(right.type.category != TypeCategory::Integer) {
+                            error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
+
+                            return { false };
+                        }
+
+                        Type actual_type;
+
+                        if(left.type.integer.is_undetermined && right.type.integer.is_undetermined) {
+                            actual_type.category = TypeCategory::Integer;
+                            actual_type.integer.size = context->default_integer_size;
+                            actual_type.integer.is_signed = true;
+                            actual_type.integer.is_undetermined = false;
+                        } else if(left.type.integer.is_undetermined) {
+                            actual_type = right.type;
+                        } else if(right.type.integer.is_undetermined) {
+                            actual_type = left.type;
+                        } else if (left.type.integer.size != right.type.integer.size || left.type.integer.is_signed != right.type.integer.is_signed) {
+                            error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
+
+                            return { false };
+                        }
+
+                        operation.binary_operation.size = actual_type.integer.size;
+                        operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                        operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
 
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Addition: {
                                 operation.binary_operation.type = BinaryOperationType::Add;
 
-                                result_type = left.type;
+                                result_type = actual_type;
                             } break;
 
                             case BinaryOperator::Subtraction: {
                                 operation.binary_operation.type = BinaryOperationType::Subtract;
 
-                                result_type = left.type;
+                                result_type = actual_type;
                             } break;
 
                             case BinaryOperator::Multiplication: {
@@ -3168,7 +3360,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                     operation.binary_operation.type = BinaryOperationType::UnsignedMultiply;
                                 }
 
-                                result_type = left.type;
+                                result_type = actual_type;
                             } break;
 
                             case BinaryOperator::Division: {
@@ -3178,7 +3370,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                     operation.binary_operation.type = BinaryOperationType::UnsignedDivide;
                                 }
 
-                                result_type = left.type;
+                                result_type = actual_type;
                             } break;
 
                             case BinaryOperator::Modulo: {
@@ -3188,7 +3380,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                     operation.binary_operation.type = BinaryOperationType::UnsignedModulus;
                                 }
 
-                                result_type = left.type;
+                                result_type = actual_type;
                             } break;
 
                             case BinaryOperator::Equal: {
@@ -3206,6 +3398,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     } break;
 
                     case TypeCategory::Boolean: {
+                        if(right.type.category != TypeCategory::Boolean) {
+                            error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
+
+                            return { false };
+                        }
+
                         result_type.category = TypeCategory::Boolean;
 
                         switch(expression.binary_operation.binary_operator) {
@@ -3345,11 +3543,13 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     size_t result_register_index;
                     switch(expression_value.type.category) {
                         case TypeCategory::Integer: {
-                            auto register_index = generate_integer_register_value(context, instructions, expression_value);
-
                             switch(type.category) {
                                 case TypeCategory::Integer: {
-                                    if(type.integer.size > expression_value.type.integer.size) {
+                                    if(expression_value.type.integer.is_undetermined) {
+                                        result_register_index = generate_integer_register_value(context, instructions, type.integer.size, expression_value);
+                                    } else if(type.integer.size > expression_value.type.integer.size) {
+                                        auto register_index = generate_integer_register_value(context, instructions, expression_value);
+
                                         result_register_index = allocate_register(context);
 
                                         Instruction integer_upcast;
@@ -3362,18 +3562,24 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                                         append(instructions, integer_upcast);
                                     } else {
-                                        result_register_index = register_index;
+                                        result_register_index = generate_integer_register_value(context, instructions, expression_value);
                                     }
                                 } break;
 
                                 case TypeCategory::Pointer: {
-                                    if(expression_value.type.integer.size != context->address_integer_size) {
-                                        error(expression.cast.expression->range, "Cannot cast from %s to pointer", type_description(expression_value.type));
+                                    if(expression_value.type.integer.is_undetermined) {
+                                        result_register_index = generate_integer_register_value(context, instructions, context->address_integer_size, expression_value);
+                                    } else {
+                                        auto register_index = generate_integer_register_value(context, instructions, expression_value);
 
-                                        return { false };
+                                        if(expression_value.type.integer.size != context->address_integer_size) {
+                                            error(expression.cast.expression->range, "Cannot cast from %s to pointer", type_description(expression_value.type));
+
+                                            return { false };
+                                        }
+
+                                        result_register_index = register_index;
                                     }
-
-                                    result_register_index = register_index;
                                 } break;
 
                                 default: {
@@ -3679,15 +3885,193 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
         case StatementType::Return: {
             expect(value, generate_expression(context, instructions, statement._return));
 
-            if(!types_equal(context->return_type, value.type)) {
-                error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
-
-                return { false };
-            }
-
             Instruction return_;
             return_.type = InstructionType::Return;
-            return_.return_.value_register = generate_function_parameter_or_return_register(context, instructions, value);
+
+            switch(value.type.category) {
+                case TypeCategory::Integer: {
+                    if(context->return_type.category != TypeCategory::Integer) {
+                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+
+                        return { false };
+                    }
+
+                    if(value.type.integer.is_undetermined) {
+                        return_.return_.value_register = generate_integer_register_value(context, instructions, context->return_type.integer.size, value);
+                    } else if(value.type.integer.size == context->return_type.integer.size && value.type.integer.is_signed == context->return_type.integer.is_signed) {
+                        return_.return_.value_register = generate_integer_register_value(context, instructions, value);
+                    } else {
+                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+
+                        return { false };
+                    }
+                } break;
+
+                case TypeCategory::Boolean: {
+                    if(context->return_type.category != TypeCategory::Boolean) {
+                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+
+                        return { false };
+                    }
+
+                    return_.return_.value_register = generate_boolean_register_value(context, instructions, value);
+                } break;
+
+                case TypeCategory::Pointer: {
+                    if(context->return_type.category != TypeCategory::Pointer || !types_equal(*value.type.pointer, *context->return_type.pointer)) {
+                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+
+                        return { false };
+                    }
+
+                    return_.return_.value_register = generate_pointer_register_value(context, instructions, value);
+                } break;
+
+                case TypeCategory::Array: {
+                    if(context->return_type.category != TypeCategory::Array || !types_equal(*value.type.array, *context->return_type.array)) {
+                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+
+                        return { false };
+                    }
+
+                    switch(value.category) {
+                        case ExpressionValueCategory::Constant: {
+                            auto local_register = allocate_register(context);
+
+                            Instruction alloc;
+                            alloc.type = InstructionType::AllocateLocal;
+                            alloc.allocate_local.size = register_size_to_byte_size(context->address_integer_size);
+                            alloc.allocate_local.destination_register = local_register;
+
+                            append(instructions, alloc);
+
+                            auto pointer_register = allocate_register(context);
+
+                            Instruction pointer_constant;
+                            pointer_constant.type = InstructionType::Constant;
+                            pointer_constant.constant.size = context->address_integer_size;
+                            pointer_constant.constant.destination_register = pointer_register;
+                            pointer_constant.constant.value = value.constant.array.pointer;
+
+                            append(instructions, pointer_constant);
+
+                            Instruction store_pointer;
+                            store_pointer.type = InstructionType::StoreInteger;
+                            store_pointer.store_integer.size = context->address_integer_size;
+                            store_pointer.store_integer.source_register = pointer_register;
+                            store_pointer.store_integer.address_register = local_register;
+
+                            append(instructions, store_pointer);
+
+                            auto offset_register = allocate_register(context);
+
+                            Instruction size_constant;
+                            size_constant.type = InstructionType::Constant;
+                            size_constant.constant.size = context->address_integer_size;
+                            size_constant.constant.destination_register = offset_register;
+                            size_constant.constant.value = register_size_to_byte_size(context->address_integer_size);
+
+                            append(instructions, size_constant);
+
+                            auto length_register = allocate_register(context);
+
+                            Instruction length_constant;
+                            length_constant.type = InstructionType::Constant;
+                            length_constant.constant.size = context->address_integer_size;
+                            length_constant.constant.destination_register = pointer_register;
+                            length_constant.constant.value = value.constant.array.length;
+
+                            append(instructions, length_constant);
+
+                            auto length_address_register = allocate_register(context);
+
+                            Instruction add;
+                            add.type = InstructionType::BinaryOperation;
+                            add.binary_operation.type = BinaryOperationType::Add;
+                            add.binary_operation.size = context->address_integer_size;
+                            add.binary_operation.source_register_a = local_register;
+                            add.binary_operation.source_register_b = offset_register;
+                            add.binary_operation.destination_register = length_address_register;
+
+                            append(instructions, add);
+
+                            Instruction store_length;
+                            store_length.type = InstructionType::StoreInteger;
+                            store_length.store_integer.size = context->address_integer_size;
+                            store_length.store_integer.source_register = length_register;
+                            store_length.store_integer.address_register = length_address_register;
+
+                            append(instructions, store_length);
+
+                            return_.return_.value_register = local_register;
+                        } break;
+
+                        case ExpressionValueCategory::Register: {
+                            return_.return_.value_register = value.register_;
+                        } break;
+
+                        case ExpressionValueCategory::Address: {
+                            return_.return_.value_register = value.address;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } break;
+
+                case TypeCategory::StaticArray: {
+                    if(
+                        context->return_type.category != TypeCategory::StaticArray ||
+                        !types_equal(*value.type.static_array.type, *context->return_type.static_array.type) ||
+                        value.type.static_array.length != context->return_type.static_array.length
+                    ) {
+                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+
+                        return { false };
+                    }
+
+                    switch(value.category) {
+                        case ExpressionValueCategory::Constant: {
+                            auto constant_name = register_static_array_constant(
+                                context,
+                                *value.type.static_array.type,
+                                Array<ConstantValue> {
+                                    value.type.static_array.length,
+                                    value.constant.static_array
+                                }
+                            );
+
+                            auto constant_address_register = allocate_register(context);
+
+                            Instruction reference;
+                            reference.type = InstructionType::ReferenceStatic;
+                            reference.reference_static.name = constant_name;
+                            reference.reference_static.destination_register = constant_address_register;
+
+                            append(instructions, reference);
+
+                            return_.return_.value_register = constant_address_register;
+                        } break;
+
+                        case ExpressionValueCategory::Register: {
+                            return_.return_.value_register = value.register_;
+                        } break;
+
+                        case ExpressionValueCategory::Address: {
+                            return_.return_.value_register = value.address;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
 
             append(instructions, return_);
 

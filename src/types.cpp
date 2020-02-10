@@ -30,7 +30,7 @@ bool types_equal(Type a, Type b) {
         } break;
         
         case TypeCategory::Integer: {
-            return a.integer.size == b.integer.size && (a.integer.is_signed == a.integer.is_signed);
+            return a.integer.size == b.integer.size && (a.integer.is_signed == b.integer.is_signed);
         } break;
 
         case TypeCategory::Pointer: {
@@ -85,7 +85,9 @@ const char *type_description(Type type) {
         } break;
         
         case TypeCategory::Integer: {
-            if(type.integer.is_signed) {
+            if(type.integer.is_undetermined) {
+                return "{integer}";
+            } else if(type.integer.is_signed) {
                 switch(type.integer.size) {
                     case RegisterSize::Size8: {
                         return "i8";

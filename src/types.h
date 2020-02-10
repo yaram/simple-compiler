@@ -32,6 +32,8 @@ struct Type {
             RegisterSize size;
 
             bool is_signed;
+
+            bool is_undetermined;
         } integer;
 
         Type *pointer;
