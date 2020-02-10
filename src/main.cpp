@@ -193,7 +193,7 @@ int main(int argument_count, char *arguments[]) {
 
         char *command_buffer{};
 
-        string_buffer_append(&command_buffer, "clang -w -nostdinc -c -o ");
+        string_buffer_append(&command_buffer, "clang -ffreestanding -w -nostdinc -c -o ");
 
         string_buffer_append(&command_buffer, output_file_directory);
         string_buffer_append(&command_buffer, output_file_name);
