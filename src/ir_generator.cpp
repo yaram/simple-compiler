@@ -2835,7 +2835,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                         Type actual_type;
                         if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
-                            
+                            actual_type.category = TypeCategory::Integer;
+                            actual_type.integer = {
+                                context->default_integer_size,
+                                true,
+                                false
+                            };
                         } else {
                             actual_type = value.type;
                         }
