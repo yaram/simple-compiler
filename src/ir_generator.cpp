@@ -4257,97 +4257,140 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
                     context.determined_declaration = function.parent;
                 }
 
-                append(&context.variable_context_stack, List<Variable>{});
-
-                auto parameters = allocate<Variable>(function.parameters.count);
-                auto parameter_sizes = allocate<RegisterSize>(function.parameters.count);
-
-                for(size_t i = 0; i < function.parameters.count; i += 1) {
-                    auto parameter = function.parameters[i];
-
-                    parameters[i] = {
-                        parameter.name,
-                        parameter.type,
-                        parameter.type_range,
-                        i
-                    };
-
-                    auto size = get_type_size(context, parameter.type);
-
-                    switch(function.return_type.category) {
-                        case TypeCategory::Integer: {
-                            parameter_sizes[i] = function.return_type.integer.size;
-                        } break;
-
-                        case TypeCategory::Boolean: {
-                            parameter_sizes[i] = architecute_info.default_size;
-                        } break;
-
-                        case TypeCategory::Pointer: {
-                            parameter_sizes[i] = architecute_info.address_size;
-                        } break;
-
-                        case TypeCategory::Array: {
-                            parameter_sizes[i] = architecute_info.address_size;
-                        } break;
-
-                        case TypeCategory::StaticArray: {
-                            parameter_sizes[i] = architecute_info.address_size;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-                }
-
-                context.is_top_level = false;
-                context.determined_declaration = {
-                    function.declaration,
-                    function.polymorphic_determiners,
-                    heapify(function.parent)
-                };
-                context.parameters = {
-                    function.parameters.count,
-                    parameters
-                };
-                context.return_type = function.return_type;
-                context.next_register = function.parameters.count;
-
-                List<Instruction> instructions{};
-
-                for(auto statement : function.declaration.function_declaration.statements) {
-                    switch(statement.type) {
-                        case StatementType::Expression:
-                        case StatementType::VariableDeclaration:
-                        case StatementType::Assignment:
-                        case StatementType::LoneIf:
-                        case StatementType::WhileLoop:
-                        case StatementType::Return: {
-                            if(!generate_statement(&context, &instructions, statement)) {
-                                return { false };
-                            }
-                        } break;
-
-                        case StatementType::Library:
-                        case StatementType::Import: {
-                            error(statement.range, "Compiler directives only allowed in global scope");
-
-                            return { false };
-                        } break;
-                    }
-                }
-
-                context.variable_context_stack.count -= 1;
-                context.next_register = 0;
-
                 Function ir_function;
                 ir_function.name = function.mangled_name;
-                ir_function.parameter_sizes = {
-                    function.parameters.count,
-                    parameter_sizes
-                };
-                ir_function.instructions = to_array(instructions);
+
+                if(function.declaration.function_declaration.is_external) {
+                    ir_function.is_external = true;
+
+                    auto parameter_sizes = allocate<RegisterSize>(function.parameters.count);
+
+                    for(size_t i = 0; i < function.parameters.count; i += 1) {
+                        auto parameter = function.parameters[i];
+
+                        switch(parameter.type.category) {
+                            case TypeCategory::Integer: {
+                                parameter_sizes[i] = parameter.type.integer.size;
+                            } break;
+
+                            case TypeCategory::Boolean: {
+                                parameter_sizes[i] = architecute_info.default_size;
+                            } break;
+
+                            case TypeCategory::Pointer: {
+                                parameter_sizes[i] = architecute_info.address_size;
+                            } break;
+
+                            case TypeCategory::Array: {
+                                parameter_sizes[i] = architecute_info.address_size;
+                            } break;
+
+                            case TypeCategory::StaticArray: {
+                                parameter_sizes[i] = architecute_info.address_size;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+                    }
+
+                    ir_function.parameter_sizes = {
+                        function.parameters.count,
+                        parameter_sizes
+                    };
+                } else {
+                    ir_function.is_external = false;
+
+                    append(&context.variable_context_stack, List<Variable>{});
+
+                    auto parameters = allocate<Variable>(function.parameters.count);
+                    auto parameter_sizes = allocate<RegisterSize>(function.parameters.count);
+
+                    for(size_t i = 0; i < function.parameters.count; i += 1) {
+                        auto parameter = function.parameters[i];
+
+                        parameters[i] = {
+                            parameter.name,
+                            parameter.type,
+                            parameter.type_range,
+                            i
+                        };
+
+                        switch(parameter.type.category) {
+                            case TypeCategory::Integer: {
+                                parameter_sizes[i] = parameter.type.integer.size;
+                            } break;
+
+                            case TypeCategory::Boolean: {
+                                parameter_sizes[i] = architecute_info.default_size;
+                            } break;
+
+                            case TypeCategory::Pointer: {
+                                parameter_sizes[i] = architecute_info.address_size;
+                            } break;
+
+                            case TypeCategory::Array: {
+                                parameter_sizes[i] = architecute_info.address_size;
+                            } break;
+
+                            case TypeCategory::StaticArray: {
+                                parameter_sizes[i] = architecute_info.address_size;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+                    }
+
+                    ir_function.parameter_sizes = {
+                        function.parameters.count,
+                        parameter_sizes
+                    };
+
+                    context.is_top_level = false;
+                    context.determined_declaration = {
+                        function.declaration,
+                        function.polymorphic_determiners,
+                        heapify(function.parent)
+                    };
+                    context.parameters = {
+                        function.parameters.count,
+                        parameters
+                    };
+                    context.return_type = function.return_type;
+                    context.next_register = function.parameters.count;
+
+                    List<Instruction> instructions{};
+
+                    for(auto statement : function.declaration.function_declaration.statements) {
+                        switch(statement.type) {
+                            case StatementType::Expression:
+                            case StatementType::VariableDeclaration:
+                            case StatementType::Assignment:
+                            case StatementType::LoneIf:
+                            case StatementType::WhileLoop:
+                            case StatementType::Return: {
+                                if(!generate_statement(&context, &instructions, statement)) {
+                                    return { false };
+                                }
+                            } break;
+
+                            case StatementType::Library:
+                            case StatementType::Import: {
+                                error(statement.range, "Compiler directives only allowed in global scope");
+
+                                return { false };
+                            } break;
+                        }
+                    }
+
+                    context.variable_context_stack.count -= 1;
+                    context.next_register = 0;
+
+                    ir_function.instructions = to_array(instructions);
+                }
 
                 if(function.return_type.category != TypeCategory::Void) {
                     ir_function.has_return = true;

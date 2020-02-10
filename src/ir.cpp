@@ -198,25 +198,29 @@ void print_function(Function function) {
         printf(" %s", register_size_names[(int)function.return_size]);
     }
 
-    printf("\n");
+    if(function.is_external) {
+        printf(" extern");
+    } else {
+        printf("\n");
 
-    char buffer[20];
-    sprintf(buffer, "%zu", function.instructions.count - 1);
-    size_t max_index_digits = strlen(buffer);
+        char buffer[20];
+        sprintf(buffer, "%zu", function.instructions.count - 1);
+        size_t max_index_digits = strlen(buffer);
 
-    for(size_t i = 0; i < function.instructions.count; i += 1) {
-        auto index_digits = printf("%zu", i);
+        for(size_t i = 0; i < function.instructions.count; i += 1) {
+            auto index_digits = printf("%zu", i);
 
-        for(size_t j = 0; j < max_index_digits - index_digits; j += 1) {
-            printf(" ");
-        }
+            for(size_t j = 0; j < max_index_digits - index_digits; j += 1) {
+                printf(" ");
+            }
 
-        printf(" : ");
+            printf(" : ");
 
-        print_instruction(function.instructions[i]);
+            print_instruction(function.instructions[i]);
 
-        if(i != function.instructions.count - 1) {
-            printf("\n");
+            if(i != function.instructions.count - 1) {
+                printf("\n");
+            }
         }
     }
 }

@@ -143,6 +143,8 @@ struct Function {
     bool has_return;
     RegisterSize return_size;
 
+    bool is_external;
+
     Array<Instruction> instructions;
 };
 
