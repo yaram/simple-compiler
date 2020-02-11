@@ -1039,6 +1039,36 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                     }
                 } break;
 
+                case TypeCategory::StaticArray: {
+                    if(strcmp(expression.member_reference.name.text, "length") == 0) {
+                        Type type;
+                        type.category = TypeCategory::Integer;
+                        type.integer = {
+                            context->address_integer_size,
+                            false
+                        };
+
+                        ConstantValue value;
+                        value.integer = expression_value.type.static_array.length;
+
+                        return {
+                            true,
+                            {
+                                type,
+                                value
+                            }
+                        };
+                    } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
+                        error(expression.member_reference.name.range, "Cannot access the 'pointer' member in a constant context");
+
+                        return { false };
+                    } else {
+                        error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+
+                        return { false };
+                    }
+                } break;
+
                 case TypeCategory::FileModule: {
                     for(auto statement : expression_value.value.file_module) {
                         if(match_declaration(statement, expression.member_reference.name.text)) {
@@ -2770,6 +2800,74 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 abort();
                             } break;
                         }
+                    } else {
+                        error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+
+                        return { false };
+                    }
+                } break;
+
+                case TypeCategory::StaticArray: {
+                    if(strcmp(expression.member_reference.name.text, "length") == 0) {
+                        ExpressionValue value;
+                        value.category = ExpressionValueCategory::Constant;
+                        value.type.category = TypeCategory::Integer;
+                        value.type.integer = {
+                            context->address_integer_size,
+                            false
+                        };
+                        value.constant.integer = expression_value.type.static_array.length;
+
+                        return {
+                            true,
+                            value
+                        };
+                    } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
+                        ExpressionValue value;
+                        value.category = ExpressionValueCategory::Register;
+                        value.type.category = TypeCategory::Pointer;
+                        value.type.pointer = expression_value.type.static_array.type;
+
+                        switch(expression_value.category) {
+                            case ExpressionValueCategory::Constant: {
+                                auto constant_name = register_static_array_constant(
+                                    context,
+                                    *expression_value.type.static_array.type,
+                                    {
+                                        expression_value.type.static_array.length,
+                                        expression_value.constant.static_array
+                                    }
+                                );
+
+                                auto register_index = allocate_register(context);
+
+                                Instruction reference;
+                                reference.type = InstructionType::ReferenceStatic;
+                                reference.reference_static.name = constant_name;
+                                reference.reference_static.destination_register = register_index;
+
+                                append(instructions, reference);
+
+                                value.register_ = register_index;
+                            } break;
+
+                            case ExpressionValueCategory::Register: {
+                                value.register_ = expression_value.register_;
+                            } break;
+
+                            case ExpressionValueCategory::Address: {
+                                value.register_ = expression_value.address;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+
+                        return {
+                            true,
+                            value
+                        };
                     } else {
                         error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
 
