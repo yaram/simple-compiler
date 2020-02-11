@@ -3855,8 +3855,6 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     expect(initializer_value, generate_expression(context, instructions, statement.variable_declaration.type_elided));
 
-                    (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, initializer_value.type);
-
                     Type actual_type;
                     if(initializer_value.type.category == TypeCategory::Integer) {
                         if(initializer_value.type.integer.is_undetermined) {
@@ -3895,6 +3893,8 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                         generate_non_integer_variable_assignment(context, instructions, address_register, initializer_value);
                     }
+
+                    (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, actual_type);
 
                     if(!add_new_variable(context, statement.variable_declaration.name, address_register, actual_type, statement.variable_declaration.type_elided.range)) {
                         return false;
