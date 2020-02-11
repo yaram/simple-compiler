@@ -1190,6 +1190,25 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                     }
                 } break;
 
+                case UnaryOperator::Negation: {
+                    if(expression_value.type.category != TypeCategory::Integer) {
+                        error(expression.unary_operation.expression->range, "Expected an integer, got %s", type_description(expression_value.type));
+
+                        return { false };
+                    }
+
+                    ConstantValue value;
+                    value.integer = -expression_value.value.integer;
+
+                    return {
+                        true,
+                        {
+                            expression_value.type,
+                            value
+                        }
+                    };
+                } break;
+
                 default: {
                     abort();
                 } break;
@@ -3509,6 +3528,113 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         } break;
                     }
                 }
+
+                case UnaryOperator::Negation: {
+                    if(expression_value.type.category != TypeCategory::Integer) {
+                        error(expression.unary_operation.expression->range, "Expected an integer, got %s", type_description(expression_value.type));
+
+                        return { false };
+                    }
+
+                    switch(expression_value.category) {
+                        case ExpressionValueCategory::Constant: {
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Constant;
+                            value.type.category = TypeCategory::Integer;
+                            value.type.integer = expression_value.type.integer;
+                            value.constant.integer = -expression_value.constant.integer;
+
+                            return {
+                                true,
+                                value
+                            };
+                        } break;
+
+                        case ExpressionValueCategory::Register: {
+                            auto zero_register = allocate_register(context);
+
+                            Instruction constant;
+                            constant.type = InstructionType::Constant;
+                            constant.constant.size = expression_value.type.integer.size;
+                            constant.constant.destination_register = zero_register;
+                            constant.constant.value = 0;
+
+                            append(instructions, constant);
+
+                            auto result_register = allocate_register(context);
+
+                            Instruction subtract;
+                            subtract.type = InstructionType::BinaryOperation;
+                            subtract.binary_operation.type = BinaryOperationType::Subtract;
+                            subtract.binary_operation.size = expression_value.type.integer.size;
+                            subtract.binary_operation.source_register_a = zero_register;
+                            subtract.binary_operation.source_register_b = expression_value.register_;
+                            subtract.binary_operation.destination_register = result_register;
+
+                            append(instructions, subtract);
+
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Register;
+                            value.type.category = TypeCategory::Integer;
+                            value.type.integer = expression_value.type.integer;
+                            value.register_ = result_register;
+
+                            return {
+                                true,
+                                value
+                            };
+                        } break;
+
+                        case ExpressionValueCategory::Address: {
+                            auto value_register = allocate_register(context);
+
+                            Instruction load;
+                            load.type = InstructionType::LoadInteger;
+                            load.load_integer.size = expression_value.type.integer.size;
+                            load.load_integer.address_register = expression_value.address;
+                            load.load_integer.destination_register = value_register;
+
+                            append(instructions, load);
+
+                            auto zero_register = allocate_register(context);
+
+                            Instruction constant;
+                            constant.type = InstructionType::Constant;
+                            constant.constant.size = expression_value.type.integer.size;
+                            constant.constant.destination_register = zero_register;
+                            constant.constant.value = 0;
+
+                            append(instructions, constant);
+
+                            auto result_register = allocate_register(context);
+
+                            Instruction subtract;
+                            subtract.type = InstructionType::BinaryOperation;
+                            subtract.binary_operation.type = BinaryOperationType::Subtract;
+                            subtract.binary_operation.size = expression_value.type.integer.size;
+                            subtract.binary_operation.source_register_a = zero_register;
+                            subtract.binary_operation.source_register_b = value_register;
+                            subtract.binary_operation.destination_register = result_register;
+
+                            append(instructions, subtract);
+
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Register;
+                            value.type.category = TypeCategory::Integer;
+                            value.type.integer = expression_value.type.integer;
+                            value.register_ = result_register;
+
+                            return {
+                                true,
+                                value
+                            };
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } break;
 
                 default: {
                     abort();
