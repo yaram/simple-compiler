@@ -3329,7 +3329,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         }
 
                         Type actual_type;
-
                         if(left.type.integer.is_undetermined && right.type.integer.is_undetermined) {
                             actual_type.category = TypeCategory::Integer;
                             actual_type.integer.size = context->default_integer_size;
@@ -3339,10 +3338,14 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                             actual_type = right.type;
                         } else if(right.type.integer.is_undetermined) {
                             actual_type = left.type;
-                        } else if (left.type.integer.size != right.type.integer.size || left.type.integer.is_signed != right.type.integer.is_signed) {
-                            error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
+                        } else {
+                            if(left.type.integer.size != right.type.integer.size || left.type.integer.is_signed != right.type.integer.is_signed) {
+                                error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
 
-                            return { false };
+                                return { false };
+                            }
+
+                            actual_type = left.type;
                         }
 
                         operation.binary_operation.size = actual_type.integer.size;
