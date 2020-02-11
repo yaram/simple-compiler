@@ -2344,6 +2344,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             value.type = element_type;
 
             if(assignable) {
+                value.category = ExpressionValueCategory::Address;
+                value.address = final_address_register;
+            } else {
                 auto register_index = allocate_register(context);
 
                 RegisterSize size;
@@ -2375,9 +2378,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                 value.category = ExpressionValueCategory::Register;
                 value.register_ = register_index;
-            } else {
-                value.category = ExpressionValueCategory::Address;
-                value.address = final_address_register;
             }
 
             return {
