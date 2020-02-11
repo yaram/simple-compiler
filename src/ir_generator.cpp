@@ -2163,9 +2163,14 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                     Instruction constant;
                     constant.type = InstructionType::Constant;
-                    constant.constant.size = index.type.integer.size;
                     constant.constant.destination_register = index_register;
                     constant.constant.value = index.constant.integer;
+
+                    if(index.type.integer.is_undetermined) {
+                        constant.constant.size = context->default_integer_size;
+                    } else {
+                        constant.constant.size = index.type.integer.size;
+                    }
 
                     append(instructions, constant);
                 } break;
