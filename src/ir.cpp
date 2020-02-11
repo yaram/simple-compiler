@@ -42,6 +42,14 @@ void print_instruction(Instruction instruction) {
                     printf("UMOD ");
                 } break;
 
+                case BinaryOperationType::BitwiseAnd: {
+                    printf("AND ");
+                } break;
+
+                case BinaryOperationType::BitwiseOr: {
+                    printf("OR ");
+                } break;
+
                 case BinaryOperationType::Equality: {
                     printf("EQ ");
                 } break;

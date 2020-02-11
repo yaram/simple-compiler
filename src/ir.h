@@ -7,12 +7,17 @@
 enum struct BinaryOperationType {
     Add,
     Subtract,
+
     SignedMultiply,
     UnsignedMultiply,
     SignedDivide,
     UnsignedDivide,
     SignedModulus,
     UnsignedModulus,
+
+    BitwiseAnd,
+    BitwiseOr,
+
     Equality
 };
 

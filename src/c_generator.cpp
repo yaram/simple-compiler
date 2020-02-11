@@ -156,6 +156,16 @@ Result<const char *> generate_c_source(Array<Function> functions, Array<StaticCo
                                 is_signed = false;
                             } break;
 
+                            case BinaryOperationType::BitwiseAnd: {
+                                operator_ = "&";
+                                is_signed = false;
+                            } break;
+
+                            case BinaryOperationType::BitwiseOr: {
+                                operator_ = "|";
+                                is_signed = false;
+                            } break;
+
                             case BinaryOperationType::Equality: {
                                 operator_ = "==";
                                 is_signed = false;

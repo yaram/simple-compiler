@@ -739,6 +739,44 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                     };
                 } break;
 
+                case BinaryOperator::BitwiseAnd: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Integer;
+                    if(is_undetermined) {
+                        result.type.integer.is_undetermined = true;
+                    } else {
+                        result.type.integer.size = size;
+                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.is_undetermined = true;
+                    }
+
+                    result.value.integer = left & right;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                case BinaryOperator::BitwiseOr: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Integer;
+                    if(is_undetermined) {
+                        result.type.integer.is_undetermined = true;
+                    } else {
+                        result.type.integer.size = size;
+                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.is_undetermined = true;
+                    }
+
+                    result.value.integer = left | right;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
                 case BinaryOperator::Equal: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Boolean;
@@ -3396,6 +3434,18 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 } else {
                                     operation.binary_operation.type = BinaryOperationType::UnsignedModulus;
                                 }
+
+                                result_type = actual_type;
+                            } break;
+
+                            case BinaryOperator::BitwiseAnd: {
+                                operation.binary_operation.type = BinaryOperationType::BitwiseAnd;
+
+                                result_type = actual_type;
+                            } break;
+
+                            case BinaryOperator::BitwiseOr: {
+                                operation.binary_operation.type = BinaryOperationType::BitwiseOr;
 
                                 result_type = actual_type;
                             } break;
