@@ -16,11 +16,11 @@ bool types_equal(Type a, Type b) {
                 return false;
             }
 
-            if(a.function.parameters.count != b.function.parameters.count) {
+            if(a.function.parameter_count != b.function.parameter_count) {
                 return false;
             }
 
-            for(size_t i = 0; i < a.function.parameters.count; i += 1) {
+            for(size_t i = 0; i < a.function.parameter_count; i += 1) {
                 if(!types_equal(a.function.parameters[i], b.function.parameters[i])) {
                     return false;
                 }
@@ -65,10 +65,10 @@ const char *type_description(Type type) {
 
                 string_buffer_append(&buffer, "(");
 
-                for(size_t i = 0; i < type.function.parameters.count; i += 1) {
+                for(size_t i = 0; i < type.function.parameter_count; i += 1) {
                     string_buffer_append(&buffer, type_description(type.function.parameters[i]));
 
-                    if(i != type.function.parameters.count - 1) {
+                    if(i != type.function.parameter_count - 1) {
                         string_buffer_append(&buffer, ",");
                     }
                 }

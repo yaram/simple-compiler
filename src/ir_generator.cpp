@@ -1283,10 +1283,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             value.value.type.category = TypeCategory::Function;
             value.value.type.function = {
                 false,
-                {
-                    expression.function_type.parameters.count,
-                    parameters
-                },
+                expression.function_type.parameters.count,
+                parameters,
                 heapify(return_type)
             };
 
@@ -1396,6 +1394,7 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
                     Type type;
                     type.category = TypeCategory::Function;
                     type.function.is_polymorphic = true;
+                    type.function.parameter_count = declaration.function_declaration.parameters.count;
 
                     ConstantValue value;
                     value.function = {
@@ -1432,10 +1431,8 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             type.category = TypeCategory::Function;
             type.function = {
                 false,
-                {
-                    declaration.function_declaration.parameters.count,
-                    parameterTypes
-                },
+                declaration.function_declaration.parameters.count,
+                parameterTypes,
                 heapify(return_type)
             };
 
@@ -2808,8 +2805,8 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 return { false };
             }
 
-            if(expression.function_call.parameters.count != expression_value.type.function.parameters.count) {
-                error(expression.range, "Incorrect number of parameters. Expected %zu, got %zu", expression_value.type.function.parameters.count, expression.function_call.parameters.count);
+            if(expression.function_call.parameters.count != expression_value.type.function.parameter_count) {
+                error(expression.range, "Incorrect number of parameters. Expected %zu, got %zu", expression_value.type.function.parameter_count, expression.function_call.parameters.count);
 
                 return { false };
             }
@@ -2945,7 +2942,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 }
 
                 function_name = generate_mangled_name(*context, expression_value.constant.function.declaration);
-                function_parameter_types = expression_value.type.function.parameters.elements;
+                function_parameter_types = expression_value.type.function.parameters;
                 function_return_type = *expression_value.type.function.return_type;
 
                 auto is_registered = false;
@@ -3791,10 +3788,8 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             value.constant.type.category = TypeCategory::Function;
             value.constant.type.function = {
                 false,
-                {
-                    expression.function_type.parameters.count,
-                    parameters
-                },
+                expression.function_type.parameters.count,
+                parameters,
                 heapify(return_type)
             };
 

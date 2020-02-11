@@ -23,7 +23,9 @@ struct Type {
         struct {
             bool is_polymorphic;
 
-            Array<Type> parameters;
+            size_t parameter_count;
+
+            Type *parameters;
 
             Type *return_type;
         } function;
