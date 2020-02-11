@@ -1,4 +1,4 @@
-main :: (argc: i32, argv: **u8) -> i32 {
+main :: () -> i32 {
     if !((true && false) || false) {
         return 0;
     }

@@ -1,4 +1,4 @@
-main :: (argc: i32, argv: **u8) -> i32 {
+main :: () -> i32 {
     i : i32 = 0;
 
     while i != 10 {

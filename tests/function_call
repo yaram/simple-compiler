@@ -2,6 +2,6 @@ test :: () -> i32 {
     return 0;
 }
 
-main :: (argc: i32, argv: **u8) -> i32 {
+main :: () -> i32 {
     return test();
 }
