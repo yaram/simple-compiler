@@ -1887,20 +1887,8 @@ static void generate_array_copy(GenerationContext *context, List<Instruction> *i
     append(instructions, store_length);
 }
 
-static void generate_variable_assignment(GenerationContext *context, List<Instruction> *instructions, size_t address_register, ExpressionValue value) {
+static void generate_non_integer_variable_assignment(GenerationContext *context, List<Instruction> *instructions, size_t address_register, ExpressionValue value) {
     switch(value.type.category) {
-        case TypeCategory::Integer: {
-            auto register_index = generate_integer_register_value(context, instructions, value);
-
-            Instruction store;
-            store.type = InstructionType::StoreInteger;
-            store.store_integer.size = value.type.integer.size;
-            store.store_integer.address_register = address_register;
-            store.store_integer.source_register = register_index;
-
-            append(instructions, store);
-        } break;
-
         case TypeCategory::Boolean: {
             auto register_index = generate_boolean_register_value(context, instructions, value);
 
@@ -3866,9 +3854,36 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, initializer_value.type);
 
-                    generate_variable_assignment(context, instructions, address_register, initializer_value);
+                    Type actual_type;
+                    if(initializer_value.type.category == TypeCategory::Integer) {
+                        if(initializer_value.type.integer.is_undetermined) {
+                            auto register_index = generate_integer_register_value(context, instructions, context->default_integer_size, initializer_value);
 
-                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, initializer_value.type, statement.variable_declaration.type_elided.range)) {
+                            Instruction store;
+                            store.type = InstructionType::StoreInteger;
+                            store.store_integer.size = context->default_integer_size;
+                            store.store_integer.address_register = address_register;
+                            store.store_integer.source_register = register_index;
+
+                            append(instructions, store);
+                        } else {
+                            auto register_index = generate_integer_register_value(context, instructions, initializer_value);
+
+                            Instruction store;
+                            store.type = InstructionType::StoreInteger;
+                            store.store_integer.size = initializer_value.type.integer.size;
+                            store.store_integer.address_register = address_register;
+                            store.store_integer.source_register = register_index;
+
+                            append(instructions, store);
+                        }
+                    } else {
+                        actual_type = initializer_value.type;
+
+                        generate_non_integer_variable_assignment(context, instructions, address_register, initializer_value);
+                    }
+
+                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, actual_type, statement.variable_declaration.type_elided.range)) {
                         return false;
                     }
 
@@ -3890,13 +3905,49 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     expect(initializer_value, generate_expression(context, instructions, statement.variable_declaration.fully_specified.initializer));
 
-                    if(!types_equal(type, initializer_value.type)) {
-                        error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
+                    if(initializer_value.type.category == TypeCategory::Integer) {
+                        if(type.category != TypeCategory::Integer) {
+                            error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
 
-                        return false;
+                            return false;
+                        }
+
+                        if(initializer_value.type.integer.is_undetermined) {
+                            auto register_index = generate_integer_register_value(context, instructions, context->default_integer_size, initializer_value);
+
+                            Instruction store;
+                            store.type = InstructionType::StoreInteger;
+                            store.store_integer.size = context->default_integer_size;
+                            store.store_integer.address_register = address_register;
+                            store.store_integer.source_register = register_index;
+
+                            append(instructions, store);
+                        } else {
+                            if(type.integer.size != initializer_value.type.integer.size || type.integer.is_signed != initializer_value.type.integer.is_signed) {
+                                error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
+
+                                return false;
+                            }
+
+                            auto register_index = generate_integer_register_value(context, instructions, initializer_value);
+
+                            Instruction store;
+                            store.type = InstructionType::StoreInteger;
+                            store.store_integer.size = initializer_value.type.integer.size;
+                            store.store_integer.address_register = address_register;
+                            store.store_integer.source_register = register_index;
+
+                            append(instructions, store);
+                        }
+                    } else {
+                        if(!types_equal(type, initializer_value.type)) {
+                            error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
+
+                            return false;
+                        }
+
+                        generate_non_integer_variable_assignment(context, instructions, address_register, initializer_value);
                     }
-
-                    generate_variable_assignment(context, instructions, address_register, initializer_value);
 
                     if(!add_new_variable(context, statement.variable_declaration.name, address_register, type, statement.variable_declaration.fully_specified.type.range)) {
                         return false;
@@ -3922,13 +3973,49 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             expect(value, generate_expression(context, instructions, statement.assignment.value));
 
-            if(!types_equal(target.type, value.type)) {
-                error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+            if(value.type.category == TypeCategory::Integer) {
+                if(target.type.category != TypeCategory::Integer) {
+                    error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
 
-                return false;
+                    return false;
+                }
+
+                if(value.type.integer.is_undetermined) {
+                    auto register_index = generate_integer_register_value(context, instructions, context->default_integer_size, value);
+
+                    Instruction store;
+                    store.type = InstructionType::StoreInteger;
+                    store.store_integer.size = context->default_integer_size;
+                    store.store_integer.address_register = target.address;
+                    store.store_integer.source_register = register_index;
+
+                    append(instructions, store);
+                } else {
+                    if(target.type.integer.size != value.type.integer.size || target.type.integer.is_signed != value.type.integer.is_signed) {
+                        error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+
+                        return false;
+                    }
+
+                    auto register_index = generate_integer_register_value(context, instructions, value);
+
+                    Instruction store;
+                    store.type = InstructionType::StoreInteger;
+                    store.store_integer.size = value.type.integer.size;
+                    store.store_integer.address_register = target.address;
+                    store.store_integer.source_register = register_index;
+
+                    append(instructions, store);
+                }
+            } else {
+                if(!types_equal(target.type, value.type)) {
+                    error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+
+                    return false;
+                }
+
+                generate_non_integer_variable_assignment(context, instructions, target.address, value);
             }
-
-            generate_variable_assignment(context, instructions, target.address, value);
 
             return true;
         } break;
