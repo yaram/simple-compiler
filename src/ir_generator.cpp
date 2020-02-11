@@ -802,6 +802,28 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
             }
 
             switch(binary_operator) {
+                case BinaryOperator::BooleanAnd: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Boolean;
+                    result.value.boolean = left_value.boolean && right_value.boolean;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                case BinaryOperator::BooleanOr: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Boolean;
+                    result.value.boolean = left_value.boolean || right_value.boolean;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
                 case BinaryOperator::Equal: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Boolean;
@@ -3476,6 +3498,18 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Equal: {
                                 operation.binary_operation.type = BinaryOperationType::Equality;
+
+                                result_type.category = TypeCategory::Boolean;
+                            } break;
+
+                            case BinaryOperator::BooleanAnd: {
+                                operation.binary_operation.type = BinaryOperationType::BitwiseAnd;
+
+                                result_type.category = TypeCategory::Boolean;
+                            } break;
+
+                            case BinaryOperator::BooleanOr: {
+                                operation.binary_operation.type = BinaryOperationType::BitwiseOr;
 
                                 result_type.category = TypeCategory::Boolean;
                             } break;
