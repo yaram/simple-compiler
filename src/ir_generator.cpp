@@ -2192,7 +2192,7 @@ static void generate_boolean_invert(GenerationContext *context, List<Instruction
     Instruction branch;
     branch.type = InstructionType::Branch;
     branch.branch.condition_register = value_register;
-    branch.branch.destination_instruction = instructions->count + 3;
+    branch.branch.destination_instruction = instructions->count + 4;
 
     append(instructions, branch);
 
@@ -4447,6 +4447,8 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
         } break;
 
         case StatementType::WhileLoop: {
+            auto condition_index = instructions->count;
+
             expect(condition, generate_expression(context, instructions, statement.while_loop.condition));
 
             if(condition.type.category != TypeCategory::Boolean) {
@@ -4462,7 +4464,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             branch.branch.condition_register = condition_register;
             branch.branch.destination_instruction = instructions->count + 2;
 
-            auto branch_index = append(instructions, branch);
+            append(instructions, branch);
 
             Instruction jump_out;
             jump_out.type = InstructionType::Jump;
@@ -4481,7 +4483,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             Instruction jump_loop;
             jump_loop.type = InstructionType::Jump;
-            jump_loop.jump.destination_instruction = branch_index;
+            jump_loop.jump.destination_instruction = condition_index;
 
             append(instructions, jump_loop);
 
