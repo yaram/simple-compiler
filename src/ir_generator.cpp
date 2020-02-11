@@ -788,6 +788,17 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                     };
                 } break;
 
+                case BinaryOperator::NotEqual: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Boolean;
+                    result.value.boolean = left != right;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
                 default: {
                     abort();
                 } break;
@@ -828,6 +839,17 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Boolean;
                     result.value.boolean = left_value.boolean == right_value.boolean;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                case BinaryOperator::NotEqual: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Boolean;
+                    result.value.boolean = left_value.boolean != right_value.boolean;
 
                     return {
                         true,
@@ -2157,6 +2179,82 @@ static void generate_non_integer_variable_assignment(GenerationContext *context,
     }
 }
 
+static void generate_boolean_invert(GenerationContext *context, List<Instruction> *instructions, size_t value_register, size_t result_register) {
+    auto local_register = allocate_register(context);
+
+    Instruction allocate;
+    allocate.type = InstructionType::AllocateLocal;
+    allocate.allocate_local.size = register_size_to_byte_size(context->default_integer_size);
+    allocate.allocate_local.destination_register = local_register;
+
+    append(instructions, allocate);
+
+    Instruction branch;
+    branch.type = InstructionType::Branch;
+    branch.branch.condition_register = value_register;
+    branch.branch.destination_instruction = instructions->count + 3;
+
+    append(instructions, branch);
+
+    auto true_register = allocate_register(context);
+
+    Instruction true_constant;
+    true_constant.type = InstructionType::Constant;
+    true_constant.constant.size = context->default_integer_size;
+    true_constant.constant.destination_register = true_register;
+    true_constant.constant.value = 1;
+
+    append(instructions, true_constant);
+
+    Instruction true_store;
+    true_store.type = InstructionType::StoreInteger;
+    true_store.store_integer.size = context->default_integer_size;
+    true_store.store_integer.source_register = true_register;
+    true_store.store_integer.address_register = local_register;
+
+    append(instructions, true_store);
+
+    Instruction jump;
+    jump.type = InstructionType::Jump;
+    jump.jump.destination_instruction = instructions->count + 3;
+
+    append(instructions, jump);
+
+    auto false_register = allocate_register(context);
+
+    Instruction false_constant;
+    false_constant.type = InstructionType::Constant;
+    false_constant.constant.size = context->default_integer_size;
+    false_constant.constant.destination_register = false_register;
+    false_constant.constant.value = 0;
+
+    append(instructions, false_constant);
+
+    Instruction false_store;
+    false_store.type = InstructionType::StoreInteger;
+    false_store.store_integer.size = context->default_integer_size;
+    false_store.store_integer.source_register = false_register;
+    false_store.store_integer.address_register = local_register;
+
+    append(instructions, false_store);
+
+    Instruction load;
+    load.type = InstructionType::LoadInteger;
+    load.load_integer.size = context->default_integer_size;
+    load.load_integer.address_register = local_register;
+    load.load_integer.destination_register = result_register;
+
+    append(instructions, load);
+}
+
+static size_t generate_boolean_invert(GenerationContext *context, List<Instruction> *instructions, size_t register_index) {
+    auto result_register = allocate_register(context);
+
+    generate_boolean_invert(context, instructions, register_index, result_register);
+
+    return result_register;
+}
+
 static Result<ExpressionValue> generate_expression(GenerationContext *context, List<Instruction> *instructions, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
@@ -3399,10 +3497,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             } else {
                 auto result_register = allocate_register(context);
 
-                Instruction operation;
-                operation.type = InstructionType::BinaryOperation;
-                operation.binary_operation.destination_register = result_register;
-
                 Type result_type;
                 switch(left.type.category) {
                     case TypeCategory::Integer: {
@@ -3432,67 +3526,151 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                             actual_type = left.type;
                         }
 
-                        operation.binary_operation.size = actual_type.integer.size;
-                        operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                        operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
-
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Addition: {
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = actual_type.integer.size;
                                 operation.binary_operation.type = BinaryOperationType::Add;
+                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+
+                                append(instructions, operation);
 
                                 result_type = actual_type;
                             } break;
 
                             case BinaryOperator::Subtraction: {
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = actual_type.integer.size;
                                 operation.binary_operation.type = BinaryOperationType::Subtract;
+                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+
+                                append(instructions, operation);
 
                                 result_type = actual_type;
                             } break;
 
                             case BinaryOperator::Multiplication: {
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = actual_type.integer.size;
+                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+
+                                result_type = actual_type;
                                 if(left.type.integer.is_signed) {
                                     operation.binary_operation.type = BinaryOperationType::SignedMultiply;
                                 } else {
                                     operation.binary_operation.type = BinaryOperationType::UnsignedMultiply;
                                 }
 
+                                append(instructions, operation);
+
                                 result_type = actual_type;
                             } break;
 
                             case BinaryOperator::Division: {
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = actual_type.integer.size;
+                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+
+                                result_type = actual_type;
                                 if(left.type.integer.is_signed) {
                                     operation.binary_operation.type = BinaryOperationType::SignedDivide;
                                 } else {
                                     operation.binary_operation.type = BinaryOperationType::UnsignedDivide;
                                 }
 
+                                append(instructions, operation);
+
                                 result_type = actual_type;
                             } break;
 
                             case BinaryOperator::Modulo: {
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = actual_type.integer.size;
+                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+
+                                result_type = actual_type;
                                 if(left.type.integer.is_signed) {
                                     operation.binary_operation.type = BinaryOperationType::SignedModulus;
                                 } else {
                                     operation.binary_operation.type = BinaryOperationType::UnsignedModulus;
                                 }
 
+                                append(instructions, operation);
+
                                 result_type = actual_type;
                             } break;
 
                             case BinaryOperator::BitwiseAnd: {
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = actual_type.integer.size;
                                 operation.binary_operation.type = BinaryOperationType::BitwiseAnd;
+                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+
+                                append(instructions, operation);
 
                                 result_type = actual_type;
                             } break;
 
                             case BinaryOperator::BitwiseOr: {
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = actual_type.integer.size;
                                 operation.binary_operation.type = BinaryOperationType::BitwiseOr;
+                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+
+                                append(instructions, operation);
 
                                 result_type = actual_type;
                             } break;
 
                             case BinaryOperator::Equal: {
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = actual_type.integer.size;
                                 operation.binary_operation.type = BinaryOperationType::Equality;
+                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+
+                                append(instructions, operation);
+
+                                result_type.category = TypeCategory::Boolean;
+                            } break;
+
+                            case BinaryOperator::NotEqual: {
+                                auto equal_register = allocate_register(context);
+
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = equal_register;
+                                operation.binary_operation.size = actual_type.integer.size;
+                                operation.binary_operation.type = BinaryOperationType::Equality;
+                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+
+                                append(instructions, operation);
+
+                                generate_boolean_invert(context, instructions, equal_register, result_register);
 
                                 result_type.category = TypeCategory::Boolean;
                             } break;
@@ -3512,29 +3690,59 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                             return { false };
                         }
 
-                        operation.binary_operation.size = context->default_integer_size;
-                        operation.binary_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
-                        operation.binary_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
-
                         result_type.category = TypeCategory::Boolean;
 
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Equal: {
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = context->default_integer_size;
                                 operation.binary_operation.type = BinaryOperationType::Equality;
+                                operation.binary_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
+                                operation.binary_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
 
-                                result_type.category = TypeCategory::Boolean;
+                                append(instructions, operation);
+                            } break;
+
+                            case BinaryOperator::NotEqual: {
+                                auto equal_register = allocate_register(context);
+
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = context->default_integer_size;
+                                operation.binary_operation.type = BinaryOperationType::Equality;
+                                operation.binary_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
+                                operation.binary_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
+
+                                append(instructions, operation);
+
+                                generate_boolean_invert(context, instructions, equal_register, result_register);
                             } break;
 
                             case BinaryOperator::BooleanAnd: {
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = context->default_integer_size;
                                 operation.binary_operation.type = BinaryOperationType::BitwiseAnd;
+                                operation.binary_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
+                                operation.binary_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
 
-                                result_type.category = TypeCategory::Boolean;
+                                append(instructions, operation);
                             } break;
 
                             case BinaryOperator::BooleanOr: {
+                                Instruction operation;
+                                operation.type = InstructionType::BinaryOperation;
+                                operation.binary_operation.destination_register = result_register;
+                                operation.binary_operation.size = context->default_integer_size;
                                 operation.binary_operation.type = BinaryOperationType::BitwiseOr;
+                                operation.binary_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
+                                operation.binary_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
 
-                                result_type.category = TypeCategory::Boolean;
+                                append(instructions, operation);
                             } break;
 
                             default: {
@@ -3551,8 +3759,6 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         return { false };
                     } break;
                 }
-
-                append(instructions, operation);
 
                 ExpressionValue value;
                 value.category = ExpressionValueCategory::Register;
@@ -3650,73 +3856,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         } break;
 
                         case ExpressionValueCategory::Register: {
-                            auto local_register = allocate_register(context);
-
-                            Instruction allocate;
-                            allocate.type = InstructionType::AllocateLocal;
-                            allocate.allocate_local.size = register_size_to_byte_size(context->default_integer_size);
-                            allocate.allocate_local.destination_register = local_register;
-
-                            append(instructions, allocate);
-
-                            Instruction branch;
-                            branch.type = InstructionType::Branch;
-                            branch.branch.condition_register = expression_value.register_;
-                            branch.branch.destination_instruction = instructions->count + 3;
-
-                            append(instructions, branch);
-
-                            auto true_register = allocate_register(context);
-
-                            Instruction true_constant;
-                            true_constant.type = InstructionType::Constant;
-                            true_constant.constant.size = context->default_integer_size;
-                            true_constant.constant.destination_register = true_register;
-                            true_constant.constant.value = 1;
-
-                            append(instructions, true_constant);
-
-                            Instruction true_store;
-                            true_store.type = InstructionType::StoreInteger;
-                            true_store.store_integer.size = context->default_integer_size;
-                            true_store.store_integer.source_register = true_register;
-                            true_store.store_integer.address_register = local_register;
-
-                            append(instructions, true_store);
-
-                            Instruction jump;
-                            jump.type = InstructionType::Jump;
-                            jump.jump.destination_instruction = instructions->count + 3;
-
-                            append(instructions, jump);
-
-                            auto false_register = allocate_register(context);
-
-                            Instruction false_constant;
-                            false_constant.type = InstructionType::Constant;
-                            false_constant.constant.size = context->default_integer_size;
-                            false_constant.constant.destination_register = false_register;
-                            false_constant.constant.value = 0;
-
-                            append(instructions, false_constant);
-
-                            Instruction false_store;
-                            false_store.type = InstructionType::StoreInteger;
-                            false_store.store_integer.size = context->default_integer_size;
-                            false_store.store_integer.source_register = false_register;
-                            false_store.store_integer.address_register = local_register;
-
-                            append(instructions, false_store);
-
-                            auto result_register = allocate_register(context);
-
-                            Instruction load;
-                            load.type = InstructionType::LoadInteger;
-                            load.load_integer.size = context->default_integer_size;
-                            load.load_integer.address_register = local_register;
-                            load.load_integer.destination_register = result_register;
-
-                            append(instructions, load);
+                            auto result_register = generate_boolean_invert(context, instructions, expression_value.register_);
 
                             ExpressionValue value;
                             value.category = ExpressionValueCategory::Register;
@@ -3740,73 +3880,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                             append(instructions, load_value);
 
-                            auto local_register = allocate_register(context);
-
-                            Instruction allocate;
-                            allocate.type = InstructionType::AllocateLocal;
-                            allocate.allocate_local.size = register_size_to_byte_size(context->default_integer_size);
-                            allocate.allocate_local.destination_register = local_register;
-
-                            append(instructions, allocate);
-
-                            Instruction branch;
-                            branch.type = InstructionType::Branch;
-                            branch.branch.condition_register = value_register;
-                            branch.branch.destination_instruction = instructions->count + 3;
-
-                            append(instructions, branch);
-
-                            auto true_register = allocate_register(context);
-
-                            Instruction true_constant;
-                            true_constant.type = InstructionType::Constant;
-                            true_constant.constant.size = context->default_integer_size;
-                            true_constant.constant.destination_register = true_register;
-                            true_constant.constant.value = 1;
-
-                            append(instructions, true_constant);
-
-                            Instruction true_store;
-                            true_store.type = InstructionType::StoreInteger;
-                            true_store.store_integer.size = context->default_integer_size;
-                            true_store.store_integer.source_register = true_register;
-                            true_store.store_integer.address_register = local_register;
-
-                            append(instructions, true_store);
-
-                            Instruction jump;
-                            jump.type = InstructionType::Jump;
-                            jump.jump.destination_instruction = instructions->count + 3;
-
-                            append(instructions, jump);
-
-                            auto false_register = allocate_register(context);
-
-                            Instruction false_constant;
-                            false_constant.type = InstructionType::Constant;
-                            false_constant.constant.size = context->default_integer_size;
-                            false_constant.constant.destination_register = false_register;
-                            false_constant.constant.value = 0;
-
-                            append(instructions, false_constant);
-
-                            Instruction false_store;
-                            false_store.type = InstructionType::StoreInteger;
-                            false_store.store_integer.size = context->default_integer_size;
-                            false_store.store_integer.source_register = false_register;
-                            false_store.store_integer.address_register = local_register;
-
-                            append(instructions, false_store);
-
-                            auto result_register = allocate_register(context);
-
-                            Instruction load;
-                            load.type = InstructionType::LoadInteger;
-                            load.load_integer.size = context->default_integer_size;
-                            load.load_integer.address_register = local_register;
-                            load.load_integer.destination_register = result_register;
-
-                            append(instructions, load);
+                            auto result_register = generate_boolean_invert(context, instructions, value_register);
 
                             ExpressionValue value;
                             value.category = ExpressionValueCategory::Register;
