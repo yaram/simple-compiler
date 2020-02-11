@@ -3493,6 +3493,10 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                             return { false };
                         }
 
+                        operation.binary_operation.size = context->default_integer_size;
+                        operation.binary_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
+                        operation.binary_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
+
                         result_type.category = TypeCategory::Boolean;
 
                         switch(expression.binary_operation.binary_operator) {
