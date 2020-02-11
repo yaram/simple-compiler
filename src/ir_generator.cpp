@@ -1107,6 +1107,40 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             };
         } break;
 
+        case ExpressionType::StringLiteral: {
+            Type array_type;
+            array_type.category = TypeCategory::Integer;
+            array_type.integer = {
+                RegisterSize::Size8,
+                false,
+                false
+            };
+
+            Type type;
+            type.category = TypeCategory::StaticArray;
+            type.static_array = {
+                expression.string_literal.count,
+                heapify(array_type)
+            };
+
+            auto characters = allocate<ConstantValue>(expression.string_literal.count);
+
+            for(size_t i = 0; i < expression.string_literal.count; i += 1) {
+                characters[i].integer = expression.string_literal[i];
+            }
+
+            ConstantValue value;
+            value.static_array = characters;
+
+            return {
+                true,
+                {
+                    type,
+                    value
+                }
+            };
+        } break;
+
         case ExpressionType::ArrayLiteral: {
             if(expression.array_literal.count == 0) {
                 error(expression.range, "Empty array literal");
@@ -2792,6 +2826,36 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             value.type.category = TypeCategory::Integer;
             value.type.integer.is_undetermined = true;
             value.constant.integer = expression.integer_literal;
+
+            return {
+                true,
+                value
+            };
+        } break;
+
+        case ExpressionType::StringLiteral: {      
+            Type array_type;
+            array_type.category = TypeCategory::Integer;
+            array_type.integer = {
+                RegisterSize::Size8,
+                false,
+                false
+            };
+
+            auto characters = allocate<ConstantValue>(expression.string_literal.count);
+
+            for(size_t i = 0; i < expression.string_literal.count; i += 1) {
+                characters[i].integer = expression.string_literal[i];
+            }
+
+            ExpressionValue value;
+            value.category = ExpressionValueCategory::Constant;
+            value.type.category = TypeCategory::StaticArray;
+            value.type.static_array = {
+                expression.string_literal.count,
+                heapify(array_type)
+            };
+            value.constant.static_array = characters;
 
             return {
                 true,
