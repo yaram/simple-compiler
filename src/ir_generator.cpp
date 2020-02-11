@@ -3869,6 +3869,13 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                             store.store_integer.source_register = register_index;
 
                             append(instructions, store);
+
+                            actual_type.category = TypeCategory::Integer;
+                            actual_type.integer = {
+                                context->default_integer_size,
+                                true,
+                                false
+                            };
                         } else {
                             auto register_index = generate_integer_register_value(context, instructions, initializer_value);
 
@@ -3879,6 +3886,9 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                             store.store_integer.source_register = register_index;
 
                             append(instructions, store);
+
+                            actual_type.category = TypeCategory::Integer;
+                            actual_type.integer = initializer_value.type.integer;
                         }
                     } else {
                         actual_type = initializer_value.type;
