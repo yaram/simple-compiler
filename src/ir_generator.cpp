@@ -1250,6 +1250,25 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                     }
                 } break;
 
+                case UnaryOperator::BooleanInvert: {
+                    if(expression_value.type.category != TypeCategory::Boolean) {
+                        error(expression.unary_operation.expression->range, "Expected a boolean, got %s", type_description(expression_value.type));
+
+                        return { false };
+                    }
+
+                    ConstantValue value;
+                    value.boolean = !expression_value.value.boolean;
+
+                    return {
+                        true,
+                        {
+                            expression_value.type,
+                            value
+                        }
+                    };
+                } break;
+
                 case UnaryOperator::Negation: {
                     if(expression_value.type.category != TypeCategory::Integer) {
                         error(expression.unary_operation.expression->range, "Expected an integer, got %s", type_description(expression_value.type));
@@ -3609,6 +3628,202 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         } break;
                     }
                 }
+
+                case UnaryOperator::BooleanInvert: {
+                    if(expression_value.type.category != TypeCategory::Boolean) {
+                        error(expression.unary_operation.expression->range, "Expected a boolean, got %s", type_description(expression_value.type));
+
+                        return { false };
+                    }
+
+                    switch(expression_value.category) {
+                        case ExpressionValueCategory::Constant: {
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Constant;
+                            value.type.category = TypeCategory::Boolean;
+                            value.constant.boolean = !expression_value.constant.boolean;
+
+                            return {
+                                true,
+                                value
+                            };
+                        } break;
+
+                        case ExpressionValueCategory::Register: {
+                            auto local_register = allocate_register(context);
+
+                            Instruction allocate;
+                            allocate.type = InstructionType::AllocateLocal;
+                            allocate.allocate_local.size = register_size_to_byte_size(context->default_integer_size);
+                            allocate.allocate_local.destination_register = local_register;
+
+                            append(instructions, allocate);
+
+                            Instruction branch;
+                            branch.type = InstructionType::Branch;
+                            branch.branch.condition_register = expression_value.register_;
+                            branch.branch.destination_instruction = instructions->count + 3;
+
+                            append(instructions, branch);
+
+                            auto true_register = allocate_register(context);
+
+                            Instruction true_constant;
+                            true_constant.type = InstructionType::Constant;
+                            true_constant.constant.size = context->default_integer_size;
+                            true_constant.constant.destination_register = true_register;
+                            true_constant.constant.value = 1;
+
+                            append(instructions, true_constant);
+
+                            Instruction true_store;
+                            true_store.type = InstructionType::StoreInteger;
+                            true_store.store_integer.size = context->default_integer_size;
+                            true_store.store_integer.source_register = true_register;
+                            true_store.store_integer.address_register = local_register;
+
+                            append(instructions, true_store);
+
+                            Instruction jump;
+                            jump.type = InstructionType::Jump;
+                            jump.jump.destination_instruction = instructions->count + 3;
+
+                            append(instructions, jump);
+
+                            auto false_register = allocate_register(context);
+
+                            Instruction false_constant;
+                            false_constant.type = InstructionType::Constant;
+                            false_constant.constant.size = context->default_integer_size;
+                            false_constant.constant.destination_register = false_register;
+                            false_constant.constant.value = 0;
+
+                            append(instructions, false_constant);
+
+                            Instruction false_store;
+                            false_store.type = InstructionType::StoreInteger;
+                            false_store.store_integer.size = context->default_integer_size;
+                            false_store.store_integer.source_register = false_register;
+                            false_store.store_integer.address_register = local_register;
+
+                            append(instructions, false_store);
+
+                            auto result_register = allocate_register(context);
+
+                            Instruction load;
+                            load.type = InstructionType::LoadInteger;
+                            load.load_integer.size = context->default_integer_size;
+                            load.load_integer.address_register = local_register;
+                            load.load_integer.destination_register = result_register;
+
+                            append(instructions, load);
+
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Register;
+                            value.type.category = TypeCategory::Boolean;
+                            value.register_ = result_register;
+
+                            return {
+                                true,
+                                value
+                            };
+                        } break;
+
+                        case ExpressionValueCategory::Address: {
+                            auto value_register = allocate_register(context);
+
+                            Instruction load_value;
+                            load_value.type = InstructionType::LoadInteger;
+                            load_value.load_integer.size = context->default_integer_size;
+                            load_value.load_integer.address_register = expression_value.address;
+                            load_value.load_integer.destination_register = value_register;
+
+                            append(instructions, load_value);
+
+                            auto local_register = allocate_register(context);
+
+                            Instruction allocate;
+                            allocate.type = InstructionType::AllocateLocal;
+                            allocate.allocate_local.size = register_size_to_byte_size(context->default_integer_size);
+                            allocate.allocate_local.destination_register = local_register;
+
+                            append(instructions, allocate);
+
+                            Instruction branch;
+                            branch.type = InstructionType::Branch;
+                            branch.branch.condition_register = value_register;
+                            branch.branch.destination_instruction = instructions->count + 3;
+
+                            append(instructions, branch);
+
+                            auto true_register = allocate_register(context);
+
+                            Instruction true_constant;
+                            true_constant.type = InstructionType::Constant;
+                            true_constant.constant.size = context->default_integer_size;
+                            true_constant.constant.destination_register = true_register;
+                            true_constant.constant.value = 1;
+
+                            append(instructions, true_constant);
+
+                            Instruction true_store;
+                            true_store.type = InstructionType::StoreInteger;
+                            true_store.store_integer.size = context->default_integer_size;
+                            true_store.store_integer.source_register = true_register;
+                            true_store.store_integer.address_register = local_register;
+
+                            append(instructions, true_store);
+
+                            Instruction jump;
+                            jump.type = InstructionType::Jump;
+                            jump.jump.destination_instruction = instructions->count + 3;
+
+                            append(instructions, jump);
+
+                            auto false_register = allocate_register(context);
+
+                            Instruction false_constant;
+                            false_constant.type = InstructionType::Constant;
+                            false_constant.constant.size = context->default_integer_size;
+                            false_constant.constant.destination_register = false_register;
+                            false_constant.constant.value = 0;
+
+                            append(instructions, false_constant);
+
+                            Instruction false_store;
+                            false_store.type = InstructionType::StoreInteger;
+                            false_store.store_integer.size = context->default_integer_size;
+                            false_store.store_integer.source_register = false_register;
+                            false_store.store_integer.address_register = local_register;
+
+                            append(instructions, false_store);
+
+                            auto result_register = allocate_register(context);
+
+                            Instruction load;
+                            load.type = InstructionType::LoadInteger;
+                            load.load_integer.size = context->default_integer_size;
+                            load.load_integer.address_register = local_register;
+                            load.load_integer.destination_register = result_register;
+
+                            append(instructions, load);
+
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Register;
+                            value.type.category = TypeCategory::Boolean;
+                            value.register_ = result_register;
+
+                            return {
+                                true,
+                                value
+                            };
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } break;
 
                 case UnaryOperator::Negation: {
                     if(expression_value.type.category != TypeCategory::Integer) {
