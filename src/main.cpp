@@ -193,7 +193,7 @@ int main(int argument_count, char *arguments[]) {
 
         char *command_buffer{};
 
-        string_buffer_append(&command_buffer, "clang -ffreestanding -w -nostdinc -c -o ");
+        string_buffer_append(&command_buffer, "clang -g -ffreestanding -w -nostdinc -c -o ");
 
         string_buffer_append(&command_buffer, output_file_directory);
         string_buffer_append(&command_buffer, output_file_name);
@@ -222,7 +222,7 @@ int main(int argument_count, char *arguments[]) {
 #if defined(PLATFORM_UNIX)
         string_buffer_append(&buffer, "clang -nostdlib -Wl,--entry=main -fuse-ld=lld -o ");
 #elif defined(PLATFORM_WINDOWS)
-        string_buffer_append(&buffer, "clang -nostdlib -Wl,/entry:main -fuse-ld=lld -o ");
+        string_buffer_append(&buffer, "clang -nostdlib -Wl,/entry:main,/DEBUG -fuse-ld=lld -o ");
 #endif
 
         string_buffer_append(&buffer, output_file_path);
