@@ -2392,12 +2392,12 @@ static void generate_array_copy(GenerationContext *context, List<Instruction> *i
     auto source_length_address_register = allocate_register(context);
 
     Instruction source_add;
-    source_add.type = InstructionType::BinaryOperation;
-    source_add.binary_operation.type = BinaryOperationType::Add;
-    source_add.binary_operation.size = context->address_integer_size;
-    source_add.binary_operation.source_register_a = source_address_register;
-    source_add.binary_operation.source_register_b = offset_register;
-    source_add.binary_operation.destination_register = source_length_address_register;
+    source_add.type = InstructionType::ArithmeticOperation;
+    source_add.arithmetic_operation.type = ArithmeticOperationType::Add;
+    source_add.arithmetic_operation.size = context->address_integer_size;
+    source_add.arithmetic_operation.source_register_a = source_address_register;
+    source_add.arithmetic_operation.source_register_b = offset_register;
+    source_add.arithmetic_operation.destination_register = source_length_address_register;
 
     append(instructions, source_add);
 
@@ -2414,12 +2414,12 @@ static void generate_array_copy(GenerationContext *context, List<Instruction> *i
     auto destination_length_address_register = allocate_register(context);
 
     Instruction destination_add;
-    destination_add.type = InstructionType::BinaryOperation;
-    destination_add.binary_operation.type = BinaryOperationType::Add;
-    destination_add.binary_operation.size = context->address_integer_size;
-    destination_add.binary_operation.source_register_a = destination_address_register;
-    destination_add.binary_operation.source_register_b = offset_register;
-    destination_add.binary_operation.destination_register = destination_length_address_register;
+    destination_add.type = InstructionType::ArithmeticOperation;
+    destination_add.arithmetic_operation.type = ArithmeticOperationType::Add;
+    destination_add.arithmetic_operation.size = context->address_integer_size;
+    destination_add.arithmetic_operation.source_register_a = destination_address_register;
+    destination_add.arithmetic_operation.source_register_b = offset_register;
+    destination_add.arithmetic_operation.destination_register = destination_length_address_register;
 
     append(instructions, destination_add);
 
@@ -2502,12 +2502,12 @@ static void generate_non_integer_variable_assignment(GenerationContext *context,
                     auto length_address_register = allocate_register(context);
 
                     Instruction add;
-                    add.type = InstructionType::BinaryOperation;
-                    add.binary_operation.type = BinaryOperationType::Add;
-                    add.binary_operation.size = context->address_integer_size;
-                    add.binary_operation.source_register_a = address_register;
-                    add.binary_operation.source_register_b = offset_register;
-                    add.binary_operation.destination_register = length_address_register;
+                    add.type = InstructionType::ArithmeticOperation;
+                    add.arithmetic_operation.type = ArithmeticOperationType::Add;
+                    add.arithmetic_operation.size = context->address_integer_size;
+                    add.arithmetic_operation.source_register_a = address_register;
+                    add.arithmetic_operation.source_register_b = offset_register;
+                    add.arithmetic_operation.destination_register = length_address_register;
 
                     append(instructions, add);
 
@@ -3040,24 +3040,24 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             auto offset_register = allocate_register(context);
 
             Instruction multiply;
-            multiply.type = InstructionType::BinaryOperation;
-            multiply.binary_operation.type = BinaryOperationType::UnsignedMultiply;
-            multiply.binary_operation.size = context->address_integer_size;
-            multiply.binary_operation.source_register_a = element_size_register;
-            multiply.binary_operation.source_register_b = index_register;
-            multiply.binary_operation.destination_register = offset_register;
+            multiply.type = InstructionType::ArithmeticOperation;
+            multiply.arithmetic_operation.type = ArithmeticOperationType::UnsignedMultiply;
+            multiply.arithmetic_operation.size = context->address_integer_size;
+            multiply.arithmetic_operation.source_register_a = element_size_register;
+            multiply.arithmetic_operation.source_register_b = index_register;
+            multiply.arithmetic_operation.destination_register = offset_register;
 
             append(instructions, multiply);
 
             auto final_address_register = allocate_register(context);
 
             Instruction add;
-            add.type = InstructionType::BinaryOperation;
-            add.binary_operation.type = BinaryOperationType::Add;
-            add.binary_operation.size = context->address_integer_size;
-            add.binary_operation.source_register_a = base_address_register;
-            add.binary_operation.source_register_b = offset_register;
-            add.binary_operation.destination_register = final_address_register;
+            add.type = InstructionType::ArithmeticOperation;
+            add.arithmetic_operation.type = ArithmeticOperationType::Add;
+            add.arithmetic_operation.size = context->address_integer_size;
+            add.arithmetic_operation.source_register_a = base_address_register;
+            add.arithmetic_operation.source_register_b = offset_register;
+            add.arithmetic_operation.destination_register = final_address_register;
 
             append(instructions, add);
 
@@ -3144,12 +3144,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 auto address_register = allocate_register(context);
 
                                 Instruction add;
-                                add.type = InstructionType::BinaryOperation;
-                                add.binary_operation.type = BinaryOperationType::Add;
-                                add.binary_operation.size = context->address_integer_size;
-                                add.binary_operation.source_register_a = expression_value.register_;
-                                add.binary_operation.source_register_b = offset_register;
-                                add.binary_operation.destination_register = address_register;
+                                add.type = InstructionType::ArithmeticOperation;
+                                add.arithmetic_operation.type = ArithmeticOperationType::Add;
+                                add.arithmetic_operation.size = context->address_integer_size;
+                                add.arithmetic_operation.source_register_a = expression_value.register_;
+                                add.arithmetic_operation.source_register_b = offset_register;
+                                add.arithmetic_operation.destination_register = address_register;
 
                                 append(instructions, add);
 
@@ -3192,12 +3192,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 auto address_register = allocate_register(context);
 
                                 Instruction add;
-                                add.type = InstructionType::BinaryOperation;
-                                add.binary_operation.type = BinaryOperationType::Add;
-                                add.binary_operation.size = context->address_integer_size;
-                                add.binary_operation.source_register_a = expression_value.register_;
-                                add.binary_operation.source_register_b = offset_register;
-                                add.binary_operation.destination_register = address_register;
+                                add.type = InstructionType::ArithmeticOperation;
+                                add.arithmetic_operation.type = ArithmeticOperationType::Add;
+                                add.arithmetic_operation.size = context->address_integer_size;
+                                add.arithmetic_operation.source_register_a = expression_value.register_;
+                                add.arithmetic_operation.source_register_b = offset_register;
+                                add.arithmetic_operation.destination_register = address_register;
 
                                 append(instructions, add);
 
@@ -3388,12 +3388,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                     auto address_register = allocate_register(context);
 
                                     Instruction add;
-                                    add.type = InstructionType::BinaryOperation;
-                                    add.binary_operation.type = BinaryOperationType::Add;
-                                    add.binary_operation.size = context->address_integer_size;
-                                    add.binary_operation.source_register_a = expression_value.register_;
-                                    add.binary_operation.source_register_b = offset_register;
-                                    add.binary_operation.destination_register = address_register;
+                                    add.type = InstructionType::ArithmeticOperation;
+                                    add.arithmetic_operation.type = ArithmeticOperationType::Add;
+                                    add.arithmetic_operation.size = context->address_integer_size;
+                                    add.arithmetic_operation.source_register_a = expression_value.register_;
+                                    add.arithmetic_operation.source_register_b = offset_register;
+                                    add.arithmetic_operation.destination_register = address_register;
 
                                     append(instructions, add);
 
@@ -3481,12 +3481,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                     auto address_register = allocate_register(context);
 
                                     Instruction add;
-                                    add.type = InstructionType::BinaryOperation;
-                                    add.binary_operation.type = BinaryOperationType::Add;
-                                    add.binary_operation.size = context->address_integer_size;
-                                    add.binary_operation.source_register_a = expression_value.address;
-                                    add.binary_operation.source_register_b = offset_register;
-                                    add.binary_operation.destination_register = address_register;
+                                    add.type = InstructionType::ArithmeticOperation;
+                                    add.arithmetic_operation.type = ArithmeticOperationType::Add;
+                                    add.arithmetic_operation.size = context->address_integer_size;
+                                    add.arithmetic_operation.source_register_a = expression_value.address;
+                                    add.arithmetic_operation.source_register_b = offset_register;
+                                    add.arithmetic_operation.destination_register = address_register;
 
                                     append(instructions, add);
 
@@ -3754,12 +3754,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         auto new_address_register = allocate_register(context);
 
                         Instruction add;
-                        add.type = InstructionType::BinaryOperation;
-                        add.binary_operation.type = BinaryOperationType::Add;
-                        add.binary_operation.size = context->address_integer_size;
-                        add.binary_operation.source_register_a = address_register;
-                        add.binary_operation.source_register_b = element_size_register;
-                        add.binary_operation.destination_register = new_address_register;
+                        add.type = InstructionType::ArithmeticOperation;
+                        add.arithmetic_operation.type = ArithmeticOperationType::Add;
+                        add.arithmetic_operation.size = context->address_integer_size;
+                        add.arithmetic_operation.source_register_a = address_register;
+                        add.arithmetic_operation.source_register_b = element_size_register;
+                        add.arithmetic_operation.destination_register = new_address_register;
 
                         append(instructions, add);
 
@@ -4086,12 +4086,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 auto length_address_register = allocate_register(context);
 
                                 Instruction add;
-                                add.type = InstructionType::BinaryOperation;
-                                add.binary_operation.type = BinaryOperationType::Add;
-                                add.binary_operation.size = context->address_integer_size;
-                                add.binary_operation.source_register_a = local_register;
-                                add.binary_operation.source_register_b = offset_register;
-                                add.binary_operation.destination_register = length_address_register;
+                                add.type = InstructionType::ArithmeticOperation;
+                                add.arithmetic_operation.type = ArithmeticOperationType::Add;
+                                add.arithmetic_operation.size = context->address_integer_size;
+                                add.arithmetic_operation.source_register_a = local_register;
+                                add.arithmetic_operation.source_register_b = offset_register;
+                                add.arithmetic_operation.destination_register = length_address_register;
 
                                 append(instructions, add);
 
@@ -4432,12 +4432,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Addition: {
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = actual_type.integer.size;
-                                operation.binary_operation.type = BinaryOperationType::Add;
-                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                operation.type = InstructionType::ArithmeticOperation;
+                                operation.arithmetic_operation.destination_register = result_register;
+                                operation.arithmetic_operation.size = actual_type.integer.size;
+                                operation.arithmetic_operation.type = ArithmeticOperationType::Add;
+                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
 
                                 append(instructions, operation);
 
@@ -4446,12 +4446,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                             case BinaryOperator::Subtraction: {
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = actual_type.integer.size;
-                                operation.binary_operation.type = BinaryOperationType::Subtract;
-                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                operation.type = InstructionType::ArithmeticOperation;
+                                operation.arithmetic_operation.destination_register = result_register;
+                                operation.arithmetic_operation.size = actual_type.integer.size;
+                                operation.arithmetic_operation.type = ArithmeticOperationType::Subtract;
+                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
 
                                 append(instructions, operation);
 
@@ -4460,17 +4460,17 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                             case BinaryOperator::Multiplication: {
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = actual_type.integer.size;
-                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                operation.type = InstructionType::ArithmeticOperation;
+                                operation.arithmetic_operation.destination_register = result_register;
+                                operation.arithmetic_operation.size = actual_type.integer.size;
+                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
 
                                 result_type = actual_type;
                                 if(left.type.integer.is_signed) {
-                                    operation.binary_operation.type = BinaryOperationType::SignedMultiply;
+                                    operation.arithmetic_operation.type = ArithmeticOperationType::SignedMultiply;
                                 } else {
-                                    operation.binary_operation.type = BinaryOperationType::UnsignedMultiply;
+                                    operation.arithmetic_operation.type = ArithmeticOperationType::UnsignedMultiply;
                                 }
 
                                 append(instructions, operation);
@@ -4480,17 +4480,17 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                             case BinaryOperator::Division: {
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = actual_type.integer.size;
-                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                operation.type = InstructionType::ArithmeticOperation;
+                                operation.arithmetic_operation.destination_register = result_register;
+                                operation.arithmetic_operation.size = actual_type.integer.size;
+                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
 
                                 result_type = actual_type;
                                 if(left.type.integer.is_signed) {
-                                    operation.binary_operation.type = BinaryOperationType::SignedDivide;
+                                    operation.arithmetic_operation.type = ArithmeticOperationType::SignedDivide;
                                 } else {
-                                    operation.binary_operation.type = BinaryOperationType::UnsignedDivide;
+                                    operation.arithmetic_operation.type = ArithmeticOperationType::UnsignedDivide;
                                 }
 
                                 append(instructions, operation);
@@ -4500,17 +4500,17 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                             case BinaryOperator::Modulo: {
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = actual_type.integer.size;
-                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                operation.type = InstructionType::ArithmeticOperation;
+                                operation.arithmetic_operation.destination_register = result_register;
+                                operation.arithmetic_operation.size = actual_type.integer.size;
+                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
 
                                 result_type = actual_type;
                                 if(left.type.integer.is_signed) {
-                                    operation.binary_operation.type = BinaryOperationType::SignedModulus;
+                                    operation.arithmetic_operation.type = ArithmeticOperationType::SignedModulus;
                                 } else {
-                                    operation.binary_operation.type = BinaryOperationType::UnsignedModulus;
+                                    operation.arithmetic_operation.type = ArithmeticOperationType::UnsignedModulus;
                                 }
 
                                 append(instructions, operation);
@@ -4520,12 +4520,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                             case BinaryOperator::BitwiseAnd: {
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = actual_type.integer.size;
-                                operation.binary_operation.type = BinaryOperationType::BitwiseAnd;
-                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                operation.type = InstructionType::ArithmeticOperation;
+                                operation.arithmetic_operation.destination_register = result_register;
+                                operation.arithmetic_operation.size = actual_type.integer.size;
+                                operation.arithmetic_operation.type = ArithmeticOperationType::BitwiseAnd;
+                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
 
                                 append(instructions, operation);
 
@@ -4534,12 +4534,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                             case BinaryOperator::BitwiseOr: {
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = actual_type.integer.size;
-                                operation.binary_operation.type = BinaryOperationType::BitwiseOr;
-                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                operation.type = InstructionType::ArithmeticOperation;
+                                operation.arithmetic_operation.destination_register = result_register;
+                                operation.arithmetic_operation.size = actual_type.integer.size;
+                                operation.arithmetic_operation.type = ArithmeticOperationType::BitwiseOr;
+                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
 
                                 append(instructions, operation);
 
@@ -4548,12 +4548,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                             case BinaryOperator::Equal: {
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = actual_type.integer.size;
-                                operation.binary_operation.type = BinaryOperationType::Equality;
-                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                operation.type = InstructionType::ComparisonOperation;
+                                operation.comparison_operation.destination_register = result_register;
+                                operation.comparison_operation.size = actual_type.integer.size;
+                                operation.comparison_operation.type = ComparisonOperationType::Equal;
+                                operation.comparison_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.comparison_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
 
                                 append(instructions, operation);
 
@@ -4564,12 +4564,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 auto equal_register = allocate_register(context);
 
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = equal_register;
-                                operation.binary_operation.size = actual_type.integer.size;
-                                operation.binary_operation.type = BinaryOperationType::Equality;
-                                operation.binary_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.binary_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                operation.type = InstructionType::ComparisonOperation;
+                                operation.comparison_operation.destination_register = equal_register;
+                                operation.comparison_operation.size = actual_type.integer.size;
+                                operation.comparison_operation.type = ComparisonOperationType::Equal;
+                                operation.comparison_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
+                                operation.comparison_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
 
                                 append(instructions, operation);
 
@@ -4598,12 +4598,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Equal: {
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = context->default_integer_size;
-                                operation.binary_operation.type = BinaryOperationType::Equality;
-                                operation.binary_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
-                                operation.binary_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
+                                operation.type = InstructionType::ComparisonOperation;
+                                operation.comparison_operation.destination_register = result_register;
+                                operation.comparison_operation.size = context->default_integer_size;
+                                operation.comparison_operation.type = ComparisonOperationType::Equal;
+                                operation.comparison_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
+                                operation.comparison_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
 
                                 append(instructions, operation);
                             } break;
@@ -4612,12 +4612,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 auto equal_register = allocate_register(context);
 
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = context->default_integer_size;
-                                operation.binary_operation.type = BinaryOperationType::Equality;
-                                operation.binary_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
-                                operation.binary_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
+                                operation.type = InstructionType::ComparisonOperation;
+                                operation.comparison_operation.destination_register = result_register;
+                                operation.comparison_operation.size = context->default_integer_size;
+                                operation.comparison_operation.type = ComparisonOperationType::Equal;
+                                operation.comparison_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
+                                operation.comparison_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
 
                                 append(instructions, operation);
 
@@ -4626,24 +4626,24 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                             case BinaryOperator::BooleanAnd: {
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = context->default_integer_size;
-                                operation.binary_operation.type = BinaryOperationType::BitwiseAnd;
-                                operation.binary_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
-                                operation.binary_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
+                                operation.type = InstructionType::ArithmeticOperation;
+                                operation.arithmetic_operation.destination_register = result_register;
+                                operation.arithmetic_operation.size = context->default_integer_size;
+                                operation.arithmetic_operation.type = ArithmeticOperationType::BitwiseAnd;
+                                operation.arithmetic_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
+                                operation.arithmetic_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
 
                                 append(instructions, operation);
                             } break;
 
                             case BinaryOperator::BooleanOr: {
                                 Instruction operation;
-                                operation.type = InstructionType::BinaryOperation;
-                                operation.binary_operation.destination_register = result_register;
-                                operation.binary_operation.size = context->default_integer_size;
-                                operation.binary_operation.type = BinaryOperationType::BitwiseOr;
-                                operation.binary_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
-                                operation.binary_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
+                                operation.type = InstructionType::ArithmeticOperation;
+                                operation.arithmetic_operation.destination_register = result_register;
+                                operation.arithmetic_operation.size = context->default_integer_size;
+                                operation.arithmetic_operation.type = ArithmeticOperationType::BitwiseOr;
+                                operation.arithmetic_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
+                                operation.arithmetic_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
 
                                 append(instructions, operation);
                             } break;
@@ -4906,12 +4906,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                             auto result_register = allocate_register(context);
 
                             Instruction subtract;
-                            subtract.type = InstructionType::BinaryOperation;
-                            subtract.binary_operation.type = BinaryOperationType::Subtract;
-                            subtract.binary_operation.size = expression_value.type.integer.size;
-                            subtract.binary_operation.source_register_a = zero_register;
-                            subtract.binary_operation.source_register_b = expression_value.register_;
-                            subtract.binary_operation.destination_register = result_register;
+                            subtract.type = InstructionType::ArithmeticOperation;
+                            subtract.arithmetic_operation.type = ArithmeticOperationType::Subtract;
+                            subtract.arithmetic_operation.size = expression_value.type.integer.size;
+                            subtract.arithmetic_operation.source_register_a = zero_register;
+                            subtract.arithmetic_operation.source_register_b = expression_value.register_;
+                            subtract.arithmetic_operation.destination_register = result_register;
 
                             append(instructions, subtract);
 
@@ -4951,12 +4951,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                             auto result_register = allocate_register(context);
 
                             Instruction subtract;
-                            subtract.type = InstructionType::BinaryOperation;
-                            subtract.binary_operation.type = BinaryOperationType::Subtract;
-                            subtract.binary_operation.size = expression_value.type.integer.size;
-                            subtract.binary_operation.source_register_a = zero_register;
-                            subtract.binary_operation.source_register_b = value_register;
-                            subtract.binary_operation.destination_register = result_register;
+                            subtract.type = InstructionType::ArithmeticOperation;
+                            subtract.arithmetic_operation.type = ArithmeticOperationType::Subtract;
+                            subtract.arithmetic_operation.size = expression_value.type.integer.size;
+                            subtract.arithmetic_operation.source_register_a = zero_register;
+                            subtract.arithmetic_operation.source_register_b = value_register;
+                            subtract.arithmetic_operation.destination_register = result_register;
 
                             append(instructions, subtract);
 
@@ -5572,12 +5572,12 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                             auto length_address_register = allocate_register(context);
 
                             Instruction add;
-                            add.type = InstructionType::BinaryOperation;
-                            add.binary_operation.type = BinaryOperationType::Add;
-                            add.binary_operation.size = context->address_integer_size;
-                            add.binary_operation.source_register_a = local_register;
-                            add.binary_operation.source_register_b = offset_register;
-                            add.binary_operation.destination_register = length_address_register;
+                            add.type = InstructionType::ArithmeticOperation;
+                            add.arithmetic_operation.type = ArithmeticOperationType::Add;
+                            add.arithmetic_operation.size = context->address_integer_size;
+                            add.arithmetic_operation.source_register_a = local_register;
+                            add.arithmetic_operation.source_register_b = offset_register;
+                            add.arithmetic_operation.destination_register = length_address_register;
 
                             append(instructions, add);
 

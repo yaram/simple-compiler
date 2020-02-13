@@ -107,68 +107,103 @@ Result<const char *> generate_c_source(Array<Function> functions, Array<StaticCo
                 string_buffer_append(&implementation_source, ":");
 
                 switch(instruction.type) {
-                    case InstructionType::BinaryOperation: {
-                        generate_type(&implementation_source, instruction.binary_operation.size, false);
+                    case InstructionType::ArithmeticOperation: {
+                        generate_type(&implementation_source, instruction.arithmetic_operation.size, false);
                         string_buffer_append(&implementation_source, " reg_");
-                        string_buffer_append(&implementation_source, instruction.binary_operation.destination_register);
+                        string_buffer_append(&implementation_source, instruction.arithmetic_operation.destination_register);
 
                         string_buffer_append(&implementation_source, "=");
 
                         char *operator_;
                         bool is_signed;
 
-                        switch(instruction.binary_operation.type) {
-                            case BinaryOperationType::Add: {
+                        switch(instruction.arithmetic_operation.type) {
+                            case ArithmeticOperationType::Add: {
                                 operator_ = "+";
                                 is_signed = false;
                             } break;
 
-                            case BinaryOperationType::Subtract: {
+                            case ArithmeticOperationType::Subtract: {
                                 operator_ = "-";
                                 is_signed = false;
                             } break;
 
-                            case BinaryOperationType::SignedMultiply: {
+                            case ArithmeticOperationType::SignedMultiply: {
                                 operator_ = "*";
                                 is_signed = true;
                             } break;
 
-                            case BinaryOperationType::UnsignedMultiply: {
+                            case ArithmeticOperationType::UnsignedMultiply: {
                                 operator_ = "*";
                                 is_signed = false;
                             } break;
 
-                            case BinaryOperationType::SignedDivide: {
+                            case ArithmeticOperationType::SignedDivide: {
                                 operator_ = "/";
                                 is_signed = true;
                             } break;
 
-                            case BinaryOperationType::UnsignedDivide: {
+                            case ArithmeticOperationType::UnsignedDivide: {
                                 operator_ = "/";
                                 is_signed = false;
                             } break;
 
-                            case BinaryOperationType::SignedModulus: {
+                            case ArithmeticOperationType::SignedModulus: {
                                 operator_ = "%";
                                 is_signed = true;
                             } break;
 
-                            case BinaryOperationType::UnsignedModulus: {
+                            case ArithmeticOperationType::UnsignedModulus: {
                                 operator_ = "%";
                                 is_signed = false;
                             } break;
 
-                            case BinaryOperationType::BitwiseAnd: {
+                            case ArithmeticOperationType::BitwiseAnd: {
                                 operator_ = "&";
                                 is_signed = false;
                             } break;
 
-                            case BinaryOperationType::BitwiseOr: {
+                            case ArithmeticOperationType::BitwiseOr: {
                                 operator_ = "|";
                                 is_signed = false;
                             } break;
 
-                            case BinaryOperationType::Equality: {
+                            default: {
+                                abort();
+                            } break;
+                        }
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_type(&implementation_source, instruction.arithmetic_operation.size, is_signed);
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, instruction.arithmetic_operation.source_register_a);
+
+                        string_buffer_append(&implementation_source, operator_);
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_type(&implementation_source, instruction.arithmetic_operation.size, is_signed);
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, instruction.arithmetic_operation.source_register_b);
+
+                        string_buffer_append(&implementation_source, ";");
+                    } break;
+
+                    case InstructionType::ComparisonOperation: {
+                        generate_type(&implementation_source, architecture_info.default_size, false);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, instruction.comparison_operation.destination_register);
+
+                        string_buffer_append(&implementation_source, "=");
+
+                        char *operator_;
+                        bool is_signed;
+
+                        switch(instruction.comparison_operation.type) {
+                            case ComparisonOperationType::Equal: {
                                 operator_ = "==";
                                 is_signed = false;
                             } break;
@@ -179,20 +214,20 @@ Result<const char *> generate_c_source(Array<Function> functions, Array<StaticCo
                         }
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, instruction.binary_operation.size, is_signed);
+                        generate_type(&implementation_source, instruction.comparison_operation.size, is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
-                        string_buffer_append(&implementation_source, instruction.binary_operation.source_register_a);
+                        string_buffer_append(&implementation_source, instruction.comparison_operation.source_register_a);
 
                         string_buffer_append(&implementation_source, operator_);
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, instruction.binary_operation.size, is_signed);
+                        generate_type(&implementation_source, instruction.comparison_operation.size, is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
-                        string_buffer_append(&implementation_source, instruction.binary_operation.source_register_b);
+                        string_buffer_append(&implementation_source, instruction.comparison_operation.source_register_b);
 
                         string_buffer_append(&implementation_source, ";");
                     } break;

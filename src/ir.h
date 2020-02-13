@@ -4,7 +4,7 @@
 #include "array.h"
 #include "architecture.h"
 
-enum struct BinaryOperationType {
+enum struct ArithmeticOperationType {
     Add,
     Subtract,
 
@@ -16,13 +16,16 @@ enum struct BinaryOperationType {
     UnsignedModulus,
 
     BitwiseAnd,
-    BitwiseOr,
+    BitwiseOr
+};
 
-    Equality
+enum struct ComparisonOperationType {
+    Equal
 };
 
 enum struct InstructionType {
-    BinaryOperation,
+    ArithmeticOperation,
+    ComparisonOperation,
 
     IntegerUpcast,
 
@@ -49,7 +52,7 @@ struct Instruction {
 
     union {
         struct {
-            BinaryOperationType type;
+            ArithmeticOperationType type;
 
             RegisterSize size;
 
@@ -57,7 +60,18 @@ struct Instruction {
             size_t source_register_b;
 
             size_t destination_register;
-        } binary_operation;
+        } arithmetic_operation;
+
+        struct {
+            ComparisonOperationType type;
+
+            RegisterSize size;
+
+            size_t source_register_a;
+            size_t source_register_b;
+
+            size_t destination_register;
+        } comparison_operation;
 
         struct {
             bool is_signed;

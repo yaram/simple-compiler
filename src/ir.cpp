@@ -6,61 +6,71 @@ static const char *register_size_names[] = { "8", "16", "32", "64" };
 
 void print_instruction(Instruction instruction) {
     switch(instruction.type) {
-        case InstructionType::BinaryOperation: {
-            const char *operation_text;
-
-            switch(instruction.binary_operation.type) {
-                case BinaryOperationType::Add: {
+        case InstructionType::ArithmeticOperation: {
+            switch(instruction.arithmetic_operation.type) {
+                case ArithmeticOperationType::Add: {
                     printf("ADD ");
                 } break;
 
-                case BinaryOperationType::Subtract: {
+                case ArithmeticOperationType::Subtract: {
                     printf("SUB ");
                 } break;
 
-                case BinaryOperationType::SignedMultiply: {
+                case ArithmeticOperationType::SignedMultiply: {
                     printf("MUL ");
                 } break;
 
-                case BinaryOperationType::UnsignedMultiply: {
+                case ArithmeticOperationType::UnsignedMultiply: {
                     printf("UMUL ");
                 } break;
 
-                case BinaryOperationType::SignedDivide: {
+                case ArithmeticOperationType::SignedDivide: {
                     printf("DIV ");
                 } break;
 
-                case BinaryOperationType::UnsignedDivide: {
+                case ArithmeticOperationType::UnsignedDivide: {
                     printf("UDIV ");
                 } break;
 
-                case BinaryOperationType::SignedModulus: {
+                case ArithmeticOperationType::SignedModulus: {
                     printf("MOD ");
                 } break;
 
-                case BinaryOperationType::UnsignedModulus: {
+                case ArithmeticOperationType::UnsignedModulus: {
                     printf("UMOD ");
                 } break;
 
-                case BinaryOperationType::BitwiseAnd: {
+                case ArithmeticOperationType::BitwiseAnd: {
                     printf("AND ");
                 } break;
 
-                case BinaryOperationType::BitwiseOr: {
+                case ArithmeticOperationType::BitwiseOr: {
                     printf("OR ");
                 } break;
+            }
 
-                case BinaryOperationType::Equality: {
+            printf(
+                " %s r%zu, r%zu, r%zu",
+                register_size_names[(int)instruction.arithmetic_operation.size],
+                instruction.arithmetic_operation.source_register_a,
+                instruction.arithmetic_operation.source_register_b,
+                instruction.arithmetic_operation.destination_register
+            );
+        } break;
+
+        case InstructionType::ComparisonOperation: {
+            switch(instruction.comparison_operation.type) {
+                case ComparisonOperationType::Equal: {
                     printf("EQ ");
                 } break;
             }
 
             printf(
                 " %s r%zu, r%zu, r%zu",
-                register_size_names[(int)instruction.binary_operation.size],
-                instruction.binary_operation.source_register_a,
-                instruction.binary_operation.source_register_b,
-                instruction.binary_operation.destination_register
+                register_size_names[(int)instruction.comparison_operation.size],
+                instruction.comparison_operation.source_register_a,
+                instruction.comparison_operation.source_register_b,
+                instruction.comparison_operation.destination_register
             );
         } break;
 
