@@ -45,6 +45,8 @@ union ConstantValue {
 
     ConstantValue *static_array;
 
+    ConstantValue *struct_;
+
     Array<Statement> file_module;
 };
 
@@ -92,6 +94,19 @@ struct RuntimeFunction {
     Array<PolymorphicDeterminer> polymorphic_determiners;
 };
 
+struct StructTypeMember {
+    Identifier name;
+
+    Type type;
+    FileRange type_range;
+};
+
+struct StructType {
+    const char *name;
+
+    Array<StructTypeMember> members;
+};
+
 struct GenerationContext {
     RegisterSize address_integer_size;
     RegisterSize default_integer_size;
@@ -124,6 +139,8 @@ struct GenerationContext {
     List<const char*> libraries;
 
     List<StaticConstant> static_constants;
+
+    List<StructType> struct_types;
 };
 
 static void error(FileRange range, const char *format, ...) {
@@ -273,6 +290,98 @@ static size_t register_size_to_byte_size(RegisterSize size) {
     }
 }
 
+static StructType retrieve_struct_type(GenerationContext context, const char *name) {
+    for(auto struct_type : context.struct_types) {
+        if(strcmp(struct_type.name, name) == 0) {
+            return struct_type;
+        }
+    }
+
+    abort();
+}
+
+static void do_integer_alignment(RegisterSize size, size_t *current_size) {
+    auto byte_size = register_size_to_byte_size(size);
+
+    auto alignment_difference = *current_size % byte_size;
+
+    if(alignment_difference == 0) {
+        *current_size += byte_size;
+    } else {
+        *current_size += byte_size - alignment_difference + byte_size;
+    }
+}
+
+static void get_struct_size(GenerationContext context, StructType struct_type, size_t member_count, size_t *current_size) {
+    for(size_t i = 0; i < member_count; i += 1) {
+        auto member = struct_type.members[i];
+
+        switch(member.type.category) {
+            case TypeCategory::Integer: {
+                do_integer_alignment(member.type.integer.size, current_size);
+            } break;
+
+            case TypeCategory::Boolean: {
+                do_integer_alignment(context.default_integer_size, current_size);
+            } break;
+
+            case TypeCategory::Pointer: {
+                do_integer_alignment(context.address_integer_size, current_size);
+            } break;
+
+            case TypeCategory::Array: {
+                do_integer_alignment(context.address_integer_size, current_size);
+                do_integer_alignment(context.address_integer_size, current_size);
+            } break;
+
+            case TypeCategory::StaticArray: {
+                RegisterSize size;
+                switch(member.type.static_array.type->category) {
+                    case TypeCategory::Integer: {
+                        size = member.type.static_array.type->integer.size;
+                    } break;
+
+                    case TypeCategory::Boolean: {
+                        size = context.default_integer_size;
+                    } break;
+
+                    case TypeCategory::Pointer: {
+                        size = context.address_integer_size;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                auto byte_size = register_size_to_byte_size(size);
+
+                auto full_size = byte_size * member.type.static_array.length;
+
+                auto alignment_difference = *current_size % byte_size;
+
+                if(alignment_difference == 0) {
+                    *current_size += full_size;
+                } else {
+                    *current_size += full_size - alignment_difference + byte_size;
+                }
+            } break;
+
+            case TypeCategory::Struct: {
+                auto struct_type = retrieve_struct_type(context, member.type._struct);
+
+                get_struct_size(context, struct_type, struct_type.members.count, current_size);
+
+                abort();
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+    }
+}
+
 static size_t get_type_size(GenerationContext context, Type type) {
     switch(type.category) {
         case TypeCategory::Integer: {
@@ -293,6 +402,17 @@ static size_t get_type_size(GenerationContext context, Type type) {
 
         case TypeCategory::StaticArray: {
             return type.static_array.length * get_type_size(context, *type.static_array.type);
+        } break;
+
+        case TypeCategory::Struct: {
+            auto type_size = retrieve_struct_type(context, type._struct);
+
+            size_t size = 0;
+            get_struct_size(context, type_size, type_size.members.count, &size);
+
+            return size;
+
+            abort();
         } break;
 
         default: {
@@ -1069,6 +1189,26 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                     }
                 } break;
 
+                case TypeCategory::Struct: {
+                    auto struct_type = retrieve_struct_type(*context, expression_value.type._struct);
+
+                    for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                        if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
+                            return {
+                                true,
+                                {
+                                    struct_type.members[i].type,
+                                    expression_value.value.struct_[i]
+                                }
+                            };
+                        }
+                    }
+
+                    error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+
+                    return { false };
+                } break;
+
                 case TypeCategory::FileModule: {
                     for(auto statement : expression_value.value.file_module) {
                         if(match_declaration(statement, expression.member_reference.name.text)) {
@@ -1301,39 +1441,26 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
             switch(expression.unary_operation.unary_operator) {
                 case UnaryOperator::Pointer: {
-                    switch(expression_value.type.category) {
-                        case TypeCategory::Type: {
-                            Type type;
-                            type.category = TypeCategory::Type;
+                    if(expression_value.type.category != TypeCategory::Type) {
+                        error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
 
-                            ConstantValue value;
-                            value.type.category = TypeCategory::Pointer;
-                            value.type.pointer = heapify(expression_value.value.type);
-
-                            return {
-                                true,
-                                {
-                                    type,
-                                    value
-                                }
-                            };
-                        } break;
-
-                        case TypeCategory::Function:
-                        case TypeCategory::Integer:
-                        case TypeCategory::Boolean:
-                        case TypeCategory::Void:
-                        case TypeCategory::Pointer:
-                        case TypeCategory::FileModule: {
-                            error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
-
-                            return { false };
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
+                        return { false };
                     }
+
+                    Type type;
+                    type.category = TypeCategory::Type;
+
+                    ConstantValue value;
+                    value.type.category = TypeCategory::Pointer;
+                    value.type.pointer = heapify(expression_value.value.type);
+
+                    return {
+                        true,
+                        {
+                            type,
+                            value
+                        }
+                    };
                 } break;
 
                 case UnaryOperator::BooleanInvert: {
@@ -1646,6 +1773,61 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             };
         } break;
 
+        case StatementType::StructDefinition: {
+            auto mangled_name = generate_mangled_name(*context, declaration);
+
+            auto is_registered = false;
+            for(auto struct_type : context->struct_types) {
+                if(strcmp(struct_type.name, mangled_name) == 0) {
+                    is_registered = true;
+                }
+            }
+
+            if(!is_registered) {
+                auto members = allocate<StructTypeMember>(declaration.struct_definition.members.count);
+
+                for(size_t i = 0; i < declaration.struct_definition.members.count; i += 1) {
+                    for(size_t j = 0; j < declaration.struct_definition.members.count; j += 1) {
+                        if(j != i && strcmp(declaration.struct_definition.members[i].name.text, declaration.struct_definition.members[j].name.text) == 0) {
+                            error(declaration.struct_definition.members[i].name.range, "Duplicate struct member name %s", declaration.struct_definition.members[i].name.text);
+
+                            return { false };
+                        }
+                    }
+
+                    expect(value, evaluate_type_expression(context, declaration.struct_definition.members[i].type));
+
+                    members[i] = {
+                        declaration.struct_definition.members[i].name,
+                        value
+                    };
+                }
+
+                append(&context->struct_types, {
+                    mangled_name,
+                    {
+                        declaration.struct_definition.members.count,
+                        members
+                    }
+                });
+            }
+
+            Type type;
+            type.category = TypeCategory::Type;
+
+            ConstantValue value;
+            value.type.category = TypeCategory::Struct;
+            value.type._struct = mangled_name;
+
+            return {
+                true,
+                {
+                    type,
+                    value
+                }
+            };
+        } break;
+
         default: {
             abort();
         } break;
@@ -1831,68 +2013,74 @@ static size_t generate_integer_register_value(GenerationContext *context, List<I
     return generate_integer_register_value(context, instructions, value.type.integer.size, value);
 }
 
-template <typename T>
-T *write_integers(Array<ConstantValue> values) {
-    auto data = allocate<T>(values.count);
-
-    for(size_t i = 0; i < values.count; i += 1) {
-        data[i] = values[i].integer;
-    }
-
-    return data;
+static void write_integer(uint8_t *buffer, size_t index, uint8_t value) {
+    buffer[index] = value;
 }
 
-template <typename T>
-T *write_booleans(Array<ConstantValue> values) {
-    auto data = allocate<T>(values.count);
-
-    for(size_t i = 0; i < values.count; i += 1) {
-        if(values[i].boolean) {
-            data[i] = 1;
-        } else {
-            data[i] = 0;
-        }
-    }
-
-    return data;
+static void write_integer(uint8_t *buffer, size_t index, uint16_t value) {
+    buffer[index] = value & 0xF;
+    buffer[index + 1] = (value >> 8) & 0xF;
 }
 
-template <typename T>
-T *write_pointers(Array<ConstantValue> values) {
-    auto data = allocate<T>(values.count);
+static void write_integer(uint8_t *buffer, size_t index, uint32_t value) {
+    buffer[index] = value & 0xF;
+    buffer[index + 1] = (value >> 8) & 0xF;
+    buffer[index + 2] = (value >> 16) & 0xF;
+    buffer[index + 3] = (value >> 24) & 0xF;
+}
 
-    for(size_t i = 0; i < values.count; i += 1) {
-        data[i] = values[i].pointer;
-    }
-
-    return data;
+static void write_integer(uint8_t *buffer, size_t index, uint64_t value) {
+    buffer[index] = value & 0xF;
+    buffer[index + 1] = (value >> 8) & 0xF;
+    buffer[index + 2] = (value >> 16) & 0xF;
+    buffer[index + 3] = (value >> 24) & 0xF;
+    buffer[index + 4] = (value >> 32) & 0xF;
+    buffer[index + 5] = (value >> 40) & 0xF;
+    buffer[index + 6] = (value >> 48) & 0xF;
+    buffer[index + 7] = (value >> 56) & 0xF;
 }
 
 static const char *register_static_array_constant(GenerationContext *context, Type type, Array<ConstantValue> values) {
-    uint8_t *data;
     size_t element_size;
+    uint8_t *data;
 
     switch(type.category) {
         case TypeCategory::Integer: {
             switch(type.integer.size) {
                 case RegisterSize::Size8: {
-                    data = write_integers<uint8_t>(values);
                     element_size = 1;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        write_integer(data, i * element_size, (uint8_t)values[i].integer);
+                    }
                 } break;
 
                 case RegisterSize::Size16: {
-                    data = (uint8_t*)write_integers<uint16_t>(values);
                     element_size = 2;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        write_integer(data, i * element_size, (uint16_t)values[i].integer);
+                    }
                 } break;
 
                 case RegisterSize::Size32: {
-                    data = (uint8_t*)write_integers<uint32_t>(values);
                     element_size = 4;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        write_integer(data, i * element_size, (uint32_t)values[i].integer);
+                    }
                 } break;
 
                 case RegisterSize::Size64: {
-                    data = (uint8_t*)write_integers<uint64_t>(values);
                     element_size = 8;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        write_integer(data, i * element_size, (uint64_t)values[i].integer);
+                    }
                 } break;
 
                 default: {
@@ -1904,23 +2092,55 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
         case TypeCategory::Boolean: {
             switch(context->default_integer_size) {
                 case RegisterSize::Size8: {
-                    data = write_booleans<uint8_t>(values);
                     element_size = 1;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        if(values[i].boolean) {
+                            write_integer(data, i * element_size, (uint8_t)1);
+                        } else {
+                            write_integer(data, i * element_size, (uint8_t)0);
+                        }
+                    }
                 } break;
 
                 case RegisterSize::Size16: {
-                    data = (uint8_t*)write_booleans<uint16_t>(values);
                     element_size = 2;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        if(values[i].boolean) {
+                            write_integer(data, i * element_size, (uint16_t)1);
+                        } else {
+                            write_integer(data, i * element_size, (uint16_t)0);
+                        }
+                    }
                 } break;
 
                 case RegisterSize::Size32: {
-                    data = (uint8_t*)write_booleans<uint32_t>(values);
                     element_size = 4;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        if(values[i].boolean) {
+                            write_integer(data, i * element_size, (uint32_t)1);
+                        } else {
+                            write_integer(data, i * element_size, (uint32_t)0);
+                        }
+                    }
                 } break;
 
                 case RegisterSize::Size64: {
-                    data = (uint8_t*)write_booleans<uint64_t>(values);
                     element_size = 8;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        if(values[i].boolean) {
+                            write_integer(data, i * element_size, (uint64_t)1);
+                        } else {
+                            write_integer(data, i * element_size, (uint64_t)0);
+                        }
+                    }
                 } break;
 
                 default: {
@@ -1932,23 +2152,39 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
         case TypeCategory::Pointer: {
             switch(context->address_integer_size) {
                 case RegisterSize::Size8: {
-                    data = write_pointers<uint8_t>(values);
                     element_size = 1;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        write_integer(data, i * element_size, (uint8_t)values[i].pointer);
+                    }
                 } break;
 
                 case RegisterSize::Size16: {
-                    data = (uint8_t*)write_pointers<uint16_t>(values);
                     element_size = 2;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        write_integer(data, i * element_size, (uint16_t)values[i].pointer);
+                    }
                 } break;
 
                 case RegisterSize::Size32: {
-                    data = (uint8_t*)write_pointers<uint32_t>(values);
                     element_size = 4;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        write_integer(data, i * element_size, (uint32_t)values[i].pointer);
+                    }
                 } break;
 
                 case RegisterSize::Size64: {
-                    data = (uint8_t*)write_pointers<uint64_t>(values);
                     element_size = 8;
+                    data = allocate<uint8_t>(values.count * element_size);
+
+                    for(auto i = 0; i < values.count; i += 1) {
+                        write_integer(data, i * element_size, (uint64_t)values[i].pointer);
+                    }
                 } break;
 
                 default: {
@@ -1970,6 +2206,128 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
         name_buffer,
         {
             values.count * element_size,
+            data
+        }
+    });
+
+    return name_buffer;
+}
+
+static const char *register_struct_constant(GenerationContext *context, StructType struct_type, ConstantValue *values) {
+    size_t length = 0;
+    get_struct_size(*context, struct_type, struct_type.members.count, &length);
+
+    auto data = allocate<uint8_t>(length);
+
+    for(auto i = 0; i < struct_type.members.count; i += 1) {
+        size_t offset = 0;
+        if(i != 0) {
+            get_struct_size(*context, struct_type, i, &offset);
+        }
+
+        switch(struct_type.members[i].type.category) {
+            case TypeCategory::Integer: {
+                switch(struct_type.members[i].type.integer.size) {
+                    case RegisterSize::Size8: {
+                        write_integer(data, offset, (uint8_t)values[i].integer);
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        write_integer(data, offset, (uint16_t)values[i].integer);
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        write_integer(data, offset, (uint32_t)values[i].integer);
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        write_integer(data, offset, (uint64_t)values[i].integer);
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            } break;
+
+            case TypeCategory::Boolean: {
+                switch(context->default_integer_size) {
+                    case RegisterSize::Size8: {
+                        if(values[i].boolean) {
+                            write_integer(data, offset, (uint8_t)1);
+                        } else {
+                            write_integer(data, offset, (uint8_t)0);
+                        }
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        if(values[i].boolean) {
+                            write_integer(data, offset, (uint16_t)1);
+                        } else {
+                            write_integer(data, offset, (uint16_t)0);
+                        }
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        if(values[i].boolean) {
+                            write_integer(data, offset, (uint32_t)1);
+                        } else {
+                            write_integer(data, offset, (uint32_t)0);
+                        }
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        if(values[i].boolean) {
+                            write_integer(data, offset, (uint64_t)1);
+                        } else {
+                            write_integer(data, offset, (uint64_t)0);
+                        }
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            } break;
+
+            case TypeCategory::Pointer: {
+                switch(context->address_integer_size) {
+                    case RegisterSize::Size8: {
+                        write_integer(data, offset, (uint8_t)values[i].pointer);
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        write_integer(data, offset, (uint16_t)values[i].pointer);
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        write_integer(data, offset, (uint32_t)values[i].pointer);
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        write_integer(data, offset, (uint64_t)values[i].pointer);
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+    }
+
+    char *name_buffer{};
+    string_buffer_append(&name_buffer, "constant_");
+    string_buffer_append(&name_buffer, context->static_constants.count);
+
+    append(&context->static_constants, {
+        name_buffer,
+        {
+            length,
             data
         }
     });
@@ -2225,6 +2583,100 @@ static void generate_non_integer_variable_assignment(GenerationContext *context,
                     Instruction copy;
                     copy.type = InstructionType::CopyMemory;
                     copy.copy_memory.length_register = length_register;
+                    copy.copy_memory.source_address_register = value.address;
+                    copy.copy_memory.destination_address_register = address_register;
+
+                    append(instructions, copy);
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } break;
+
+        case TypeCategory::Struct: {
+            auto struct_type = retrieve_struct_type(*context, value.type._struct);
+
+            switch(value.category) {
+                case ExpressionValueCategory::Constant: {
+                    auto constant_name = register_struct_constant(
+                        context,
+                        struct_type,
+                        value.constant.struct_
+                    );
+
+                    auto constant_address_register = allocate_register(context);
+
+                    Instruction reference;
+                    reference.type = InstructionType::ReferenceStatic;
+                    reference.reference_static.name = constant_name;
+                    reference.reference_static.destination_register = constant_address_register;
+
+                    append(instructions, reference);
+
+                    size_t size = 0;
+                    get_struct_size(*context, struct_type, struct_type.members.count, &size);
+
+                    auto size_register = allocate_register(context);
+
+                    Instruction constant;
+                    constant.type = InstructionType::Constant;
+                    constant.constant.size = context->address_integer_size;
+                    constant.constant.destination_register = size_register;
+                    constant.constant.value = size;
+
+                    append(instructions, constant);
+
+                    Instruction copy;
+                    copy.type = InstructionType::CopyMemory;
+                    copy.copy_memory.length_register = size_register;
+                    copy.copy_memory.source_address_register = constant_address_register;
+                    copy.copy_memory.destination_address_register = address_register;
+
+                    append(instructions, copy);
+                } break;
+
+                case ExpressionValueCategory::Register: {
+                    size_t size = 0;
+                    get_struct_size(*context, struct_type, struct_type.members.count, &size);
+
+                    auto size_register = allocate_register(context);
+
+                    Instruction constant;
+                    constant.type = InstructionType::Constant;
+                    constant.constant.size = context->address_integer_size;
+                    constant.constant.destination_register = size_register;
+                    constant.constant.value = size;
+
+                    append(instructions, constant);
+
+                    Instruction copy;
+                    copy.type = InstructionType::CopyMemory;
+                    copy.copy_memory.length_register = size_register;
+                    copy.copy_memory.source_address_register = value.register_;
+                    copy.copy_memory.destination_address_register = address_register;
+
+                    append(instructions, copy);
+                } break;
+
+                case ExpressionValueCategory::Address: {
+                    size_t size = 0;
+                    get_struct_size(*context, struct_type, struct_type.members.count, &size);
+
+                    auto size_register = allocate_register(context);
+
+                    Instruction constant;
+                    constant.type = InstructionType::Constant;
+                    constant.constant.size = context->address_integer_size;
+                    constant.constant.destination_register = size_register;
+                    constant.constant.value = size;
+
+                    append(instructions, constant);
+
+                    Instruction copy;
+                    copy.type = InstructionType::CopyMemory;
+                    copy.copy_memory.length_register = size_register;
                     copy.copy_memory.source_address_register = value.address;
                     copy.copy_memory.destination_address_register = address_register;
 
@@ -2875,6 +3327,179 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     }
                 } break;
 
+                case TypeCategory::Struct: {
+                    auto struct_type = retrieve_struct_type(*context, expression_value.type._struct);
+
+                    switch(expression_value.category) {
+                        case ExpressionValueCategory::Constant: {
+                            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                                if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
+                                    ExpressionValue value;
+                                    value.category = ExpressionValueCategory::Constant;
+                                    value.type = struct_type.members[i].type;
+                                    value.constant = expression_value.constant.struct_[i];
+
+                                    return {
+                                        true,
+                                        value
+                                    };
+                                }
+                            }
+                        } break;
+
+                        case ExpressionValueCategory::Register: {
+                            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                                if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
+                                    size_t offset = 0;
+                                    if(i != 0) {
+                                        get_struct_size(*context, struct_type, i, &offset);
+                                    }
+
+                                    auto offset_register = allocate_register(context);
+
+                                    Instruction constant;
+                                    constant.type = InstructionType::Constant;
+                                    constant.constant.size = context->address_integer_size;
+                                    constant.constant.destination_register = offset_register;
+                                    constant.constant.value = offset;
+
+                                    append(instructions, constant);
+
+                                    auto address_register = allocate_register(context);
+
+                                    Instruction add;
+                                    add.type = InstructionType::BinaryOperation;
+                                    add.binary_operation.type = BinaryOperationType::Add;
+                                    add.binary_operation.size = context->address_integer_size;
+                                    add.binary_operation.source_register_a = expression_value.register_;
+                                    add.binary_operation.source_register_b = offset_register;
+                                    add.binary_operation.destination_register = address_register;
+
+                                    append(instructions, add);
+
+                                    size_t result_register;
+                                    switch(struct_type.members[i].type.category) {
+                                        case TypeCategory::Integer: {
+                                            result_register = allocate_register(context);
+
+                                            Instruction load;
+                                            load.type = InstructionType::LoadInteger;
+                                            load.load_integer.size = struct_type.members[i].type.integer.size;
+                                            load.load_integer.address_register = address_register;
+                                            load.load_integer.destination_register = result_register;
+
+                                            append(instructions, load);
+                                        } break;
+
+                                        case TypeCategory::Boolean: {
+                                            result_register = allocate_register(context);
+
+                                            Instruction load;
+                                            load.type = InstructionType::LoadInteger;
+                                            load.load_integer.size = context->default_integer_size;
+                                            load.load_integer.address_register = address_register;
+                                            load.load_integer.destination_register = result_register;
+
+                                            append(instructions, load);
+                                        } break;
+
+                                        case TypeCategory::Pointer: {
+                                            result_register = allocate_register(context);
+
+                                            Instruction load;
+                                            load.type = InstructionType::LoadInteger;
+                                            load.load_integer.size = context->address_integer_size;
+                                            load.load_integer.address_register = address_register;
+                                            load.load_integer.destination_register = result_register;
+
+                                            append(instructions, load);
+                                        } break;
+
+                                        case TypeCategory::Array:
+                                        case TypeCategory::StaticArray:
+                                        case TypeCategory::Struct: {
+                                            result_register = address_register;
+                                        } break;
+
+                                        default: {
+                                            break;
+                                        }
+                                    }
+
+                                    ExpressionValue value;
+                                    value.category = ExpressionValueCategory::Register;
+                                    value.type = struct_type.members[i].type;
+                                    value.register_ = result_register;
+
+                                    return {
+                                        true,
+                                        value
+                                    };
+                                }
+                            }
+
+                            error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+
+                            return { false };
+                        } break;
+
+                        case ExpressionValueCategory::Address: {
+                            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                                if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
+                                    size_t offset = 0;
+                                    if(i != 0) {
+                                        get_struct_size(*context, struct_type, i, &offset);
+                                    }
+
+                                    auto offset_register = allocate_register(context);
+
+                                    Instruction constant;
+                                    constant.type = InstructionType::Constant;
+                                    constant.constant.size = context->address_integer_size;
+                                    constant.constant.destination_register = offset_register;
+                                    constant.constant.value = offset;
+
+                                    append(instructions, constant);
+
+                                    auto address_register = allocate_register(context);
+
+                                    Instruction add;
+                                    add.type = InstructionType::BinaryOperation;
+                                    add.binary_operation.type = BinaryOperationType::Add;
+                                    add.binary_operation.size = context->address_integer_size;
+                                    add.binary_operation.source_register_a = expression_value.address;
+                                    add.binary_operation.source_register_b = offset_register;
+                                    add.binary_operation.destination_register = address_register;
+
+                                    append(instructions, add);
+
+                                    ExpressionValue value;
+                                    value.category = ExpressionValueCategory::Address;
+                                    value.type = struct_type.members[i].type;
+                                    value.address = address_register;
+
+                                    return {
+                                        true,
+                                        value
+                                    };
+                                }
+                            }
+
+                            error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+
+                            return { false };
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+
+                    error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+
+                    return { false };
+                } break;
+
                 case TypeCategory::FileModule: {
                     assert(expression_value.category == ExpressionValueCategory::Constant);
 
@@ -3515,6 +4140,50 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         }
                     } break;
 
+                    case TypeCategory::Struct: {
+                        if(
+                            function_parameter_types[i].category != TypeCategory::Struct ||
+                            strcmp(value.type._struct, function_parameter_types[i]._struct) != 0
+                        ) {
+                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+
+                            return { false };
+                        }
+
+                        switch(value.category) {
+                            case ExpressionValueCategory::Constant: {
+                                auto constant_name = register_struct_constant(
+                                    context,
+                                    retrieve_struct_type(*context, value.type._struct),
+                                    value.constant.struct_
+                                );
+
+                                auto constant_address_register = allocate_register(context);
+
+                                Instruction reference;
+                                reference.type = InstructionType::ReferenceStatic;
+                                reference.reference_static.name = constant_name;
+                                reference.reference_static.destination_register = constant_address_register;
+
+                                append(instructions, reference);
+
+                                function_parameter_registers[i] = constant_address_register;
+                            } break;
+
+                            case ExpressionValueCategory::Register: {
+                                function_parameter_registers[i] = value.register_;
+                            } break;
+
+                            case ExpressionValueCategory::Address: {
+                                function_parameter_registers[i] = value.address;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+                    } break;
+
                     default: {
                         abort();
                     } break;
@@ -3607,6 +4276,48 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     Instruction copy;
                     copy.type = InstructionType::CopyMemory;
                     copy.copy_memory.length_register = length_register;
+                    copy.copy_memory.source_address_register = address_return_register;
+                    copy.copy_memory.destination_address_register = return_register;
+
+                    append(instructions, copy);
+                } break;
+
+                case TypeCategory::Struct: {
+                    has_return = true;
+                    return_register = allocate_register(context);
+
+                    auto struct_type = retrieve_struct_type(*context, function_return_type._struct);
+
+                    size_t size = 0;
+                    get_struct_size(*context, struct_type, struct_type.members.count, &size);
+
+                    Instruction alloc;
+                    alloc.type = InstructionType::AllocateLocal;
+                    alloc.allocate_local.size = size;
+                    alloc.allocate_local.destination_register = return_register;
+
+                    append(instructions, alloc);
+
+                    auto address_return_register = allocate_register(context);
+
+                    call.function_call.has_return = true;
+                    call.function_call.return_register = address_return_register;
+
+                    append(instructions, call);
+
+                    auto size_register = allocate_register(context);
+
+                    Instruction constant;
+                    constant.type = InstructionType::Constant;
+                    constant.constant.size = context->address_integer_size;
+                    constant.constant.destination_register = size_register;
+                    constant.constant.value = size;
+
+                    append(instructions, constant);
+
+                    Instruction copy;
+                    copy.type = InstructionType::CopyMemory;
+                    copy.copy_memory.length_register = size_register;
                     copy.copy_memory.source_address_register = address_return_register;
                     copy.copy_memory.destination_address_register = return_register;
 
@@ -3941,35 +4652,22 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 case UnaryOperator::Pointer: {
                     switch(expression_value.category) {
                         case ExpressionValueCategory::Constant: {
-                            switch(expression_value.type.category) {
-                                case TypeCategory::Type: {
-                                    ExpressionValue value;
-                                    value.category = ExpressionValueCategory::Constant;
-                                    value.type.category = TypeCategory::Type;
-                                    value.constant.type.category = TypeCategory::Pointer;
-                                    value.constant.type.pointer = heapify(expression_value.constant.type);
+                            if(expression_value.type.category != TypeCategory::Type) {
+                                error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
 
-                                    return {
-                                        true,
-                                        value
-                                    };
-                                } break;
-
-                                case TypeCategory::Function:
-                                case TypeCategory::Integer:
-                                case TypeCategory::Boolean:
-                                case TypeCategory::Void:
-                                case TypeCategory::Pointer:
-                                case TypeCategory::FileModule: {
-                                    error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
-
-                                    return { false };
-                                } break;
-
-                                default: {
-                                    abort();
-                                } break;
+                                return { false };
                             }
+
+                            ExpressionValue value;
+                            value.category = ExpressionValueCategory::Constant;
+                            value.type.category = TypeCategory::Type;
+                            value.constant.type.category = TypeCategory::Pointer;
+                            value.constant.type.pointer = heapify(expression_value.constant.type);
+
+                            return {
+                                true,
+                                value
+                            };
                         } break;
 
                         case ExpressionValueCategory::Register: {
@@ -4840,6 +5538,50 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     }
                 } break;
 
+                case TypeCategory::Struct: {
+                    if(
+                        context->return_type.category != TypeCategory::Struct ||
+                        strcmp(value.type._struct, context->return_type._struct) != 0
+                    ) {
+                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+
+                        return { false };
+                    }
+
+                    switch(value.category) {
+                        case ExpressionValueCategory::Constant: {
+                            auto constant_name = register_struct_constant(
+                                context,
+                                retrieve_struct_type(*context, value.type._struct),
+                                value.constant.struct_
+                            );
+
+                            auto constant_address_register = allocate_register(context);
+
+                            Instruction reference;
+                            reference.type = InstructionType::ReferenceStatic;
+                            reference.reference_static.name = constant_name;
+                            reference.reference_static.destination_register = constant_address_register;
+
+                            append(instructions, reference);
+
+                            return_.return_.value_register = constant_address_register;
+                        } break;
+
+                        case ExpressionValueCategory::Register: {
+                            return_.return_.value_register = value.register_;
+                        } break;
+
+                        case ExpressionValueCategory::Address: {
+                            return_.return_.value_register = value.address;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } break;
+
                 default: {
                     abort();
                 } break;
@@ -5056,6 +5798,10 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
                                 parameter_sizes[i] = architecute_info.address_size;
                             } break;
 
+                            case TypeCategory::Struct: {
+                                parameter_sizes[i] = architecute_info.address_size;
+                            } break;
+
                             default: {
                                 abort();
                             } break;
@@ -5102,6 +5848,10 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
                             } break;
 
                             case TypeCategory::StaticArray: {
+                                parameter_sizes[i] = architecute_info.address_size;
+                            } break;
+
+                            case TypeCategory::Struct: {
                                 parameter_sizes[i] = architecute_info.address_size;
                             } break;
 
@@ -5180,6 +5930,10 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
                         } break;
 
                         case TypeCategory::StaticArray: {
+                            ir_function.return_size = architecute_info.address_size;
+                        } break;
+
+                        case TypeCategory::Struct: {
                             ir_function.return_size = architecute_info.address_size;
                         } break;
 
