@@ -300,84 +300,73 @@ static StructType retrieve_struct_type(GenerationContext context, const char *na
     abort();
 }
 
-static void do_integer_alignment(RegisterSize size, size_t *current_size) {
-    auto byte_size = register_size_to_byte_size(size);
+static size_t get_type_alignment(GenerationContext context, Type type) {
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            return register_size_to_byte_size(type.integer.size);
+        } break;
 
-    auto alignment_difference = *current_size % byte_size;
+        case TypeCategory::Boolean: {
+            return register_size_to_byte_size(context.default_integer_size);
+        } break;
 
-    if(alignment_difference == 0) {
-        *current_size += byte_size;
-    } else {
-        *current_size += byte_size - alignment_difference + byte_size;
+        case TypeCategory::Pointer: {
+            return register_size_to_byte_size(context.address_integer_size);
+        } break;
+
+        case TypeCategory::Array: {
+            return register_size_to_byte_size(context.address_integer_size);
+        } break;
+
+        case TypeCategory::StaticArray: {
+            return get_type_alignment(context, *type.static_array.type);
+        } break;
+
+        case TypeCategory::Struct: {
+            size_t current_alignment = 1;
+
+            auto struct_type = retrieve_struct_type(context, type._struct);
+
+            for(auto member : struct_type.members) {
+                auto alignment = get_type_alignment(context, member.type);
+
+                if(alignment > current_alignment) {
+                    current_alignment = alignment;
+                }
+            }
+
+            return current_alignment;
+        } break;
+
+        default: {
+            abort();
+        } break;
     }
 }
 
-static void get_struct_size(GenerationContext context, StructType struct_type, size_t member_count, size_t *current_size) {
-    for(size_t i = 0; i < member_count; i += 1) {
-        auto member = struct_type.members[i];
+static size_t get_type_size(GenerationContext context, Type type);
 
-        switch(member.type.category) {
-            case TypeCategory::Integer: {
-                do_integer_alignment(member.type.integer.size, current_size);
-            } break;
+static size_t get_struct_size(GenerationContext context, StructType struct_type) {
+    size_t current_size = 0;
 
-            case TypeCategory::Boolean: {
-                do_integer_alignment(context.default_integer_size, current_size);
-            } break;
+    for(auto member : struct_type.members) {
+        auto alignment = get_type_alignment(context, member.type);
 
-            case TypeCategory::Pointer: {
-                do_integer_alignment(context.address_integer_size, current_size);
-            } break;
+        auto alignment_difference = current_size % alignment;
 
-            case TypeCategory::Array: {
-                do_integer_alignment(context.address_integer_size, current_size);
-                do_integer_alignment(context.address_integer_size, current_size);
-            } break;
-
-            case TypeCategory::StaticArray: {
-                RegisterSize size;
-                switch(member.type.static_array.type->category) {
-                    case TypeCategory::Integer: {
-                        size = member.type.static_array.type->integer.size;
-                    } break;
-
-                    case TypeCategory::Boolean: {
-                        size = context.default_integer_size;
-                    } break;
-
-                    case TypeCategory::Pointer: {
-                        size = context.address_integer_size;
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
-
-                auto byte_size = register_size_to_byte_size(size);
-
-                auto full_size = byte_size * member.type.static_array.length;
-
-                auto alignment_difference = *current_size % byte_size;
-
-                if(alignment_difference == 0) {
-                    *current_size += full_size;
-                } else {
-                    *current_size += full_size - alignment_difference + byte_size;
-                }
-            } break;
-
-            case TypeCategory::Struct: {
-                auto struct_type = retrieve_struct_type(context, member.type._struct);
-
-                get_struct_size(context, struct_type, struct_type.members.count, current_size);
-            } break;
-
-            default: {
-                abort();
-            } break;
+        size_t offset;
+        if(alignment_difference != 0) {
+            offset = alignment - alignment_difference;
+        } else {
+            offset = 0;
         }
+
+        auto size = get_type_size(context, member.type);
+
+        current_size += offset + size;
     }
+
+    return current_size;
 }
 
 static size_t get_type_size(GenerationContext context, Type type) {
@@ -403,20 +392,49 @@ static size_t get_type_size(GenerationContext context, Type type) {
         } break;
 
         case TypeCategory::Struct: {
-            auto type_size = retrieve_struct_type(context, type._struct);
-
-            size_t size = 0;
-            get_struct_size(context, type_size, type_size.members.count, &size);
-
-            return size;
-
-            abort();
+            return get_struct_size(context, retrieve_struct_type(context, type._struct));
         } break;
 
         default: {
             abort();
         } break;
     }
+}
+
+static size_t get_struct_member_offset(GenerationContext context, StructType struct_type, size_t member_index) {
+    size_t current_offset = 0;
+
+    if(member_index != 0) {
+        for(auto i = 0; i < member_index; i += 1) {
+            auto alignment = get_type_alignment(context, struct_type.members[i].type);
+
+            auto alignment_difference = current_offset % alignment;
+
+            size_t offset;
+            if(alignment_difference != 0) {
+                offset = alignment - alignment_difference;
+            } else {
+                offset = 0;
+            }
+
+            auto size = get_type_size(context, struct_type.members[i].type);
+
+            current_offset += offset + size;
+        }
+    }
+    
+    auto alignment = get_type_alignment(context, struct_type.members[member_index].type);
+
+    auto alignment_difference = current_offset % alignment;
+
+    size_t offset;
+    if(alignment_difference != 0) {
+        offset = alignment - alignment_difference;
+    } else {
+        offset = 0;
+    }
+
+    return current_offset + offset;
 }
 
 static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression expression);
@@ -2212,16 +2230,12 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
 }
 
 static const char *register_struct_constant(GenerationContext *context, StructType struct_type, ConstantValue *values) {
-    size_t length = 0;
-    get_struct_size(*context, struct_type, struct_type.members.count, &length);
+    auto length = get_struct_size(*context, struct_type);
 
     auto data = allocate<uint8_t>(length);
 
     for(auto i = 0; i < struct_type.members.count; i += 1) {
-        size_t offset = 0;
-        if(i != 0) {
-            get_struct_size(*context, struct_type, i, &offset);
-        }
+        auto offset = get_struct_member_offset(*context, struct_type, i);
 
         switch(struct_type.members[i].type.category) {
             case TypeCategory::Integer: {
@@ -2613,8 +2627,7 @@ static void generate_non_integer_variable_assignment(GenerationContext *context,
 
                     append(instructions, reference);
 
-                    size_t size = 0;
-                    get_struct_size(*context, struct_type, struct_type.members.count, &size);
+                    auto size = get_struct_size(*context, struct_type);
 
                     auto size_register = allocate_register(context);
 
@@ -2636,8 +2649,7 @@ static void generate_non_integer_variable_assignment(GenerationContext *context,
                 } break;
 
                 case ExpressionValueCategory::Register: {
-                    size_t size = 0;
-                    get_struct_size(*context, struct_type, struct_type.members.count, &size);
+                    auto size = get_struct_size(*context, struct_type);
 
                     auto size_register = allocate_register(context);
 
@@ -2659,8 +2671,7 @@ static void generate_non_integer_variable_assignment(GenerationContext *context,
                 } break;
 
                 case ExpressionValueCategory::Address: {
-                    size_t size = 0;
-                    get_struct_size(*context, struct_type, struct_type.members.count, &size);
+                    auto size = get_struct_size(*context, struct_type);
 
                     auto size_register = allocate_register(context);
 
@@ -2699,6 +2710,7 @@ static void generate_boolean_invert(GenerationContext *context, List<Instruction
     Instruction allocate;
     allocate.type = InstructionType::AllocateLocal;
     allocate.allocate_local.size = register_size_to_byte_size(context->default_integer_size);
+    allocate.allocate_local.alignment = register_size_to_byte_size(context->default_integer_size);
     allocate.allocate_local.destination_register = local_register;
 
     append(instructions, allocate);
@@ -3348,10 +3360,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         case ExpressionValueCategory::Register: {
                             for(size_t i = 0; i < struct_type.members.count; i += 1) {
                                 if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
-                                    size_t offset = 0;
-                                    if(i != 0) {
-                                        get_struct_size(*context, struct_type, i, &offset);
-                                    }
+                                    auto offset = get_struct_member_offset(*context, struct_type, i);
 
                                     auto offset_register = allocate_register(context);
 
@@ -3444,10 +3453,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         case ExpressionValueCategory::Address: {
                             for(size_t i = 0; i < struct_type.members.count; i += 1) {
                                 if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
-                                    size_t offset = 0;
-                                    if(i != 0) {
-                                        get_struct_size(*context, struct_type, i, &offset);
-                                    }
+                                    auto offset = get_struct_member_offset(*context, struct_type, i);
 
                                     auto offset_register = allocate_register(context);
 
@@ -3683,6 +3689,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 Instruction allocate;
                 allocate.type = InstructionType::AllocateLocal;
                 allocate.allocate_local.size = get_type_size(*context, element_type) * expression.array_literal.count;
+                allocate.allocate_local.alignment = get_type_alignment(*context, element_type);
                 allocate.allocate_local.destination_register = base_address_register;
 
                 append(instructions, allocate);
@@ -4020,6 +4027,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 Instruction alloc;
                                 alloc.type = InstructionType::AllocateLocal;
                                 alloc.allocate_local.size = 2 * register_size_to_byte_size(context->address_integer_size);
+                                alloc.allocate_local.alignment = register_size_to_byte_size(context->address_integer_size);
                                 alloc.allocate_local.destination_register = local_register;
 
                                 append(instructions, alloc);
@@ -4236,6 +4244,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     Instruction alloc;
                     alloc.type = InstructionType::AllocateLocal;
                     alloc.allocate_local.size = register_size_to_byte_size(context->address_integer_size) * 2;
+                    alloc.allocate_local.alignment = register_size_to_byte_size(context->address_integer_size);
                     alloc.allocate_local.destination_register = return_register;
 
                     append(instructions, alloc);
@@ -4259,6 +4268,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     Instruction alloc;
                     alloc.type = InstructionType::AllocateLocal;
                     alloc.allocate_local.size = length;
+                    alloc.allocate_local.alignment = get_type_alignment(*context, *function_return_type.static_array.type);
                     alloc.allocate_local.destination_register = return_register;
 
                     append(instructions, alloc);
@@ -4295,12 +4305,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                     auto struct_type = retrieve_struct_type(*context, function_return_type._struct);
 
-                    size_t size = 0;
-                    get_struct_size(*context, struct_type, struct_type.members.count, &size);
+                    auto size = get_struct_size(*context, struct_type);
 
                     Instruction alloc;
                     alloc.type = InstructionType::AllocateLocal;
                     alloc.allocate_local.size = size;
+                    alloc.allocate_local.size = get_type_alignment(*context, function_return_type);
                     alloc.allocate_local.destination_register = return_register;
 
                     append(instructions, alloc);
@@ -5159,6 +5169,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     Instruction allocate;
                     allocate.type = InstructionType::AllocateLocal;
                     allocate.allocate_local.size = get_type_size(*context, type);
+                    allocate.allocate_local.alignment = get_type_alignment(*context, type);
                     allocate.allocate_local.destination_register = address_register;
 
                     append(instructions, allocate);
@@ -5221,6 +5232,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     }
 
                     (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, actual_type);
+                    (*instructions)[allocate_index].allocate_local.alignment = get_type_alignment(*context, actual_type);
 
                     if(!add_new_variable(context, statement.variable_declaration.name, address_register, actual_type, statement.variable_declaration.type_elided.range)) {
                         return false;
@@ -5238,6 +5250,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     Instruction allocate;
                     allocate.type = InstructionType::AllocateLocal;
                     allocate.allocate_local.size = get_type_size(*context, type);
+                    allocate.allocate_local.alignment = get_type_alignment(*context, type);
                     allocate.allocate_local.destination_register = address_register;
 
                     append(instructions, allocate);
@@ -5500,6 +5513,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                             Instruction alloc;
                             alloc.type = InstructionType::AllocateLocal;
                             alloc.allocate_local.size = register_size_to_byte_size(context->address_integer_size);
+                            alloc.allocate_local.alignment = register_size_to_byte_size(context->address_integer_size);
                             alloc.allocate_local.destination_register = local_register;
 
                             append(instructions, alloc);

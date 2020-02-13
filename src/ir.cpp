@@ -142,8 +142,9 @@ void print_instruction(Instruction instruction) {
 
         case InstructionType::AllocateLocal: {
             printf(
-                "LOCAL %zu, r%zu",
+                "LOCAL %zu(%zu), r%zu",
                 instruction.allocate_local.size,
+                instruction.allocate_local.alignment,
                 instruction.allocate_local.destination_register
             );
         } break;

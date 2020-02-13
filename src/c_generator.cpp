@@ -304,7 +304,9 @@ Result<const char *> generate_c_source(Array<Function> functions, Array<StaticCo
                     } break;
 
                     case InstructionType::AllocateLocal: {
-                        string_buffer_append(&implementation_source, "char local_");
+                        string_buffer_append(&implementation_source, "char __attribute__((aligned(");
+                        string_buffer_append(&implementation_source, instruction.allocate_local.alignment);
+                        string_buffer_append(&implementation_source, "))) local_");
                         string_buffer_append(&implementation_source, instruction.allocate_local.destination_register);
                         string_buffer_append(&implementation_source, "[");
                         string_buffer_append(&implementation_source, instruction.allocate_local.size);

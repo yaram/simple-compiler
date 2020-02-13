@@ -10,6 +10,19 @@
 #include "platform.h"
 #include "path.h"
 
+struct derp {
+    unsigned int      style;
+    void*   lpfnWndProc;
+    int       cbClsExtra;
+    int       cbWndExtra;
+    void* hInstance;
+    void*     hIcon;
+    void*   hCursor;
+    void*    hbrBackground;
+    void*    lpszMenuName;
+    void*    lpszClassName;
+};
+
 int main(int argument_count, char *arguments[]) {
     const char *source_file_path = nullptr;
 
