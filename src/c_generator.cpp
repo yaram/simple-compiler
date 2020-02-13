@@ -68,7 +68,9 @@ Result<const char *> generate_c_source(Array<Function> functions, Array<StaticCo
 
     for(auto constant : constants) {
         generate_type(&forward_declaration_source, RegisterSize::Size8, false);
-        string_buffer_append(&forward_declaration_source, " ");
+        string_buffer_append(&forward_declaration_source, " __attribute__((aligned(");
+        string_buffer_append(&forward_declaration_source, constant.alignment);
+        string_buffer_append(&forward_declaration_source, ")))");
         string_buffer_append(&forward_declaration_source, constant.name);
         string_buffer_append(&forward_declaration_source, "[]");
 

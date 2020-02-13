@@ -300,6 +300,22 @@ static StructType retrieve_struct_type(GenerationContext context, const char *na
     abort();
 }
 
+static size_t get_type_alignment(GenerationContext context, Type type);
+
+static size_t get_struct_alignment(GenerationContext context, StructType struct_type) {
+    size_t current_alignment = 1;
+
+    for(auto member : struct_type.members) {
+        auto alignment = get_type_alignment(context, member.type);
+
+        if(alignment > current_alignment) {
+            current_alignment = alignment;
+        }
+    }
+
+    return current_alignment;
+}
+
 static size_t get_type_alignment(GenerationContext context, Type type) {
     switch(type.category) {
         case TypeCategory::Integer: {
@@ -323,19 +339,7 @@ static size_t get_type_alignment(GenerationContext context, Type type) {
         } break;
 
         case TypeCategory::Struct: {
-            size_t current_alignment = 1;
-
-            auto struct_type = retrieve_struct_type(context, type._struct);
-
-            for(auto member : struct_type.members) {
-                auto alignment = get_type_alignment(context, member.type);
-
-                if(alignment > current_alignment) {
-                    current_alignment = alignment;
-                }
-            }
-
-            return current_alignment;
+            return get_struct_alignment(context, retrieve_struct_type(context, type._struct));
         } break;
 
         default: {
@@ -2058,6 +2062,7 @@ static void write_integer(uint8_t *buffer, size_t index, uint64_t value) {
 
 static const char *register_static_array_constant(GenerationContext *context, Type type, Array<ConstantValue> values) {
     size_t element_size;
+    size_t element_alignment;
     uint8_t *data;
 
     switch(type.category) {
@@ -2103,6 +2108,8 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
                     abort();
                 } break;
             }
+
+            element_alignment = element_size;
         } break;
 
         case TypeCategory::Boolean: {
@@ -2163,6 +2170,8 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
                     abort();
                 } break;
             }
+
+            element_alignment = element_size;
         } break;
 
         case TypeCategory::Pointer: {
@@ -2207,6 +2216,8 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
                     abort();
                 } break;
             }
+
+            element_alignment = element_size;
         } break;
 
         default: {
@@ -2220,6 +2231,7 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
 
     append(&context->static_constants, {
         name_buffer,
+        element_alignment,
         {
             values.count * element_size,
             data
@@ -2338,6 +2350,7 @@ static const char *register_struct_constant(GenerationContext *context, StructTy
 
     append(&context->static_constants, {
         name_buffer,
+        get_struct_alignment(*context, struct_type),
         {
             length,
             data

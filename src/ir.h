@@ -160,5 +160,7 @@ void print_function(Function function);
 struct StaticConstant {
     const char *name;
 
+    size_t alignment;
+
     Array<uint8_t> data;
 };
