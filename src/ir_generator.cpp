@@ -3861,15 +3861,19 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                 context->polymorphic_determiners = {};
 
-                char *mangled_name_buffer{};
+                if(function_declaration.is_external) {
+                    function_name = function_declaration.name.text;
+                } else {
+                    char *mangled_name_buffer{};
 
-                string_buffer_append(&mangled_name_buffer, "function_");
+                    string_buffer_append(&mangled_name_buffer, "function_");
 
-                char buffer[32];
-                sprintf(buffer, "%zu", context->runtime_functions.count);
-                string_buffer_append(&mangled_name_buffer, buffer);
+                    char buffer[32];
+                    sprintf(buffer, "%zu", context->runtime_functions.count);
+                    string_buffer_append(&mangled_name_buffer, buffer);
 
-                function_name = mangled_name_buffer;
+                    function_name = mangled_name_buffer;
+                }
 
                 auto runtime_function_parameters = allocate<RuntimeFunctionParameter>(expression.function_call.parameters.count);
 
@@ -3882,7 +3886,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 }
 
                 RuntimeFunction runtime_function;
-                runtime_function.mangled_name = mangled_name_buffer;
+                runtime_function.mangled_name = function_name;
                 runtime_function.parameters = {
                     expression.function_call.parameters.count,
                     runtime_function_parameters
@@ -3897,7 +3901,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                 append(&context->runtime_functions, runtime_function);
 
-                if(!register_global_name(context, mangled_name_buffer, function_declaration.name.range)) {
+                if(!register_global_name(context, function_name, function_declaration.name.range)) {
                     return { false };
                 }
             } else {
@@ -3908,7 +3912,12 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     function_parameter_values[i] = value;
                 }
 
-                function_name = generate_mangled_name(*context, expression_value.constant.function.declaration);
+                if(function_declaration.is_external) {
+                    function_name = function_declaration.name.text;
+                } else {
+                    function_name = generate_mangled_name(*context, expression_value.constant.function.declaration);
+                }
+
                 function_parameter_types = expression_value.type.function.parameters;
                 function_return_type = *expression_value.type.function.return_type;
 
