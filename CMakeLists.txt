@@ -39,6 +39,11 @@ add_executable(compiler
 )
 
 target_compile_features(compiler PRIVATE cxx_std_11)
+if(MSVC)
+    set_target_properties(compiler PROPERTIES LINK_FLAGS /STACK:10000000)
+else()
+    set_target_properties(compiler PROPERTIES LINK_FLAGS -Wl,--stack,10000000)
+endif()
 
 add_executable(test_driver
     src/test_driver.cpp
