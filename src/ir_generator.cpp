@@ -4019,7 +4019,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
                                 Instruction alloc;
                                 alloc.type = InstructionType::AllocateLocal;
-                                alloc.allocate_local.size = register_size_to_byte_size(context->address_integer_size);
+                                alloc.allocate_local.size = 2 * register_size_to_byte_size(context->address_integer_size);
                                 alloc.allocate_local.destination_register = local_register;
 
                                 append(instructions, alloc);
