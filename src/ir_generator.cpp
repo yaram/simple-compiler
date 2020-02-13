@@ -608,7 +608,7 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
                 } break;
 
                 default: {
-                    error(range, "Cannot have arrays of type %s", type_description(type));
+                    error(range, "Cannot have arrays of type %s", type_description(value.type));
 
                     return { false };
                 } break;
