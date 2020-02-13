@@ -5346,11 +5346,11 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 }
 
                 if(value.type.integer.is_undetermined) {
-                    auto register_index = generate_integer_register_value(context, instructions, context->default_integer_size, value);
+                    auto register_index = generate_integer_register_value(context, instructions, target.type.integer.size, value);
 
                     Instruction store;
                     store.type = InstructionType::StoreInteger;
-                    store.store_integer.size = context->default_integer_size;
+                    store.store_integer.size = target.type.integer.size;
                     store.store_integer.address_register = target.address;
                     store.store_integer.source_register = register_index;
 
