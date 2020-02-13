@@ -3195,7 +3195,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 add.type = InstructionType::ArithmeticOperation;
                                 add.arithmetic_operation.type = ArithmeticOperationType::Add;
                                 add.arithmetic_operation.size = context->address_integer_size;
-                                add.arithmetic_operation.source_register_a = expression_value.register_;
+                                add.arithmetic_operation.source_register_a = expression_value.address;
                                 add.arithmetic_operation.source_register_b = offset_register;
                                 add.arithmetic_operation.destination_register = address_register;
 
