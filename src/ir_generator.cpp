@@ -4659,22 +4659,104 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 case UnaryOperator::Pointer: {
                     switch(expression_value.category) {
                         case ExpressionValueCategory::Constant: {
-                            if(expression_value.type.category != TypeCategory::Type) {
-                                error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
+                            switch(expression_value.type.category) {
+                                case TypeCategory::Function: {
+                                    auto function_declaration = expression_value.constant.function.declaration.function_declaration;
+                                    auto parameter_count = expression_value.type.function.parameter_count;
 
-                                return { false };
+                                    if(expression_value.type.function.is_polymorphic) {
+                                        error(expression.unary_operation.expression->range, "Cannot take pointers to polymorphic functions");
+
+                                        return { false };
+                                    }
+
+                                    const char *function_name;
+                                    if(function_declaration.is_external) {
+                                        function_name = function_declaration.name.text;
+                                    } else {
+                                        function_name = generate_mangled_name(*context, expression_value.constant.function.declaration);
+                                    }
+
+                                    auto is_registered = false;
+                                    for(auto function : context->runtime_functions) {
+                                        if(strcmp(function.mangled_name, function_name) == 0) {
+                                            is_registered = true;
+
+                                            break;
+                                        }
+                                    }
+
+                                    if(!is_registered) {
+                                        auto runtime_function_parameters = allocate<RuntimeFunctionParameter>(function_declaration.parameters.count);
+
+                                        for(size_t i = 0; i < function_declaration.parameters.count; i += 1) {
+                                            runtime_function_parameters[i] = {
+                                                function_declaration.parameters[i].name,
+                                                expression_value.type.function.parameters[i]
+                                            };
+                                        }
+
+                                        RuntimeFunction runtime_function;
+                                        runtime_function.mangled_name = function_name;
+                                        runtime_function.parameters = {
+                                            function_declaration.parameters.count,
+                                            runtime_function_parameters
+                                        };
+                                        runtime_function.return_type = *expression_value.type.function.return_type;
+                                        runtime_function.declaration = expression_value.constant.function.declaration;
+                                        runtime_function.polymorphic_determiners = {};
+
+                                        if(!expression_value.constant.function.declaration.is_top_level) {
+                                            runtime_function.parent = expression_value.constant.function.parent;
+                                        }
+
+                                        append(&context->runtime_functions, runtime_function);
+
+                                        if(!register_global_name(context, function_name, function_declaration.name.range)) {
+                                            return { false };
+                                        }
+                                    }
+
+                                    auto address_regsiter = allocate_register(context);
+
+                                    Instruction reference;
+                                    reference.type = InstructionType::ReferenceStatic;
+                                    reference.reference_static.name = function_name;
+                                    reference.reference_static.destination_register = address_regsiter;
+
+                                    append(instructions, reference);
+
+                                    ExpressionValue value;
+                                    value.category = ExpressionValueCategory::Register;
+                                    value.type.category = TypeCategory::Pointer;
+                                    value.type.pointer = heapify(expression_value.type);
+                                    value.register_ = address_regsiter;
+
+                                    return {
+                                        true,
+                                        value
+                                    };
+                                } break;
+
+                                case TypeCategory::Type: {
+                                    ExpressionValue value;
+                                    value.category = ExpressionValueCategory::Constant;
+                                    value.type.category = TypeCategory::Type;
+                                    value.constant.type.category = TypeCategory::Pointer;
+                                    value.constant.type.pointer = heapify(expression_value.constant.type);
+
+                                    return {
+                                        true,
+                                        value
+                                    };
+                                } break;
+
+                                default: {
+                                    error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
+
+                                    return { false };
+                                }
                             }
-
-                            ExpressionValue value;
-                            value.category = ExpressionValueCategory::Constant;
-                            value.type.category = TypeCategory::Type;
-                            value.constant.type.category = TypeCategory::Pointer;
-                            value.constant.type.pointer = heapify(expression_value.constant.type);
-
-                            return {
-                                true,
-                                value
-                            };
                         } break;
 
                         case ExpressionValueCategory::Register: {
