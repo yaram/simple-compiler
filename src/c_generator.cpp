@@ -84,17 +84,17 @@ Result<const char *> generate_c_source(Array<Function> functions, Array<StaticCo
             }
         }
 
-        string_buffer_append(&forward_declaration_source, "};");
+        string_buffer_append(&forward_declaration_source, "};\n");
     }
 
     for(auto function : functions) {
         generate_function_signature(&forward_declaration_source, function);
-        string_buffer_append(&forward_declaration_source, ";");
+        string_buffer_append(&forward_declaration_source, ";\n");
 
         if(!function.is_external) {
             generate_function_signature(&implementation_source, function);
 
-            string_buffer_append(&implementation_source, "{");
+            string_buffer_append(&implementation_source, "{\n");
 
             for(size_t i = 0 ; i < function.instructions.count; i += 1) {
                 auto instruction = function.instructions[i];
@@ -399,9 +399,11 @@ Result<const char *> generate_c_source(Array<Function> functions, Array<StaticCo
                         abort();
                     } break;
                 }
+
+                string_buffer_append(&implementation_source, "\n");
             }
 
-            string_buffer_append(&implementation_source, "}");
+            string_buffer_append(&implementation_source, "}\n");
         }
     }
 
