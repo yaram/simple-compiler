@@ -371,8 +371,6 @@ static void get_struct_size(GenerationContext context, StructType struct_type, s
                 auto struct_type = retrieve_struct_type(context, member.type._struct);
 
                 get_struct_size(context, struct_type, struct_type.members.count, current_size);
-
-                abort();
             } break;
 
             default: {
