@@ -2433,291 +2433,6 @@ static void generate_array_copy(GenerationContext *context, List<Instruction> *i
     append(instructions, store_length);
 }
 
-static void generate_non_integer_variable_assignment(GenerationContext *context, List<Instruction> *instructions, size_t address_register, ExpressionValue value) {
-    switch(value.type.category) {
-        case TypeCategory::Boolean: {
-            auto register_index = generate_boolean_register_value(context, instructions, value);
-
-            Instruction store;
-            store.type = InstructionType::StoreInteger;
-            store.store_integer.size = context->default_integer_size;
-            store.store_integer.address_register = address_register;
-            store.store_integer.source_register = register_index;
-
-            append(instructions, store);
-        } break;
-
-        case TypeCategory::Pointer: {
-            auto register_index = generate_pointer_register_value(context, instructions, value);
-
-            Instruction store;
-            store.type = InstructionType::StoreInteger;
-            store.store_integer.size = context->address_integer_size;
-            store.store_integer.address_register = address_register;
-            store.store_integer.source_register = register_index;
-
-            append(instructions, store);
-        } break;
-
-        case TypeCategory::Array: {
-            switch(value.category) {
-                case ExpressionValueCategory::Constant: {
-                    auto pointer_register = allocate_register(context);
-
-                    Instruction pointer_constant;
-                    pointer_constant.type = InstructionType::Constant;
-                    pointer_constant.constant.size = context->address_integer_size;
-                    pointer_constant.constant.destination_register = pointer_register;
-                    pointer_constant.constant.value = value.constant.array.pointer;
-
-                    append(instructions, pointer_constant);
-
-                    Instruction store_pointer;
-                    store_pointer.type = InstructionType::StoreInteger;
-                    store_pointer.store_integer.size = context->address_integer_size;
-                    store_pointer.store_integer.source_register = pointer_register;
-                    store_pointer.store_integer.address_register = address_register;
-
-                    append(instructions, store_pointer);
-
-                    auto offset_register = allocate_register(context);
-
-                    Instruction size_constant;
-                    size_constant.type = InstructionType::Constant;
-                    size_constant.constant.size = context->address_integer_size;
-                    size_constant.constant.destination_register = offset_register;
-                    size_constant.constant.value = register_size_to_byte_size(context->address_integer_size);
-
-                    append(instructions, size_constant);
-
-                    auto length_register = allocate_register(context);
-
-                    Instruction length_constant;
-                    length_constant.type = InstructionType::Constant;
-                    length_constant.constant.size = context->address_integer_size;
-                    length_constant.constant.destination_register = pointer_register;
-                    length_constant.constant.value = value.constant.array.length;
-
-                    append(instructions, length_constant);
-
-                    auto length_address_register = allocate_register(context);
-
-                    Instruction add;
-                    add.type = InstructionType::ArithmeticOperation;
-                    add.arithmetic_operation.type = ArithmeticOperationType::Add;
-                    add.arithmetic_operation.size = context->address_integer_size;
-                    add.arithmetic_operation.source_register_a = address_register;
-                    add.arithmetic_operation.source_register_b = offset_register;
-                    add.arithmetic_operation.destination_register = length_address_register;
-
-                    append(instructions, add);
-
-                    Instruction store_length;
-                    store_length.type = InstructionType::StoreInteger;
-                    store_length.store_integer.size = context->address_integer_size;
-                    store_length.store_integer.source_register = length_register;
-                    store_length.store_integer.address_register = length_address_register;
-
-                    append(instructions, store_length);
-                } break;
-
-                case ExpressionValueCategory::Register: {
-                    generate_array_copy(context, instructions, value.register_, address_register);
-                } break;
-
-                case ExpressionValueCategory::Address: {
-                    generate_array_copy(context, instructions, value.address, address_register);
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-        } break;
-
-        case TypeCategory::StaticArray: {
-            switch(value.category) {
-                case ExpressionValueCategory::Constant: {
-                    auto constant_name = register_static_array_constant(
-                        context,
-                        *value.type.static_array.type,
-                        Array<ConstantValue> {
-                            value.type.static_array.length,
-                            value.constant.static_array
-                        }
-                    );
-
-                    auto constant_address_register = allocate_register(context);
-
-                    Instruction reference;
-                    reference.type = InstructionType::ReferenceStatic;
-                    reference.reference_static.name = constant_name;
-                    reference.reference_static.destination_register = constant_address_register;
-
-                    append(instructions, reference);
-
-                    auto length_register = allocate_register(context);
-
-                    Instruction constant;
-                    constant.type = InstructionType::Constant;
-                    constant.constant.size = context->address_integer_size;
-                    constant.constant.destination_register = length_register;
-                    constant.constant.value = value.type.static_array.length * get_type_size(*context, *value.type.static_array.type);
-
-                    append(instructions, constant);
-
-                    Instruction copy;
-                    copy.type = InstructionType::CopyMemory;
-                    copy.copy_memory.length_register = length_register;
-                    copy.copy_memory.source_address_register = constant_address_register;
-                    copy.copy_memory.destination_address_register = address_register;
-
-                    append(instructions, copy);
-                } break;
-
-                case ExpressionValueCategory::Register: {
-                    auto length_register = allocate_register(context);
-
-                    Instruction constant;
-                    constant.type = InstructionType::Constant;
-                    constant.constant.size = context->address_integer_size;
-                    constant.constant.destination_register = length_register;
-                    constant.constant.value = value.type.static_array.length * get_type_size(*context, *value.type.static_array.type);
-
-                    append(instructions, constant);
-
-                    Instruction copy;
-                    copy.type = InstructionType::CopyMemory;
-                    copy.copy_memory.length_register = length_register;
-                    copy.copy_memory.source_address_register = value.register_;
-                    copy.copy_memory.destination_address_register = address_register;
-
-                    append(instructions, copy);
-                } break;
-
-                case ExpressionValueCategory::Address: {
-                    auto length_register = allocate_register(context);
-
-                    Instruction constant;
-                    constant.type = InstructionType::Constant;
-                    constant.constant.size = context->address_integer_size;
-                    constant.constant.destination_register = length_register;
-                    constant.constant.value = value.type.static_array.length * get_type_size(*context, *value.type.static_array.type);
-
-                    append(instructions, constant);
-
-                    Instruction copy;
-                    copy.type = InstructionType::CopyMemory;
-                    copy.copy_memory.length_register = length_register;
-                    copy.copy_memory.source_address_register = value.address;
-                    copy.copy_memory.destination_address_register = address_register;
-
-                    append(instructions, copy);
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-        } break;
-
-        case TypeCategory::Struct: {
-            auto struct_type = retrieve_struct_type(*context, value.type._struct);
-
-            switch(value.category) {
-                case ExpressionValueCategory::Constant: {
-                    auto constant_name = register_struct_constant(
-                        context,
-                        struct_type,
-                        value.constant.struct_
-                    );
-
-                    auto constant_address_register = allocate_register(context);
-
-                    Instruction reference;
-                    reference.type = InstructionType::ReferenceStatic;
-                    reference.reference_static.name = constant_name;
-                    reference.reference_static.destination_register = constant_address_register;
-
-                    append(instructions, reference);
-
-                    auto size = get_struct_size(*context, struct_type);
-
-                    auto size_register = allocate_register(context);
-
-                    Instruction constant;
-                    constant.type = InstructionType::Constant;
-                    constant.constant.size = context->address_integer_size;
-                    constant.constant.destination_register = size_register;
-                    constant.constant.value = size;
-
-                    append(instructions, constant);
-
-                    Instruction copy;
-                    copy.type = InstructionType::CopyMemory;
-                    copy.copy_memory.length_register = size_register;
-                    copy.copy_memory.source_address_register = constant_address_register;
-                    copy.copy_memory.destination_address_register = address_register;
-
-                    append(instructions, copy);
-                } break;
-
-                case ExpressionValueCategory::Register: {
-                    auto size = get_struct_size(*context, struct_type);
-
-                    auto size_register = allocate_register(context);
-
-                    Instruction constant;
-                    constant.type = InstructionType::Constant;
-                    constant.constant.size = context->address_integer_size;
-                    constant.constant.destination_register = size_register;
-                    constant.constant.value = size;
-
-                    append(instructions, constant);
-
-                    Instruction copy;
-                    copy.type = InstructionType::CopyMemory;
-                    copy.copy_memory.length_register = size_register;
-                    copy.copy_memory.source_address_register = value.register_;
-                    copy.copy_memory.destination_address_register = address_register;
-
-                    append(instructions, copy);
-                } break;
-
-                case ExpressionValueCategory::Address: {
-                    auto size = get_struct_size(*context, struct_type);
-
-                    auto size_register = allocate_register(context);
-
-                    Instruction constant;
-                    constant.type = InstructionType::Constant;
-                    constant.constant.size = context->address_integer_size;
-                    constant.constant.destination_register = size_register;
-                    constant.constant.value = size;
-
-                    append(instructions, constant);
-
-                    Instruction copy;
-                    copy.type = InstructionType::CopyMemory;
-                    copy.copy_memory.length_register = size_register;
-                    copy.copy_memory.source_address_register = value.address;
-                    copy.copy_memory.destination_address_register = address_register;
-
-                    append(instructions, copy);
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-}
-
 static size_t append_arithmetic_operation(GenerationContext *context, List<Instruction> *instructions, ArithmeticOperationType type, RegisterSize size, size_t source_register_a, size_t source_register_b) {
     auto destination_register = allocate_register(context);
 
@@ -2929,6 +2644,99 @@ static size_t generate_boolean_invert(GenerationContext *context, List<Instructi
     auto result_register = append_load_integer(context, instructions, context->default_integer_size, local_register);
 
     return result_register;
+}
+
+static void generate_constant_value_assignment(GenerationContext *context, List<Instruction> *instructions, Type type, ConstantValue value, size_t address_register) {
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            auto value_register = append_constant(context, instructions, type.integer.size, value.integer);
+
+            append_store_integer(context, instructions, type.integer.size, value_register, address_register);
+        } break;
+
+        case TypeCategory::Boolean: {
+            uint64_t integer_value;
+            if(value.boolean) {
+                integer_value = 1;
+            } else {
+                integer_value = 0;
+            }
+
+            auto value_register = append_constant(context, instructions, context->default_integer_size, integer_value);
+
+            append_store_integer(context, instructions, context->default_integer_size, value_register, address_register);
+        } break;
+
+        case TypeCategory::Pointer: {
+            auto value_register = append_constant(context, instructions, context->address_integer_size, value.pointer);
+
+            append_store_integer(context, instructions, context->address_integer_size, value_register, address_register);
+        } break;
+
+        case TypeCategory::Array: {
+            auto pointer_register = append_constant(context, instructions, context->address_integer_size, value.array.pointer);
+
+            append_store_integer(context, instructions, context->address_integer_size, pointer_register, address_register);
+
+            auto length_register = append_constant(context, instructions, context->address_integer_size, value.array.length);
+
+            auto length_address_register = generate_address_offset(
+                context,
+                instructions,
+                address_register,
+                register_size_to_byte_size(context->address_integer_size)
+            );
+
+            append_store_integer(context, instructions, context->address_integer_size, length_register, length_address_register);
+        } break;
+
+        case TypeCategory::StaticArray: {
+            auto constant_name = register_static_array_constant(
+                context,
+                *type.static_array.type,
+                Array<ConstantValue> {
+                    type.static_array.length,
+                    value.static_array
+                }
+            );
+
+            auto constant_address_register = append_reference_static(context, instructions, constant_name);
+
+            auto length_register = append_constant(
+                context,
+                instructions,
+                context->address_integer_size,
+                type.static_array.length * get_type_size(*context, *type.static_array.type)
+            );
+
+            append_copy_memory(context, instructions, length_register, constant_address_register, address_register);
+        } break;
+
+        case TypeCategory::Struct: {
+            auto struct_type = retrieve_struct_type(*context, type._struct);
+
+            auto constant_name = register_struct_constant(
+                context,
+                struct_type,
+                value.struct_
+            );
+
+            auto constant_address_register = append_reference_static(context, instructions, constant_name);
+
+            auto length_register = append_constant(
+                context,
+                instructions,
+                context->address_integer_size,
+                get_struct_size(*context, struct_type)
+            );
+
+            append_copy_memory(context, instructions, length_register, constant_address_register, address_register);
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
 }
 
 struct RegisterRepresentation {
@@ -4948,17 +4756,15 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 case VariableDeclarationType::Uninitialized: {
                     expect(type, evaluate_type_expression(context, statement.variable_declaration.uninitialized));
 
-                    auto address_register = allocate_register(context);
+                    auto address_register = append_allocate_local(context, instructions, get_type_size(*context, type), get_type_alignment(*context, type));
 
-                    Instruction allocate;
-                    allocate.type = InstructionType::AllocateLocal;
-                    allocate.allocate_local.size = get_type_size(*context, type);
-                    allocate.allocate_local.alignment = get_type_alignment(*context, type);
-                    allocate.allocate_local.destination_register = address_register;
-
-                    append(instructions, allocate);
-
-                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, type, statement.variable_declaration.uninitialized.range)) {
+                    if(!add_new_variable(
+                        context,
+                        statement.variable_declaration.name,
+                        address_register,
+                        type,
+                        statement.variable_declaration.uninitialized.range
+                    )) {
                         return false;
                     }
 
@@ -4976,49 +4782,66 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     expect(initializer_value, generate_expression(context, instructions, statement.variable_declaration.type_elided));
 
-                    Type actual_type;
-                    if(initializer_value.type.category == TypeCategory::Integer) {
-                        if(initializer_value.type.integer.is_undetermined) {
-                            auto register_index = generate_integer_register_value(context, instructions, context->default_integer_size, initializer_value);
-
-                            Instruction store;
-                            store.type = InstructionType::StoreInteger;
-                            store.store_integer.size = context->default_integer_size;
-                            store.store_integer.address_register = address_register;
-                            store.store_integer.source_register = register_index;
-
-                            append(instructions, store);
-
-                            actual_type.category = TypeCategory::Integer;
-                            actual_type.integer = {
-                                context->default_integer_size,
-                                true,
-                                false
-                            };
-                        } else {
-                            auto register_index = generate_integer_register_value(context, instructions, initializer_value);
-
-                            Instruction store;
-                            store.type = InstructionType::StoreInteger;
-                            store.store_integer.size = initializer_value.type.integer.size;
-                            store.store_integer.address_register = address_register;
-                            store.store_integer.source_register = register_index;
-
-                            append(instructions, store);
-
-                            actual_type.category = TypeCategory::Integer;
-                            actual_type.integer = initializer_value.type.integer;
-                        }
+                    Type determined_type;
+                    if(initializer_value.type.category == TypeCategory::Integer && initializer_value.type.integer.is_undetermined) {
+                        determined_type.category = TypeCategory::Integer;
+                        determined_type.integer = {
+                            context->default_integer_size,
+                            true,
+                            false
+                        };
                     } else {
-                        actual_type = initializer_value.type;
-
-                        generate_non_integer_variable_assignment(context, instructions, address_register, initializer_value);
+                        determined_type = initializer_value.type;
                     }
 
-                    (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, actual_type);
-                    (*instructions)[allocate_index].allocate_local.alignment = get_type_alignment(*context, actual_type);
+                    auto representation = get_type_representation(*context, determined_type);
 
-                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, actual_type, statement.variable_declaration.type_elided.range)) {
+                    switch(initializer_value.category) {
+                        case ExpressionValueCategory::Constant: {
+                            generate_constant_value_assignment(context, instructions, determined_type, initializer_value.constant, address_register);
+                        } break;
+
+                        case ExpressionValueCategory::Register: {
+                            if(representation.is_in_register) {
+                                append_store_integer(context, instructions, representation.value_size, initializer_value.register_, address_register);
+                            } else {
+                                auto length_register = append_constant(
+                                    context,
+                                    instructions,
+                                    context->address_integer_size,
+                                    get_type_size(*context, determined_type)
+                                );
+
+                                append_copy_memory(context, instructions, length_register, initializer_value.register_, address_register);
+                            }
+                        } break;
+
+                        case ExpressionValueCategory::Address: {
+                            if(representation.is_in_register) {
+                                auto value_register = append_load_integer(context, instructions, representation.value_size, initializer_value.address);
+
+                                append_store_integer(context, instructions, representation.value_size, value_register, address_register);
+                            } else {
+                                auto length_register = append_constant(
+                                    context,
+                                    instructions,
+                                    context->address_integer_size,
+                                    get_type_size(*context, determined_type)
+                                );
+
+                                append_copy_memory(context, instructions, length_register, initializer_value.address, address_register);
+                            }
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+
+                    (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, determined_type);
+                    (*instructions)[allocate_index].allocate_local.alignment = get_type_alignment(*context, determined_type);
+
+                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, determined_type, statement.variable_declaration.type_elided.range)) {
                         return false;
                     }
 
@@ -5029,60 +4852,70 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 case VariableDeclarationType::FullySpecified: {
                     expect(type, evaluate_type_expression(context, statement.variable_declaration.fully_specified.type));
 
-                    auto address_register = allocate_register(context);
-
-                    Instruction allocate;
-                    allocate.type = InstructionType::AllocateLocal;
-                    allocate.allocate_local.size = get_type_size(*context, type);
-                    allocate.allocate_local.alignment = get_type_alignment(*context, type);
-                    allocate.allocate_local.destination_register = address_register;
-
-                    append(instructions, allocate);
+                    auto address_register = append_allocate_local(
+                        context,
+                        instructions,
+                        get_type_size(*context, type),
+                        get_type_alignment(*context, type)
+                    );
 
                     expect(initializer_value, generate_expression(context, instructions, statement.variable_declaration.fully_specified.initializer));
 
-                    if(initializer_value.type.category == TypeCategory::Integer) {
-                        if(type.category != TypeCategory::Integer) {
-                            error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
+                    if(
+                        !(
+                            type.category == TypeCategory::Integer &&
+                            initializer_value.type.category == TypeCategory::Integer &&                        
+                            initializer_value.type.integer.is_undetermined
+                        ) &&
+                        !types_equal(type, initializer_value.type)
+                    ) {
+                        error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
 
-                            return false;
-                        }
+                        return false;
+                    }
 
-                        if(initializer_value.type.integer.is_undetermined) {
-                            auto register_index = generate_integer_register_value(context, instructions, context->default_integer_size, initializer_value);
+                    auto representation = get_type_representation(*context, type);
 
-                            Instruction store;
-                            store.type = InstructionType::StoreInteger;
-                            store.store_integer.size = context->default_integer_size;
-                            store.store_integer.address_register = address_register;
-                            store.store_integer.source_register = register_index;
+                    switch(initializer_value.category) {
+                        case ExpressionValueCategory::Constant: {
+                            generate_constant_value_assignment(context, instructions, type, initializer_value.constant, address_register);
+                        } break;
 
-                            append(instructions, store);
-                        } else {
-                            if(type.integer.size != initializer_value.type.integer.size || type.integer.is_signed != initializer_value.type.integer.is_signed) {
-                                error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
+                        case ExpressionValueCategory::Register: {
+                            if(representation.is_in_register) {
+                                append_store_integer(context, instructions, representation.value_size, initializer_value.register_, address_register);
+                            } else {
+                                auto length_register = append_constant(
+                                    context,
+                                    instructions,
+                                    context->address_integer_size,
+                                    get_type_size(*context, type)
+                                );
 
-                                return false;
+                                append_copy_memory(context, instructions, length_register, initializer_value.register_, address_register);
                             }
+                        } break;
 
-                            auto register_index = generate_integer_register_value(context, instructions, initializer_value);
+                        case ExpressionValueCategory::Address: {
+                            if(representation.is_in_register) {
+                                auto value_register = append_load_integer(context, instructions, representation.value_size, initializer_value.address);
 
-                            Instruction store;
-                            store.type = InstructionType::StoreInteger;
-                            store.store_integer.size = initializer_value.type.integer.size;
-                            store.store_integer.address_register = address_register;
-                            store.store_integer.source_register = register_index;
+                                append_store_integer(context, instructions, representation.value_size, value_register, address_register);
+                            } else {
+                                auto length_register = append_constant(
+                                    context,
+                                    instructions,
+                                    context->address_integer_size,
+                                    get_type_size(*context, type)
+                                );
 
-                            append(instructions, store);
-                        }
-                    } else {
-                        if(!types_equal(type, initializer_value.type)) {
-                            error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
+                                append_copy_memory(context, instructions, length_register, initializer_value.address, address_register);
+                            }
+                        } break;
 
-                            return false;
-                        }
-
-                        generate_non_integer_variable_assignment(context, instructions, address_register, initializer_value);
+                        default: {
+                            abort();
+                        } break;
                     }
 
                     if(!add_new_variable(context, statement.variable_declaration.name, address_register, type, statement.variable_declaration.fully_specified.type.range)) {
@@ -5109,48 +4942,61 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             expect(value, generate_expression(context, instructions, statement.assignment.value));
 
-            if(value.type.category == TypeCategory::Integer) {
-                if(target.type.category != TypeCategory::Integer) {
-                    error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+            if(
+                !(
+                    target.type.category == TypeCategory::Integer &&
+                    value.type.category == TypeCategory::Integer &&                        
+                    value.type.integer.is_undetermined
+                ) &&
+                !types_equal(target.type, value.type)
+            ) {
+                error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
 
-                    return false;
-                }
+                return false;
+            }
 
-                if(value.type.integer.is_undetermined) {
-                    auto register_index = generate_integer_register_value(context, instructions, target.type.integer.size, value);
+            auto representation = get_type_representation(*context, target.type);
 
-                    Instruction store;
-                    store.type = InstructionType::StoreInteger;
-                    store.store_integer.size = target.type.integer.size;
-                    store.store_integer.address_register = target.address;
-                    store.store_integer.source_register = register_index;
+            switch(value.category) {
+                case ExpressionValueCategory::Constant: {
+                    generate_constant_value_assignment(context, instructions, target.type, value.constant, target.address);
+                } break;
 
-                    append(instructions, store);
-                } else {
-                    if(target.type.integer.size != value.type.integer.size || target.type.integer.is_signed != value.type.integer.is_signed) {
-                        error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+                case ExpressionValueCategory::Register: {
+                    if(representation.is_in_register) {
+                        append_store_integer(context, instructions, representation.value_size, value.register_, target.address);
+                    } else {
+                        auto length_register = append_constant(
+                            context,
+                            instructions,
+                            context->address_integer_size,
+                            get_type_size(*context, target.type)
+                        );
 
-                        return false;
+                        append_copy_memory(context, instructions, length_register, value.register_, target.address);
                     }
+                } break;
 
-                    auto register_index = generate_integer_register_value(context, instructions, value);
+                case ExpressionValueCategory::Address: {
+                    if(representation.is_in_register) {
+                        auto value_register = append_load_integer(context, instructions, representation.value_size, value.address);
 
-                    Instruction store;
-                    store.type = InstructionType::StoreInteger;
-                    store.store_integer.size = value.type.integer.size;
-                    store.store_integer.address_register = target.address;
-                    store.store_integer.source_register = register_index;
+                        append_store_integer(context, instructions, representation.value_size, value_register, target.address);
+                    } else {
+                        auto length_register = append_constant(
+                            context,
+                            instructions,
+                            context->address_integer_size,
+                            get_type_size(*context, target.type)
+                        );
 
-                    append(instructions, store);
-                }
-            } else {
-                if(!types_equal(target.type, value.type)) {
-                    error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+                        append_copy_memory(context, instructions, length_register, value.address, target.address);
+                    }
+                } break;
 
-                    return false;
-                }
-
-                generate_non_integer_variable_assignment(context, instructions, target.address, value);
+                default: {
+                    abort();
+                } break;
             }
 
             return true;
