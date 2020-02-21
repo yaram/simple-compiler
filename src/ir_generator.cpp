@@ -127,6 +127,7 @@ struct GenerationContext {
 
     Array<Variable> parameters;
     Type return_type;
+    size_t return_parameter_register;
 
     List<const char*> global_names;
 
@@ -2843,6 +2844,40 @@ static size_t append_reference_static(GenerationContext *context, List<Instructi
     return destination_register;
 }
 
+static size_t append_allocate_local(GenerationContext *context, List<Instruction> *instructions, size_t size, size_t alignment) {
+    auto destination_register = allocate_register(context);
+
+    Instruction allocate_local;
+    allocate_local.type = InstructionType::AllocateLocal;
+    allocate_local.allocate_local = {
+        size,
+        alignment,
+        destination_register
+    };
+
+    append(instructions, allocate_local);
+
+    return destination_register;
+}
+
+static void append_copy_memory(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    size_t length_register,
+    size_t source_address_register,
+    size_t destination_address_register
+) {
+    Instruction copy_memory;
+    copy_memory.type = InstructionType::CopyMemory;
+    copy_memory.copy_memory = {
+        length_register,
+        source_address_register,
+        destination_address_register
+    };
+
+    append(instructions, copy_memory);
+}
+
 static size_t append_load_integer(GenerationContext *context, List<Instruction> *instructions, RegisterSize size, size_t address_register) {
     auto destination_register = allocate_register(context);
 
@@ -2857,6 +2892,18 @@ static size_t append_load_integer(GenerationContext *context, List<Instruction> 
     append(instructions, load_integer);
 
     return destination_register;
+}
+
+static void append_store_integer(GenerationContext *context, List<Instruction> *instructions, RegisterSize size, size_t source_register, size_t address_register) {
+    Instruction store_integer;
+    store_integer.type = InstructionType::StoreInteger;
+    store_integer.store_integer = {
+        size,
+        source_register,
+        address_register
+    };
+
+    append(instructions, store_integer);
 }
 
 static size_t generate_address_offset(GenerationContext *context, List<Instruction> *instructions, size_t address_register, size_t offset) {
@@ -3959,184 +4006,126 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 }
             }
 
-            auto function_parameter_registers = allocate<size_t>(parameter_count);
+            auto total_parameter_count = parameter_count;
+
+            bool has_return;
+            bool is_return_in_register;
+            if(function_return_type.category == TypeCategory::Void) {
+                has_return = false;
+            } else {
+                has_return = true;
+
+                auto representation = get_type_representation(*context, function_return_type);
+
+                is_return_in_register = representation.is_in_register;
+
+                if(!representation.is_in_register) {
+                    total_parameter_count += 1;
+                }
+            }
+
+            auto function_parameter_registers = allocate<size_t>(total_parameter_count);
 
             for(size_t i = 0; i < parameter_count; i += 1) {
                 auto value = function_parameter_values[i];
 
-                switch(value.type.category) {
-                    case TypeCategory::Integer: {
-                        if(function_parameter_types[i].category != TypeCategory::Integer) {
-                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+                Type determined_type;
+                if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
+                    if(function_parameter_types[i].category != TypeCategory::Integer) {
+                        error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
 
-                            return { false };
-                        }
+                        return { false };
+                    }
 
-                        if(value.type.integer.is_undetermined) {
-                            function_parameter_registers[i] = generate_integer_register_value(context, instructions, function_parameter_types[i].integer.size, value);
-                        } else if(value.type.integer.size == function_parameter_types[i].integer.size && value.type.integer.is_signed == function_parameter_types[i].integer.is_signed) {
-                            function_parameter_registers[i] = generate_integer_register_value(context, instructions, value);
-                        } else {
-                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+                    determined_type = function_parameter_types[i];
+                } else {
+                    determined_type = value.type;
+                }
 
-                            return { false };
-                        }
-                    } break;
+                if(!types_equal(determined_type, function_parameter_types[i])) {
+                    error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(determined_type));
 
-                    case TypeCategory::Boolean: {
-                        if(function_parameter_types[i].category != TypeCategory::Boolean) {
-                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+                    return { false };
+                }
 
-                            return { false };
-                        }
+                switch(value.category) {
+                    case ExpressionValueCategory::Constant: {
+                        switch(determined_type.category) {
+                            case TypeCategory::Integer: {
+                                auto value_register = append_constant(context, instructions, determined_type.integer.size, value.constant.integer);
 
-                        function_parameter_registers[i] = generate_boolean_register_value(context, instructions, value);
-                    } break;
+                                function_parameter_registers[i] = value_register;
+                            } break;
 
-                    case TypeCategory::Pointer: {
-                        if(function_parameter_types[i].category != TypeCategory::Pointer || !types_equal(*value.type.pointer, *function_parameter_types[i].pointer)) {
-                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+                            case TypeCategory::Boolean: {
+                                uint64_t constant_value;
+                                if(value.constant.boolean) {
+                                    constant_value = 1;
+                                } else {
+                                    constant_value = 0;
+                                }
 
-                            return { false };
-                        }
+                                auto value_register = append_constant(context, instructions, context->default_integer_size, constant_value);
 
-                        function_parameter_registers[i] = generate_pointer_register_value(context, instructions, value);
-                    } break;
+                                function_parameter_registers[i] = value_register;
+                            } break;
 
-                    case TypeCategory::Array: {
-                        if(function_parameter_types[i].category != TypeCategory::Array || !types_equal(*value.type.array, *function_parameter_types[i].array)) {
-                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+                            case TypeCategory::Pointer: {
+                                auto value_register = append_constant(context, instructions, context->address_integer_size, value.constant.pointer);
 
-                            return { false };
-                        }
+                                function_parameter_registers[i] = value_register;
+                            } break;
 
-                        switch(value.category) {
-                            case ExpressionValueCategory::Constant: {
-                                auto local_register = allocate_register(context);
+                            case TypeCategory::Array: {
+                                auto local_register = append_allocate_local(
+                                    context, instructions,
+                                    2 * register_size_to_byte_size(context->address_integer_size),
+                                    register_size_to_byte_size(context->address_integer_size)
+                                );
 
-                                Instruction alloc;
-                                alloc.type = InstructionType::AllocateLocal;
-                                alloc.allocate_local.size = 2 * register_size_to_byte_size(context->address_integer_size);
-                                alloc.allocate_local.alignment = register_size_to_byte_size(context->address_integer_size);
-                                alloc.allocate_local.destination_register = local_register;
+                                auto pointer_register = append_constant(context, instructions, context->address_integer_size, value.constant.array.pointer);
 
-                                append(instructions, alloc);
+                                append_store_integer(context, instructions, context->address_integer_size, pointer_register, local_register);
 
-                                auto pointer_register = allocate_register(context);
+                                auto length_register = append_constant(context, instructions, context->address_integer_size, value.constant.array.length);
 
-                                Instruction pointer_constant;
-                                pointer_constant.type = InstructionType::Constant;
-                                pointer_constant.constant.size = context->address_integer_size;
-                                pointer_constant.constant.destination_register = pointer_register;
-                                pointer_constant.constant.value = value.constant.array.pointer;
+                                auto length_address_register = generate_address_offset(
+                                    context,
+                                    instructions,
+                                    local_register,
+                                    register_size_to_byte_size(context->address_integer_size)
+                                );
 
-                                append(instructions, pointer_constant);
-
-                                Instruction store_pointer;
-                                store_pointer.type = InstructionType::StoreInteger;
-                                store_pointer.store_integer.size = context->address_integer_size;
-                                store_pointer.store_integer.source_register = pointer_register;
-                                store_pointer.store_integer.address_register = local_register;
-
-                                append(instructions, store_pointer);
-
-                                auto offset_register = allocate_register(context);
-
-                                Instruction size_constant;
-                                size_constant.type = InstructionType::Constant;
-                                size_constant.constant.size = context->address_integer_size;
-                                size_constant.constant.destination_register = offset_register;
-                                size_constant.constant.value = register_size_to_byte_size(context->address_integer_size);
-
-                                append(instructions, size_constant);
-
-                                auto length_register = allocate_register(context);
-
-                                Instruction length_constant;
-                                length_constant.type = InstructionType::Constant;
-                                length_constant.constant.size = context->address_integer_size;
-                                length_constant.constant.destination_register = pointer_register;
-                                length_constant.constant.value = value.constant.array.length;
-
-                                append(instructions, length_constant);
-
-                                auto length_address_register = allocate_register(context);
-
-                                Instruction add;
-                                add.type = InstructionType::ArithmeticOperation;
-                                add.arithmetic_operation.type = ArithmeticOperationType::Add;
-                                add.arithmetic_operation.size = context->address_integer_size;
-                                add.arithmetic_operation.source_register_a = local_register;
-                                add.arithmetic_operation.source_register_b = offset_register;
-                                add.arithmetic_operation.destination_register = length_address_register;
-
-                                append(instructions, add);
-
-                                Instruction store_length;
-                                store_length.type = InstructionType::StoreInteger;
-                                store_length.store_integer.size = context->address_integer_size;
-                                store_length.store_integer.source_register = length_register;
-                                store_length.store_integer.address_register = length_address_register;
-
-                                append(instructions, store_length);
+                                append_store_integer(context, instructions, context->address_integer_size, length_register, length_address_register);
 
                                 function_parameter_registers[i] = local_register;
                             } break;
 
-                            case ExpressionValueCategory::Register: {
-                                function_parameter_registers[i] = value.register_;
-                            } break;
-
-                            case ExpressionValueCategory::Address: {
-                                function_parameter_registers[i] = value.address;
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
-                    } break;
-
-                    case TypeCategory::StaticArray: {
-                        if(
-                            function_parameter_types[i].category != TypeCategory::StaticArray ||
-                            !types_equal(*value.type.static_array.type, *function_parameter_types[i].static_array.type) ||
-                            value.type.static_array.length != function_parameter_types[i].static_array.length
-                        ) {
-                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
-
-                            return { false };
-                        }
-
-                        switch(value.category) {
-                            case ExpressionValueCategory::Constant: {
+                            case TypeCategory::StaticArray: {
                                 auto constant_name = register_static_array_constant(
                                     context,
-                                    *value.type.static_array.type,
+                                    *determined_type.static_array.type,
                                     Array<ConstantValue> {
-                                        value.type.static_array.length,
+                                        determined_type.static_array.length,
                                         value.constant.static_array
                                     }
                                 );
 
-                                auto constant_address_register = allocate_register(context);
-
-                                Instruction reference;
-                                reference.type = InstructionType::ReferenceStatic;
-                                reference.reference_static.name = constant_name;
-                                reference.reference_static.destination_register = constant_address_register;
-
-                                append(instructions, reference);
+                                auto constant_address_register = append_reference_static(context, instructions, constant_name);
 
                                 function_parameter_registers[i] = constant_address_register;
                             } break;
 
-                            case ExpressionValueCategory::Register: {
-                                function_parameter_registers[i] = value.register_;
-                            } break;
+                            case TypeCategory::Struct: {
+                                auto constant_name = register_struct_constant(
+                                    context,
+                                    retrieve_struct_type(*context, determined_type._struct),
+                                    value.constant.struct_
+                                );
 
-                            case ExpressionValueCategory::Address: {
-                                function_parameter_registers[i] = value.address;
+                                auto constant_address_register = append_reference_static(context, instructions, constant_name);
+
+                                function_parameter_registers[i] = constant_address_register;
                             } break;
 
                             default: {
@@ -4145,47 +4134,19 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         }
                     } break;
 
-                    case TypeCategory::Struct: {
-                        if(
-                            function_parameter_types[i].category != TypeCategory::Struct ||
-                            strcmp(value.type._struct, function_parameter_types[i]._struct) != 0
-                        ) {
-                            error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+                    case ExpressionValueCategory::Register: {
+                        function_parameter_registers[i] = value.register_;
+                    } break;
 
-                            return { false };
-                        }
+                    case ExpressionValueCategory::Address: {
+                        auto representation = get_type_representation(*context, determined_type);
 
-                        switch(value.category) {
-                            case ExpressionValueCategory::Constant: {
-                                auto constant_name = register_struct_constant(
-                                    context,
-                                    retrieve_struct_type(*context, value.type._struct),
-                                    value.constant.struct_
-                                );
+                        if(representation.is_in_register) {
+                            auto value_register = append_load_integer(context, instructions, representation.value_size, value.address);
 
-                                auto constant_address_register = allocate_register(context);
-
-                                Instruction reference;
-                                reference.type = InstructionType::ReferenceStatic;
-                                reference.reference_static.name = constant_name;
-                                reference.reference_static.destination_register = constant_address_register;
-
-                                append(instructions, reference);
-
-                                function_parameter_registers[i] = constant_address_register;
-                            } break;
-
-                            case ExpressionValueCategory::Register: {
-                                function_parameter_registers[i] = value.register_;
-                            } break;
-
-                            case ExpressionValueCategory::Address: {
-                                function_parameter_registers[i] = value.address;
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
+                            function_parameter_registers[i] = value_register;
+                        } else {
+                            function_parameter_registers[i] = value.address;
                         }
                     } break;
 
@@ -4195,146 +4156,37 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 }
             }
 
-            bool has_return;
             size_t return_register;
+
+            if(has_return && !is_return_in_register) {
+                auto local_register = append_allocate_local(
+                    context,
+                    instructions,
+                    get_type_size(*context, function_return_type),
+                    get_type_alignment(*context, function_return_type)
+                );
+
+                function_parameter_registers[total_parameter_count - 1] = local_register;
+                return_register = local_register;
+            }
 
             Instruction call;
             call.type = InstructionType::FunctionCall;
             call.function_call.function_name = function_name;
             call.function_call.parameter_registers = {
-                parameter_count,
+                total_parameter_count,
                 function_parameter_registers
             };
+            if(has_return && is_return_in_register) {
+                return_register = allocate_register(context);
 
-            switch(function_return_type.category) {
-                case TypeCategory::Integer:
-                case TypeCategory::Boolean:
-                case TypeCategory::Pointer: {
-                    has_return = true;
-                    return_register = allocate_register(context);
-
-                    call.function_call.has_return = true;
-                    call.function_call.return_register = return_register;
-
-                    append(instructions, call);
-                } break;
-
-                case TypeCategory::Void: {
-                    has_return = false;
-
-                    call.function_call.has_return = false;
-
-                    append(instructions, call);
-                } break;
-
-                case TypeCategory::Array: {
-                    has_return = true;
-                    return_register = allocate_register(context);
-
-                    Instruction alloc;
-                    alloc.type = InstructionType::AllocateLocal;
-                    alloc.allocate_local.size = register_size_to_byte_size(context->address_integer_size) * 2;
-                    alloc.allocate_local.alignment = register_size_to_byte_size(context->address_integer_size);
-                    alloc.allocate_local.destination_register = return_register;
-
-                    append(instructions, alloc);
-
-                    auto address_return_register = allocate_register(context);
-
-                    call.function_call.has_return = true;
-                    call.function_call.return_register = address_return_register;
-
-                    append(instructions, call);
-
-                    generate_array_copy(context, instructions, address_return_register, return_register);
-                } break;
-
-                case TypeCategory::StaticArray: {
-                    has_return = true;
-                    return_register = allocate_register(context);
-
-                    auto length = function_return_type.static_array.length * get_type_size(*context, *function_return_type.static_array.type);
-
-                    Instruction alloc;
-                    alloc.type = InstructionType::AllocateLocal;
-                    alloc.allocate_local.size = length;
-                    alloc.allocate_local.alignment = get_type_alignment(*context, *function_return_type.static_array.type);
-                    alloc.allocate_local.destination_register = return_register;
-
-                    append(instructions, alloc);
-
-                    auto address_return_register = allocate_register(context);
-
-                    call.function_call.has_return = true;
-                    call.function_call.return_register = address_return_register;
-
-                    append(instructions, call);
-
-                    auto length_register = allocate_register(context);
-
-                    Instruction constant;
-                    constant.type = InstructionType::Constant;
-                    constant.constant.size = context->address_integer_size;
-                    constant.constant.destination_register = length_register;
-                    constant.constant.value = length;
-
-                    append(instructions, constant);
-
-                    Instruction copy;
-                    copy.type = InstructionType::CopyMemory;
-                    copy.copy_memory.length_register = length_register;
-                    copy.copy_memory.source_address_register = address_return_register;
-                    copy.copy_memory.destination_address_register = return_register;
-
-                    append(instructions, copy);
-                } break;
-
-                case TypeCategory::Struct: {
-                    has_return = true;
-                    return_register = allocate_register(context);
-
-                    auto struct_type = retrieve_struct_type(*context, function_return_type._struct);
-
-                    auto size = get_struct_size(*context, struct_type);
-
-                    Instruction alloc;
-                    alloc.type = InstructionType::AllocateLocal;
-                    alloc.allocate_local.size = size;
-                    alloc.allocate_local.size = get_type_alignment(*context, function_return_type);
-                    alloc.allocate_local.destination_register = return_register;
-
-                    append(instructions, alloc);
-
-                    auto address_return_register = allocate_register(context);
-
-                    call.function_call.has_return = true;
-                    call.function_call.return_register = address_return_register;
-
-                    append(instructions, call);
-
-                    auto size_register = allocate_register(context);
-
-                    Instruction constant;
-                    constant.type = InstructionType::Constant;
-                    constant.constant.size = context->address_integer_size;
-                    constant.constant.destination_register = size_register;
-                    constant.constant.value = size;
-
-                    append(instructions, constant);
-
-                    Instruction copy;
-                    copy.type = InstructionType::CopyMemory;
-                    copy.copy_memory.length_register = size_register;
-                    copy.copy_memory.source_address_register = address_return_register;
-                    copy.copy_memory.destination_address_register = return_register;
-
-                    append(instructions, copy);
-                } break;
-
-                default: {
-                    abort();
-                } break;
+                call.function_call.has_return = true;
+                call.function_call.return_register = return_register;
+            } else {
+                call.function_call.has_return = false;
             }
+
+            append(instructions, call);
 
             ExpressionValue value;
             value.category = ExpressionValueCategory::Register;
@@ -5447,237 +5299,161 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
         case StatementType::Return: {
             expect(value, generate_expression(context, instructions, statement._return));
 
+            Type determined_type;
+            if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
+                if(context->return_type.category != TypeCategory::Integer) {
+                    error(statement._return.range, "Incorrect return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+
+                    return { false };
+                }
+
+                determined_type = context->return_type;
+            } else {
+                determined_type = value.type;
+            }
+
+            if(!types_equal(determined_type, context->return_type)) {
+                error(statement._return.range, "Incorrect return type. Expected %s, got %s", type_description(context->return_type), type_description(determined_type));
+
+                return { false };
+            }
+
             Instruction return_;
             return_.type = InstructionType::Return;
 
-            switch(value.type.category) {
-                case TypeCategory::Integer: {
-                    if(context->return_type.category != TypeCategory::Integer) {
-                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+            if(determined_type.category != TypeCategory::Void) {
+                auto representation = get_type_representation(*context, determined_type);
 
-                        return { false };
-                    }
+                switch(value.category) {
+                    case ExpressionValueCategory::Constant: {
+                        switch(determined_type.category) {
+                            case TypeCategory::Integer: {
+                                auto value_register = append_constant(context, instructions, determined_type.integer.size, value.constant.integer);
 
-                    if(value.type.integer.is_undetermined) {
-                        return_.return_.value_register = generate_integer_register_value(context, instructions, context->return_type.integer.size, value);
-                    } else if(value.type.integer.size == context->return_type.integer.size && value.type.integer.is_signed == context->return_type.integer.is_signed) {
-                        return_.return_.value_register = generate_integer_register_value(context, instructions, value);
-                    } else {
-                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+                                return_.return_.value_register = value_register;
+                            } break;
 
-                        return { false };
-                    }
-                } break;
-
-                case TypeCategory::Boolean: {
-                    if(context->return_type.category != TypeCategory::Boolean) {
-                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
-
-                        return { false };
-                    }
-
-                    return_.return_.value_register = generate_boolean_register_value(context, instructions, value);
-                } break;
-
-                case TypeCategory::Pointer: {
-                    if(context->return_type.category != TypeCategory::Pointer || !types_equal(*value.type.pointer, *context->return_type.pointer)) {
-                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
-
-                        return { false };
-                    }
-
-                    return_.return_.value_register = generate_pointer_register_value(context, instructions, value);
-                } break;
-
-                case TypeCategory::Array: {
-                    if(context->return_type.category != TypeCategory::Array || !types_equal(*value.type.array, *context->return_type.array)) {
-                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
-
-                        return { false };
-                    }
-
-                    switch(value.category) {
-                        case ExpressionValueCategory::Constant: {
-                            auto local_register = allocate_register(context);
-
-                            Instruction alloc;
-                            alloc.type = InstructionType::AllocateLocal;
-                            alloc.allocate_local.size = register_size_to_byte_size(context->address_integer_size);
-                            alloc.allocate_local.alignment = register_size_to_byte_size(context->address_integer_size);
-                            alloc.allocate_local.destination_register = local_register;
-
-                            append(instructions, alloc);
-
-                            auto pointer_register = allocate_register(context);
-
-                            Instruction pointer_constant;
-                            pointer_constant.type = InstructionType::Constant;
-                            pointer_constant.constant.size = context->address_integer_size;
-                            pointer_constant.constant.destination_register = pointer_register;
-                            pointer_constant.constant.value = value.constant.array.pointer;
-
-                            append(instructions, pointer_constant);
-
-                            Instruction store_pointer;
-                            store_pointer.type = InstructionType::StoreInteger;
-                            store_pointer.store_integer.size = context->address_integer_size;
-                            store_pointer.store_integer.source_register = pointer_register;
-                            store_pointer.store_integer.address_register = local_register;
-
-                            append(instructions, store_pointer);
-
-                            auto offset_register = allocate_register(context);
-
-                            Instruction size_constant;
-                            size_constant.type = InstructionType::Constant;
-                            size_constant.constant.size = context->address_integer_size;
-                            size_constant.constant.destination_register = offset_register;
-                            size_constant.constant.value = register_size_to_byte_size(context->address_integer_size);
-
-                            append(instructions, size_constant);
-
-                            auto length_register = allocate_register(context);
-
-                            Instruction length_constant;
-                            length_constant.type = InstructionType::Constant;
-                            length_constant.constant.size = context->address_integer_size;
-                            length_constant.constant.destination_register = pointer_register;
-                            length_constant.constant.value = value.constant.array.length;
-
-                            append(instructions, length_constant);
-
-                            auto length_address_register = allocate_register(context);
-
-                            Instruction add;
-                            add.type = InstructionType::ArithmeticOperation;
-                            add.arithmetic_operation.type = ArithmeticOperationType::Add;
-                            add.arithmetic_operation.size = context->address_integer_size;
-                            add.arithmetic_operation.source_register_a = local_register;
-                            add.arithmetic_operation.source_register_b = offset_register;
-                            add.arithmetic_operation.destination_register = length_address_register;
-
-                            append(instructions, add);
-
-                            Instruction store_length;
-                            store_length.type = InstructionType::StoreInteger;
-                            store_length.store_integer.size = context->address_integer_size;
-                            store_length.store_integer.source_register = length_register;
-                            store_length.store_integer.address_register = length_address_register;
-
-                            append(instructions, store_length);
-
-                            return_.return_.value_register = local_register;
-                        } break;
-
-                        case ExpressionValueCategory::Register: {
-                            return_.return_.value_register = value.register_;
-                        } break;
-
-                        case ExpressionValueCategory::Address: {
-                            return_.return_.value_register = value.address;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-                } break;
-
-                case TypeCategory::StaticArray: {
-                    if(
-                        context->return_type.category != TypeCategory::StaticArray ||
-                        !types_equal(*value.type.static_array.type, *context->return_type.static_array.type) ||
-                        value.type.static_array.length != context->return_type.static_array.length
-                    ) {
-                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
-
-                        return { false };
-                    }
-
-                    switch(value.category) {
-                        case ExpressionValueCategory::Constant: {
-                            auto constant_name = register_static_array_constant(
-                                context,
-                                *value.type.static_array.type,
-                                Array<ConstantValue> {
-                                    value.type.static_array.length,
-                                    value.constant.static_array
+                            case TypeCategory::Boolean: {
+                                uint64_t integer_value;
+                                if(value.constant.boolean) {
+                                    integer_value = 1;
+                                } else {
+                                    integer_value = 0;
                                 }
-                            );
 
-                            auto constant_address_register = allocate_register(context);
+                                auto value_register = append_constant(context, instructions, context->default_integer_size, integer_value);
 
-                            Instruction reference;
-                            reference.type = InstructionType::ReferenceStatic;
-                            reference.reference_static.name = constant_name;
-                            reference.reference_static.destination_register = constant_address_register;
+                                return_.return_.value_register = value_register;
+                            } break;
 
-                            append(instructions, reference);
+                            case TypeCategory::Pointer: {
+                                auto value_register = append_constant(context, instructions, context->address_integer_size, value.constant.pointer);
 
-                            return_.return_.value_register = constant_address_register;
-                        } break;
+                                return_.return_.value_register = value_register;
+                            } break;
 
-                        case ExpressionValueCategory::Register: {
+                            case TypeCategory::Array: {
+                                auto pointer_register = append_constant(context, instructions, context->address_integer_size, value.constant.array.pointer);
+
+                                append_store_integer(context, instructions, context->address_integer_size, pointer_register, context->return_parameter_register);
+
+                                auto length_register = append_constant(context, instructions, context->address_integer_size, value.constant.array.length);
+
+                                auto length_address_register = generate_address_offset(
+                                    context,
+                                    instructions,
+                                    context->return_parameter_register,
+                                    register_size_to_byte_size(context->address_integer_size)
+                                );
+
+                                append_store_integer(context, instructions, context->address_integer_size, length_register, length_address_register);
+                            } break;
+
+                            case TypeCategory::StaticArray: {
+                                auto constant_name = register_static_array_constant(
+                                    context,
+                                    *determined_type.static_array.type,
+                                    Array<ConstantValue> {
+                                        determined_type.static_array.length,
+                                        value.constant.static_array
+                                    }
+                                );
+
+                                auto constant_address_register = append_reference_static(context, instructions, constant_name);
+
+                                auto length_register = append_constant(
+                                    context,
+                                    instructions,
+                                    context->address_integer_size,
+                                    determined_type.static_array.length * get_type_size(*context, *determined_type.static_array.type)
+                                );
+
+                                append_copy_memory(context, instructions, length_register, constant_address_register, context->return_parameter_register);
+                            } break;
+
+                            case TypeCategory::Struct: {
+                                auto struct_type = retrieve_struct_type(*context, determined_type._struct);
+
+                                auto constant_name = register_struct_constant(
+                                    context,
+                                    struct_type,
+                                    value.constant.struct_
+                                );
+
+                                auto constant_address_register = append_reference_static(context, instructions, constant_name);
+
+                                auto length_register = append_constant(
+                                    context,
+                                    instructions,
+                                    context->address_integer_size,
+                                    get_struct_size(*context, struct_type)
+                                );
+
+                                append_copy_memory(context, instructions, length_register, constant_address_register, context->return_parameter_register);
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+                    } break;
+
+                    case ExpressionValueCategory::Register: {
+                        if(representation.is_in_register) {
                             return_.return_.value_register = value.register_;
-                        } break;
-
-                        case ExpressionValueCategory::Address: {
-                            return_.return_.value_register = value.address;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-                } break;
-
-                case TypeCategory::Struct: {
-                    if(
-                        context->return_type.category != TypeCategory::Struct ||
-                        strcmp(value.type._struct, context->return_type._struct) != 0
-                    ) {
-                        error(statement._return.range, "Mismatched return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
-
-                        return { false };
-                    }
-
-                    switch(value.category) {
-                        case ExpressionValueCategory::Constant: {
-                            auto constant_name = register_struct_constant(
+                        } else {
+                            auto length_register = append_constant(
                                 context,
-                                retrieve_struct_type(*context, value.type._struct),
-                                value.constant.struct_
+                                instructions,
+                                context->address_integer_size,
+                                get_type_size(*context, determined_type)
                             );
 
-                            auto constant_address_register = allocate_register(context);
+                            append_copy_memory(context, instructions, length_register, value.register_, context->return_parameter_register);
+                        }
+                    } break;
 
-                            Instruction reference;
-                            reference.type = InstructionType::ReferenceStatic;
-                            reference.reference_static.name = constant_name;
-                            reference.reference_static.destination_register = constant_address_register;
+                    case ExpressionValueCategory::Address: {
+                        if(representation.is_in_register) {
+                            auto value_register = append_load_integer(context, instructions, representation.value_size, value.address);
 
-                            append(instructions, reference);
+                            return_.return_.value_register = value_register;
+                        } else {
+                            auto length_register = append_constant(
+                                context,
+                                instructions,
+                                context->address_integer_size,
+                                get_type_size(*context, determined_type)
+                            );
 
-                            return_.return_.value_register = constant_address_register;
-                        } break;
+                            append_copy_memory(context, instructions, length_register, value.address, context->return_parameter_register);
+                        }
+                    } break;
 
-                        case ExpressionValueCategory::Register: {
-                            return_.return_.value_register = value.register_;
-                        } break;
-
-                        case ExpressionValueCategory::Address: {
-                            return_.return_.value_register = value.address;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-                } break;
-
-                default: {
-                    abort();
-                } break;
+                    default: {
+                        abort();
+                    } break;
+                }
             }
 
             append(instructions, return_);
@@ -5859,59 +5635,55 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
                     context.determined_declaration = function.parent;
                 }
 
+                auto total_parameter_count = function.parameters.count;
+
+                bool has_return;
+                RegisterRepresentation return_representation;                
+                if(function.return_type.category == TypeCategory::Void) {
+                    has_return = false;
+                } else {
+                    has_return = true;
+
+                    return_representation = get_type_representation(context, function.return_type);
+
+                    if(!return_representation.is_in_register) {
+                        total_parameter_count += 1;
+                    }
+                }
+
+                auto parameter_sizes = allocate<RegisterSize>(total_parameter_count);
+
+                for(size_t i = 0; i < function.parameters.count; i += 1) {
+                    auto representation = get_type_representation(context, function.parameters[i].type);
+
+                    if(representation.is_in_register) {
+                        parameter_sizes[i] = representation.value_size;
+                    } else {
+                        parameter_sizes[i] = architecute_info.address_size;
+                    }
+                }
+
+                if(has_return && !return_representation.is_in_register) {
+                    parameter_sizes[total_parameter_count - 1] = architecute_info.address_size;
+                }
+
                 Function ir_function;
                 ir_function.name = function.mangled_name;
+                ir_function.is_external = function.declaration.function_declaration.is_external;
+                ir_function.parameter_sizes = {
+                    total_parameter_count,
+                    parameter_sizes
+                };
+                ir_function.has_return = has_return && return_representation.is_in_register;
 
-                if(function.declaration.function_declaration.is_external) {
-                    ir_function.is_external = true;
+                if(has_return && return_representation.is_in_register) {
+                    ir_function.return_size = return_representation.value_size;
+                }
 
-                    auto parameter_sizes = allocate<RegisterSize>(function.parameters.count);
-
-                    for(size_t i = 0; i < function.parameters.count; i += 1) {
-                        auto parameter = function.parameters[i];
-
-                        switch(parameter.type.category) {
-                            case TypeCategory::Integer: {
-                                parameter_sizes[i] = parameter.type.integer.size;
-                            } break;
-
-                            case TypeCategory::Boolean: {
-                                parameter_sizes[i] = architecute_info.default_size;
-                            } break;
-
-                            case TypeCategory::Pointer: {
-                                parameter_sizes[i] = architecute_info.address_size;
-                            } break;
-
-                            case TypeCategory::Array: {
-                                parameter_sizes[i] = architecute_info.address_size;
-                            } break;
-
-                            case TypeCategory::StaticArray: {
-                                parameter_sizes[i] = architecute_info.address_size;
-                            } break;
-
-                            case TypeCategory::Struct: {
-                                parameter_sizes[i] = architecute_info.address_size;
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
-                    }
-
-                    ir_function.parameter_sizes = {
-                        function.parameters.count,
-                        parameter_sizes
-                    };
-                } else {
-                    ir_function.is_external = false;
-
+                if(!function.declaration.function_declaration.is_external) {
                     append(&context.variable_context_stack, List<Variable>{});
 
                     auto parameters = allocate<Variable>(function.parameters.count);
-                    auto parameter_sizes = allocate<RegisterSize>(function.parameters.count);
 
                     for(size_t i = 0; i < function.parameters.count; i += 1) {
                         auto parameter = function.parameters[i];
@@ -5922,42 +5694,7 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
                             parameter.type_range,
                             i
                         };
-
-                        switch(parameter.type.category) {
-                            case TypeCategory::Integer: {
-                                parameter_sizes[i] = parameter.type.integer.size;
-                            } break;
-
-                            case TypeCategory::Boolean: {
-                                parameter_sizes[i] = architecute_info.default_size;
-                            } break;
-
-                            case TypeCategory::Pointer: {
-                                parameter_sizes[i] = architecute_info.address_size;
-                            } break;
-
-                            case TypeCategory::Array: {
-                                parameter_sizes[i] = architecute_info.address_size;
-                            } break;
-
-                            case TypeCategory::StaticArray: {
-                                parameter_sizes[i] = architecute_info.address_size;
-                            } break;
-
-                            case TypeCategory::Struct: {
-                                parameter_sizes[i] = architecute_info.address_size;
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
                     }
-
-                    ir_function.parameter_sizes = {
-                        function.parameters.count,
-                        parameter_sizes
-                    };
 
                     context.is_top_level = false;
                     context.determined_declaration = {
@@ -5970,7 +5707,11 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
                         parameters
                     };
                     context.return_type = function.return_type;
-                    context.next_register = function.parameters.count;
+                    context.next_register = total_parameter_count;
+
+                    if(has_return && !return_representation.is_in_register) {
+                        context.return_parameter_register = total_parameter_count - 1;
+                    }
 
                     List<Instruction> instructions{};
 
@@ -6000,42 +5741,6 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
                     context.next_register = 0;
 
                     ir_function.instructions = to_array(instructions);
-                }
-
-                if(function.return_type.category != TypeCategory::Void) {
-                    ir_function.has_return = true;
-
-                    switch(function.return_type.category) {
-                        case TypeCategory::Integer: {
-                            ir_function.return_size = function.return_type.integer.size;
-                        } break;
-
-                        case TypeCategory::Boolean: {
-                            ir_function.return_size = architecute_info.default_size;
-                        } break;
-
-                        case TypeCategory::Pointer: {
-                            ir_function.return_size = architecute_info.address_size;
-                        } break;
-
-                        case TypeCategory::Array: {
-                            ir_function.return_size = architecute_info.address_size;
-                        } break;
-
-                        case TypeCategory::StaticArray: {
-                            ir_function.return_size = architecute_info.address_size;
-                        } break;
-
-                        case TypeCategory::Struct: {
-                            ir_function.return_size = architecute_info.address_size;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-                } else {
-                    ir_function.has_return = false;
                 }
 
                 append(&functions, ir_function);
