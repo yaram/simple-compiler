@@ -4153,50 +4153,52 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
 
                     return { false };
-                }
-
-                size_t left_register;
-                switch(left.category) {
-                    case ExpressionValueCategory::Constant: {
-                        left_register = append_constant(context, instructions, determined_type.integer.size, left.constant.integer);
-                    } break;
-
-                    case ExpressionValueCategory::Register: {
-                        left_register = left.register_;
-                    } break;
-
-                    case ExpressionValueCategory::Address: {
-                        left_register = append_load_integer(context, instructions, determined_type.integer.size, left.address);
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
-
-                size_t right_register;
-                switch(right.category) {
-                    case ExpressionValueCategory::Constant: {
-                        right_register = append_constant(context, instructions, determined_type.integer.size, right.constant.integer);
-                    } break;
-
-                    case ExpressionValueCategory::Register: {
-                        right_register = right.register_;
-                    } break;
-
-                    case ExpressionValueCategory::Address: {
-                        right_register = append_load_integer(context, instructions, determined_type.integer.size, right.address);
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
+                } else {
+                    determined_type = left.type;
                 }
 
                 size_t result_register;
                 Type result_type;
                 switch(left.type.category) {
                     case TypeCategory::Integer: {
+                        size_t left_register;
+                        switch(left.category) {
+                            case ExpressionValueCategory::Constant: {
+                                left_register = append_constant(context, instructions, determined_type.integer.size, left.constant.integer);
+                            } break;
+
+                            case ExpressionValueCategory::Register: {
+                                left_register = left.register_;
+                            } break;
+
+                            case ExpressionValueCategory::Address: {
+                                left_register = append_load_integer(context, instructions, determined_type.integer.size, left.address);
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+
+                        size_t right_register;
+                        switch(right.category) {
+                            case ExpressionValueCategory::Constant: {
+                                right_register = append_constant(context, instructions, determined_type.integer.size, right.constant.integer);
+                            } break;
+
+                            case ExpressionValueCategory::Register: {
+                                right_register = right.register_;
+                            } break;
+
+                            case ExpressionValueCategory::Address: {
+                                right_register = append_load_integer(context, instructions, determined_type.integer.size, right.address);
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Addition: {
                                 result_register = append_arithmetic_operation(
