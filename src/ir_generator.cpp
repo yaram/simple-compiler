@@ -2718,83 +2718,6 @@ static void generate_non_integer_variable_assignment(GenerationContext *context,
     }
 }
 
-static void generate_boolean_invert(GenerationContext *context, List<Instruction> *instructions, size_t value_register, size_t result_register) {
-    auto local_register = allocate_register(context);
-
-    Instruction allocate;
-    allocate.type = InstructionType::AllocateLocal;
-    allocate.allocate_local.size = register_size_to_byte_size(context->default_integer_size);
-    allocate.allocate_local.alignment = register_size_to_byte_size(context->default_integer_size);
-    allocate.allocate_local.destination_register = local_register;
-
-    append(instructions, allocate);
-
-    Instruction branch;
-    branch.type = InstructionType::Branch;
-    branch.branch.condition_register = value_register;
-    branch.branch.destination_instruction = instructions->count + 4;
-
-    append(instructions, branch);
-
-    auto true_register = allocate_register(context);
-
-    Instruction true_constant;
-    true_constant.type = InstructionType::Constant;
-    true_constant.constant.size = context->default_integer_size;
-    true_constant.constant.destination_register = true_register;
-    true_constant.constant.value = 1;
-
-    append(instructions, true_constant);
-
-    Instruction true_store;
-    true_store.type = InstructionType::StoreInteger;
-    true_store.store_integer.size = context->default_integer_size;
-    true_store.store_integer.source_register = true_register;
-    true_store.store_integer.address_register = local_register;
-
-    append(instructions, true_store);
-
-    Instruction jump;
-    jump.type = InstructionType::Jump;
-    jump.jump.destination_instruction = instructions->count + 3;
-
-    append(instructions, jump);
-
-    auto false_register = allocate_register(context);
-
-    Instruction false_constant;
-    false_constant.type = InstructionType::Constant;
-    false_constant.constant.size = context->default_integer_size;
-    false_constant.constant.destination_register = false_register;
-    false_constant.constant.value = 0;
-
-    append(instructions, false_constant);
-
-    Instruction false_store;
-    false_store.type = InstructionType::StoreInteger;
-    false_store.store_integer.size = context->default_integer_size;
-    false_store.store_integer.source_register = false_register;
-    false_store.store_integer.address_register = local_register;
-
-    append(instructions, false_store);
-
-    Instruction load;
-    load.type = InstructionType::LoadInteger;
-    load.load_integer.size = context->default_integer_size;
-    load.load_integer.address_register = local_register;
-    load.load_integer.destination_register = result_register;
-
-    append(instructions, load);
-}
-
-static size_t generate_boolean_invert(GenerationContext *context, List<Instruction> *instructions, size_t register_index) {
-    auto result_register = allocate_register(context);
-
-    generate_boolean_invert(context, instructions, register_index, result_register);
-
-    return result_register;
-}
-
 static size_t append_arithmetic_operation(GenerationContext *context, List<Instruction> *instructions, ArithmeticOperationType type, RegisterSize size, size_t source_register_a, size_t source_register_b) {
     auto destination_register = allocate_register(context);
 
@@ -2809,6 +2732,24 @@ static size_t append_arithmetic_operation(GenerationContext *context, List<Instr
     };
 
     append(instructions, arithmetic_operation);
+
+    return destination_register;
+}
+
+static size_t append_comparison_operation(GenerationContext *context, List<Instruction> *instructions, ComparisonOperationType type, RegisterSize size, size_t source_register_a, size_t source_register_b) {
+    auto destination_register = allocate_register(context);
+
+    Instruction comparison_operation;
+    comparison_operation.type = InstructionType::ComparisonOperation;
+    comparison_operation.comparison_operation = {
+        type,
+        size,
+        source_register_a,
+        source_register_b,
+        destination_register
+    };
+
+    append(instructions, comparison_operation);
 
     return destination_register;
 }
@@ -2858,6 +2799,27 @@ static size_t append_allocate_local(GenerationContext *context, List<Instruction
     append(instructions, allocate_local);
 
     return destination_register;
+}
+
+static void append_branch(GenerationContext *context, List<Instruction> *instructions, size_t condition_register, size_t instruction_index) {
+    Instruction branch;
+    branch.type = InstructionType::Branch;
+    branch.branch = {
+        condition_register,
+        instruction_index
+    };
+
+    append(instructions, branch);
+}
+
+static void append_jump(GenerationContext *context, List<Instruction> *instructions, size_t instruction_index) {
+    Instruction jump;
+    jump.type = InstructionType::Jump;
+    jump.branch = {
+        instruction_index
+    };
+
+    append(instructions, jump);
 }
 
 static void append_copy_memory(
@@ -2924,6 +2886,31 @@ static size_t generate_address_offset(GenerationContext *context, List<Instructi
     );
 
     return final_address_register;
+}
+
+static size_t generate_boolean_invert(GenerationContext *context, List<Instruction> *instructions, size_t value_register) {
+    auto local_register = append_allocate_local(
+        context,
+        instructions,
+        register_size_to_byte_size(context->default_integer_size),
+        register_size_to_byte_size(context->default_integer_size)
+    );
+
+    append_branch(context, instructions, value_register, instructions->count + 4);
+
+    auto true_register = append_constant(context, instructions, context->default_integer_size, 1);
+
+    append_store_integer(context, instructions, context->default_integer_size, true_register, local_register);
+
+    append_jump(context, instructions, instructions->count + 3);
+
+    auto false_register = append_constant(context, instructions, context->default_integer_size, 0);
+
+    append_store_integer(context, instructions, context->default_integer_size, false_register, local_register);
+
+    auto result_register = append_load_integer(context, instructions, context->default_integer_size, local_register);
+
+    return result_register;
 }
 
 struct RegisterRepresentation {
@@ -4145,182 +4132,208 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     value
                 };
             } else {
-                auto result_register = allocate_register(context);
+                Type determined_type;
+                if(
+                    left.type.category == TypeCategory::Integer && right.type.category == TypeCategory::Integer &&
+                    (left.type.integer.is_undetermined || right.type.integer.is_undetermined)
+                ) {
+                    if(left.type.integer.is_undetermined && right.type.integer.is_undetermined) {
+                        determined_type.category = TypeCategory::Integer;
+                        determined_type.integer = {
+                            context->default_integer_size,
+                            true,
+                            false
+                        };
+                    } else if(left.type.integer.is_undetermined) {
+                        determined_type = right.type;
+                    } else {
+                        determined_type = left.type;
+                    }
+                } else if(!types_equal(left.type, right.type)) {
+                    error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
 
+                    return { false };
+                }
+
+                size_t left_register;
+                switch(left.category) {
+                    case ExpressionValueCategory::Constant: {
+                        left_register = append_constant(context, instructions, determined_type.integer.size, left.constant.integer);
+                    } break;
+
+                    case ExpressionValueCategory::Register: {
+                        left_register = left.register_;
+                    } break;
+
+                    case ExpressionValueCategory::Address: {
+                        left_register = append_load_integer(context, instructions, determined_type.integer.size, left.address);
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                size_t right_register;
+                switch(right.category) {
+                    case ExpressionValueCategory::Constant: {
+                        right_register = append_constant(context, instructions, determined_type.integer.size, right.constant.integer);
+                    } break;
+
+                    case ExpressionValueCategory::Register: {
+                        right_register = right.register_;
+                    } break;
+
+                    case ExpressionValueCategory::Address: {
+                        right_register = append_load_integer(context, instructions, determined_type.integer.size, right.address);
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                size_t result_register;
                 Type result_type;
                 switch(left.type.category) {
                     case TypeCategory::Integer: {
-                        if(right.type.category != TypeCategory::Integer) {
-                            error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
-
-                            return { false };
-                        }
-
-                        Type actual_type;
-                        if(left.type.integer.is_undetermined && right.type.integer.is_undetermined) {
-                            actual_type.category = TypeCategory::Integer;
-                            actual_type.integer.size = context->default_integer_size;
-                            actual_type.integer.is_signed = true;
-                            actual_type.integer.is_undetermined = false;
-                        } else if(left.type.integer.is_undetermined) {
-                            actual_type = right.type;
-                        } else if(right.type.integer.is_undetermined) {
-                            actual_type = left.type;
-                        } else {
-                            if(left.type.integer.size != right.type.integer.size || left.type.integer.is_signed != right.type.integer.is_signed) {
-                                error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
-
-                                return { false };
-                            }
-
-                            actual_type = left.type;
-                        }
-
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Addition: {
-                                Instruction operation;
-                                operation.type = InstructionType::ArithmeticOperation;
-                                operation.arithmetic_operation.destination_register = result_register;
-                                operation.arithmetic_operation.size = actual_type.integer.size;
-                                operation.arithmetic_operation.type = ArithmeticOperationType::Add;
-                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                result_register = append_arithmetic_operation(
+                                    context,
+                                    instructions,
+                                    ArithmeticOperationType::Add,
+                                    determined_type.integer.size,
+                                    left_register,
+                                    right_register
+                                );
 
-                                append(instructions, operation);
-
-                                result_type = actual_type;
+                                result_type = determined_type;
                             } break;
 
                             case BinaryOperator::Subtraction: {
-                                Instruction operation;
-                                operation.type = InstructionType::ArithmeticOperation;
-                                operation.arithmetic_operation.destination_register = result_register;
-                                operation.arithmetic_operation.size = actual_type.integer.size;
-                                operation.arithmetic_operation.type = ArithmeticOperationType::Subtract;
-                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                result_register = append_arithmetic_operation(
+                                    context,
+                                    instructions,
+                                    ArithmeticOperationType::Subtract,
+                                    determined_type.integer.size,
+                                    left_register,
+                                    right_register
+                                );
 
-                                append(instructions, operation);
-
-                                result_type = actual_type;
+                                result_type = determined_type;
                             } break;
 
                             case BinaryOperator::Multiplication: {
-                                Instruction operation;
-                                operation.type = InstructionType::ArithmeticOperation;
-                                operation.arithmetic_operation.destination_register = result_register;
-                                operation.arithmetic_operation.size = actual_type.integer.size;
-                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
-
-                                result_type = actual_type;
-                                if(left.type.integer.is_signed) {
-                                    operation.arithmetic_operation.type = ArithmeticOperationType::SignedMultiply;
+                                ArithmeticOperationType operation_type;
+                                if(determined_type.integer.is_signed) {
+                                    operation_type = ArithmeticOperationType::SignedMultiply;
                                 } else {
-                                    operation.arithmetic_operation.type = ArithmeticOperationType::UnsignedMultiply;
+                                    operation_type = ArithmeticOperationType::UnsignedMultiply;
                                 }
 
-                                append(instructions, operation);
+                                result_register = append_arithmetic_operation(
+                                    context,
+                                    instructions,
+                                    operation_type,
+                                    determined_type.integer.size,
+                                    left_register,
+                                    right_register
+                                );
 
-                                result_type = actual_type;
+                                result_type = determined_type;
                             } break;
 
                             case BinaryOperator::Division: {
-                                Instruction operation;
-                                operation.type = InstructionType::ArithmeticOperation;
-                                operation.arithmetic_operation.destination_register = result_register;
-                                operation.arithmetic_operation.size = actual_type.integer.size;
-                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
-
-                                result_type = actual_type;
-                                if(left.type.integer.is_signed) {
-                                    operation.arithmetic_operation.type = ArithmeticOperationType::SignedDivide;
+                                ArithmeticOperationType operation_type;
+                                if(determined_type.integer.is_signed) {
+                                    operation_type = ArithmeticOperationType::SignedDivide;
                                 } else {
-                                    operation.arithmetic_operation.type = ArithmeticOperationType::UnsignedDivide;
+                                    operation_type = ArithmeticOperationType::UnsignedDivide;
                                 }
 
-                                append(instructions, operation);
+                                result_register = append_arithmetic_operation(
+                                    context,
+                                    instructions,
+                                    operation_type,
+                                    determined_type.integer.size,
+                                    left_register,
+                                    right_register
+                                );
 
-                                result_type = actual_type;
+                                result_type = determined_type;
                             } break;
 
                             case BinaryOperator::Modulo: {
-                                Instruction operation;
-                                operation.type = InstructionType::ArithmeticOperation;
-                                operation.arithmetic_operation.destination_register = result_register;
-                                operation.arithmetic_operation.size = actual_type.integer.size;
-                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
-
-                                result_type = actual_type;
-                                if(left.type.integer.is_signed) {
-                                    operation.arithmetic_operation.type = ArithmeticOperationType::SignedModulus;
+                                ArithmeticOperationType operation_type;
+                                if(determined_type.integer.is_signed) {
+                                    operation_type = ArithmeticOperationType::SignedModulus;
                                 } else {
-                                    operation.arithmetic_operation.type = ArithmeticOperationType::UnsignedModulus;
+                                    operation_type = ArithmeticOperationType::UnsignedModulus;
                                 }
 
-                                append(instructions, operation);
+                                result_register = append_arithmetic_operation(
+                                    context,
+                                    instructions,
+                                    operation_type,
+                                    determined_type.integer.size,
+                                    left_register,
+                                    right_register
+                                );
 
-                                result_type = actual_type;
+                                result_type = determined_type;
                             } break;
 
                             case BinaryOperator::BitwiseAnd: {
-                                Instruction operation;
-                                operation.type = InstructionType::ArithmeticOperation;
-                                operation.arithmetic_operation.destination_register = result_register;
-                                operation.arithmetic_operation.size = actual_type.integer.size;
-                                operation.arithmetic_operation.type = ArithmeticOperationType::BitwiseAnd;
-                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                result_register = append_arithmetic_operation(
+                                    context,
+                                    instructions,
+                                    ArithmeticOperationType::BitwiseAnd,
+                                    determined_type.integer.size,
+                                    left_register,
+                                    right_register
+                                );
 
-                                append(instructions, operation);
-
-                                result_type = actual_type;
+                                result_type = determined_type;
                             } break;
 
                             case BinaryOperator::BitwiseOr: {
-                                Instruction operation;
-                                operation.type = InstructionType::ArithmeticOperation;
-                                operation.arithmetic_operation.destination_register = result_register;
-                                operation.arithmetic_operation.size = actual_type.integer.size;
-                                operation.arithmetic_operation.type = ArithmeticOperationType::BitwiseOr;
-                                operation.arithmetic_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.arithmetic_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
+                                result_register = append_arithmetic_operation(
+                                    context,
+                                    instructions,
+                                    ArithmeticOperationType::BitwiseOr,
+                                    determined_type.integer.size,
+                                    left_register,
+                                    right_register
+                                );
 
-                                append(instructions, operation);
-
-                                result_type = actual_type;
+                                result_type = determined_type;
                             } break;
 
                             case BinaryOperator::Equal: {
-                                Instruction operation;
-                                operation.type = InstructionType::ComparisonOperation;
-                                operation.comparison_operation.destination_register = result_register;
-                                operation.comparison_operation.size = actual_type.integer.size;
-                                operation.comparison_operation.type = ComparisonOperationType::Equal;
-                                operation.comparison_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.comparison_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
-
-                                append(instructions, operation);
+                                result_register = append_comparison_operation(
+                                    context,
+                                    instructions,
+                                    ComparisonOperationType::Equal,
+                                    determined_type.integer.size,
+                                    left_register,
+                                    right_register
+                                );
 
                                 result_type.category = TypeCategory::Boolean;
                             } break;
 
                             case BinaryOperator::NotEqual: {
-                                auto equal_register = allocate_register(context);
+                                auto equal_register = append_comparison_operation(
+                                    context,
+                                    instructions,
+                                    ComparisonOperationType::Equal,
+                                    determined_type.integer.size,
+                                    left_register,
+                                    right_register
+                                );
 
-                                Instruction operation;
-                                operation.type = InstructionType::ComparisonOperation;
-                                operation.comparison_operation.destination_register = equal_register;
-                                operation.comparison_operation.size = actual_type.integer.size;
-                                operation.comparison_operation.type = ComparisonOperationType::Equal;
-                                operation.comparison_operation.source_register_a = generate_integer_register_value(context, instructions, actual_type.integer.size, left);
-                                operation.comparison_operation.source_register_b = generate_integer_register_value(context, instructions, actual_type.integer.size, right);
-
-                                append(instructions, operation);
-
-                                generate_boolean_invert(context, instructions, equal_register, result_register);
+                                result_register = generate_boolean_invert(context, instructions, equal_register);
 
                                 result_type.category = TypeCategory::Boolean;
                             } break;
@@ -4334,65 +4347,105 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     } break;
 
                     case TypeCategory::Boolean: {
-                        if(right.type.category != TypeCategory::Boolean) {
-                            error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
+                        size_t left_register;
+                        switch(left.category) {
+                            case ExpressionValueCategory::Constant: {
+                                uint64_t integer_value;
+                                if(left.constant.boolean) {
+                                    integer_value = 1;
+                                } else {
+                                    integer_value = 0;
+                                }
 
-                            return { false };
+                                left_register = append_constant(context, instructions, context->default_integer_size, integer_value);
+                            } break;
+
+                            case ExpressionValueCategory::Register: {
+                                left_register = left.register_;
+                            } break;
+
+                            case ExpressionValueCategory::Address: {
+                                left_register = append_load_integer(context, instructions, context->default_integer_size, left.address);
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+
+                        size_t right_register;
+                        switch(right.category) {
+                            case ExpressionValueCategory::Constant: {
+                                uint64_t integer_value;
+                                if(right.constant.boolean) {
+                                    integer_value = 1;
+                                } else {
+                                    integer_value = 0;
+                                }
+
+                                right_register = append_constant(context, instructions, context->default_integer_size, integer_value);
+                            } break;
+
+                            case ExpressionValueCategory::Register: {
+                                right_register = right.register_;
+                            } break;
+
+                            case ExpressionValueCategory::Address: {
+                                right_register = append_load_integer(context, instructions, context->default_integer_size, right.address);
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
                         }
 
                         result_type.category = TypeCategory::Boolean;
 
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Equal: {
-                                Instruction operation;
-                                operation.type = InstructionType::ComparisonOperation;
-                                operation.comparison_operation.destination_register = result_register;
-                                operation.comparison_operation.size = context->default_integer_size;
-                                operation.comparison_operation.type = ComparisonOperationType::Equal;
-                                operation.comparison_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
-                                operation.comparison_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
-
-                                append(instructions, operation);
+                                result_register = append_comparison_operation(
+                                    context,
+                                    instructions,
+                                    ComparisonOperationType::Equal,
+                                    context->default_integer_size,
+                                    left_register,
+                                    right_register
+                                );
                             } break;
 
                             case BinaryOperator::NotEqual: {
-                                auto equal_register = allocate_register(context);
+                                auto equal_register = append_comparison_operation(
+                                    context,
+                                    instructions,
+                                    ComparisonOperationType::Equal,
+                                    context->default_integer_size,
+                                    left_register,
+                                    right_register
+                                );
 
-                                Instruction operation;
-                                operation.type = InstructionType::ComparisonOperation;
-                                operation.comparison_operation.destination_register = result_register;
-                                operation.comparison_operation.size = context->default_integer_size;
-                                operation.comparison_operation.type = ComparisonOperationType::Equal;
-                                operation.comparison_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
-                                operation.comparison_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
-
-                                append(instructions, operation);
-
-                                generate_boolean_invert(context, instructions, equal_register, result_register);
+                                result_register = generate_boolean_invert(context, instructions, equal_register);
                             } break;
 
                             case BinaryOperator::BooleanAnd: {
-                                Instruction operation;
-                                operation.type = InstructionType::ArithmeticOperation;
-                                operation.arithmetic_operation.destination_register = result_register;
-                                operation.arithmetic_operation.size = context->default_integer_size;
-                                operation.arithmetic_operation.type = ArithmeticOperationType::BitwiseAnd;
-                                operation.arithmetic_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
-                                operation.arithmetic_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
-
-                                append(instructions, operation);
+                                result_register = append_arithmetic_operation(
+                                    context,
+                                    instructions,
+                                    ArithmeticOperationType::BitwiseAnd,
+                                    context->default_integer_size,
+                                    left_register,
+                                    right_register
+                                );
                             } break;
 
                             case BinaryOperator::BooleanOr: {
-                                Instruction operation;
-                                operation.type = InstructionType::ArithmeticOperation;
-                                operation.arithmetic_operation.destination_register = result_register;
-                                operation.arithmetic_operation.size = context->default_integer_size;
-                                operation.arithmetic_operation.type = ArithmeticOperationType::BitwiseOr;
-                                operation.arithmetic_operation.source_register_a = generate_boolean_register_value(context, instructions, left);
-                                operation.arithmetic_operation.source_register_b = generate_boolean_register_value(context, instructions, right);
-
-                                append(instructions, operation);
+                                result_register = append_arithmetic_operation(
+                                    context,
+                                    instructions,
+                                    ArithmeticOperationType::BitwiseOr,
+                                    context->default_integer_size,
+                                    left_register,
+                                    right_register
+                                );
                             } break;
 
                             default: {
