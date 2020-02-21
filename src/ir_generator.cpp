@@ -4540,14 +4540,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                         }
                                     }
 
-                                    auto address_regsiter = allocate_register(context);
-
-                                    Instruction reference;
-                                    reference.type = InstructionType::ReferenceStatic;
-                                    reference.reference_static.name = function_name;
-                                    reference.reference_static.destination_register = address_regsiter;
-
-                                    append(instructions, reference);
+                                    auto address_regsiter = append_reference_static(context, instructions, function_name);
 
                                     ExpressionValue value;
                                     value.category = ExpressionValueCategory::Register;
@@ -4642,15 +4635,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         } break;
 
                         case ExpressionValueCategory::Address: {
-                            auto value_register = allocate_register(context);
-
-                            Instruction load_value;
-                            load_value.type = InstructionType::LoadInteger;
-                            load_value.load_integer.size = context->default_integer_size;
-                            load_value.load_integer.address_register = expression_value.address;
-                            load_value.load_integer.destination_register = value_register;
-
-                            append(instructions, load_value);
+                            auto value_register = append_load_integer(context, instructions, context->default_integer_size, expression_value.address);
 
                             auto result_register = generate_boolean_invert(context, instructions, value_register);
 
@@ -4678,12 +4663,14 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         return { false };
                     }
 
+                    ExpressionValue value;
+                    value.type.category = TypeCategory::Integer;
+                    value.type.integer = expression_value.type.integer;
+
+                    size_t value_register;
                     switch(expression_value.category) {
                         case ExpressionValueCategory::Constant: {
-                            ExpressionValue value;
                             value.category = ExpressionValueCategory::Constant;
-                            value.type.category = TypeCategory::Integer;
-                            value.type.integer = expression_value.type.integer;
                             value.constant.integer = -expression_value.constant.integer;
 
                             return {
@@ -4693,89 +4680,36 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         } break;
 
                         case ExpressionValueCategory::Register: {
-                            auto zero_register = allocate_register(context);
-
-                            Instruction constant;
-                            constant.type = InstructionType::Constant;
-                            constant.constant.size = expression_value.type.integer.size;
-                            constant.constant.destination_register = zero_register;
-                            constant.constant.value = 0;
-
-                            append(instructions, constant);
-
-                            auto result_register = allocate_register(context);
-
-                            Instruction subtract;
-                            subtract.type = InstructionType::ArithmeticOperation;
-                            subtract.arithmetic_operation.type = ArithmeticOperationType::Subtract;
-                            subtract.arithmetic_operation.size = expression_value.type.integer.size;
-                            subtract.arithmetic_operation.source_register_a = zero_register;
-                            subtract.arithmetic_operation.source_register_b = expression_value.register_;
-                            subtract.arithmetic_operation.destination_register = result_register;
-
-                            append(instructions, subtract);
-
-                            ExpressionValue value;
-                            value.category = ExpressionValueCategory::Register;
-                            value.type.category = TypeCategory::Integer;
-                            value.type.integer = expression_value.type.integer;
-                            value.register_ = result_register;
-
-                            return {
-                                true,
-                                value
-                            };
+                            value_register = expression_value.register_;
                         } break;
 
                         case ExpressionValueCategory::Address: {
-                            auto value_register = allocate_register(context);
-
-                            Instruction load;
-                            load.type = InstructionType::LoadInteger;
-                            load.load_integer.size = expression_value.type.integer.size;
-                            load.load_integer.address_register = expression_value.address;
-                            load.load_integer.destination_register = value_register;
-
-                            append(instructions, load);
-
-                            auto zero_register = allocate_register(context);
-
-                            Instruction constant;
-                            constant.type = InstructionType::Constant;
-                            constant.constant.size = expression_value.type.integer.size;
-                            constant.constant.destination_register = zero_register;
-                            constant.constant.value = 0;
-
-                            append(instructions, constant);
-
-                            auto result_register = allocate_register(context);
-
-                            Instruction subtract;
-                            subtract.type = InstructionType::ArithmeticOperation;
-                            subtract.arithmetic_operation.type = ArithmeticOperationType::Subtract;
-                            subtract.arithmetic_operation.size = expression_value.type.integer.size;
-                            subtract.arithmetic_operation.source_register_a = zero_register;
-                            subtract.arithmetic_operation.source_register_b = value_register;
-                            subtract.arithmetic_operation.destination_register = result_register;
-
-                            append(instructions, subtract);
-
-                            ExpressionValue value;
-                            value.category = ExpressionValueCategory::Register;
-                            value.type.category = TypeCategory::Integer;
-                            value.type.integer = expression_value.type.integer;
-                            value.register_ = result_register;
-
-                            return {
-                                true,
-                                value
-                            };
+                            value_register = append_load_integer(context, instructions, expression_value.type.integer.size, expression_value.address);
                         } break;
 
                         default: {
                             abort();
                         } break;
                     }
+
+                    auto zero_register = append_constant(context, instructions, expression_value.type.integer.size, 0);
+
+                    auto result_register = append_arithmetic_operation(
+                        context,
+                        instructions,
+                        ArithmeticOperationType::Subtract,
+                        expression_value.type.integer.size,
+                        zero_register,
+                        value_register
+                    );
+
+                    value.category = ExpressionValueCategory::Register;
+                    value.register_ = result_register;
+
+                    return {
+                        true,
+                        value
+                    };
                 } break;
 
                 default: {
