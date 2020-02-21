@@ -5011,12 +5011,33 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 return false;
             }
 
-            Instruction branch;
-            branch.type = InstructionType::Branch;
-            branch.branch.condition_register = generate_boolean_register_value(context, instructions, condition);
-            branch.branch.destination_instruction = instructions->count + 2;
+            size_t condition_register;
+            switch(condition.category) {
+                case ExpressionValueCategory::Constant: {
+                    uint64_t integer_value;
+                    if(condition.constant.boolean) {
+                        integer_value = 1;
+                    } else {
+                        integer_value = 0;
+                    }
 
-            append(instructions, branch);
+                    condition_register = append_constant(context, instructions, context->default_integer_size, integer_value);
+                } break;
+
+                case ExpressionValueCategory::Register: {
+                    condition_register = condition.register_;
+                } break;
+
+                case ExpressionValueCategory::Address: {
+                    condition_register = append_load_integer(context, instructions, context->default_integer_size, condition.address);
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+
+            append_branch(context, instructions, condition_register, instructions->count + 2);
 
             Instruction jump;
             jump.type = InstructionType::Jump;
@@ -5049,14 +5070,33 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 return false;
             }
 
-            auto condition_register = generate_boolean_register_value(context, instructions, condition);
+            size_t condition_register;
+            switch(condition.category) {
+                case ExpressionValueCategory::Constant: {
+                    uint64_t integer_value;
+                    if(condition.constant.boolean) {
+                        integer_value = 1;
+                    } else {
+                        integer_value = 0;
+                    }
 
-            Instruction branch;
-            branch.type = InstructionType::Branch;
-            branch.branch.condition_register = condition_register;
-            branch.branch.destination_instruction = instructions->count + 2;
+                    condition_register = append_constant(context, instructions, context->default_integer_size, integer_value);
+                } break;
 
-            append(instructions, branch);
+                case ExpressionValueCategory::Register: {
+                    condition_register = condition.register_;
+                } break;
+
+                case ExpressionValueCategory::Address: {
+                    condition_register = append_load_integer(context, instructions, context->default_integer_size, condition.address);
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+
+            append_branch(context, instructions, condition_register, instructions->count + 2);
 
             Instruction jump_out;
             jump_out.type = InstructionType::Jump;
@@ -5073,11 +5113,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             context->variable_context_stack.count -= 1;
 
-            Instruction jump_loop;
-            jump_loop.type = InstructionType::Jump;
-            jump_loop.jump.destination_instruction = condition_index;
-
-            append(instructions, jump_loop);
+            append_jump(context, instructions, condition_index);
 
             (*instructions)[jump_out_index].jump.destination_instruction = instructions->count;
 
