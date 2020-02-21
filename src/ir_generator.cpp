@@ -2770,6 +2770,24 @@ static size_t append_constant(GenerationContext *context, List<Instruction> *ins
     return destination_register;
 }
 
+static size_t append_integer_upcast(GenerationContext *context, List<Instruction> *instructions, bool is_signed, RegisterSize source_size, RegisterSize destination_size, size_t source_register) {
+    auto destination_register = allocate_register(context);
+
+    Instruction integer_upcast;
+    integer_upcast.type = InstructionType::IntegerUpcast;
+    integer_upcast.integer_upcast = {
+        is_signed,
+        source_size,
+        source_register,
+        destination_size,
+        destination_register
+    };
+
+    append(instructions, integer_upcast);
+
+    return destination_register;
+}
+
 static size_t append_reference_static(GenerationContext *context, List<Instruction> *instructions, const char *name) {
     auto destination_register = allocate_register(context);
 
@@ -4725,128 +4743,145 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
             expect(type, evaluate_type_expression(context, *expression.cast.type));
 
-            switch(expression_value.category) {
-                case ExpressionValueCategory::Constant: {
-                    expect(constant, evaluate_constant_conversion(
-                        *context,
-                        expression_value.constant,
-                        expression_value.type,
-                        expression.cast.expression->range,
-                        type,
-                        expression.cast.type->range
-                    ));
+            if(expression_value.category == ExpressionValueCategory::Constant) {
+                expect(constant, evaluate_constant_conversion(
+                    *context,
+                    expression_value.constant,
+                    expression_value.type,
+                    expression.cast.expression->range,
+                    type,
+                    expression.cast.type->range
+                ));
 
-                    ExpressionValue value;
-                    value.category = ExpressionValueCategory::Constant;
-                    value.type = type;
-                    value.constant = constant;
+                ExpressionValue value;
+                value.category = ExpressionValueCategory::Constant;
+                value.type = type;
+                value.constant = constant;
 
-                    return {
-                        true,
-                        value
-                    };
-                } break;
+                return {
+                    true,
+                    value
+                };
+            }
 
-                case ExpressionValueCategory::Register:
-                case ExpressionValueCategory::Address: {
-                    size_t result_register_index;
-                    switch(expression_value.type.category) {
+            size_t result_register;
+            switch(expression_value.type.category) {
+                case TypeCategory::Integer: {
+                    switch(type.category) {
                         case TypeCategory::Integer: {
-                            switch(type.category) {
-                                case TypeCategory::Integer: {
-                                    if(expression_value.type.integer.is_undetermined) {
-                                        result_register_index = generate_integer_register_value(context, instructions, type.integer.size, expression_value);
-                                    } else if(type.integer.size > expression_value.type.integer.size) {
-                                        auto register_index = generate_integer_register_value(context, instructions, expression_value);
-
-                                        result_register_index = allocate_register(context);
-
-                                        Instruction integer_upcast;
-                                        integer_upcast.type = InstructionType::IntegerUpcast;
-                                        integer_upcast.integer_upcast.is_signed = expression_value.type.integer.is_signed;
-                                        integer_upcast.integer_upcast.source_size = expression_value.type.integer.size;
-                                        integer_upcast.integer_upcast.source_register = register_index;
-                                        integer_upcast.integer_upcast.destination_size = type.integer.size;
-                                        integer_upcast.integer_upcast.destination_register = result_register_index;
-
-                                        append(instructions, integer_upcast);
-                                    } else {
-                                        result_register_index = generate_integer_register_value(context, instructions, expression_value);
-                                    }
+                            size_t value_register;
+                            switch(expression_value.category) {
+                                case ExpressionValueCategory::Register: {
+                                    value_register = expression_value.register_;
                                 } break;
 
-                                case TypeCategory::Pointer: {
-                                    if(expression_value.type.integer.is_undetermined) {
-                                        result_register_index = generate_integer_register_value(context, instructions, context->address_integer_size, expression_value);
-                                    } else {
-                                        auto register_index = generate_integer_register_value(context, instructions, expression_value);
-
-                                        if(expression_value.type.integer.size != context->address_integer_size) {
-                                            error(expression.cast.expression->range, "Cannot cast from %s to pointer", type_description(expression_value.type));
-
-                                            return { false };
-                                        }
-
-                                        result_register_index = register_index;
-                                    }
+                                case ExpressionValueCategory::Address: {
+                                    value_register = append_load_integer(context, instructions, expression_value.type.integer.size, expression_value.address);
                                 } break;
 
                                 default: {
-                                    error(expression.cast.type->range, "Cannot cast from integer to %s", type_description(type));
-
-                                    return { false };
+                                    abort();
                                 } break;
                             }
+
+                            result_register = append_integer_upcast(
+                                context,
+                                instructions,
+                                expression_value.type.integer.is_signed,
+                                expression_value.type.integer.size,
+                                type.integer.size,
+                                value_register
+                            );
                         } break;
 
                         case TypeCategory::Pointer: {
-                            auto register_index = generate_pointer_register_value(context, instructions, expression_value);
+                            if(expression_value.type.integer.size != context->address_integer_size) {
+                                error(expression.cast.expression->range, "Cannot cast from %s to pointer", type_description(expression_value.type));
 
-                            switch(type.category) {
-                                case TypeCategory::Integer: {
-                                    if(type.integer.size != context->address_integer_size) {
-                                        error(expression.cast.expression->range, "Cannot cast from pointer to %s", type_description(type));
+                                return { false };
+                            }
 
-                                        return { false };
-                                    }
-
-                                    result_register_index = register_index;
+                            size_t value_register;
+                            switch(expression_value.category) {
+                                case ExpressionValueCategory::Register: {
+                                    value_register = expression_value.register_;
                                 } break;
 
-                                case TypeCategory::Pointer: {
-                                    result_register_index = register_index;
+                                case ExpressionValueCategory::Address: {
+                                    value_register = append_load_integer(context, instructions, context->address_integer_size, expression_value.address);
                                 } break;
 
                                 default: {
-                                    error(expression.cast.type->range, "Cannot cast from pointer to %s", type_description(type));
-
-                                    return { false };
+                                    abort();
                                 } break;
                             }
+
+                            result_register = value_register;
                         } break;
 
                         default: {
-                            error(expression.cast.expression->range, "Cannot cast from %s", type_description(expression_value.type));
+                            error(expression.cast.type->range, "Cannot cast from integer to %s", type_description(type));
 
                             return { false };
                         } break;
                     }
+                } break;
 
-                    ExpressionValue value;
-                    value.category = ExpressionValueCategory::Register;
-                    value.type = type;
-                    value.register_ = result_register_index;
+                case TypeCategory::Pointer: {
+                    size_t value_register;
+                    switch(expression_value.category) {
+                        case ExpressionValueCategory::Register: {
+                            value_register = expression_value.register_;
+                        } break;
 
-                    return {
-                        true,
-                        value
-                    };
+                        case ExpressionValueCategory::Address: {
+                            value_register = append_load_integer(context, instructions, context->address_integer_size, expression_value.address);
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+
+                    switch(type.category) {
+                        case TypeCategory::Integer: {
+                            if(type.integer.size != context->address_integer_size) {
+                                error(expression.cast.expression->range, "Cannot cast from pointer to %s", type_description(type));
+
+                                return { false };
+                            }
+
+                            result_register = value_register;
+                        } break;
+
+                        case TypeCategory::Pointer: {
+                            result_register = value_register;
+                        } break;
+
+                        default: {
+                            error(expression.cast.type->range, "Cannot cast from pointer to %s", type_description(type));
+
+                            return { false };
+                        } break;
+                    }
                 } break;
 
                 default: {
-                    abort();
+                    error(expression.cast.expression->range, "Cannot cast from %s", type_description(expression_value.type));
+
+                    return { false };
                 } break;
             }
+
+            ExpressionValue value;
+            value.category = ExpressionValueCategory::Register;
+            value.type = type;
+            value.register_ = result_register;
+
+            return {
+                true,
+                value
+            };
         } break;
 
         case ExpressionType::FunctionType: {
