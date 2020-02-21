@@ -2794,6 +2794,56 @@ static size_t generate_boolean_invert(GenerationContext *context, List<Instructi
     return result_register;
 }
 
+static size_t append_arithmetic_operation(GenerationContext *context, List<Instruction> *instructions, ArithmeticOperationType type, RegisterSize size, size_t source_register_a, size_t source_register_b) {
+    auto destination_register = allocate_register(context);
+
+    Instruction arithmetic_operation;
+    arithmetic_operation.type = InstructionType::ArithmeticOperation;
+    arithmetic_operation.arithmetic_operation = {
+        type,
+        size,
+        source_register_a,
+        source_register_b,
+        destination_register
+    };
+
+    append(instructions, arithmetic_operation);
+
+    return destination_register;
+}
+
+static size_t append_constant(GenerationContext *context, List<Instruction> *instructions, RegisterSize size, uint64_t value) {
+    auto destination_register = allocate_register(context);
+
+    Instruction constant;
+    constant.type = InstructionType::Constant;
+    constant.constant = {
+        size,
+        destination_register,
+        value
+    };
+
+    append(instructions, constant);
+
+    return destination_register;
+}
+
+static size_t append_load_integer(GenerationContext *context, List<Instruction> *instructions, RegisterSize size, size_t address_register) {
+    auto destination_register = allocate_register(context);
+
+    Instruction load_integer;
+    load_integer.type = InstructionType::LoadInteger;
+    load_integer.load_integer = {
+        size,
+        address_register,
+        destination_register
+    };
+
+    append(instructions, load_integer);
+
+    return destination_register;
+}
+
 static Result<ExpressionValue> generate_expression(GenerationContext *context, List<Instruction> *instructions, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
@@ -3110,302 +3160,116 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
         case ExpressionType::MemberReference: {
             expect(expression_value, generate_expression(context, instructions, *expression.member_reference.expression));
 
-            switch(expression_value.type.category) {
-                case TypeCategory::Pointer: {
-                    size_t register_index;
-                    switch(expression_value.category) {
-                        case ExpressionValueCategory::Constant: {
-                            register_index = allocate_register(context);
+            ExpressionValue actual_expression_value;
+            if(expression_value.type.category == TypeCategory::Pointer) {
+                size_t address_register;
+                switch(expression_value.category) {
+                    case ExpressionValueCategory::Constant: {
+                        address_register = append_constant(
+                            context,
+                            instructions,
+                            context->address_integer_size,
+                            expression_value.constant.pointer
+                        );
+                    } break;
 
-                            Instruction constant;
-                            constant.type = InstructionType::Constant;
-                            constant.constant.size = context->address_integer_size;
-                            constant.constant.destination_register = register_index;
-                            constant.constant.value = expression_value.constant.pointer;
+                    case ExpressionValueCategory::Register: {
+                        address_register = expression_value.register_;
+                    } break;
 
-                            append(instructions, constant);
-                        } break;
+                    case ExpressionValueCategory::Address: {
+                        address_register = append_load_integer(
+                            context,
+                            instructions,
+                            context->address_integer_size,
+                            expression_value.address
+                        );
+                    } break;
 
-                        case ExpressionValueCategory::Register: {
-                            register_index = expression_value.register_;
-                        } break;
+                    default: {
+                        abort();
+                    } break;
+                }
 
-                        case ExpressionValueCategory::Address: {
-                            register_index = allocate_register(context);
+                actual_expression_value.category = ExpressionValueCategory::Address;
+                actual_expression_value.type = *expression_value.type.pointer;
+                actual_expression_value.address = address_register;
+            } else {
+                actual_expression_value = expression_value;
+            }
 
-                            Instruction load;
-                            load.type = InstructionType::LoadInteger;
-                            load.load_integer.size = context->address_integer_size;
-                            load.load_integer.address_register = expression_value.address;
-                            load.load_integer.destination_register = register_index;
-
-                            append(instructions, load);
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-
-                    switch(expression_value.type.pointer->category) {
-                        case TypeCategory::Array: {
-                            if(strcmp(expression.member_reference.name.text, "length") == 0) {
-                                auto offset_register = allocate_register(context);
-
-                                Instruction constant;
-                                constant.type = InstructionType::Constant;
-                                constant.constant.size = context->address_integer_size;
-                                constant.constant.destination_register = offset_register;
-                                constant.constant.value = register_size_to_byte_size(context->address_integer_size);
-
-                                append(instructions, constant);
-
-                                auto address_register = allocate_register(context);
-
-                                Instruction add;
-                                add.type = InstructionType::ArithmeticOperation;
-                                add.arithmetic_operation.type = ArithmeticOperationType::Add;
-                                add.arithmetic_operation.size = context->address_integer_size;
-                                add.arithmetic_operation.source_register_a = register_index;
-                                add.arithmetic_operation.source_register_b = offset_register;
-                                add.arithmetic_operation.destination_register = address_register;
-
-                                append(instructions, add);
-
-                                ExpressionValue value;
-                                value.category = ExpressionValueCategory::Address;
-                                value.type.category = TypeCategory::Integer;
-                                value.type.integer = {
-                                    context->address_integer_size,
-                                    false
-                                };
-                                value.address = address_register;
-
-                                return {
-                                    true,
-                                    value
-                                };
-                            } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
-                                ExpressionValue value;
-                                value.category = ExpressionValueCategory::Address;
-                                value.type.category = TypeCategory::Pointer;
-                                value.type.pointer = expression_value.type.pointer->array;
-                                value.register_ = register_index;
-
-                                return {
-                                    true,
-                                    value
-                                };
-                            } else {
-                                error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
-
-                                return { false };
-                            }
-                        } break;
-
-                        case TypeCategory::StaticArray: {
-                            if(strcmp(expression.member_reference.name.text, "length") == 0) {
-                                ExpressionValue value;
-                                value.category = ExpressionValueCategory::Constant;
-                                value.type.category = TypeCategory::Integer;
-                                value.type.integer = {
-                                    context->address_integer_size,
-                                    false
-                                };
-                                value.constant.integer = expression_value.type.pointer->static_array.length;
-
-                                return {
-                                    true,
-                                    value
-                                };
-                            } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
-                                ExpressionValue value;
-                                value.category = ExpressionValueCategory::Address;
-                                value.type.category = TypeCategory::Pointer;
-                                value.type.pointer = expression_value.type.pointer->static_array.type;
-                                value.address = register_index;
-
-                                return {
-                                    true,
-                                    value
-                                };
-                            } else {
-                                error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
-
-                                return { false };
-                            }
-                        } break;
-
-                        case TypeCategory::Struct: {
-                            auto struct_type = retrieve_struct_type(*context, expression_value.type.pointer->_struct);
-
-                            for(size_t i = 0; i < struct_type.members.count; i += 1) {
-                                if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
-                                    auto offset = get_struct_member_offset(*context, struct_type, i);
-
-                                    auto offset_register = allocate_register(context);
-
-                                    Instruction constant;
-                                    constant.type = InstructionType::Constant;
-                                    constant.constant.size = context->address_integer_size;
-                                    constant.constant.destination_register = offset_register;
-                                    constant.constant.value = offset;
-
-                                    append(instructions, constant);
-
-                                    auto address_register = allocate_register(context);
-
-                                    Instruction add;
-                                    add.type = InstructionType::ArithmeticOperation;
-                                    add.arithmetic_operation.type = ArithmeticOperationType::Add;
-                                    add.arithmetic_operation.size = context->address_integer_size;
-                                    add.arithmetic_operation.source_register_a = register_index;
-                                    add.arithmetic_operation.source_register_b = offset_register;
-                                    add.arithmetic_operation.destination_register = address_register;
-
-                                    append(instructions, add);
-
-                                    ExpressionValue value;
-                                    value.category = ExpressionValueCategory::Address;
-                                    value.type = struct_type.members[i].type;
-                                    value.address = address_register;
-
-                                    return {
-                                        true,
-                                        value
-                                    };
-                                }
-                            }
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-                } break;
-
+            switch(actual_expression_value.type.category) {
                 case TypeCategory::Array: {
                     if(strcmp(expression.member_reference.name.text, "length") == 0) {
-                        switch(expression_value.category) {
-                            case ExpressionValueCategory::Constant: {
-                                ExpressionValue value;
-                                value.category = ExpressionValueCategory::Constant;
-                                value.type.category = TypeCategory::Integer;
-                                value.type.integer = {
-                                    context->address_integer_size,
-                                    false
-                                };
-                                value.constant.integer = expression_value.constant.array.length;
+                        ExpressionValue value;
+                        value.category = actual_expression_value.category;
+                        value.type.category = TypeCategory::Integer;
+                        value.type.integer = {
+                            context->address_integer_size,
+                            false,
+                            false
+                        };
 
-                                return {
-                                    true,
-                                    value
-                                };
-                            } break;
-
+                        size_t address_register;
+                        switch(actual_expression_value.category) {
                             case ExpressionValueCategory::Register: {
-                                auto offset_register = allocate_register(context);
-
-                                Instruction constant;
-                                constant.type = InstructionType::Constant;
-                                constant.constant.size = context->address_integer_size;
-                                constant.constant.destination_register = offset_register;
-                                constant.constant.value = register_size_to_byte_size(context->address_integer_size);
-
-                                append(instructions, constant);
-
-                                auto address_register = allocate_register(context);
-
-                                Instruction add;
-                                add.type = InstructionType::ArithmeticOperation;
-                                add.arithmetic_operation.type = ArithmeticOperationType::Add;
-                                add.arithmetic_operation.size = context->address_integer_size;
-                                add.arithmetic_operation.source_register_a = expression_value.register_;
-                                add.arithmetic_operation.source_register_b = offset_register;
-                                add.arithmetic_operation.destination_register = address_register;
-
-                                append(instructions, add);
-
-                                auto value_register = allocate_register(context);
-
-                                Instruction load;
-                                load.type = InstructionType::LoadInteger;
-                                load.load_integer.size = context->address_integer_size;
-                                load.load_integer.address_register = address_register;
-                                load.load_integer.destination_register = value_register;
-
-                                append(instructions, load);
-
-                                ExpressionValue value;
-                                value.category = ExpressionValueCategory::Register;
-                                value.type.category = TypeCategory::Integer;
-                                value.type.integer = {
-                                    context->address_integer_size,
-                                    false
-                                };
-                                value.register_ = value_register;
-
-                                return {
-                                    true,
-                                    value
-                                };
+                                address_register = actual_expression_value.register_;
                             } break;
 
                             case ExpressionValueCategory::Address: {
-                                auto offset_register = allocate_register(context);
+                                address_register = actual_expression_value.address;
+                            } break;
+                        }
 
-                                Instruction constant;
-                                constant.type = InstructionType::Constant;
-                                constant.constant.size = context->address_integer_size;
-                                constant.constant.destination_register = offset_register;
-                                constant.constant.value = register_size_to_byte_size(context->address_integer_size);
+                        auto offset_register = append_constant(
+                            context,
+                            instructions,
+                            context->address_integer_size,
+                            register_size_to_byte_size(context->address_integer_size)
+                        );
 
-                                append(instructions, constant);
+                        auto final_address_register = append_arithmetic_operation(
+                            context,
+                            instructions,
+                            ArithmeticOperationType::Add,
+                            context->address_integer_size,
+                            address_register,
+                            offset_register
+                        );
 
-                                auto address_register = allocate_register(context);
+                        switch(actual_expression_value.category) {
+                            case ExpressionValueCategory::Constant: {
+                                value.constant.integer = actual_expression_value.constant.array.length;
+                            } break;
 
-                                Instruction add;
-                                add.type = InstructionType::ArithmeticOperation;
-                                add.arithmetic_operation.type = ArithmeticOperationType::Add;
-                                add.arithmetic_operation.size = context->address_integer_size;
-                                add.arithmetic_operation.source_register_a = expression_value.address;
-                                add.arithmetic_operation.source_register_b = offset_register;
-                                add.arithmetic_operation.destination_register = address_register;
+                            case ExpressionValueCategory::Register: {
+                                auto value_register = append_load_integer(context, instructions, context->address_integer_size, final_address_register);
 
-                                append(instructions, add);
+                                value.register_ = value_register;
+                            } break;
 
-                                ExpressionValue value;
-                                value.category = ExpressionValueCategory::Address;
-                                value.type.category = TypeCategory::Integer;
-                                value.type.integer = {
-                                    context->address_integer_size,
-                                    false
-                                };
+                            case ExpressionValueCategory::Address: {
                                 value.address = address_register;
-
-                                return {
-                                    true,
-                                    value
-                                };
                             } break;
 
                             default: {
                                 abort();
                             } break;
                         }
-                    } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
-                        switch(expression_value.category) {
-                            case ExpressionValueCategory::Constant: {
-                                ExpressionValue value;
-                                value.category = ExpressionValueCategory::Constant;
-                                value.type.category = TypeCategory::Pointer;
-                                value.type.pointer = expression_value.type.array;
-                                value.constant.pointer = expression_value.constant.array.pointer;
 
-                                return {
-                                    true,
-                                    value
-                                };
+                        return {
+                            true,
+                            value
+                        };
+                    } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
+                        ExpressionValue value;
+                        value.category = actual_expression_value.category;
+                        value.type.category = TypeCategory::Pointer;
+                        value.type.pointer = actual_expression_value.type.array;
+
+                        switch(actual_expression_value.category) {
+                            case ExpressionValueCategory::Constant: {
+                                value.constant.pointer = actual_expression_value.constant.array.pointer;
                             } break;
 
                             case ExpressionValueCategory::Register: {
@@ -3414,40 +3278,27 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 Instruction load;
                                 load.type = InstructionType::LoadInteger;
                                 load.load_integer.size = context->address_integer_size;
-                                load.load_integer.address_register = expression_value.register_;
+                                load.load_integer.address_register = actual_expression_value.register_;
                                 load.load_integer.destination_register = value_register;
 
                                 append(instructions, load);
 
-                                ExpressionValue value;
-                                value.category = ExpressionValueCategory::Register;
-                                value.type.category = TypeCategory::Pointer;
-                                value.type.pointer = expression_value.type.array;
                                 value.register_ = value_register;
-
-                                return {
-                                    true,
-                                    value
-                                };
                             } break;
 
                             case ExpressionValueCategory::Address: {
-                                ExpressionValue value;
-                                value.category = ExpressionValueCategory::Address;
-                                value.type.category = TypeCategory::Pointer;
-                                value.type.pointer = expression_value.type.array;
-                                value.register_ = expression_value.address;
-
-                                return {
-                                    true,
-                                    value
-                                };
+                                value.register_ = actual_expression_value.address;
                             } break;
 
                             default: {
                                 abort();
                             } break;
                         }
+
+                        return {
+                            true,
+                            value
+                        };
                     } else {
                         error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
 
@@ -3464,7 +3315,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                             context->address_integer_size,
                             false
                         };
-                        value.constant.integer = expression_value.type.static_array.length;
+                        value.constant.integer = actual_expression_value.type.static_array.length;
 
                         return {
                             true,
@@ -3474,16 +3325,16 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         ExpressionValue value;
                         value.category = ExpressionValueCategory::Register;
                         value.type.category = TypeCategory::Pointer;
-                        value.type.pointer = expression_value.type.static_array.type;
+                        value.type.pointer = actual_expression_value.type.static_array.type;
 
-                        switch(expression_value.category) {
+                        switch(actual_expression_value.category) {
                             case ExpressionValueCategory::Constant: {
                                 auto constant_name = register_static_array_constant(
                                     context,
-                                    *expression_value.type.static_array.type,
+                                    *actual_expression_value.type.static_array.type,
                                     {
-                                        expression_value.type.static_array.length,
-                                        expression_value.constant.static_array
+                                        actual_expression_value.type.static_array.length,
+                                        actual_expression_value.constant.static_array
                                     }
                                 );
 
@@ -3500,11 +3351,11 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                             } break;
 
                             case ExpressionValueCategory::Register: {
-                                value.register_ = expression_value.register_;
+                                value.register_ = actual_expression_value.register_;
                             } break;
 
                             case ExpressionValueCategory::Address: {
-                                value.register_ = expression_value.address;
+                                value.register_ = actual_expression_value.address;
                             } break;
 
                             default: {
@@ -3524,16 +3375,16 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 } break;
 
                 case TypeCategory::Struct: {
-                    auto struct_type = retrieve_struct_type(*context, expression_value.type._struct);
+                    auto struct_type = retrieve_struct_type(*context, actual_expression_value.type._struct);
 
-                    switch(expression_value.category) {
+                    switch(actual_expression_value.category) {
                         case ExpressionValueCategory::Constant: {
                             for(size_t i = 0; i < struct_type.members.count; i += 1) {
                                 if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
                                     ExpressionValue value;
                                     value.category = ExpressionValueCategory::Constant;
                                     value.type = struct_type.members[i].type;
-                                    value.constant = expression_value.constant.struct_[i];
+                                    value.constant = actual_expression_value.constant.struct_[i];
 
                                     return {
                                         true,
@@ -3564,7 +3415,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                     add.type = InstructionType::ArithmeticOperation;
                                     add.arithmetic_operation.type = ArithmeticOperationType::Add;
                                     add.arithmetic_operation.size = context->address_integer_size;
-                                    add.arithmetic_operation.source_register_a = expression_value.register_;
+                                    add.arithmetic_operation.source_register_a = actual_expression_value.register_;
                                     add.arithmetic_operation.source_register_b = offset_register;
                                     add.arithmetic_operation.destination_register = address_register;
 
@@ -3657,7 +3508,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                     add.type = InstructionType::ArithmeticOperation;
                                     add.arithmetic_operation.type = ArithmeticOperationType::Add;
                                     add.arithmetic_operation.size = context->address_integer_size;
-                                    add.arithmetic_operation.source_register_a = expression_value.address;
+                                    add.arithmetic_operation.source_register_a = actual_expression_value.address;
                                     add.arithmetic_operation.source_register_b = offset_register;
                                     add.arithmetic_operation.destination_register = address_register;
 
@@ -3691,16 +3542,16 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 } break;
 
                 case TypeCategory::FileModule: {
-                    assert(expression_value.category == ExpressionValueCategory::Constant);
+                    assert(actual_expression_value.category == ExpressionValueCategory::Constant);
 
-                    for(auto statement : expression_value.constant.file_module) {
+                    for(auto statement : actual_expression_value.constant.file_module) {
                         if(match_declaration(statement, expression.member_reference.name.text)) {
                             auto old_is_top_level = context->is_top_level;
                             auto old_determined_declaration = context->determined_declaration;
                             auto old_top_level_statements = context->top_level_statements;
 
                             context->is_top_level = true;
-                            context->top_level_statements = expression_value.constant.file_module;
+                            context->top_level_statements = actual_expression_value.constant.file_module;
 
                             expect(constant_value, resolve_declaration(context, statement));
 
@@ -3726,7 +3577,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 } break;
 
                 default: {
-                    error(expression.member_reference.expression->range, "Type %s has no members", type_description(expression_value.type));
+                    error(expression.member_reference.expression->range, "Type %s has no members", type_description(actual_expression_value.type));
 
                     return { false };
                 } break;
