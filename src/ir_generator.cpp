@@ -3568,69 +3568,43 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
 
             auto all_constant = first_element_value.category == ExpressionValueCategory::Constant;
             auto element_type = first_element_value.type;
-            switch(first_element_value.type.category) {
-                case TypeCategory::Integer: {
-                    for(size_t i = 1; i < expression.array_literal.count; i += 1) {
-                        expect(element_value, generate_expression(context, instructions, expression.array_literal[i]));
+            for(size_t i = 1; i < expression.array_literal.count; i += 1) {
+                expect(element_value, generate_expression(context, instructions, expression.array_literal[i]));
 
-                        if(element_value.category != ExpressionValueCategory::Constant) {
-                            all_constant = false;
-                        }
+                if(element_value.category != ExpressionValueCategory::Constant) {
+                    all_constant = false;
+                }
 
-                        if(element_value.type.category != TypeCategory::Integer) {
-                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
+                if(element_type.category == TypeCategory::Integer && element_type.integer.is_undetermined) {
+                    if(element_value.type.category != TypeCategory::Integer) {
+                        error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
 
-                            return { false };
-                        }
-
-                        if(element_type.integer.is_undetermined) {
-                            if(!element_value.type.integer.is_undetermined) {
-                                element_type = element_value.type;
-                            }
-                        } else if(element_value.type.integer.size != element_type.integer.size || element_value.type.integer.is_signed != element_type.integer.is_signed) {
-                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
-
-                            return { false };
-                        }
-
-                        element_values[i] = element_value;
+                        return { false };
                     }
 
-                    if(element_type.integer.is_undetermined) {
-                        element_type.integer.size = context->default_integer_size;
-                        element_type.integer.is_signed = true;
-                        element_type.integer.is_undetermined = false;
+                    if(!element_value.type.integer.is_undetermined) {
+                        element_type = element_value.type;
                     }
-                } break;
-
-                case TypeCategory::Boolean:
-                case TypeCategory::Pointer: {
-                    for(size_t i = 0; i < expression.array_literal.count; i += 1) {
-                        expect(element_value, generate_expression(context, instructions, expression.array_literal[i]));
-
-                        if(element_value.category != ExpressionValueCategory::Constant) {
-                            all_constant = false;
-                        }
-
-                        if(!types_equal(element_type, element_value.type)) {
-                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
-
-                            return { false };
-                        }
-
-                        element_values[i] = element_value;
-                    }
-                } break;
-
-                default: {
-                    error(expression.range, "Cannot have arrays of type %s", type_description(first_element_value.type));
+                } else if(!types_equal(element_value.type, element_type)) {
+                    error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
 
                     return { false };
-                } break;
+                }
+
+                element_values[i] = element_value;
+            }
+
+            if(element_type.category == TypeCategory::Integer && element_type.integer.is_undetermined) {
+                element_type.integer = {
+                    context->default_integer_size,
+                    true,
+                    false
+                };
             }
 
             if(all_constant) {
                 auto elements = allocate<ConstantValue>(expression.array_literal.count);
+
                 for(size_t i = 0; i < expression.array_literal.count; i += 1) {
                     elements[i] = element_values[i].constant;
                 }
@@ -3649,44 +3623,69 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     value
                 };
             } else {
-                auto base_address_register = allocate_register(context);
+                auto element_size = get_type_size(*context, element_type);
 
-                Instruction allocate;
-                allocate.type = InstructionType::AllocateLocal;
-                allocate.allocate_local.size = get_type_size(*context, element_type) * expression.array_literal.count;
-                allocate.allocate_local.alignment = get_type_alignment(*context, element_type);
-                allocate.allocate_local.destination_register = base_address_register;
+                auto base_address_register = append_allocate_local(
+                    context,
+                    instructions,
+                    element_size * expression.array_literal.count,
+                    get_type_alignment(*context, element_type)
+                );
 
-                append(instructions, allocate);
-
-                auto element_size_register = allocate_register(context);
-
-                Instruction constant;
-                constant.type = InstructionType::Constant;
-                constant.constant.size = context->address_integer_size;
-                constant.constant.destination_register = element_size_register;
-                constant.constant.value = get_type_size(*context, element_type);
-
-                append(instructions, constant);
+                auto element_size_register = append_constant(context, instructions, context->address_integer_size, element_size);
 
                 auto address_register = base_address_register;
                 for(size_t i = 0; i < expression.array_literal.count; i += 1) {
                     size_t value_register;
                     RegisterSize value_size;
-                    switch(element_type.category) {
-                        case TypeCategory::Integer: {
-                            value_register = generate_integer_register_value(context, instructions, element_values[i]);
-                            value_size = element_type.integer.size;
+                    switch(element_values[i].category) {
+                        case ExpressionValueCategory::Constant: {
+                            switch(element_type.category) {
+                                case TypeCategory::Integer: {
+                                    value_register = append_constant(context, instructions, element_type.integer.size, element_values[i].constant.integer);
+                                } break;
+
+                                case TypeCategory::Boolean: {
+                                    uint64_t integer_value;
+                                    if(element_values[i].constant.boolean) {
+                                        integer_value = 1;
+                                    } else {
+                                        integer_value = 0;
+                                    }
+
+                                    value_register = append_constant(context, instructions, context->default_integer_size, integer_value);
+                                } break;
+
+                                case TypeCategory::Pointer: {
+                                    value_register = append_constant(context, instructions, context->address_integer_size, element_values[i].constant.pointer);
+                                } break;
+
+                                default: {
+                                    abort();
+                                } break;
+                            }
                         } break;
 
-                        case TypeCategory::Boolean: {
-                            value_register = generate_boolean_register_value(context, instructions, element_values[i]);
-                            value_size = context->default_integer_size;
+                        case ExpressionValueCategory::Register: {
+                            auto representation = get_type_representation(*context, element_type);
+
+                            if(representation.is_in_register) {
+                                value_register = element_values[i].register_;
+                                value_size = representation.value_size;
+                            } else {
+                                abort();
+                            }
                         } break;
 
-                        case TypeCategory::Pointer: {
-                            value_register = generate_pointer_register_value(context, instructions, element_values[i]);
-                            value_size = context->address_integer_size;
+                        case ExpressionValueCategory::Address: {
+                            auto representation = get_type_representation(*context, element_type);
+
+                            if(representation.is_in_register) {
+                                value_register = append_load_integer(context, instructions, representation.value_size, element_values[i].address);
+                                value_size = representation.value_size;
+                            } else {
+                                abort();
+                            }
                         } break;
 
                         default: {
@@ -3694,26 +3693,17 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                         } break;
                     }
 
-                    Instruction store;
-                    store.type = InstructionType::StoreInteger;
-                    store.store_integer.size = value_size;
-                    store.store_integer.source_register = value_register;
-                    store.store_integer.address_register = address_register;
-
-                    append(instructions, store);
+                    append_store_integer(context, instructions, value_size, value_register, address_register);
 
                     if(i != expression.array_literal.count - 1) {
-                        auto new_address_register = allocate_register(context);
-
-                        Instruction add;
-                        add.type = InstructionType::ArithmeticOperation;
-                        add.arithmetic_operation.type = ArithmeticOperationType::Add;
-                        add.arithmetic_operation.size = context->address_integer_size;
-                        add.arithmetic_operation.source_register_a = address_register;
-                        add.arithmetic_operation.source_register_b = element_size_register;
-                        add.arithmetic_operation.destination_register = new_address_register;
-
-                        append(instructions, add);
+                        auto new_address_register = append_arithmetic_operation(
+                            context,
+                            instructions,
+                            ArithmeticOperationType::Add,
+                            context->address_integer_size,
+                            address_register,
+                            element_size_register
+                        );
 
                         address_register = new_address_register;
                     }
@@ -3726,7 +3716,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                     expression.array_literal.count,
                     heapify(element_type)
                 };
-                value.register_ = address_register;
+                value.register_ = base_address_register;
 
                 return {
                     true,
