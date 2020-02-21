@@ -3042,8 +3042,17 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 };
             }
 
-            if(index.type.category != TypeCategory::Integer) {
-                error(expression.index_reference.index->range, "Expected an integer, got %s", type_description(index.type));
+            if(
+                index.type.category != TypeCategory::Integer ||
+                (
+                    !index.type.integer.is_undetermined &&
+                    (
+                        index.type.integer.size != context->address_integer_size ||
+                        index.type.integer.is_signed
+                    )
+                )
+            ) {
+                error(expression.index_reference.index->range, "Expected usize, got %s", type_description(index.type));
 
                 return { false };
             }
@@ -3051,20 +3060,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             size_t index_register;
             switch(index.category) {
                 case ExpressionValueCategory::Constant: {
-                    index_register = allocate_register(context);
-
-                    Instruction constant;
-                    constant.type = InstructionType::Constant;
-                    constant.constant.destination_register = index_register;
-                    constant.constant.value = index.constant.integer;
-
-                    if(index.type.integer.is_undetermined) {
-                        constant.constant.size = context->default_integer_size;
-                    } else {
-                        constant.constant.size = index.type.integer.size;
-                    }
-
-                    append(instructions, constant);
+                    index_register = append_constant(context, instructions, context->address_integer_size, index.constant.integer);
                 } break;
 
                 case ExpressionValueCategory::Register: {
@@ -3072,15 +3068,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 } break;
 
                 case ExpressionValueCategory::Address: {
-                    index_register = allocate_register(context);
-
-                    Instruction load;
-                    load.type = InstructionType::LoadInteger;
-                    load.load_integer.size = index.type.integer.size;
-                    load.load_integer.address_register = index.address;
-                    load.load_integer.destination_register = index_register;
-
-                    append(instructions, load);
+                    index_register = append_load_integer(context, instructions, context->address_integer_size, index.address);
                 } break;
 
                 default: {
@@ -3095,24 +3083,17 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 case ExpressionValueCategory::Constant: {
                     switch(expression_value.type.category) {
                         case TypeCategory::Array: {
-                            base_address_register = allocate_register(context);
+                            base_address_register = append_constant(
+                                context,
+                                instructions,
+                                context->address_integer_size,
+                                expression_value.constant.array.pointer
+                            );
                             element_type = *expression_value.type.array;
                             assignable = true;
-
-                            Instruction constant;
-                            constant.type = InstructionType::Constant;
-                            constant.constant.size = context->address_integer_size;
-                            constant.constant.destination_register = base_address_register;
-                            constant.constant.value = expression_value.constant.array.pointer;
-
-                            append(instructions, constant);
                         } break;
 
                         case TypeCategory::StaticArray: {
-                            base_address_register = allocate_register(context);
-                            element_type = *expression_value.type.static_array.type;
-                            assignable = false;
-
                             auto constant_name = register_static_array_constant(
                                 context,
                                 *expression_value.type.static_array.type,
@@ -3122,12 +3103,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 }
                             );
 
-                            Instruction reference;
-                            reference.type = InstructionType::ReferenceStatic;
-                            reference.reference_static.name = constant_name;
-                            reference.reference_static.destination_register = base_address_register;
-
-                            append(instructions, reference);
+                            base_address_register = append_reference_static(context, instructions, constant_name);
+                            element_type = *expression_value.type.static_array.type;
+                            assignable = false;
                         } break;
 
                         default: {
@@ -3141,17 +3119,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 case ExpressionValueCategory::Register: {
                     switch(expression_value.type.category) {
                         case TypeCategory::Array: {
-                            base_address_register = allocate_register(context);
+                            base_address_register = append_load_integer(context, instructions, context->address_integer_size, expression_value.register_);
                             element_type = *expression_value.type.array;
                             assignable = true;
-
-                            Instruction load;
-                            load.type = InstructionType::LoadInteger;
-                            load.load_integer.size = context->address_integer_size;
-                            load.load_integer.address_register = expression_value.register_;
-                            load.load_integer.destination_register = base_address_register;
-
-                            append(instructions, load);
                         } break;
 
                         case TypeCategory::StaticArray: {
@@ -3171,17 +3141,9 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 case ExpressionValueCategory::Address: {
                     switch(expression_value.type.category) {
                         case TypeCategory::Array: {
-                            base_address_register = allocate_register(context);
+                            base_address_register = append_load_integer(context, instructions, context->address_integer_size, expression_value.address);
                             element_type = *expression_value.type.array;
                             assignable = true;
-
-                            Instruction load;
-                            load.type = InstructionType::LoadInteger;
-                            load.load_integer.size = context->address_integer_size;
-                            load.load_integer.address_register = expression_value.address;
-                            load.load_integer.destination_register = base_address_register;
-
-                            append(instructions, load);
                         } break;
 
                         case TypeCategory::StaticArray: {
@@ -3203,39 +3165,25 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 } break;
             }
 
-            auto element_size_register = allocate_register(context);
+            auto element_size_register = append_constant(context, instructions, context->address_integer_size, get_type_size(*context, element_type));
 
-            Instruction constant;
-            constant.type = InstructionType::Constant;
-            constant.constant.size = context->address_integer_size;
-            constant.constant.destination_register = element_size_register;
-            constant.constant.value = get_type_size(*context, element_type);
+            auto offset_register = append_arithmetic_operation(
+                context,
+                instructions,
+                ArithmeticOperationType::UnsignedMultiply,
+                context->address_integer_size,
+                index_register,
+                element_size_register
+            );
 
-            append(instructions, constant);
-
-            auto offset_register = allocate_register(context);
-
-            Instruction multiply;
-            multiply.type = InstructionType::ArithmeticOperation;
-            multiply.arithmetic_operation.type = ArithmeticOperationType::UnsignedMultiply;
-            multiply.arithmetic_operation.size = context->address_integer_size;
-            multiply.arithmetic_operation.source_register_a = element_size_register;
-            multiply.arithmetic_operation.source_register_b = index_register;
-            multiply.arithmetic_operation.destination_register = offset_register;
-
-            append(instructions, multiply);
-
-            auto final_address_register = allocate_register(context);
-
-            Instruction add;
-            add.type = InstructionType::ArithmeticOperation;
-            add.arithmetic_operation.type = ArithmeticOperationType::Add;
-            add.arithmetic_operation.size = context->address_integer_size;
-            add.arithmetic_operation.source_register_a = base_address_register;
-            add.arithmetic_operation.source_register_b = offset_register;
-            add.arithmetic_operation.destination_register = final_address_register;
-
-            append(instructions, add);
+            auto final_address_register = append_arithmetic_operation(
+                context,
+                instructions,
+                ArithmeticOperationType::Add,
+                context->address_integer_size,
+                base_address_register,
+                offset_register
+            );
 
             ExpressionValue value;
             value.type = element_type;
@@ -3244,34 +3192,14 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 value.category = ExpressionValueCategory::Address;
                 value.address = final_address_register;
             } else {
-                auto register_index = allocate_register(context);
+                auto representation = get_type_representation(*context, element_type);
 
-                RegisterSize size;
-                switch(element_type.category) {
-                    case TypeCategory::Integer: {
-                        size = element_type.integer.size;
-                    } break;
-
-                    case TypeCategory::Boolean: {
-                        size = context->default_integer_size;
-                    } break;
-
-                    case TypeCategory::Pointer: {
-                        size = context->address_integer_size;
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
+                size_t register_index;
+                if(representation.is_in_register) {
+                    register_index = append_load_integer(context, instructions, representation.value_size, final_address_register);
+                } else {
+                    register_index = final_address_register;
                 }
-
-                Instruction load;
-                load.type = InstructionType::LoadInteger;
-                load.load_integer.size = size;
-                load.load_integer.address_register = final_address_register;
-                load.load_integer.destination_register = register_index;
-
-                append(instructions, load);
 
                 value.category = ExpressionValueCategory::Register;
                 value.register_ = register_index;
@@ -5537,8 +5465,6 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
         base_boolean_type,
         boolean_false_value
     });
-
-    auto previous_resolved_declaration_count = 0;
 
     GenerationContext context {
         architecute_info.address_size,
