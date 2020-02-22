@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 #include "array.h"
-#include "architecture.h"
+#include "register_size.h"
 
 enum struct ArithmeticOperationType {
     Add,

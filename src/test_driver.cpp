@@ -18,9 +18,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-#if defined(PLATFORM_WINDOWS)
+#if defined(OS_WINDOWS)
     auto test_result = system("out.exe");
-#elif defined(PLATFORM_UNIX)
+#else
     auto test_result = system("./out");
 #endif
 

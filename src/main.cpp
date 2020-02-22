@@ -12,11 +12,18 @@
 
 int main(int argument_count, char *arguments[]) {
     const char *source_file_path = nullptr;
+    const char *output_file_path = nullptr;
 
-#if defined(PLATFORM_UNIX)
-    const char *output_file_path = "out";
-#elif defined(PLATFORM_WINDOWS)
-    const char *output_file_path = "out.exe";
+#if defined(ARCH_X64)
+    const char *architecture = "x64";
+#endif
+
+#if defined(OS_LINUX)
+    const char *os = "linux";
+#elif defined(OS_MACOS)
+    const char *os = "macos";
+#elif defined(OS_WINDOWS)
+    const char *os = "windows";
 #endif
 
     auto print_ast = false;
@@ -28,19 +35,39 @@ int main(int argument_count, char *arguments[]) {
 
         if(argument_index == argument_count - 1) {
             source_file_path = argument;
-        } else if(strcmp(argument, "--output") == 0) {
+        } else if(strcmp(argument, "-output") == 0) {
             argument_index += 1;
 
             if(argument_index == argument_count - 1) {
-                fprintf(stderr, "Missing value for '--output' option\n");
+                fprintf(stderr, "Missing value for '-output' option\n");
 
                 return EXIT_FAILURE;
             }
 
             output_file_path = arguments[argument_index];
-        } else if(strcmp(argument, "--print-ast") == 0) {
+        } else if(strcmp(argument, "-arch") == 0) {
+            argument_index += 1;
+
+            if(argument_index == argument_count - 1) {
+                fprintf(stderr, "Missing value for '-arch' option\n");
+
+                return EXIT_FAILURE;
+            }
+
+            architecture = arguments[argument_index];
+        } else if(strcmp(argument, "-os") == 0) {
+            argument_index += 1;
+
+            if(argument_index == argument_count - 1) {
+                fprintf(stderr, "Missing value for '-os' option\n");
+
+                return EXIT_FAILURE;
+            }
+
+            os = arguments[argument_index];
+        } else if(strcmp(argument, "-print-ast") == 0) {
             print_ast = true;
-        } else if(strcmp(argument, "--print-ir") == 0) {
+        } else if(strcmp(argument, "-print-ir") == 0) {
             print_ir = true;
         } else {
             fprintf(stderr, "Unknown option '%s'\n", argument);
@@ -51,10 +78,34 @@ int main(int argument_count, char *arguments[]) {
         argument_index += 1;
     }
 
+    if(
+        strcmp(os, "linux") != 0 &&
+        strcmp(os, "macos") != 0 &&
+        strcmp(os, "windows") != 0
+    ) {
+        fprintf(stderr, "Unknown OS '%s'\n", os);
+
+        return EXIT_FAILURE;
+    }
+
+    if(strcmp(architecture, "x64") != 0) {
+        fprintf(stderr, "Unknown architecture '%s'\n", architecture);
+
+        return EXIT_FAILURE;
+    }
+
     if(source_file_path == nullptr) {
         fprintf(stderr, "No source file provided\n");
 
         return EXIT_FAILURE;
+    }
+
+    if(output_file_path == nullptr) {
+        if(strcmp(os, "windows") == 0) {
+            output_file_path = "out.exe";
+        } else {
+            output_file_path = "out";
+        }
     }
 
     clock_t total_time = 0;
@@ -90,16 +141,13 @@ int main(int argument_count, char *arguments[]) {
         }
     }
 
-    ArchitectureInfo architecture_info {
-        RegisterSize::Size64,
-        RegisterSize::Size64
-    };
-
     IR ir;
     {
         auto start_time = clock();
 
-        auto result = generate_ir(files, architecture_info);
+        auto register_sizes = get_register_sizes(architecture);
+
+        auto result = generate_ir(files, register_sizes.address_size, register_sizes.default_size);
 
         if(!result.status) {
             return EXIT_FAILURE;
@@ -152,7 +200,7 @@ int main(int argument_count, char *arguments[]) {
     {
         auto start_time = clock();
 
-        generate_c_object(ir.functions, ir.constants, architecture_info, output_file_directory, output_file_name);
+        generate_c_object(ir.functions, ir.constants, architecture, os, output_file_directory, output_file_name);
 
         auto end_time = clock();
 
@@ -168,17 +216,27 @@ int main(int argument_count, char *arguments[]) {
 
         char *buffer{};
 
-#if defined(PLATFORM_UNIX)
-        string_buffer_append(&buffer, "clang -nostdlib -Wl,--entry=main -fuse-ld=lld -o ");
-#elif defined(PLATFORM_WINDOWS)
-        string_buffer_append(&buffer, "clang -nostdlib -Wl,/entry:main,/DEBUG -fuse-ld=lld -o ");
-#endif
+        const char *linker_options;
+        if(strcmp(os, "windows") == 0) {
+            linker_options = "/entry:main,/DEBUG";
+        } else {
+            linker_options = "--entry=main";
+        }
 
+        auto triple = get_llvm_triple(architecture, os);
+
+        string_buffer_append(&buffer, "clang -nostdlib -fuse-ld=lld -target ");
+
+        string_buffer_append(&buffer, triple);
+
+        string_buffer_append(&buffer, " -Wl,");
+        string_buffer_append(&buffer, linker_options);
+
+        string_buffer_append(&buffer, " -o");
         string_buffer_append(&buffer, output_file_path);
         
         for(auto library : ir.libraries) {
             string_buffer_append(&buffer, " -l");
-
             string_buffer_append(&buffer, library);
         }
 

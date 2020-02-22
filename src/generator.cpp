@@ -5316,7 +5316,7 @@ inline GlobalConstant create_base_integer_type(const char *name, RegisterSize si
     return create_base_type(name, type);
 }
 
-Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
+Result<IR> generate_ir(Array<File> files, RegisterSize address_size, RegisterSize default_size) {
     assert(files.count > 0);
 
     List<GlobalConstant> global_constants{};
@@ -5331,8 +5331,8 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
     append(&global_constants, create_base_integer_type("i32", RegisterSize::Size32, true));
     append(&global_constants, create_base_integer_type("i64", RegisterSize::Size64, true));
 
-    append(&global_constants, create_base_integer_type("usize", architecute_info.address_size, false));
-    append(&global_constants, create_base_integer_type("isize", architecute_info.address_size, true));
+    append(&global_constants, create_base_integer_type("usize", address_size, false));
+    append(&global_constants, create_base_integer_type("isize", address_size, true));
 
     Type base_boolean_type;
     base_boolean_type.category = TypeCategory::Boolean;
@@ -5363,8 +5363,8 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
     });
 
     GenerationContext context {
-        architecute_info.address_size,
-        architecute_info.default_size,
+        address_size,
+        default_size,
         to_array(global_constants),
         files
     };
@@ -5481,12 +5481,12 @@ Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info) {
                     if(representation.is_in_register) {
                         parameter_sizes[i] = representation.value_size;
                     } else {
-                        parameter_sizes[i] = architecute_info.address_size;
+                        parameter_sizes[i] = address_size;
                     }
                 }
 
                 if(has_return && !return_representation.is_in_register) {
-                    parameter_sizes[total_parameter_count - 1] = architecute_info.address_size;
+                    parameter_sizes[total_parameter_count - 1] = address_size;
                 }
 
                 Function ir_function;

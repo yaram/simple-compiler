@@ -8,8 +8,10 @@ add_executable(compiler
     src/array.h
     src/list.h
     src/result.h
+    src/register_size.h
+
     src/platform.h
-    src/architecture.h
+    src/platform.cpp
 
     src/path.h
     src/path.cpp

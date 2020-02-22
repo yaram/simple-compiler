@@ -1,7 +1,7 @@
 #pragma once
 
 #include "array.h"
-#include "architecture.h"
+#include "register_size.h"
 
 enum struct TypeCategory {
     Function,

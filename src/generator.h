@@ -12,4 +12,4 @@ struct IR {
     Array<StaticConstant> constants;
 };
 
-Result<IR> generate_ir(Array<File> files, ArchitectureInfo architecute_info);
+Result<IR> generate_ir(Array<File> files, RegisterSize address_size, RegisterSize default_size);

@@ -5,7 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#if defined(PLATFORM_UNIX)
+#if defined(OS_UNIX)
 
 #include <limits.h>
 #include <libgen.h>
@@ -63,7 +63,7 @@ const char *path_get_directory_component(const char *path) {
     }
 }
 
-#elif defined(PLATFORM_WINDOWS)
+#elif defined(OS_WINDOWS)
 
 Result<const char *> path_relative_to_absolute(const char *path) {
     auto absolute_path = allocate<char>(_MAX_PATH);

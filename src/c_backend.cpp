@@ -1,6 +1,7 @@
 #include "c_backend.h"
 #include <stdio.h>
 #include <string.h>
+#include "platform.h"
 #include "path.h"
 #include "util.h"
 
@@ -66,12 +67,15 @@ static bool generate_function_signature(char **source, Function function) {
 bool generate_c_object(
     Array<Function> functions,
     Array<StaticConstant> constants,
-    ArchitectureInfo architecture_info,
+    const char *architecture,
+    const char *os,
     const char *output_directory,
     const char *output_name
 ) {
     char *forward_declaration_source{};
     char *implementation_source{};
+
+    auto register_sizes = get_register_sizes(architecture);
 
     for(auto constant : constants) {
         generate_type(&forward_declaration_source, RegisterSize::Size8, false);
@@ -111,7 +115,7 @@ bool generate_c_object(
                 string_buffer_append(&implementation_source, function.name);
                 string_buffer_append(&implementation_source, "_");
                 string_buffer_append(&implementation_source, i);
-                string_buffer_append(&implementation_source, ":");
+                string_buffer_append(&implementation_source, ":;");
 
                 switch(instruction.type) {
                     case InstructionType::ArithmeticOperation: {
@@ -200,7 +204,7 @@ bool generate_c_object(
                     } break;
 
                     case InstructionType::ComparisonOperation: {
-                        generate_type(&implementation_source, architecture_info.default_size, false);
+                        generate_type(&implementation_source, register_sizes.default_size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, instruction.comparison_operation.destination_register);
 
@@ -281,7 +285,7 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, "if(");
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, architecture_info.default_size, false);
+                        generate_type(&implementation_source, register_sizes.default_size, false);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
@@ -356,13 +360,13 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, instruction.allocate_local.size);
                         string_buffer_append(&implementation_source, "];");
 
-                        generate_type(&implementation_source, architecture_info.address_size, false);
+                        generate_type(&implementation_source, register_sizes.address_size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, instruction.allocate_local.destination_register);
                         string_buffer_append(&implementation_source, "=");
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, architecture_info.address_size, false);
+                        generate_type(&implementation_source, register_sizes.address_size, false);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "&local_");
@@ -406,7 +410,7 @@ bool generate_c_object(
                     } break;
 
                     case InstructionType::ReferenceStatic: {
-                        generate_type(&implementation_source, architecture_info.address_size, false);
+                        generate_type(&implementation_source, register_sizes.address_size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, instruction.reference_static.destination_register);
                         string_buffer_append(&implementation_source, "=");
@@ -419,7 +423,7 @@ bool generate_c_object(
 
                     case InstructionType::CopyMemory: {
                         string_buffer_append(&implementation_source, "for(");
-                        generate_type(&implementation_source, architecture_info.address_size, false);
+                        generate_type(&implementation_source, register_sizes.address_size, false);
                         string_buffer_append(&implementation_source, " i=0;i<reg_");
                         string_buffer_append(&implementation_source, instruction.copy_memory.length_register);
                         string_buffer_append(&implementation_source, ";i++)");
@@ -482,8 +486,13 @@ bool generate_c_object(
 
     char *command_buffer{};
 
-    string_buffer_append(&command_buffer, "clang -g -ffreestanding -w -nostdinc -c -o ");
+    auto triple = get_llvm_triple(architecture, os);
 
+    string_buffer_append(&command_buffer, "clang -std=gnu89 -g -ffreestanding -w -nostdinc -c -target ");
+
+    string_buffer_append(&command_buffer, triple);
+
+    string_buffer_append(&command_buffer, " -o ");
     string_buffer_append(&command_buffer, output_directory);
     string_buffer_append(&command_buffer, output_name);
     string_buffer_append(&command_buffer, ".o ");
