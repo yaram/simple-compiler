@@ -4,8 +4,8 @@
 #include <string.h>
 #include <time.h>
 #include "parser.h"
-#include "ir_generator.h"
-#include "c_generator.h"
+#include "generator.h"
+#include "c_backend.h"
 #include "util.h"
 #include "platform.h"
 #include "path.h"
@@ -123,27 +123,6 @@ int main(int argument_count, char *arguments[]) {
         }
     }
 
-    const char *c_source;
-    {
-        auto start_time = clock();
-
-        auto result = generate_c_source(ir.functions, ir.constants, architecture_info);
-
-        if(!result.status) {
-            return EXIT_FAILURE;
-        }
-
-        c_source = result.value;
-
-        auto end_time = clock();
-
-        auto time = end_time - start_time;
-
-        printf("C backend time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
-
-        total_time += time;
-    }
-
     const char *output_file_name;
     {
         auto full_name = path_get_file_component(output_file_path);
@@ -173,37 +152,7 @@ int main(int argument_count, char *arguments[]) {
     {
         auto start_time = clock();
 
-        char *c_file_path_buffer{};
-
-        string_buffer_append(&c_file_path_buffer, output_file_directory);
-        string_buffer_append(&c_file_path_buffer, output_file_name);
-        string_buffer_append(&c_file_path_buffer, ".c");
-
-        auto c_file = fopen(c_file_path_buffer, "w");
-
-        if(c_file == nullptr) {
-            fprintf(stderr, "Unable to create C output file\n");
-
-            return EXIT_FAILURE;
-        }
-
-        fprintf(c_file, "%s", c_source);
-
-        fclose(c_file);
-
-        char *command_buffer{};
-
-        string_buffer_append(&command_buffer, "clang -g -ffreestanding -w -nostdinc -c -o ");
-
-        string_buffer_append(&command_buffer, output_file_directory);
-        string_buffer_append(&command_buffer, output_file_name);
-        string_buffer_append(&command_buffer, ".o ");
-
-        string_buffer_append(&command_buffer, c_file_path_buffer);
-
-        if(system(command_buffer) != 0) {
-            return EXIT_FAILURE;
-        }
+        generate_c_object(ir.functions, ir.constants, architecture_info, output_file_directory, output_file_name);
 
         auto end_time = clock();
 

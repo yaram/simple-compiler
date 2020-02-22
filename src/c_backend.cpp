@@ -1,6 +1,7 @@
-#include "c_generator.h"
+#include "c_backend.h"
 #include <stdio.h>
 #include <string.h>
+#include "path.h"
 #include "util.h"
 
 static void generate_type(char **source, RegisterSize size, bool is_signed) {
@@ -62,7 +63,13 @@ static bool generate_function_signature(char **source, Function function) {
     return true;
 }
 
-Result<const char *> generate_c_source(Array<Function> functions, Array<StaticConstant> constants, ArchitectureInfo architecture_info) {
+bool generate_c_object(
+    Array<Function> functions,
+    Array<StaticConstant> constants,
+    ArchitectureInfo architecture_info,
+    const char *output_directory,
+    const char *output_name
+) {
     char *forward_declaration_source{};
     char *implementation_source{};
 
@@ -452,11 +459,40 @@ Result<const char *> generate_c_source(Array<Function> functions, Array<StaticCo
     string_buffer_append(&source, implementation_source);
 
     if(source == nullptr) {
-        return { false };
+        return false;
     }
 
-    return {
-        true,
-        source
-    };
+    char *source_file_path_buffer{};
+
+    string_buffer_append(&source_file_path_buffer, output_directory);
+    string_buffer_append(&source_file_path_buffer, output_name);
+    string_buffer_append(&source_file_path_buffer, ".c");
+
+    auto source_file = fopen(source_file_path_buffer, "w");
+
+    if(source_file == nullptr) {
+        fprintf(stderr, "Unable to create C output file\n");
+
+        return false;
+    }
+
+    fprintf(source_file, "%s", source);
+
+    fclose(source_file);
+
+    char *command_buffer{};
+
+    string_buffer_append(&command_buffer, "clang -g -ffreestanding -w -nostdinc -c -o ");
+
+    string_buffer_append(&command_buffer, output_directory);
+    string_buffer_append(&command_buffer, output_name);
+    string_buffer_append(&command_buffer, ".o ");
+
+    string_buffer_append(&command_buffer, source_file_path_buffer);
+
+    if(system(command_buffer) != 0) {
+        return false;
+    }
+
+    return true;
 }

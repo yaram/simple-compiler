@@ -1,4 +1,4 @@
-#include "ir_generator.h"
+#include "generator.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
