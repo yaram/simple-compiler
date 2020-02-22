@@ -3963,7 +3963,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     ArithmeticOperationType::Add,
                                     context->address_integer_size,
                                     address_register,
-                                    offset
+                                    offset_register
                                 );
 
                                 auto representation = get_type_representation(*context, member_type);
@@ -5199,7 +5199,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                                         ArithmeticOperationType::Add,
                                         context->address_integer_size,
                                         address_register,
-                                        offset
+                                        offset_register
                                     );
 
                                     auto representation = get_type_representation(*context, member_type);
@@ -5421,7 +5421,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                                 ArithmeticOperationType::Add,
                                 context->address_integer_size,
                                 address_register,
-                                offset
+                                offset_register
                             );
 
                             auto representation = get_type_representation(*context, member_type);
@@ -5743,7 +5743,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                                 ArithmeticOperationType::Add,
                                 context->address_integer_size,
                                 address_register,
-                                offset
+                                offset_register
                             );
 
                             auto representation = get_type_representation(*context, member_type);
