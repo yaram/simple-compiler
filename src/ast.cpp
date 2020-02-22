@@ -17,8 +17,6 @@ static void print_range(FileRange range) {
     if(path_length <= max_path_length) {
         printf("%s", range.path);
     } else {
-        char buffer[max_path_length + 1];
-
         printf("...%.*s", max_path_length, range.path + path_length - max_path_length);
     }
 
@@ -93,6 +91,20 @@ static void print_expression_indent(Expression expression, unsigned int indentat
 
             indent(indentation_level);
             printf("]");
+        } break;
+
+        case ExpressionType::StructLiteral: {
+            printf("StructLiteral: {\n");
+
+            for(auto element : expression.struct_literal) {
+                indent(indentation_level + 1);
+                printf("%s: ", element.name.text);
+                print_expression_indent(element.value, indentation_level + 1);
+                printf("\n");
+            }
+
+            indent(indentation_level);
+            printf("}");
         } break;
 
         case ExpressionType::FunctionCall: {

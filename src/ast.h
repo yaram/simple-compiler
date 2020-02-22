@@ -46,6 +46,7 @@ enum struct ExpressionType {
     IntegerLiteral,
     StringLiteral,
     ArrayLiteral,
+    StructLiteral,
     FunctionCall,
     BinaryOperation,
     UnaryOperation,
@@ -53,6 +54,8 @@ enum struct ExpressionType {
     ArrayType,
     FunctionType
 };
+
+struct StructLiteralMember;
 
 struct FunctionParameter;
 
@@ -81,6 +84,8 @@ struct Expression {
         Array<char> string_literal;
 
         Array<Expression> array_literal;
+
+        Array<StructLiteralMember> struct_literal;
 
         struct {
             Expression *expression;
@@ -116,6 +121,12 @@ struct Expression {
             Expression *return_type;
         } function_type;
     };
+};
+
+struct StructLiteralMember {
+    Identifier name;
+
+    Expression value;
 };
 
 void print_expression(Expression expression);

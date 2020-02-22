@@ -1092,8 +1092,6 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 skip_whitespace(context);
 
-                List<Expression> elements{};
-
                 auto last_line = context->line;
                 auto last_character = context->character;
 
@@ -1101,53 +1099,338 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 if(character == '}') {
                     context->character += 1;
+
+                    Expression expression;
+                    expression.type = ExpressionType::ArrayLiteral;
+                    expression.range = {
+                        context->source_file_path,
+                        first_line,
+                        first_character,
+                        last_line,
+                        last_character
+                    };
+                    expression.array_literal = {};
+
+                    append(expression_stack, expression);
                 } else {
-                    ungetc(character, context->source_file);
+                    if(isalnum(character) || character == '_') {
+                        ungetc(character, context->source_file);
 
-                    while(true) {
-                        expect(expression, parse_expression(context));
-
-                        append(&elements, expression);
+                        auto identifier = parse_identifier(context);
 
                         skip_whitespace(context);
 
-                        last_line = context->line;
-                        last_character = context->character;
-
                         auto character = fgetc(context->source_file);
 
-                        if(character == ',') {
+                        if(character == '=') {
                             context->character += 1;
+
+                            auto character = fgetc(context->source_file);
+
+                            if(character == '=') {
+                                context->character += 1;
+
+                                List<Operation> sub_operation_stack{};
+                                List<Expression> sub_expression_stack{};
+
+                                Expression first_expression;
+                                first_expression.type = ExpressionType::NamedReference;
+                                first_expression.range = identifier.range;
+                                first_expression.named_reference = identifier;
+
+                                append(&sub_expression_stack, first_expression);
+
+                                Operation operation;
+                                operation.type = OperationType::Equal;
+                                operation.range = {
+                                    context->source_file_path,
+                                    context->line,
+                                    context->character - 1,
+                                    context->line,
+                                    context->character,
+                                };
+
+                                append(&sub_operation_stack, operation);
+
+                                expect(right_expression, parse_right_expressions(context, &sub_operation_stack, &sub_expression_stack, true));
+
+                                List<Expression> elements{};
+
+                                append(&elements, right_expression);
+
+                                skip_whitespace(context);
+
+                                auto character = fgetc(context->source_file);
+
+                                if(character == ',') {
+                                    context->character += 1;
+
+                                    skip_whitespace(context);
+
+                                    while(true) {
+                                        expect(expression, parse_expression(context));
+
+                                        append(&elements, expression);
+
+                                        skip_whitespace(context);
+
+                                        last_line = context->line;
+                                        last_character = context->character;
+
+                                        auto character = fgetc(context->source_file);
+
+                                        if(character == ',') {
+                                            context->character += 1;
+
+                                            skip_whitespace(context);
+                                        } else if(character == '}') {
+                                            context->character += 1;
+
+                                            break;
+                                        } else if(character == EOF) {
+                                            error(*context, "Unexpected End of File");
+
+                                            return { false };
+                                        } else {
+                                            error(*context, "Expected ',' or '}'. Got '%c'", character);
+
+                                            return { false };
+                                        }
+                                    }
+                                } else if(character == '}') {
+                                    context->character += 1;
+                                } else if(character == EOF) {
+                                    error(*context, "Unexpected End of File");
+
+                                    return { false };
+                                } else {
+                                    error(*context, "Expected ',' or '}'. Got '%c'", character);
+
+                                    return { false };
+                                }
+
+                                Expression expression;
+                                expression.type = ExpressionType::ArrayLiteral;
+                                expression.range = {
+                                    context->source_file_path,
+                                    first_line,
+                                    first_character,
+                                    last_line,
+                                    last_character
+                                };
+                                expression.array_literal = to_array(elements);
+
+                                append(expression_stack, expression);
+                            } else {
+                                ungetc(character, context->source_file);
+
+                                expect(first_expression, parse_expression(context));
+
+                                List<StructLiteralMember> members{};
+
+                                append(&members, { identifier, first_expression });
+
+                                auto character = fgetc(context->source_file);
+
+                                if(character == ',') {
+                                    context->character += 1;
+
+                                    skip_whitespace(context);
+
+                                    while(true) {
+                                        expect(identifier, expect_identifier(context));
+
+                                        skip_whitespace(context);
+
+                                        if(!expect_character(context, '=')) {
+                                            return { false };
+                                        }
+
+                                        expect(expression, parse_expression(context));
+
+                                        append(&members, { identifier, expression });
+
+                                        skip_whitespace(context);
+
+                                        last_line = context->line;
+                                        last_character = context->character;
+
+                                        auto character = fgetc(context->source_file);
+
+                                        if(character == ',') {
+                                            context->character += 1;
+
+                                            skip_whitespace(context);
+                                        } else if(character == '}') {
+                                            context->character += 1;
+
+                                            break;
+                                        } else if(character == EOF) {
+                                            error(*context, "Unexpected End of File");
+
+                                            return { false };
+                                        } else {
+                                            error(*context, "Expected ',' or '}'. Got '%c'", character);
+
+                                            return { false };
+                                        }
+                                    }
+                                } else if(character == '}') {
+                                    context->character += 1;
+                                } else if(character == EOF) {
+                                    error(*context, "Unexpected End of File");
+
+                                    return { false };
+                                } else {
+                                    error(*context, "Expected ',' or '}'. Got '%c'", character);
+
+                                    return { false };
+                                }
+
+                                Expression expression;
+                                expression.type = ExpressionType::StructLiteral;
+                                expression.range = {
+                                    context->source_file_path,
+                                    first_line,
+                                    first_character,
+                                    last_line,
+                                    last_character
+                                };
+                                expression.struct_literal = to_array(members);
+
+                                append(expression_stack, expression);
+                            }
+                        } else {
+                            ungetc(character, context->source_file);
+
+                            List<Operation> sub_operation_stack{};
+                            List<Expression> sub_expression_stack{};
+
+                            Expression first_expression;
+                            first_expression.type = ExpressionType::NamedReference;
+                            first_expression.range = identifier.range;
+                            first_expression.named_reference = identifier;
+
+                            append(&sub_expression_stack, first_expression);
+
+                            expect(right_expression, parse_right_expressions(context, &sub_operation_stack, &sub_expression_stack, false));
+
+                            List<Expression> elements{};
+
+                            append(&elements, right_expression);
 
                             skip_whitespace(context);
-                        } else if(character == '}') {
-                            context->character += 1;
 
-                            break;
-                        } else if(character == EOF) {
-                            error(*context, "Unexpected End of File");
+                            auto character = fgetc(context->source_file);
 
-                            return { false };
-                        } else {
-                            error(*context, "Expected ',' or ']'. Got '%c'", character);
+                            if(character == ',') {
+                                context->character += 1;
 
-                            return { false };
+                                while(true) {
+                                    expect(expression, parse_expression(context));
+
+                                    append(&elements, expression);
+
+                                    skip_whitespace(context);
+
+                                    last_line = context->line;
+                                    last_character = context->character;
+
+                                    auto character = fgetc(context->source_file);
+
+                                    if(character == ',') {
+                                        context->character += 1;
+
+                                        skip_whitespace(context);
+                                    } else if(character == '}') {
+                                        context->character += 1;
+
+                                        break;
+                                    } else if(character == EOF) {
+                                        error(*context, "Unexpected End of File");
+
+                                        return { false };
+                                    } else {
+                                        error(*context, "Expected ',' or '}'. Got '%c'", character);
+
+                                        return { false };
+                                    }
+                                }
+                            } else if(character == '}') {
+                                context->character += 1;
+                            } else if(character == EOF) {
+                                error(*context, "Unexpected End of File");
+
+                                return { false };
+                            } else {
+                                error(*context, "Expected ',' or '}'. Got '%c'", character);
+
+                                return { false };
+                            }
+
+                            Expression expression;
+                            expression.type = ExpressionType::ArrayLiteral;
+                            expression.range = {
+                                context->source_file_path,
+                                first_line,
+                                first_character,
+                                last_line,
+                                last_character
+                            };
+                            expression.array_literal = to_array(elements);
+
+                            append(expression_stack, expression);
                         }
+                    } else {
+                        List<Expression> elements{};
+
+                        while(true) {
+                            auto character = fgetc(context->source_file);
+
+                            expect(expression, parse_expression(context));
+
+                            append(&elements, expression);
+
+                            skip_whitespace(context);
+
+                            last_line = context->line;
+                            last_character = context->character;
+
+                            character = fgetc(context->source_file);
+
+                            if(character == ',') {
+                                context->character += 1;
+
+                                skip_whitespace(context);
+                            } else if(character == '}') {
+                                context->character += 1;
+
+                                break;
+                            } else if(character == EOF) {
+                                error(*context, "Unexpected End of File");
+
+                                return { false };
+                            } else {
+                                error(*context, "Expected ',' or '}'. Got '%c'", character);
+
+                                return { false };
+                            }
+                        }
+
+                        Expression expression;
+                        expression.type = ExpressionType::ArrayLiteral;
+                        expression.range = {
+                            context->source_file_path,
+                            first_line,
+                            first_character,
+                            last_line,
+                            last_character
+                        };
+                        expression.array_literal = to_array(elements);
+
+                        append(expression_stack, expression);
                     }
                 }
-
-                Expression expression;
-                expression.type = ExpressionType::ArrayLiteral;
-                expression.range = {
-                    context->source_file_path,
-                    first_line,
-                    first_character,
-                    last_line,
-                    last_character
-                };
-                expression.array_literal = to_array(elements);
-
-                append(expression_stack, expression);
             } else if(character == EOF) {
                 error(*context, "Unexpected End of File");
 
