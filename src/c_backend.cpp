@@ -488,7 +488,7 @@ bool generate_c_object(
 
     auto triple = get_llvm_triple(architecture, os);
 
-    string_buffer_append(&command_buffer, "clang -std=gnu89 -g -ffreestanding -w -nostdinc -c -target ");
+    string_buffer_append(&command_buffer, "clang -std=gnu99 -g -ffreestanding -w -nostdinc -c -target ");
 
     string_buffer_append(&command_buffer, triple);
 
