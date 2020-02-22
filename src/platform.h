@@ -6,8 +6,6 @@
 #define OS_UNIX
 #if defined(__linux__)
 #define OS_LINUX
-#elif defined(__APPLE__) && defined(__MACH__)
-#define OS_MACOS
 #else
 #error Unsupported OS
 #endif

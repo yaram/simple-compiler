@@ -20,8 +20,6 @@ int main(int argument_count, char *arguments[]) {
 
 #if defined(OS_LINUX)
     const char *os = "linux";
-#elif defined(OS_MACOS)
-    const char *os = "macos";
 #elif defined(OS_WINDOWS)
     const char *os = "windows";
 #endif
@@ -80,7 +78,6 @@ int main(int argument_count, char *arguments[]) {
 
     if(
         strcmp(os, "linux") != 0 &&
-        strcmp(os, "macos") != 0 &&
         strcmp(os, "windows") != 0
     ) {
         fprintf(stderr, "Unknown OS '%s'\n", os);

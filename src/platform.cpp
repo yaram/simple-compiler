@@ -30,10 +30,6 @@ const char *get_llvm_triple(const char *architecture, const char *os) {
         triple_vendor = "unknown";
         triple_system = "linux";
         triple_abi = "gnu";
-    } else if(strcmp(os, "macos") == 0) {
-        triple_vendor = "apple";
-        triple_system = "linux";
-        triple_abi = "macho";
     } else if(strcmp(os, "windows") == 0) {
         triple_vendor = "pc";
         triple_system = "windows";
