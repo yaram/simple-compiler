@@ -94,7 +94,7 @@ struct RuntimeFunction {
     Array<PolymorphicDeterminer> polymorphic_determiners;
 };
 
-struct StructTypeMember {
+struct DeterminedStructTypeMember {
     Identifier name;
 
     Type type;
@@ -104,7 +104,7 @@ struct StructTypeMember {
 struct StructType {
     const char *name;
 
-    Array<StructTypeMember> members;
+    Array<DeterminedStructTypeMember> members;
 };
 
 struct GenerationContext {
@@ -340,7 +340,7 @@ static size_t get_type_alignment(GenerationContext context, Type type) {
         } break;
 
         case TypeCategory::Struct: {
-            return get_struct_alignment(context, retrieve_struct_type(context, type._struct));
+            return get_struct_alignment(context, retrieve_struct_type(context, type._struct.name));
         } break;
 
         default: {
@@ -397,7 +397,7 @@ static size_t get_type_size(GenerationContext context, Type type) {
         } break;
 
         case TypeCategory::Struct: {
-            return get_struct_size(context, retrieve_struct_type(context, type._struct));
+            return get_struct_size(context, retrieve_struct_type(context, type._struct.name));
         } break;
 
         default: {
@@ -1127,6 +1127,50 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
     };
 }
 
+struct RegisterRepresentation {
+    bool is_in_register;
+
+    RegisterSize value_size;
+};
+
+static RegisterRepresentation get_type_representation(GenerationContext context, Type type) {
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            return {
+                true,
+                type.integer.size
+            };
+        } break;
+
+        case TypeCategory::Boolean: {
+            return {
+                true,
+                context.default_integer_size
+            };
+        } break;
+
+        case TypeCategory::Pointer: {
+            return {
+                true,
+                context.address_integer_size
+            };
+        } break;
+
+        case TypeCategory::Array:
+        case TypeCategory::StaticArray:
+        case TypeCategory::Struct: {
+            RegisterRepresentation representation;
+            representation.is_in_register = false;
+
+            return representation;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 static Result<Type> evaluate_type_expression(GenerationContext *context, Expression expression);
 
 static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression expression) {
@@ -1211,17 +1255,31 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 } break;
 
                 case TypeCategory::Struct: {
-                    auto struct_type = retrieve_struct_type(*context, expression_value.type._struct);
+                    if(expression_value.type._struct.is_undetermined) {
+                        for(size_t i = 0; i < expression_value.type._struct.members.count; i += 1) {
+                            if(strcmp(expression_value.type._struct.members[i].name, expression.member_reference.name.text) == 0) {
+                                return {
+                                    true,
+                                    {
+                                        expression_value.type._struct.members[i].type,
+                                        expression_value.value.struct_[i]
+                                    }
+                                };
+                            }
+                        }
+                    } else {
+                        auto struct_type = retrieve_struct_type(*context, expression_value.type._struct.name);
 
-                    for(size_t i = 0; i < struct_type.members.count; i += 1) {
-                        if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
-                            return {
-                                true,
-                                {
-                                    struct_type.members[i].type,
-                                    expression_value.value.struct_[i]
-                                }
-                            };
+                        for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                            if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
+                                return {
+                                    true,
+                                    {
+                                        struct_type.members[i].type,
+                                        expression_value.value.struct_[i]
+                                    }
+                                };
+                            }
                         }
                     }
 
@@ -1428,6 +1486,63 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                     return { false };
                 } break;
             }
+        } break;
+
+        case ExpressionType::StructLiteral: {
+            if(expression.struct_literal.count == 0) {
+                error(expression.range, "Empty struct literal");
+
+                return { false };
+            }
+
+            auto type_members = allocate<StructTypeMember>(expression.struct_literal.count);
+            auto member_values = allocate<ConstantValue>(expression.struct_literal.count);
+
+            for(size_t i = 0; i < expression.struct_literal.count; i += 1) {
+                for(size_t j = 0; j < i; j += 1) {
+                    if(strcmp(expression.struct_literal[i].name.text, type_members[j].name) == 0) {
+                        error(expression.struct_literal[i].name.range, "Duplicate struct member %s", expression.struct_literal[i].name.text);
+
+                        return { false };
+                    }
+                }
+
+                expect(member, evaluate_constant_expression(context, expression.struct_literal[i].value));
+
+                auto representation = get_type_representation(*context, member.type);
+
+                if(!representation.is_in_register) {
+                    error(expression.struct_literal[i].value.range, "Cannot have struct members of type %s", type_description(member.type));
+
+                    return { false };
+                }
+
+                type_members[i] = {
+                    expression.struct_literal[i].name.text,
+                    member.type
+                };
+
+                member_values[i] = member.value;
+            }
+
+            Type type;
+            type.category = TypeCategory::Struct;
+            type._struct.is_undetermined = true;
+            type._struct.members = {
+                expression.struct_literal.count,
+                type_members
+            };
+
+            ConstantValue value;
+            value.struct_ = member_values;
+
+            return {
+                true,
+                {
+                    type,
+                    value
+                }
+            };
         } break;
 
         case ExpressionType::FunctionCall: {
@@ -1805,7 +1920,7 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             }
 
             if(!is_registered) {
-                auto members = allocate<StructTypeMember>(declaration.struct_definition.members.count);
+                auto members = allocate<DeterminedStructTypeMember>(declaration.struct_definition.members.count);
 
                 for(size_t i = 0; i < declaration.struct_definition.members.count; i += 1) {
                     for(size_t j = 0; j < declaration.struct_definition.members.count; j += 1) {
@@ -1838,7 +1953,8 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
 
             ConstantValue value;
             value.type.category = TypeCategory::Struct;
-            value.type._struct = mangled_name;
+            value.type._struct.is_undetermined = false;
+            value.type._struct.name = mangled_name;
 
             return {
                 true,
@@ -2713,7 +2829,7 @@ static void generate_constant_value_assignment(GenerationContext *context, List<
         } break;
 
         case TypeCategory::Struct: {
-            auto struct_type = retrieve_struct_type(*context, type._struct);
+            auto struct_type = retrieve_struct_type(*context, type._struct.name);
 
             auto constant_name = register_struct_constant(
                 context,
@@ -2731,50 +2847,6 @@ static void generate_constant_value_assignment(GenerationContext *context, List<
             );
 
             append_copy_memory(context, instructions, length_register, constant_address_register, address_register);
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-}
-
-struct RegisterRepresentation {
-    bool is_in_register;
-
-    RegisterSize value_size;
-};
-
-static RegisterRepresentation get_type_representation(GenerationContext context, Type type) {
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            return {
-                true,
-                type.integer.size
-            };
-        } break;
-
-        case TypeCategory::Boolean: {
-            return {
-                true,
-                context.default_integer_size
-            };
-        } break;
-
-        case TypeCategory::Pointer: {
-            return {
-                true,
-                context.address_integer_size
-            };
-        } break;
-
-        case TypeCategory::Array:
-        case TypeCategory::StaticArray:
-        case TypeCategory::Struct: {
-            RegisterRepresentation representation;
-            representation.is_in_register = false;
-
-            return representation;
         } break;
 
         default: {
@@ -3220,60 +3292,76 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 } break;
 
                 case TypeCategory::Struct: {
-                    auto struct_type = retrieve_struct_type(*context, actual_expression_value.type._struct);
+                    if(actual_expression_value.type._struct.is_undetermined) {
+                        for(size_t i = 0; i < actual_expression_value.type._struct.members.count; i += 1) {
+                            if(strcmp(actual_expression_value.type._struct.members[i].name, expression.member_reference.name.text) == 0) {
+                                ExpressionValue value;
+                                value.category = ExpressionValueCategory::Constant;
+                                value.type = actual_expression_value.type._struct.members[i].type;
+                                value.constant = actual_expression_value.constant.struct_[i];
 
-                    for(size_t i = 0; i < struct_type.members.count; i += 1) {
-                        if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
-                            ExpressionValue value;
-                            value.category = expression_value.category;
-                            value.type = struct_type.members[i].type;
-
-                            auto offset = get_struct_member_offset(*context, struct_type, i);
-
-                            switch(expression_value.category) {
-                                case ExpressionValueCategory::Constant: {
-                                    value.constant = expression_value.constant.struct_[i];
-                                } break;
-
-                                case ExpressionValueCategory::Register: {
-                                    auto final_address_register = generate_address_offset(
-                                        context,
-                                        instructions,
-                                        expression_value.register_,
-                                        offset
-                                    );
-
-                                    auto representation = get_type_representation(*context, struct_type.members[i].type);
-
-                                    if(representation.is_in_register) {
-                                        auto value_register = append_load_integer(context, instructions, representation.value_size, final_address_register);
-
-                                        value.register_ = value_register;
-                                    } else {
-                                        value.register_ = final_address_register;
-                                    }
-                                } break;
-
-                                case ExpressionValueCategory::Address: {
-                                    auto final_address_register = generate_address_offset(
-                                        context,
-                                        instructions,
-                                        expression_value.address,
-                                        offset
-                                    );
-
-                                    value.address = final_address_register;
-                                } break;
-
-                                default: {
-                                    abort();
-                                } break;
+                                return {
+                                    true,
+                                    value
+                                };
                             }
+                        }
+                    } else {
+                        auto struct_type = retrieve_struct_type(*context, actual_expression_value.type._struct.name);
 
-                            return {
-                                true,
-                                value
-                            };
+                        for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                            if(strcmp(struct_type.members[i].name.text, expression.member_reference.name.text) == 0) {
+                                ExpressionValue value;
+                                value.category = expression_value.category;
+                                value.type = struct_type.members[i].type;
+
+                                auto offset = get_struct_member_offset(*context, struct_type, i);
+
+                                switch(expression_value.category) {
+                                    case ExpressionValueCategory::Constant: {
+                                        value.constant = expression_value.constant.struct_[i];
+                                    } break;
+
+                                    case ExpressionValueCategory::Register: {
+                                        auto final_address_register = generate_address_offset(
+                                            context,
+                                            instructions,
+                                            expression_value.register_,
+                                            offset
+                                        );
+
+                                        auto representation = get_type_representation(*context, struct_type.members[i].type);
+
+                                        if(representation.is_in_register) {
+                                            auto value_register = append_load_integer(context, instructions, representation.value_size, final_address_register);
+
+                                            value.register_ = value_register;
+                                        } else {
+                                            value.register_ = final_address_register;
+                                        }
+                                    } break;
+
+                                    case ExpressionValueCategory::Address: {
+                                        auto final_address_register = generate_address_offset(
+                                            context,
+                                            instructions,
+                                            expression_value.address,
+                                            offset
+                                        );
+
+                                        value.address = final_address_register;
+                                    } break;
+
+                                    default: {
+                                        abort();
+                                    } break;
+                                }
+
+                                return {
+                                    true,
+                                    value
+                                };
+                            }
                         }
                     }
 
@@ -3538,6 +3626,59 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
             }
         } break;
 
+        case ExpressionType::StructLiteral: {
+            if(expression.struct_literal.count == 0) {
+                error(expression.range, "Empty struct literal");
+
+                return { false };
+            }
+
+            auto type_members = allocate<StructTypeMember>(expression.struct_literal.count);
+            auto member_values = allocate<ConstantValue>(expression.struct_literal.count);
+
+            for(size_t i = 0; i < expression.struct_literal.count; i += 1) {
+                for(size_t j = 0; j < i; j += 1) {
+                    if(strcmp(expression.struct_literal[i].name.text, type_members[j].name) == 0) {
+                        error(expression.struct_literal[i].name.range, "Duplicate struct member %s", expression.struct_literal[i].name.text);
+
+                        return { false };
+                    }
+                }
+
+                expect(member, evaluate_constant_expression(context, expression.struct_literal[i].value));
+
+                auto representation = get_type_representation(*context, member.type);
+
+                if(!representation.is_in_register) {
+                    error(expression.struct_literal[i].value.range, "Cannot have struct members of type %s", type_description(member.type));
+
+                    return { false };
+                }
+
+                type_members[i] = {
+                    expression.struct_literal[i].name.text,
+                    member.type
+                };
+
+                member_values[i] = member.value;
+            }
+
+            ExpressionValue value;
+            value.category = ExpressionValueCategory::Constant;
+            value.type.category = TypeCategory::Struct;
+            value.type._struct.is_undetermined = true;
+            value.type._struct.members = {
+                expression.struct_literal.count,
+                type_members
+            };
+            value.constant.struct_ = member_values;
+
+            return {
+                true,
+                value
+            };
+        } break;
+
         case ExpressionType::FunctionCall: {
             expect(expression_value, generate_expression(context, instructions, *expression.function_call.expression));
 
@@ -3587,6 +3728,10 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                                 true,
                                 false
                             };
+                        } else if(value.type.category == TypeCategory::Struct && value.type._struct.is_undetermined) {
+                            error(expression.function_call.parameters[i].range, "Cannot use anonymous structs as polymorphic determiners");
+
+                            return { false };
                         } else {
                             actual_type = value.type;
                         }
@@ -3763,12 +3908,50 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                 Type determined_type;
                 if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
                     if(function_parameter_types[i].category != TypeCategory::Integer) {
-                        error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+                        error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %zu. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
 
                         return { false };
                     }
 
-                    determined_type = function_parameter_types[i];
+                    determined_type.category = TypeCategory::Integer;
+                    determined_type.integer = function_parameter_types[i].integer;
+                } else if(value.type.category == TypeCategory::Struct && value.type._struct.is_undetermined) {
+                    if(function_parameter_types[i].category != TypeCategory::Struct) {
+                        error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %zu. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+
+                        return { false };
+                    }
+
+                    auto struct_type = retrieve_struct_type(*context, function_parameter_types[i]._struct.name);
+
+                    if(value.type._struct.members.count != struct_type.members.count) {
+                        error(expression.function_call.parameters[i].range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, value.type._struct.members.count);
+
+                        return { false };
+                    }
+
+                    for(size_t i = 0; i < value.type._struct.members.count; i += 1) {
+                        if(strcmp(struct_type.members[i].name.text, value.type._struct.members[i].name) != 0) {
+                            error(expression.function_call.parameters[i].range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, value.type._struct.members[i].name);
+
+                            return { false };
+                        }
+
+                        if(
+                            !(
+                                value.type._struct.members[i].type.category == TypeCategory::Integer &&
+                                value.type._struct.members[i].type.integer.is_undetermined
+                            ) &&
+                            !types_equal(struct_type.members[i].type, value.type._struct.members[i].type)
+                        ) {
+                            error(expression.function_call.parameters[i].range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[i].type));
+
+                            return { false };
+                        }
+                    }
+
+                    determined_type.category = TypeCategory::Struct;
+                    determined_type._struct = function_parameter_types[i]._struct;
                 } else {
                     determined_type = value.type;
                 }
@@ -3850,7 +4033,7 @@ static Result<ExpressionValue> generate_expression(GenerationContext *context, L
                             case TypeCategory::Struct: {
                                 auto constant_name = register_struct_constant(
                                     context,
-                                    retrieve_struct_type(*context, determined_type._struct),
+                                    retrieve_struct_type(*context, determined_type._struct.name),
                                     value.constant.struct_
                                 );
 
@@ -4790,6 +4973,10 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                             true,
                             false
                         };
+                    } else if(initializer_value.type.category == TypeCategory::Struct && initializer_value.type._struct.is_undetermined) {
+                        error(statement.variable_declaration.type_elided.range, "Cannot create a variable of an anonymous struct type");
+
+                        return { false };
                     } else {
                         determined_type = initializer_value.type;
                     }
@@ -4866,12 +5053,47 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                             type.category == TypeCategory::Integer &&
                             initializer_value.type.category == TypeCategory::Integer &&                        
                             initializer_value.type.integer.is_undetermined
-                        ) &&
-                        !types_equal(type, initializer_value.type)
+                        )
                     ) {
-                        error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
+                        if(type.category == TypeCategory::Struct && initializer_value.type._struct.is_undetermined) {
+                            if(type.category != TypeCategory::Struct) {
+                                error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
 
-                        return false;
+                                return { false };
+                            }
+
+                            auto struct_type = retrieve_struct_type(*context, type._struct.name);
+
+                            if(initializer_value.type._struct.members.count != struct_type.members.count) {
+                                error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, initializer_value.type._struct.members.count);
+
+                                return { false };
+                            }
+
+                            for(size_t i = 0; i < initializer_value.type._struct.members.count; i += 1) {
+                                if(strcmp(struct_type.members[i].name.text, initializer_value.type._struct.members[i].name) != 0) {
+                                    error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, initializer_value.type._struct.members[i].name);
+
+                                    return { false };
+                                }
+
+                                if(
+                                    !(
+                                        initializer_value.type._struct.members[i].type.category == TypeCategory::Integer &&
+                                        initializer_value.type._struct.members[i].type.integer.is_undetermined
+                                    ) &&
+                                    !types_equal(struct_type.members[i].type, initializer_value.type._struct.members[i].type)
+                                ) {
+                                    error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect member type for struct member %s. Expected %s, got %s", initializer_value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(initializer_value.type._struct.members[i].type));
+
+                                    return { false };
+                                }
+                            }
+                        } else if(!types_equal(type, initializer_value.type)) {
+                            error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
+
+                            return false;
+                        }
                     }
 
                     auto representation = get_type_representation(*context, type);
@@ -4947,12 +5169,47 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     target.type.category == TypeCategory::Integer &&
                     value.type.category == TypeCategory::Integer &&                        
                     value.type.integer.is_undetermined
-                ) &&
-                !types_equal(target.type, value.type)
+                )
             ) {
-                error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+                if(target.type.category == TypeCategory::Struct && value.type._struct.is_undetermined) {
+                    if(target.type.category != TypeCategory::Struct) {
+                        error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
 
-                return false;
+                        return { false };
+                    }
+
+                    auto struct_type = retrieve_struct_type(*context, target.type._struct.name);
+
+                    if(value.type._struct.members.count != struct_type.members.count) {
+                        error(statement.assignment.value.range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, value.type._struct.members.count);
+
+                        return { false };
+                    }
+
+                    for(size_t i = 0; i < value.type._struct.members.count; i += 1) {
+                        if(strcmp(struct_type.members[i].name.text, value.type._struct.members[i].name) != 0) {
+                            error(statement.assignment.value.range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, value.type._struct.members[i].name);
+
+                            return { false };
+                        }
+
+                        if(
+                            !(
+                                value.type._struct.members[i].type.category == TypeCategory::Integer &&
+                                value.type._struct.members[i].type.integer.is_undetermined
+                            ) &&
+                            !types_equal(struct_type.members[i].type, value.type._struct.members[i].type)
+                        ) {
+                            error(statement.assignment.value.range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[i].type));
+
+                            return { false };
+                        }
+                    }
+                } else if(!types_equal(target.type, value.type)) {
+                    error(statement.assignment.value.range, "Incorrect assignment target.type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+
+                    return false;
+                }
             }
 
             auto representation = get_type_representation(*context, target.type);
@@ -5216,7 +5473,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                             } break;
 
                             case TypeCategory::Struct: {
-                                auto struct_type = retrieve_struct_type(*context, determined_type._struct);
+                                auto struct_type = retrieve_struct_type(*context, determined_type._struct.name);
 
                                 auto constant_name = register_struct_constant(
                                     context,

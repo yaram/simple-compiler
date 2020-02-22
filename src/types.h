@@ -16,6 +16,8 @@ enum struct TypeCategory {
     FileModule
 };
 
+struct StructTypeMember;
+
 struct Type {
     TypeCategory category;
 
@@ -48,8 +50,22 @@ struct Type {
             Type *type;
         } static_array;
 
-        const char *_struct;
+        struct {
+            bool is_undetermined;
+
+            union {
+                Array<StructTypeMember> members;
+
+                const char *name;
+            };
+        } _struct;
     };
+};
+
+struct StructTypeMember {
+    const char *name;
+
+    Type type;
 };
 
 bool types_equal(Type a, Type b);

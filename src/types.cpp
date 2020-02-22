@@ -46,7 +46,7 @@ bool types_equal(Type a, Type b) {
         } break;
 
         case TypeCategory::Struct: {
-            return strcmp(a._struct, b._struct) == 0;
+            return strcmp(a._struct.name, b._struct.name) == 0;
         } break;
 
         default: {
@@ -180,7 +180,11 @@ const char *type_description(Type type) {
         } break;
 
         case TypeCategory::Struct: {
-            return type._struct;
+            if(type._struct.is_undetermined) {
+                return "{struct}";
+            } else {
+                return type._struct.name;
+            }
         } break;
 
         case TypeCategory::FileModule: {
