@@ -148,14 +148,14 @@ static void error(FileRange range, const char *format, ...) {
     va_list arguments;
     va_start(arguments, format);
 
-    fprintf(stderr, "%s(%u:%u): ", range.path, range.start_line, range.start_character);
+    fprintf(stderr, "Error: %s(%u,%u): ", range.path, range.start_line, range.start_character);
     vfprintf(stderr, format, arguments);
     fprintf(stderr, "\n");
 
-    auto file = fopen(range.path, "rb");
+    if(range.start_line == range.start_character) {
+        auto file = fopen(range.path, "rb");
 
-    if(file != nullptr) {
-        if(range.start_line == range.end_line) {
+        if(file != nullptr) {
             unsigned int current_line = 1;
 
             while(current_line != range.start_line) {
@@ -188,6 +188,9 @@ static void error(FileRange range, const char *format, ...) {
                 }
             }
 
+            unsigned int skipped_spaces = 0;
+            auto done_skipping_spaces = false;
+
             auto done = false;
             while(!done) {
                 auto character = fgetc(file);
@@ -196,6 +199,14 @@ static void error(FileRange range, const char *format, ...) {
                     case '\r':
                     case '\n': {
                         done = true;
+                    } break;
+
+                    case ' ': {
+                        if(done_skipping_spaces) {
+                            skipped_spaces += 1;
+                        } else {
+                            fprintf(stderr, "%c", character);
+                        }
                     } break;
 
                     case EOF: {
@@ -208,13 +219,15 @@ static void error(FileRange range, const char *format, ...) {
 
                     default: {
                         fprintf(stderr, "%c", character);
+
+                        done_skipping_spaces = true;
                     } break;
                 }
             }
 
             fprintf(stderr, "\n");
 
-            for(unsigned int i = 1; i < range.start_character; i += 1) {
+            for(unsigned int i = 1; i < range.start_character - skipped_spaces; i += 1) {
                 fprintf(stderr, " ");
             }
 
@@ -227,9 +240,9 @@ static void error(FileRange range, const char *format, ...) {
             }
 
             fprintf(stderr, "\n");
-        }
 
-        fclose(file);
+            fclose(file);
+        }
     }
 
     va_end(arguments);
