@@ -19,6 +19,12 @@ add_executable(compiler
     src/util.h
     src/util.cpp
 
+    src/tokens.h
+    src/tokens.cpp
+
+    src/lexer.h
+    src/lexer.cpp
+
     src/ast.h
     src/ast.cpp
 
