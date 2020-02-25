@@ -340,7 +340,15 @@ Result<Array<Token>> tokenize_source(const char *path, const char *source) {
 
             character += 1;
         } else if(source[index] == '!') {
-            append_basic_token(line, character, &tokens, TokenType::Bang);
+            if(index + 1 < length && source[index + 1] == '=') {
+                append_basic_token(line, character, &tokens, TokenType::BangEquals);
+
+                index += 1;
+
+                character += 1;
+            } else {
+                append_basic_token(line, character, &tokens, TokenType::Bang);
+            }
 
             index += 1;
 

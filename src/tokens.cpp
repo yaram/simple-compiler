@@ -51,6 +51,10 @@ void print_token(Token token) {
             printf("DoubleEquals");
         } break;
 
+        case TokenType::BangEquals: {
+            printf("BangEquals");
+        } break;
+
         case TokenType::Ampersand: {
             printf("Ampersand");
         } break;
@@ -165,6 +169,10 @@ const char *get_token_text(Token token) {
 
         case TokenType::DoubleEquals: {
             return "==";
+        } break;
+
+        case TokenType::BangEquals: {
+            return "!=";
         } break;
 
         case TokenType::Ampersand: {

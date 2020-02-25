@@ -1015,268 +1015,210 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
             }
         }
 
-        skip_whitespace(context);
+        if(context->next_token_index == context->tokens.count) {
+            break;
+        }
 
-        auto first_line = context->line;
-        auto first_character = context->character;
+        auto token = context->tokens[context->next_token_index];
 
-        auto character = fgetc(context->source_file);
+        auto first_range = token_range(*context, token);
 
         Operation operation;
-        operation.range = {
-            context->source_file_path,
-            first_line,
-            first_character,
-            first_line,
-            first_character
-        };
 
         // Parse left-recursive expressions (e.g. binary operators) after parsing all adjacent non-left-recursive expressions
-        if(character == 'a') {
-            context->character += 1;
+        auto done = false;
+        switch(token.type) {
+            case TokenType::Dot: {
+                context->next_token_index += 1;
 
-            if(!expect_character(context, 's')) {
-                return { false };
-            }
+                expect(identifier, expect_identifier(context));
 
-            operation.type = OperationType::Cast;
+                operation.type = OperationType::MemberReference;
+                operation.range = first_range;
+                operation.member_reference = identifier;
 
-            expect_non_left_recursive = true;
-        } else if(character == '(') {
-            context->character += 1;
-            
-            skip_whitespace(context);
+                expect_left_recursive = true;
+            } break;
 
-            List<Expression> parameters{};
+            case TokenType::Plus: {
+                context->next_token_index += 1;
 
-            auto last_line = context->line;
-            auto last_character = context->character;
+                operation.type = OperationType::Addition;
+                operation.range = first_range;
 
-            auto character = fgetc(context->source_file);
+                expect_left_recursive = false;
+            } break;
 
-            if(character == ')') {
-                context->character += 1;
-            } else {
-                ungetc(character, context->source_file);
+            case TokenType::Dash: {
+                context->next_token_index += 1;
 
-                while(true) {
-                    expect(expression, parse_expression(context));
+                operation.type = OperationType::Subtraction;
+                operation.range = first_range;
 
-                    append(&parameters, expression);
+                expect_left_recursive = false;
+            } break;
 
-                    skip_whitespace(context);
+            case TokenType::Asterisk: {
+                context->next_token_index += 1;
 
-                    last_line = context->line;
-                    last_character = context->character;
+                operation.type = OperationType::Multiplication;
+                operation.range = first_range;
 
-                    character = getc(context->source_file);
+                expect_left_recursive = false;
+            } break;
 
-                    if(character == ',') {
-                        context->character += 1;
+            case TokenType::ForwardSlash: {
+                context->next_token_index += 1;
 
-                        skip_whitespace(context);
+                operation.type = OperationType::Division;
+                operation.range = first_range;
 
-                        continue;
-                    } else if(character == ')') {
-                        context->character += 1;
+                expect_left_recursive = false;
+            } break;
 
-                        break;
-                    } else if(character == EOF) {
-                        error(*context, "Unexpected End of File");
+            case TokenType::Percent: {
+                context->next_token_index += 1;
 
-                        return { false };
-                    } else {
-                        error(*context, "Expected ',' or ')', got '%c'", character);
+                operation.type = OperationType::Modulo;
+                operation.range = first_range;
 
-                        return { false };
+                expect_left_recursive = false;
+            } break;
+
+            case TokenType::Ampersand: {
+                context->next_token_index += 1;
+
+                operation.type = OperationType::BitwiseAnd;
+                operation.range = first_range;
+
+                expect_left_recursive = false;
+            } break;
+
+            case TokenType::DoubleAmpersand: {
+                context->next_token_index += 1;
+
+                operation.type = OperationType::BooleanAnd;
+                operation.range = first_range;
+
+                expect_left_recursive = false;
+            } break;
+
+            case TokenType::Pipe: {
+                context->next_token_index += 1;
+
+                operation.type = OperationType::BitwiseOr;
+                operation.range = first_range;
+
+                expect_left_recursive = false;
+            } break;
+
+            case TokenType::DoublePipe: {
+                context->next_token_index += 1;
+
+                operation.type = OperationType::BooleanOr;
+                operation.range = first_range;
+
+                expect_left_recursive = false;
+            } break;
+
+            case TokenType::DoubleEquals: {
+                context->next_token_index += 1;
+
+                operation.type = OperationType::Equal;
+                operation.range = first_range;
+
+                expect_left_recursive = false;
+            } break;
+
+            case TokenType::BangEquals: {
+                context->next_token_index += 1;
+
+                operation.type = OperationType::NotEqual;
+                operation.range = first_range;
+
+                expect_left_recursive = false;
+            } break;
+
+            case TokenType::OpenRoundBracket: {
+                context->next_token_index += 1;
+
+                List<Expression> parameters{};
+
+                expect(token, next_token(*context));
+
+                FileRange last_range;
+                if(token.type == TokenType::CloseRoundBracket) {
+                    context->next_token_index += 1;
+
+                    last_range = token_range(*context, token);
+                } else {
+                    while(true) {
+                        expect(expression, parse_expression(context));
+
+                        append(&parameters, expression);
+
+                        expect(token, next_token(*context));
+
+                        auto done = false;
+                        switch(token.type) {
+                            case TokenType::Comma: {
+                                context->next_token_index += 1;
+                            } break;
+
+                            case TokenType::CloseRoundBracket: {
+                                context->next_token_index += 1;
+
+                                done = true;
+                            } break;
+
+                            default: {
+                                error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+
+                                return { false };
+                            } break;
+                        }
+
+                        if(done) {
+                            last_range = token_range(*context, token);
+
+                            break;
+                        }
                     }
                 }
-            }
 
-            operation.type = OperationType::FunctionCall;
-            operation.function_call = to_array(parameters);
-            operation.range.end_line = last_line;
-            operation.range.end_character = last_character;
+                operation.type = OperationType::FunctionCall;
+                operation.range = span_range(first_range, last_range);
+                operation.function_call = to_array(parameters);
 
-            expect_non_left_recursive = false;
-        } else if(character == '[') {
-            context->character += 1;
+                expect_left_recursive = true;
+            } break;
 
-            skip_whitespace(context);
-
-            auto last_line = context->line;
-            auto last_character = context->character;
-
-            auto character = fgetc(context->source_file);
-
-            if(character == ']') {
-                context->character += 1;
-
-                operation.type = OperationType::ArrayType;
-            } else {
-                ungetc(character, context->source_file);
+            case TokenType::OpenSquareBracket: {
+                context->next_token_index += 1;
 
                 expect(expression, parse_expression(context));
 
-                skip_whitespace(context);
-                
-                last_line = context->line;
-                last_character = context->character;
+                expect(token, next_token(*context));
 
-                if(!expect_character(context, ']')) {
+                if(token.type != TokenType::CloseSquareBracket) {
+                    error(*context, "Expected ']'. Got '%s'", get_token_text(token));
+
                     return { false };
                 }
 
                 operation.type = OperationType::IndexReference;
+                operation.range = span_range(first_range, token_range(*context, token));
                 operation.index_reference = expression;
-            }
 
-            operation.range.end_line = last_line;
-            operation.range.end_character = last_character;
+                expect_left_recursive = true;
+            } break;
 
-            expect_non_left_recursive = false;
-        } else if(character == '.') {
-            context->character += 1;
+            default: {
+                done = true;
+            } break;
+        }
 
-            skip_whitespace(context);
-
-            auto character = fgetc(context->source_file);
-
-            if(isalnum(character) || character == '_') {
-                ungetc(character, context->source_file);
-
-                auto name = parse_identifier(context);
-
-                operation.type = OperationType::MemberReference;
-                operation.member_reference = name;
-                operation.range.end_line = name.range.end_line;
-                operation.range.end_character = name.range.end_character;
-
-                expect_non_left_recursive = false;
-            } else if(character == EOF) {
-                error(*context, "Unexpected End of File");
-
-                return { false };
-            } else {
-                error(*context, "Expected a-z, A-Z or 0-9. Got '%c'", character);
-
-                return { false };
-            }
-        } else if(character == '+') {
-            context->character += 1;
-
-            operation.type = OperationType::Addition;
-
-            expect_non_left_recursive = true;
-        } else if(character == '-') {
-            context->character += 1;
-
-            operation.type = OperationType::Subtraction;
-
-            expect_non_left_recursive = true;
-        } else if(character == '*') {
-            context->character += 1;
-
-            operation.type = OperationType::Multiplication;
-
-            expect_non_left_recursive = true;
-        } else if(character == '/') {
-            context->character += 1;
-
-            operation.type = OperationType::Division;
-
-            expect_non_left_recursive = true;
-        } else if(character == '%') {
-            context->character += 1;
-
-            operation.type = OperationType::Modulo;
-
-            expect_non_left_recursive = true;
-        } else if(character == '=') {
-            context->character += 1;
-
-            auto last_line = context->line;
-            auto last_character = context->character;
-
-            auto next_character = fgetc(context->source_file);
-
-            if(next_character == '=') {
-                context->character += 1;
-
-                operation.type = OperationType::Equal;
-                operation.range.end_line = last_line;
-                operation.range.end_character = last_character;
-
-                expect_non_left_recursive = true;
-            } else {
-                ungetc(next_character, context->source_file);
-
-                context->character -= 1;
-
-                ungetc(character, context->source_file);
-
-                break;
-            }
-        } else if(character == '&') {
-            context->character += 1;
-
-            auto last_line = context->line;
-            auto last_character = context->character;
-
-            auto character = fgetc(context->source_file);
-
-            if(character == '&') {
-                context->character += 1;
-
-                operation.type = OperationType::BooleanAnd;
-                operation.range.end_line = last_line;
-                operation.range.end_character = last_character;
-            } else {
-                ungetc(character, context->source_file);
-
-                operation.type = OperationType::BitwiseAnd;
-            }
-
-            expect_non_left_recursive = true;
-        } else if(character == '|') {
-            context->character += 1;
-
-            auto last_line = context->line;
-            auto last_character = context->character;
-
-            auto character = fgetc(context->source_file);
-
-            if(character == '|') {
-                context->character += 1;
-
-                operation.type = OperationType::BooleanOr;
-                operation.range.end_line = last_line;
-                operation.range.end_character = last_character;
-            } else {
-                ungetc(character, context->source_file);
-
-                operation.type = OperationType::BitwiseOr;
-            }
-
-            expect_non_left_recursive = true;
-        } else if(character == '!') {
-            context->character += 1;
-
-            auto last_line = context->line;
-            auto last_character = context->character;
-
-            if(!expect_character(context, '=')) {
-                return { false };
-            }
-
-            operation.type = OperationType::NotEqual;
-            operation.range.end_line = last_line;
-            operation.range.end_character = last_character;
-
-            expect_non_left_recursive = true;
-        } else {
-            ungetc(character, context->source_file);
-
+        if(done) {
             break;
         }
 
@@ -1304,8 +1246,6 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
     while(operation_stack->count != 0) {
         apply_operation(expression_stack, take_last(operation_stack));
     }
-
-    assert(expression_stack->count == 1);
 
     return {
         true,
