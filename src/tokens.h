@@ -12,6 +12,7 @@ enum struct TokenType {
     Dash,
     Asterisk,
     ForwardSlash,
+    Percent,
     Equals,
     Ampersand,
     DoubleAmpersand,
@@ -20,6 +21,7 @@ enum struct TokenType {
     Hash,
     Bang,
     Arrow,
+    Dollar,
     DoubleEquals,
     OpenRoundBracket,
     CloseRoundBracket,
@@ -49,3 +51,4 @@ struct Token {
 };
 
 void print_token(Token token);
+const char *get_token_text(Token token);

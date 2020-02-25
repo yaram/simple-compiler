@@ -169,8 +169,6 @@ struct FunctionParameter {
     };
 };
 
-struct File;
-
 struct Statement {
     StatementType type;
 
@@ -179,7 +177,7 @@ struct Statement {
     bool is_top_level;
 
     union {
-        File *file;
+        const char *file_name;
 
         Statement *parent;
     };
@@ -254,12 +252,6 @@ struct Statement {
 
         const char *library;
     };
-};
-
-struct File {
-    const char *path;
-
-    Array<Statement> statements;
 };
 
 void print_statement(Statement statement);

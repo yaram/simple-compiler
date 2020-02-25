@@ -1,9 +1,8 @@
 #pragma once
 
-#include <stddef.h>
-#include <stdbool.h>
-#include <stdio.h>
-#include "ast.h"
 #include "result.h"
+#include "array.h"
+#include "tokens.h"
+#include "ast.h"
 
-Result<Array<File>> parse_source(const char *source_file_path);
+Result<Array<Statement>> parse_tokens(const char *path, Array<Token> tokens);

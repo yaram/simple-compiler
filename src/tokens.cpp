@@ -1,5 +1,7 @@
 #include "tokens.h"
 #include <stdio.h>
+#include <string.h>
+#include "util.h"
 
 void print_token(Token token) {
     printf("(%d, %d-%d): ", token.line, token.first_character, token.last_character);
@@ -37,8 +39,16 @@ void print_token(Token token) {
             printf("ForwardSlash");
         } break;
 
+        case TokenType::Percent: {
+            printf("Percent");
+        } break;
+
         case TokenType::Equals: {
             printf("Equals");
+        } break;
+
+        case TokenType::DoubleEquals: {
+            printf("DoubleEquals");
         } break;
 
         case TokenType::Ampersand: {
@@ -69,8 +79,8 @@ void print_token(Token token) {
             printf("Arrow");
         } break;
 
-        case TokenType::DoubleEquals: {
-            printf("DoubleEquals");
+        case TokenType::Dollar: {
+            printf("Dollar");
         } break;
 
         case TokenType::OpenRoundBracket: {
@@ -90,7 +100,7 @@ void print_token(Token token) {
         } break;
 
         case TokenType::OpenSquareBracket: {
-            printf("OpenSquarBracket");
+            printf("OpenSquareBracket");
         } break;
 
         case TokenType::CloseSquareBracket: {
@@ -108,6 +118,136 @@ void print_token(Token token) {
         case TokenType::Integer: {
             printf("Integer(%lld)", token.integer);
         } break;
+    }
+}
 
+const char *get_token_text(Token token) {
+    switch(token.type) {
+        case TokenType::Dot: {
+            return ".";
+        } break;
+
+        case TokenType::Comma: {
+            return ",";
+        } break;
+
+        case TokenType::Colon: {
+            return ":";
+        } break;
+
+        case TokenType::Semicolon: {
+            return ";";
+        } break;
+
+        case TokenType::Plus: {
+            return "+";
+        } break;
+
+        case TokenType::Dash: {
+            return "-";
+        } break;
+
+        case TokenType::Asterisk: {
+            return "*";
+        } break;
+
+        case TokenType::ForwardSlash: {
+            return "/";
+        } break;
+
+        case TokenType::Percent: {
+            return "%";
+        } break;
+
+        case TokenType::Equals: {
+            return "=";
+        } break;
+
+        case TokenType::DoubleEquals: {
+            return "==";
+        } break;
+
+        case TokenType::Ampersand: {
+            return "&";
+        } break;
+
+        case TokenType::DoubleAmpersand: {
+            return "&&";
+        } break;
+
+        case TokenType::Pipe: {
+            return "|";
+        } break;
+
+        case TokenType::DoublePipe: {
+            return "||";
+        } break;
+
+        case TokenType::Hash: {
+            return "#";
+        } break;
+
+        case TokenType::Bang: {
+            return "!";
+        } break;
+
+        case TokenType::Arrow: {
+            return "->";
+        } break;
+
+        case TokenType::Dollar: {
+            return "$";
+        } break;
+
+        case TokenType::OpenRoundBracket: {
+            return "(";
+        } break;
+
+        case TokenType::CloseRoundBracket: {
+            return ")";
+        } break;
+
+        case TokenType::OpenCurlyBracket: {
+            return "{";
+        } break;
+
+        case TokenType::CloseCurlyBracket: {
+            return "}";
+        } break;
+
+        case TokenType::OpenSquareBracket: {
+            return "[";
+        } break;
+
+        case TokenType::CloseSquareBracket: {
+            return "]";
+        } break;
+
+        case TokenType::Identifier: {
+            return token.identifier;
+        } break;
+
+        case TokenType::String: {
+            auto buffer = allocate<char>(token.string.count + 3);
+
+            buffer[0] = '"';
+            memcpy(buffer + 1, token.string.elements, token.string.count);
+            buffer[token.string.count + 1] = '"';
+            buffer[token.string.count + 2] = '\0';
+
+            return buffer;
+        } break;
+
+        case TokenType::Integer: {
+            auto buffer = allocate<char>(32);
+
+            sprintf(buffer, "%lld", token.integer);
+
+            return buffer;
+        } break;
+
+        default: {
+            abort();
+        } break;
     }
 }
