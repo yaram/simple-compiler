@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 #include "array.h"
 
 template <typename T>
