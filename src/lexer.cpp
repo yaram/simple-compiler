@@ -577,7 +577,7 @@ Result<Array<Token>> tokenize_source(const char *path, const char *source) {
             }
 
             Token token;
-            token.type = TokenType::Identifier;
+            token.type = TokenType::Integer;
             token.line = line;
             token.first_character = first_character;
             token.last_character = character - 1;
