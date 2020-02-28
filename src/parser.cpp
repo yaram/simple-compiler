@@ -169,6 +169,28 @@ static bool expect_basic_token(Context *context, TokenType type) {
     return true;
 }
 
+static Result<FileRange> expect_basic_token_with_range(Context *context, TokenType type) {
+    expect(token, next_token(*context));
+
+    if(token.type != type) {
+        Token expected_token;
+        expected_token.type = type;
+
+        error(*context, "Expected '%s', got '%s'", get_token_text(expected_token), get_token_text(token));
+
+        return { false };
+    }
+
+    context->next_token_index += 1;
+
+    auto range = token_range(*context, token);
+
+    return {
+        true,
+        range
+    };
+}
+
 static Result<Array<char>> expect_string(Context *context) {
     expect(token, next_token(*context));
 
@@ -1204,16 +1226,10 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                 expect(expression, parse_expression(context));
 
-                expect(token, next_token(*context));
-
-                if(token.type != TokenType::CloseSquareBracket) {
-                    error(*context, "Expected ']'. Got '%s'", get_token_text(token));
-
-                    return { false };
-                }
+                expect(last_range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
 
                 operation.type = OperationType::IndexReference;
-                operation.range = span_range(first_range, token_range(*context, token));
+                operation.range = span_range(first_range, last_range);
                 operation.index_reference = expression;
 
                 expect_left_recursive = true;
@@ -1438,15 +1454,7 @@ static Result<Statement> parse_statement(Context *context) {
             if(strcmp(token.identifier, "import") == 0) {
                 expect(string, expect_string(context));
 
-                expect(token, next_token(*context));
-
-                if(token.type != TokenType::Semicolon) {
-                    error(*context, "Expected ';', got '%s'", get_token_text(token));
-
-                    return { false };
-                }
-
-                context->next_token_index += 1;
+                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
                 auto import_path = allocate<char>(string.count + 1);
                 memcpy(import_path, string.elements, string.count);
@@ -1454,7 +1462,7 @@ static Result<Statement> parse_statement(Context *context) {
 
                 Statement statement;
                 statement.type = StatementType::Import;
-                statement.range = span_range(first_range, token_range(*context, token));
+                statement.range = span_range(first_range, last_range);
                 statement.import = import_path;
 
                 return {
@@ -1464,15 +1472,7 @@ static Result<Statement> parse_statement(Context *context) {
             } else if(strcmp(token.identifier, "library") == 0) {
                 expect(string, expect_string(context));
 
-                expect(token, next_token(*context));
-
-                if(token.type != TokenType::Semicolon) {
-                    error(*context, "Expected ';', got '%s'", get_token_text(token));
-
-                    return { false };
-                }
-
-                context->next_token_index += 1;
+                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
                 auto library = allocate<char>(string.count + 1);
                 memcpy(library, string.elements, string.count);
@@ -1576,24 +1576,17 @@ static Result<Statement> parse_statement(Context *context) {
             } else if(strcmp(token.identifier, "return") == 0) {
                 expect(token, next_token(*context));
 
-                auto last_range = token_range(*context, token);
-
                 auto has_value = false;
                 Expression value;
-                if(token.type != TokenType::Semicolon) {
+                FileRange last_range;
+                if(token.type == TokenType::Semicolon) {
+                    last_range = token_range(*context, token);
+                } else {
                     expect(expression, parse_expression(context));
 
-                    expect(token, next_token(*context));
+                    expect(range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
-                    if(token.type != TokenType::Semicolon) {
-                        error(*context, "Expected ';', got '%s'", get_token_text(token));
-
-                        return { false };
-                    }
-
-                    context->next_token_index += 1;
-
-                    last_range = token_range(*context, token);
+                    last_range = range;
 
                     has_value = true;
                     value = expression;
@@ -1745,19 +1738,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                                             expect(outer_right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, true));
 
-                                            expect(token, next_token(*context));
-
-                                            if(token.type != TokenType::Semicolon) {
-                                                error(*context, "Expected ';', got '%s'", get_token_text(token));
-
-                                                return { false };
-                                            }
-
-                                            context->next_token_index += 1;
+                                            expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
                                             Statement statement;
                                             statement.type = StatementType::ConstantDefinition;
-                                            statement.range = span_range(first_range, token_range(*context, token));
+                                            statement.range = span_range(first_range, last_range);
                                             statement.constant_definition = {
                                                 identifier,
                                                 outer_right_expression
@@ -1782,17 +1767,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                                         expect(right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, true));
 
-                                        expect(token, next_token(*context));
-
-                                        if(token.type != TokenType::Semicolon) {
-                                            error(*context, "Expected ';', got '%s'", get_token_text(token));
-                                        }
-
-                                        context->next_token_index += 1;
+                                        expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
                                         Statement statement;
                                         statement.type = StatementType::ConstantDefinition;
-                                        statement.range = span_range(first_range, token_range(*context, token));
+                                        statement.range = span_range(first_range, last_range);
                                         statement.constant_definition = {
                                             identifier,
                                             right_expression
@@ -1886,19 +1865,11 @@ static Result<Statement> parse_statement(Context *context) {
                                 default: {
                                     expect(expression, parse_expression(context));
 
-                                    expect(token, next_token(*context));
-
-                                    if(token.type != TokenType::Semicolon) {
-                                        error(*context, "Expected ';', got '%s'", get_token_text(token));
-
-                                        return { false };
-                                    }
-
-                                    context->next_token_index += 1;
+                                    expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
                                     Statement statement;
                                     statement.type = StatementType::ConstantDefinition;
-                                    statement.range = span_range(first_range, token_range(*context, token));
+                                    statement.range = span_range(first_range, last_range);
                                     statement.constant_definition = {
                                         identifier,
                                         expression
@@ -1917,19 +1888,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                             expect(expression, parse_expression(context));
 
-                            expect(token, next_token(*context));
-
-                            if(token.type != TokenType::Semicolon) {
-                                error(*context, "Expected ';', got '%s'", get_token_text(token));
-
-                                return { false };
-                            }
-
-                            context->next_token_index += 1;
+                            expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
                             Statement statement;
                             statement.type = StatementType::VariableDeclaration;
-                            statement.range = span_range(first_range, token_range(*context, token));
+                            statement.range = span_range(first_range, last_range);
                             statement.variable_declaration.type = VariableDeclarationType::TypeElided;
                             statement.variable_declaration.type_elided = expression;
 
@@ -1965,19 +1928,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                                     expect(value_expression, parse_expression(context));
 
-                                    expect(token, next_token(*context));
-
-                                    if(token.type != TokenType::Semicolon) {
-                                        error(*context, "Expected ';', got '%s'", get_token_text(token));
-
-                                        return { false };
-                                    }
-
-                                    context->next_token_index += 1;
+                                    expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
                                     Statement statement;
                                     statement.type = StatementType::VariableDeclaration;
-                                    statement.range = span_range(first_range, token_range(*context, token));
+                                    statement.range = span_range(first_range, last_range);
                                     statement.variable_declaration.type = VariableDeclarationType::FullySpecified;
                                     statement.variable_declaration.fully_specified = {
                                         expression,
@@ -2030,19 +1985,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                             expect(expression, parse_expression(context));
 
-                            expect(token, next_token(*context));
-
-                            if(token.type != TokenType::Semicolon) {
-                                error(*context, "Expected ';', got '%s'", get_token_text(token));
-
-                                return { false };
-                            }
-
-                            context->next_token_index += 1;
+                            expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
                             Statement statement;
                             statement.type = StatementType::Assignment;
-                            statement.range = span_range(first_range, token_range(*context, token));
+                            statement.range = span_range(first_range, last_range);
                             statement.assignment = {
                                 right_expression,
                                 expression
@@ -2089,19 +2036,11 @@ static Result<Statement> parse_statement(Context *context) {
 
                     expect(value_expression, parse_expression(context));
 
-                    expect(token, next_token(*context));
-
-                    if(token.type != TokenType::Semicolon) {
-                        error(*context, "Expected ';', got '%s'", get_token_text(token));
-
-                        return { false };
-                    }
-
-                    context->next_token_index += 1;
+                    expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
                     Statement statement;
                     statement.type = StatementType::Assignment;
-                    statement.range = span_range(first_range, token_range(*context, token));
+                    statement.range = span_range(first_range, last_range);
                     statement.assignment = {
                         expression,
                         value_expression
