@@ -551,27 +551,27 @@ Result<Array<Token>> tokenize_source(const char *path, const char *source) {
 
             uint64_t value = 0;
 
+            uint64_t place_offset = 1;
+
             for(size_t i = 0; i < count; i += 1) {
                 auto offset = count - 1 - i;
                 auto digit = source[first_index + offset];
 
-                auto found = true;
-                for(size_t j = 0; j < radix; j += 1) {
-                    uint64_t digit_value;
-                    if((digit >= '0' && digit <= '7') || (digit >= '8' && digit <= '9' && radix >= 10)) {
-                        digit_value = digit - '0';
-                    } else if(digit >= 'a' && digit <= 'f' && radix == 16) {
-                        digit_value = digit - 'a';
-                    } else if(digit >= 'A' && digit <= 'F' && radix == 16) {
-                        digit_value = digit - 'A';
-                    } else {
-                        error(path, line, first_character + (unsigned int)offset, "Expected digit, got '%c'", digit);
+                uint64_t digit_value;
+                if((digit >= '0' && digit <= '7') || (digit >= '8' && digit <= '9' && radix >= 10)) {
+                    digit_value = digit - '0';
+                } else if(digit >= 'a' && digit <= 'f' && radix == 16) {
+                    digit_value = digit - 'a';
+                } else if(digit >= 'A' && digit <= 'F' && radix == 16) {
+                    digit_value = digit - 'A';
+                } else {
+                    error(path, line, first_character + (unsigned int)offset, "Expected digit, got '%c'", digit);
 
-                        return { false };
-                    }
-
-                    value += i * radix * j;
+                    return { false };
                 }
+
+                value += place_offset * digit_value;
+                place_offset *= radix;
             }
 
             Token token;
