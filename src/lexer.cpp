@@ -599,9 +599,9 @@ Result<Array<Token>> tokenize_source(const char *path) {
                 if((digit >= '0' && digit <= '7') || (digit >= '8' && digit <= '9' && radix >= 10)) {
                     digit_value = digit - '0';
                 } else if(digit >= 'a' && digit <= 'f' && radix == 16) {
-                    digit_value = digit - 'a';
+                    digit_value = digit - 'a' + 10;
                 } else if(digit >= 'A' && digit <= 'F' && radix == 16) {
-                    digit_value = digit - 'A';
+                    digit_value = digit - 'A' + 10;
                 } else {
                     error(path, line, first_character + (unsigned int)offset, "Expected digit, got '%c'", digit);
 
