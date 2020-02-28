@@ -351,6 +351,12 @@ Result<Array<Token>> tokenize_source(const char *path, const char *source) {
             index += 1;
 
             character += 1;
+        } else if(source[index] == '$') {
+            append_basic_token(line, character, &tokens, TokenType::Dollar);
+
+            index += 1;
+
+            character += 1;
         } else if(source[index] == '(') {
             append_basic_token(line, character, &tokens, TokenType::OpenRoundBracket);
 
