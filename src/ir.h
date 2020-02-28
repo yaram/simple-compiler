@@ -158,7 +158,7 @@ struct Instruction {
     };
 };
 
-void print_instruction(Instruction instruction);
+void print_instruction(Instruction instruction, bool has_return);
 
 struct Function {
     const char *name;

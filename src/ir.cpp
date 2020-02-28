@@ -4,7 +4,7 @@
 
 static const char *register_size_names[] = { "8", "16", "32", "64" };
 
-void print_instruction(Instruction instruction) {
+void print_instruction(Instruction instruction, bool has_return) {
     switch(instruction.type) {
         case InstructionType::ArithmeticOperation: {
             switch(instruction.arithmetic_operation.type) {
@@ -163,7 +163,11 @@ void print_instruction(Instruction instruction) {
         } break;
 
         case InstructionType::Return: {
-            printf("RET r%zu", instruction.return_.value_register);
+            printf("RET");
+
+            if(has_return) {
+                printf(" r%zu", instruction.return_.value_register);
+            }
         } break;
 
         case InstructionType::AllocateLocal: {
@@ -251,7 +255,7 @@ void print_function(Function function) {
 
             printf(" : ");
 
-            print_instruction(function.instructions[i]);
+            print_instruction(function.instructions[i], function.has_return);
 
             if(i != function.instructions.count - 1) {
                 printf("\n");

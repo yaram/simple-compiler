@@ -581,9 +581,14 @@ static void print_statement_indent(Statement statement, unsigned int indentation
         } break;
 
         case StatementType::Return: {
-            printf("Return: ");
+            printf("Return");
 
-            print_expression_indent(statement._return, indentation_level);
+            if(statement._return.has_value) {
+                printf(": ");
+
+                print_expression_indent(statement._return.value, indentation_level);
+            }
+            
         } break;
 
         case StatementType::Import: {

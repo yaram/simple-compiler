@@ -1591,14 +1591,32 @@ static Result<Statement> parse_statement(Context *context) {
             } else if(strcmp(token.identifier, "return") == 0) {
                 expect(token, next_token(*context));
 
-                expect(expression, parse_expression(context));
+                auto has_value = false;
+                Expression value;
+                FileRange last_range;
+                if(token.type == TokenType::Semicolon) {
+                    context->next_token_index += 1;
 
-                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                    last_range = token_range(*context, token);
+                } else {
+                    expect(expression, parse_expression(context));
+
+                    expect(range, expect_basic_token_with_range(context, TokenType::Semicolon));
+
+                    last_range = range;
+
+                    has_value = true;
+                    value = expression;
+                }
 
                 Statement statement;
                 statement.type = StatementType::Return;
                 statement.range = span_range(first_range, last_range);
-                statement._return = expression;
+                statement._return.has_value = has_value;
+
+                if(has_value) {
+                    statement._return.value = value;
+                }
 
                 return {
                     true,

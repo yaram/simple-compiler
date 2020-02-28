@@ -249,7 +249,11 @@ struct Statement {
             Array<Statement> statements;
         } while_loop;
 
-        Expression _return;
+        struct {
+            bool has_value;
+
+            Expression value;
+        } _return;
 
         const char *import;
     };
