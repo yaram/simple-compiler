@@ -231,9 +231,7 @@ Result<Array<Token>> tokenize_source(const char *path, const char *source) {
                     }
                 }
             } else {
-                error(path, line, character, "Expected '*' or '/', got '%c'", source[index]);
-
-                return { false };
+                append_basic_token(line, character, &tokens, TokenType::ForwardSlash);
             }
         } else if(source[index] == '.') {
             append_basic_token(line, character, &tokens, TokenType::Dot);
