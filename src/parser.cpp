@@ -1236,15 +1236,26 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
             case TokenType::OpenSquareBracket: {
                 context->next_token_index += 1;
 
-                expect(expression, parse_expression(context));
+                expect(token, next_token(*context));
 
-                expect(last_range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
+                if(token.type == TokenType::CloseSquareBracket) {
+                    context->next_token_index += 1;
 
-                operation.type = OperationType::IndexReference;
-                operation.range = span_range(first_range, last_range);
-                operation.index_reference = expression;
+                    operation.type = OperationType::ArrayType;
+                    operation.range = span_range(first_range, token_range(*context, token));
 
-                expect_left_recursive = true;
+                    expect_left_recursive = true;
+                } else {
+                    expect(expression, parse_expression(context));
+
+                    expect(last_range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
+
+                    operation.type = OperationType::IndexReference;
+                    operation.range = span_range(first_range, last_range);
+                    operation.index_reference = expression;
+
+                    expect_left_recursive = true;
+                }
             } break;
 
             case TokenType::Identifier: {
