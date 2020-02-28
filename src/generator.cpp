@@ -202,7 +202,7 @@ static void error(FileRange range, const char *format, ...) {
                     } break;
 
                     case ' ': {
-                        if(done_skipping_spaces) {
+                        if(!done_skipping_spaces) {
                             skipped_spaces += 1;
                         } else {
                             fprintf(stderr, "%c", character);

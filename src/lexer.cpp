@@ -62,7 +62,7 @@ static void error(const char *path, unsigned int line, unsigned int character, c
                 } break;
 
                 case ' ': {
-                    if(done_skipping_spaces) {
+                    if(!done_skipping_spaces) {
                         skipped_spaces += 1;
                     } else {
                         fprintf(stderr, "%c", character);
