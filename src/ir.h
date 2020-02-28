@@ -20,7 +20,11 @@ enum struct ArithmeticOperationType {
 };
 
 enum struct ComparisonOperationType {
-    Equal
+    Equal,
+    SignedLessThan,
+    UnsignedLessThan,
+    SignedGreaterThan,
+    UnsignedGreaterThan
 };
 
 enum struct InstructionType {

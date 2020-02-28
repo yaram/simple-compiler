@@ -16,6 +16,8 @@ enum struct TokenType {
     Equals,
     DoubleEquals,
     BangEquals,
+    LeftArrow,
+    RightArrow,
     Ampersand,
     DoubleAmpersand,
     Pipe,

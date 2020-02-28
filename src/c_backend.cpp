@@ -219,6 +219,26 @@ bool generate_c_object(
                                 is_signed = false;
                             } break;
 
+                            case ComparisonOperationType::SignedLessThan: {
+                                operator_ = "<";
+                                is_signed = true;
+                            } break;
+
+                            case ComparisonOperationType::UnsignedLessThan: {
+                                operator_ = "<";
+                                is_signed = false;
+                            } break;
+
+                            case ComparisonOperationType::SignedGreaterThan: {
+                                operator_ = ">";
+                                is_signed = true;
+                            } break;
+
+                            case ComparisonOperationType::UnsignedGreaterThan: {
+                                operator_ = ">";
+                                is_signed = false;
+                            } break;
+
                             default: {
                                 abort();
                             } break;

@@ -55,6 +55,14 @@ void print_token(Token token) {
             printf("BangEquals");
         } break;
 
+        case TokenType::LeftArrow: {
+            printf("LeftArrow");
+        } break;
+
+        case TokenType::RightArrow: {
+            printf("RightArrow");
+        } break;
+
         case TokenType::Ampersand: {
             printf("Ampersand");
         } break;
@@ -173,6 +181,14 @@ const char *get_token_text(Token token) {
 
         case TokenType::BangEquals: {
             return "!=";
+        } break;
+
+        case TokenType::LeftArrow: {
+            return "<";
+        } break;
+
+        case TokenType::RightArrow: {
+            return ">";
         } break;
 
         case TokenType::Ampersand: {

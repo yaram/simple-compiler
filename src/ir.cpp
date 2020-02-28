@@ -63,6 +63,22 @@ void print_instruction(Instruction instruction) {
                 case ComparisonOperationType::Equal: {
                     printf("EQ ");
                 } break;
+
+                case ComparisonOperationType::SignedLessThan: {
+                    printf("SLT ");
+                } break;
+
+                case ComparisonOperationType::UnsignedLessThan: {
+                    printf("ULT ");
+                } break;
+
+                case ComparisonOperationType::SignedGreaterThan: {
+                    printf("SGT ");
+                } break;
+
+                case ComparisonOperationType::UnsignedGreaterThan: {
+                    printf("UGT ");
+                } break;
             }
 
             printf(

@@ -280,6 +280,8 @@ enum struct OperationType {
 
     Equal,
     NotEqual,
+    LessThan,
+    GreaterThan,
 
     BitwiseAnd,
 
@@ -296,7 +298,7 @@ unsigned int operation_precedences[] = {
     3,
     4, 4, 4,
     5, 5,
-    8, 8,
+    8, 8, 8, 8,
     9,
     11,
     12,
@@ -321,77 +323,6 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
     Expression expression;
 
     switch(operation.type) {
-        case OperationType::Addition:
-        case OperationType::Subtraction:
-        case OperationType::Multiplication:
-        case OperationType::Division:
-        case OperationType::Modulo:
-        case OperationType::Equal:
-        case OperationType::NotEqual:
-        case OperationType::BitwiseAnd:
-        case OperationType::BitwiseOr:
-        case OperationType::BooleanAnd:
-        case OperationType::BooleanOr: {
-            auto right = take_last(expression_stack);
-            auto left = take_last(expression_stack);
-
-            expression.type = ExpressionType::BinaryOperation;
-            expression.range = span_range(left.range, right.range);
-
-            expression.binary_operation.left = heapify(left);
-            expression.binary_operation.right = heapify(right);
-
-            switch(operation.type) {
-                case OperationType::Addition: {
-                    expression.binary_operation.binary_operator = BinaryOperator::Addition;
-                } break;
-
-                case OperationType::Subtraction: {
-                    expression.binary_operation.binary_operator = BinaryOperator::Subtraction;
-                } break;
-
-                case OperationType::Multiplication: {
-                    expression.binary_operation.binary_operator = BinaryOperator::Multiplication;
-                } break;
-
-                case OperationType::Division: {
-                    expression.binary_operation.binary_operator = BinaryOperator::Division;
-                } break;
-
-                case OperationType::Modulo: {
-                    expression.binary_operation.binary_operator = BinaryOperator::Modulo;
-                } break;
-
-                case OperationType::Equal: {
-                    expression.binary_operation.binary_operator = BinaryOperator::Equal;
-                } break;
-
-                case OperationType::NotEqual: {
-                    expression.binary_operation.binary_operator = BinaryOperator::NotEqual;
-                } break;
-
-                case OperationType::BitwiseAnd: {
-                    expression.binary_operation.binary_operator = BinaryOperator::BitwiseAnd;
-                } break;
-
-                case OperationType::BitwiseOr: {
-                    expression.binary_operation.binary_operator = BinaryOperator::BitwiseOr;
-                } break;
-
-                case OperationType::BooleanAnd: {
-                    expression.binary_operation.binary_operator = BinaryOperator::BooleanAnd;
-                } break;
-
-                case OperationType::BooleanOr: {
-                    expression.binary_operation.binary_operator = BinaryOperator::BooleanOr;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-        } break;
-
         case OperationType::MemberReference: {
             auto sub_expression = take_last(expression_stack);
 
@@ -487,7 +418,72 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
         } break;
 
         default: {
-            abort();
+            auto right = take_last(expression_stack);
+            auto left = take_last(expression_stack);
+
+            expression.type = ExpressionType::BinaryOperation;
+            expression.range = span_range(left.range, right.range);
+
+            expression.binary_operation.left = heapify(left);
+            expression.binary_operation.right = heapify(right);
+
+            switch(operation.type) {
+                case OperationType::Addition: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Addition;
+                } break;
+
+                case OperationType::Subtraction: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Subtraction;
+                } break;
+
+                case OperationType::Multiplication: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Multiplication;
+                } break;
+
+                case OperationType::Division: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Division;
+                } break;
+
+                case OperationType::Modulo: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Modulo;
+                } break;
+
+                case OperationType::Equal: {
+                    expression.binary_operation.binary_operator = BinaryOperator::Equal;
+                } break;
+
+                case OperationType::NotEqual: {
+                    expression.binary_operation.binary_operator = BinaryOperator::NotEqual;
+                } break;
+
+                case OperationType::LessThan: {
+                    expression.binary_operation.binary_operator = BinaryOperator::LessThan;
+                } break;
+
+                case OperationType::GreaterThan: {
+                    expression.binary_operation.binary_operator = BinaryOperator::GreaterThan;
+                } break;
+
+                case OperationType::BitwiseAnd: {
+                    expression.binary_operation.binary_operator = BinaryOperator::BitwiseAnd;
+                } break;
+
+                case OperationType::BitwiseOr: {
+                    expression.binary_operation.binary_operator = BinaryOperator::BitwiseOr;
+                } break;
+
+                case OperationType::BooleanAnd: {
+                    expression.binary_operation.binary_operator = BinaryOperator::BooleanAnd;
+                } break;
+
+                case OperationType::BooleanOr: {
+                    expression.binary_operation.binary_operator = BinaryOperator::BooleanOr;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
         } break;
     }
 
@@ -1160,6 +1156,24 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 context->next_token_index += 1;
 
                 operation.type = OperationType::NotEqual;
+                operation.range = first_range;
+
+                expect_left_recursive = false;
+            } break;
+
+            case TokenType::LeftArrow: {
+                context->next_token_index += 1;
+
+                operation.type = OperationType::LessThan;
+                operation.range = first_range;
+
+                expect_left_recursive = false;
+            } break;
+
+            case TokenType::RightArrow: {
+                context->next_token_index += 1;
+
+                operation.type = OperationType::GreaterThan;
                 operation.range = first_range;
 
                 expect_left_recursive = false;

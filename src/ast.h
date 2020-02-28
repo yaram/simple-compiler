@@ -25,6 +25,8 @@ enum struct BinaryOperator {
     Modulo,
     Equal,
     NotEqual,
+    LessThan,
+    GreaterThan,
     BitwiseAnd,
     BitwiseOr,
     BooleanAnd,

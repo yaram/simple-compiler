@@ -992,6 +992,28 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                     };
                 } break;
 
+                case BinaryOperator::LessThan: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Boolean;
+                    result.value.boolean = left < right;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                case BinaryOperator::GreaterThan: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Boolean;
+                    result.value.boolean = left > right;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
                 default: {
                     abort();
                 } break;
@@ -4534,6 +4556,46 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 );
 
                                 result_register = generate_boolean_invert(context, instructions, equal_register);
+
+                                result_type.category = TypeCategory::Boolean;
+                            } break;
+
+                            case BinaryOperator::LessThan: {
+                                ComparisonOperationType operation_type;
+                                if(determined_type.integer.is_signed) {
+                                    operation_type = ComparisonOperationType::SignedLessThan;
+                                } else {
+                                    operation_type = ComparisonOperationType::UnsignedLessThan;
+                                }
+
+                                result_register = append_comparison_operation(
+                                    context,
+                                    instructions,
+                                    operation_type,
+                                    determined_type.integer.size,
+                                    left_register,
+                                    right_register
+                                );
+
+                                result_type.category = TypeCategory::Boolean;
+                            } break;
+
+                            case BinaryOperator::GreaterThan: {
+                                ComparisonOperationType operation_type;
+                                if(determined_type.integer.is_signed) {
+                                    operation_type = ComparisonOperationType::SignedGreaterThan;
+                                } else {
+                                    operation_type = ComparisonOperationType::UnsignedGreaterThan;
+                                }
+
+                                result_register = append_comparison_operation(
+                                    context,
+                                    instructions,
+                                    operation_type,
+                                    determined_type.integer.size,
+                                    left_register,
+                                    right_register
+                                );
 
                                 result_type.category = TypeCategory::Boolean;
                             } break;
