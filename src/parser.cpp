@@ -721,7 +721,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
 
                                 Expression *return_type;
                                 if(post_token.type == TokenType::Arrow) {
-                                    context->next_token_index;
+                                    context->next_token_index += 1;
 
                                     expect(expression, parse_expression(context));
 
