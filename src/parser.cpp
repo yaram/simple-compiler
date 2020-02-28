@@ -1865,7 +1865,7 @@ static Result<Statement> parse_statement(Context *context) {
                                         statement.type = StatementType::ConstantDefinition;
                                         statement.range = span_range(first_range, last_range);
                                         statement.constant_definition = {
-                                            sub_identifier,
+                                            identifier,
                                             right_expression
                                         };
 
