@@ -6446,6 +6446,26 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
                         }
                     }
 
+                    auto has_return_at_end = false;
+                    if(function.declaration.function_declaration.statements.count > 0) {
+                        has_return_at_end = function.declaration.function_declaration.statements[
+                            function.declaration.function_declaration.statements.count - 1
+                        ].type == StatementType::Return;
+                    }
+
+                    if(!has_return_at_end) {
+                        if(has_return) {
+                            error(function.file_path, function.declaration.range, "Function '%s' must end with a return", function.declaration.function_declaration.name.text);
+
+                            return { false };
+                        } else {
+                            Instruction return_;
+                            return_.type = InstructionType::Return;
+
+                            append(&instructions, return_);
+                        }
+                    }
+
                     context.variable_context_stack.count -= 1;
                     context.next_register = 0;
 
