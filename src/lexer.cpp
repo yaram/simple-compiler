@@ -303,8 +303,8 @@ Result<Array<Token>> tokenize_source(const char *path) {
             index += 1;
 
             character += 1;
-        } else if(source[index] == '/') {
-            append_basic_token(line, character, &tokens, TokenType::ForwardSlash);
+        } else if(source[index] == '%') {
+            append_basic_token(line, character, &tokens, TokenType::Percent);
 
             index += 1;
 
