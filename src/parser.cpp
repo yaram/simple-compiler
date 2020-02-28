@@ -1430,19 +1430,10 @@ static Result<Statement> parse_statement(Context *context) {
                 memcpy(import_path, string.elements, string.count);
                 import_path[string.count] = 0;
 
-                auto source_file_directory = path_get_directory_component(context->path);
-
-                auto import_path_relative = allocate<char>(strlen(source_file_directory) + string.count + 1);
-
-                strcpy(import_path_relative, source_file_directory);
-                strcat(import_path_relative, import_path);
-
-                expect(import_path_absolute, path_relative_to_absolute(import_path_relative));
-
                 Statement statement;
                 statement.type = StatementType::Import;
                 statement.range = span_range(first_range, token_range(*context, token));
-                statement.import = import_path_absolute;
+                statement.import = import_path;
 
                 return {
                     true,
