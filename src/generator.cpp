@@ -5749,11 +5749,14 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             return true;
         } break;
 
-        case StatementType::LoneIf: {
-            expect(condition, generate_expression(context, instructions, statement.lone_if.condition));
+        case StatementType::If: {
+            auto end_jump_count = 1 + statement.if_.else_ifs.count;
+            auto end_jump_indices = allocate<size_t>(end_jump_count);
+
+            expect(condition, generate_expression(context, instructions, statement.if_.condition));
 
             if(condition.type.category != TypeCategory::Boolean) {
-                error(context->current_file_path, statement.lone_if.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
+                error(context->current_file_path, statement.if_.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
 
                 return false;
             }
@@ -5793,7 +5796,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             append(&context->variable_context_stack, List<Variable>{});
 
-            for(auto child_statement : statement.lone_if.statements) {
+            for(auto child_statement : statement.if_.statements) {
                 if(!generate_statement(context, instructions, child_statement)) {
                     return false;
                 }
@@ -5801,7 +5804,87 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             context->variable_context_stack.count -= 1;
 
+            Instruction end_jump;
+            end_jump.type = InstructionType::Jump;
+
+            end_jump_indices[0] = append(instructions, jump);
+
             (*instructions)[jump_index].jump.destination_instruction = instructions->count;
+
+            for(size_t i = 0; i < statement.if_.else_ifs.count; i += 1) {
+                expect(condition, generate_expression(context, instructions, statement.if_.else_ifs[i].condition));
+
+                if(condition.type.category != TypeCategory::Boolean) {
+                    error(context->current_file_path, statement.if_.else_ifs[i].condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
+
+                    return false;
+                }
+
+                size_t condition_register;
+                switch(condition.value.category) {
+                    case ValueCategory::Constant: {
+                        uint64_t integer_value;
+                        if(condition.value.constant.boolean) {
+                            integer_value = 1;
+                        } else {
+                            integer_value = 0;
+                        }
+
+                        condition_register = append_constant(context, instructions, context->default_integer_size, integer_value);
+                    } break;
+
+                    case ValueCategory::Anonymous: {
+                        condition_register = condition.value.anonymous.register_;
+                    } break;
+
+                    case ValueCategory::Address: {
+                        condition_register = append_load_integer(context, instructions, context->default_integer_size, condition.value.address);
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                append_branch(context, instructions, condition_register, instructions->count + 2);
+
+                Instruction jump;
+                jump.type = InstructionType::Jump;
+
+                auto jump_index = append(instructions, jump);
+
+                append(&context->variable_context_stack, List<Variable>{});
+
+                for(auto child_statement : statement.if_.else_ifs[i].statements) {
+                    if(!generate_statement(context, instructions, child_statement)) {
+                        return false;
+                    }
+                }
+
+                context->variable_context_stack.count -= 1;
+
+                Instruction end_jump;
+                end_jump.type = InstructionType::Jump;
+
+                end_jump_indices[i + 1] = append(instructions, jump);
+
+                (*instructions)[jump_index].jump.destination_instruction = instructions->count;
+            }
+
+            if(statement.if_.has_else) {
+                append(&context->variable_context_stack, List<Variable>{});
+
+                for(auto child_statement : statement.if_.else_statements) {
+                    if(!generate_statement(context, instructions, child_statement)) {
+                        return false;
+                    }
+                }
+                context->variable_context_stack.count -= 1;
+            }
+
+            for(size_t i = 0; i < end_jump_count; i += 1) {
+                (*instructions)[end_jump_indices[i]].jump.destination_instruction = instructions->count;
+            }
 
             return true;
         } break;
@@ -6434,7 +6517,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
                             case StatementType::Expression:
                             case StatementType::VariableDeclaration:
                             case StatementType::Assignment:
-                            case StatementType::LoneIf:
+                            case StatementType::If:
                             case StatementType::WhileLoop:
                             case StatementType::Return: {
                                 if(!generate_statement(&context, &instructions, statement)) {
