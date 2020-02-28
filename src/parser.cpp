@@ -11,9 +11,6 @@ struct Context {
     Array<Token> tokens;
 
     size_t next_token_index;
-
-    List<const char *> files;
-    List<const char *> libraries;
 };
 
 static void error(Context context, const char *format, ...) {
@@ -2145,5 +2142,21 @@ void set_statement_parents(Statement *statement) {
 }
 
 Result<Array<Statement>> parse_tokens(const char *path, Array<Token> tokens) {
+    Context context {
+        path,
+        tokens
+    };
 
+    List<Statement> statements{};
+
+    while(context.next_token_index < tokens.count) {
+        expect(statement, parse_statement(&context));
+
+        append(&statements, statement);
+    }
+
+    return {
+        true,
+        to_array(statements)
+    };
 }
