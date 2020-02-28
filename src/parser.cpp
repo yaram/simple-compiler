@@ -1219,6 +1219,19 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                 expect_left_recursive = true;
             } break;
 
+            case TokenType::Identifier: {
+                if(strcmp(token.identifier, "as") == 0) {
+                    context->next_token_index += 1;
+
+                    operation.type = OperationType::Cast;
+                    operation.range = token_range(*context, token);
+
+                    expect_left_recursive = false;
+                } else {
+                    done = true;
+                }
+            } break;
+
             default: {
                 done = true;
             } break;
