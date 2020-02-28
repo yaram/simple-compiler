@@ -27,6 +27,8 @@ int main(int argument_count, char *arguments[]) {
     const char *os = "windows";
 #endif
 
+    auto config = "debug";
+
     auto print_ir = false;
 
     int argument_index = 1;
@@ -65,6 +67,16 @@ int main(int argument_count, char *arguments[]) {
             }
 
             os = arguments[argument_index];
+        } else if(strcmp(argument, "-config") == 0) {
+            argument_index += 1;
+
+            if(argument_index == argument_count - 1) {
+                fprintf(stderr, "Missing value for '-config' option\n");
+
+                return EXIT_FAILURE;
+            }
+
+            config = arguments[argument_index];
         } else if(strcmp(argument, "-print-ir") == 0) {
             print_ir = true;
         } else {
@@ -74,6 +86,15 @@ int main(int argument_count, char *arguments[]) {
         }
 
         argument_index += 1;
+    }
+
+    if(
+        strcmp(config, "debug") != 0 &&
+        strcmp(config, "release") != 0
+    ) {
+        fprintf(stderr, "Unknown config '%s'\n", config);
+
+        return EXIT_FAILURE;
     }
 
     if(
@@ -175,14 +196,20 @@ int main(int argument_count, char *arguments[]) {
 
     auto output_file_directory = path_get_directory_component(output_file_path);
 
-    generate_c_object(ir.functions, ir.constants, architecture, os, output_file_directory, output_file_name);
+    generate_c_object(ir.functions, ir.constants, architecture, os, config, output_file_directory, output_file_name);
 
     {
         char *buffer{};
 
         const char *linker_options;
         if(strcmp(os, "windows") == 0) {
-            linker_options = "/entry:main,/DEBUG";
+            if(strcmp(config, "debug") == 0) {
+                linker_options = "/entry:main,/DEBUG";
+            } else if(strcmp(config, "release") == 0) {
+                linker_options = "/entry:main";
+            } else {
+                abort();
+            }
         } else {
             linker_options = "--entry=main";
         }

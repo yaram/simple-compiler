@@ -69,6 +69,7 @@ bool generate_c_object(
     Array<StaticConstant> constants,
     const char *architecture,
     const char *os,
+    const char *config,
     const char *output_directory,
     const char *output_name
 ) {
@@ -508,9 +509,17 @@ bool generate_c_object(
 
     auto triple = get_llvm_triple(architecture, os);
 
-    string_buffer_append(&command_buffer, "clang -std=gnu99 -g -ffreestanding -w -nostdinc -c -target ");
+    string_buffer_append(&command_buffer, "clang -std=gnu99 -ffreestanding -w -nostdinc -c -target ");
 
     string_buffer_append(&command_buffer, triple);
+
+    if(strcmp(config, "debug") == 0) {
+        string_buffer_append(&command_buffer, " -g");
+    } else if(strcmp(config, "release") == 0) {
+        string_buffer_append(&command_buffer, " -O2");
+    } else {
+        abort();
+    }
 
     string_buffer_append(&command_buffer, " -o ");
     string_buffer_append(&command_buffer, output_directory);
