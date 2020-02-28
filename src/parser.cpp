@@ -1538,13 +1538,109 @@ static Result<Statement> parse_statement(Context *context) {
                     }
                 }
 
+                List<ElseIf> else_ifs{};
+
+                auto has_else = false;
+                Array<Statement> else_statements;
+                while(true) {
+                    expect(token, next_token(*context));
+
+                    if(token.type == TokenType::Identifier && strcmp(token.identifier, "else") == 0) {
+                        context->next_token_index += 1;
+
+                        expect(token, next_token(*context));
+
+                        switch(token.type) {
+                            case TokenType::OpenCurlyBracket: {
+                                context->next_token_index += 1;
+
+                                List<Statement> statements{};
+
+                                while(true) {
+                                    expect(token, next_token(*context));
+
+                                    if(token.type == TokenType::CloseCurlyBracket) {
+                                        context->next_token_index += 1;
+
+                                        last_range = token_range(*context, token);
+
+                                        break;
+                                    } else {
+                                        expect(statement, parse_statement(context));
+
+                                        append(&statements, statement);
+                                    }
+                                }
+
+                                has_else = true;
+                                else_statements = to_array(statements);
+                            } break;
+
+                            case TokenType::Identifier: {
+                                if(strcmp(token.identifier, "if") != 0) {
+                                    error(*context, "Expected '{' or 'if', got '%s'", get_token_text(token));
+
+                                    return { false };
+                                }
+
+                                context->next_token_index += 1;
+
+                                expect(expression, parse_expression(context));
+
+                                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
+                                    return { false };
+                                }
+                                
+                                List<Statement> statements{};
+
+                                while(true) {
+                                    expect(token, next_token(*context));
+
+                                    if(token.type == TokenType::CloseCurlyBracket) {
+                                        context->next_token_index += 1;
+
+                                        last_range = token_range(*context, token);
+
+                                        break;
+                                    } else {
+                                        expect(statement, parse_statement(context));
+
+                                        append(&statements, statement);
+                                    }
+                                }
+
+                                append(&else_ifs, {
+                                    expression,
+                                    to_array(statements)
+                                });
+                            } break;
+
+                            default: {
+                                error(*context, "Expected '{' or 'if', got '%s'", get_token_text(token));
+
+                                return { false };
+                            } break;
+                        }
+
+                        if(has_else) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
                 Statement statement;
-                statement.type = StatementType::LoneIf;
+                statement.type = StatementType::If;
                 statement.range = span_range(first_range, last_range);
-                statement.lone_if = {
-                    expression,
-                    to_array(statements)
-                };
+                statement.if_.condition = expression;
+                statement.if_.statements = to_array(statements);
+                statement.if_.else_ifs = to_array(else_ifs);
+                statement.if_.has_else = has_else;
+
+                if(has_else) {
+                    statement.if_.else_statements = else_statements;
+                }
 
                 return {
                     true,
@@ -2123,12 +2219,30 @@ void set_statement_parents(Statement *statement) {
             }
         } break;
 
-        case StatementType::LoneIf: {
-            for(auto &child : statement->lone_if.statements) {
+        case StatementType::If: {
+            for(auto &child : statement->if_.statements) {
                 child.is_top_level = false;
                 child.parent = statement;
 
                 set_statement_parents(&child);
+            }
+
+            for(auto else_if : statement->if_.else_ifs) {
+                for(auto &child : else_if.statements) {
+                    child.is_top_level = false;
+                    child.parent = statement;
+
+                    set_statement_parents(&child);
+                }
+            }
+
+            if(statement->if_.has_else) {
+                for(auto &child : statement->if_.else_statements) {
+                    child.is_top_level = false;
+                    child.parent = statement;
+
+                    set_statement_parents(&child);
+                }
             }
         } break;
        

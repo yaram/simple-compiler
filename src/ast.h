@@ -138,7 +138,7 @@ enum struct StatementType {
     Expression,
     VariableDeclaration,
     Assignment,
-    LoneIf,
+    If,
     WhileLoop,
     Return,
     Import
@@ -166,6 +166,14 @@ struct FunctionParameter {
 
         Identifier polymorphic_determiner;
     };
+};
+
+struct Statement;
+
+struct ElseIf {
+    Expression condition;
+
+    Array<Statement> statements;
 };
 
 struct Statement {
@@ -241,7 +249,12 @@ struct Statement {
             Expression condition;
 
             Array<Statement> statements;
-        } lone_if;
+
+            Array<ElseIf> else_ifs;
+
+            bool has_else;
+            Array<Statement> else_statements;
+        } if_;
 
         struct {
             Expression condition;

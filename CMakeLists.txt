@@ -26,7 +26,6 @@ add_executable(compiler
     src/lexer.cpp
 
     src/ast.h
-    src/ast.cpp
 
     src/parser.h
     src/parser.cpp
