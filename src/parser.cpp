@@ -139,7 +139,12 @@ static FileRange span_range(FileRange first, FileRange last) {
 
 static Result<Token> next_token(Context context) {
     if(context.next_token_index < context.tokens.count) {
+        auto token = context.tokens[context.next_token_index];
 
+        return {
+            true,
+            token
+        };
     } else {
         fprintf(stderr, "Error: %s: Unexpected end of file\n", context.path);
 
