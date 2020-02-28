@@ -1918,6 +1918,7 @@ static Result<Statement> parse_statement(Context *context) {
                             statement.type = StatementType::VariableDeclaration;
                             statement.range = span_range(first_range, last_range);
                             statement.variable_declaration.type = VariableDeclarationType::TypeElided;
+                            statement.variable_declaration.name = identifier;
                             statement.variable_declaration.type_elided = expression;
 
                             return {
@@ -1939,6 +1940,7 @@ static Result<Statement> parse_statement(Context *context) {
                                     statement.type = StatementType::VariableDeclaration;
                                     statement.range = span_range(first_range, token_range(*context, token));
                                     statement.variable_declaration.type = VariableDeclarationType::Uninitialized;
+                                    statement.variable_declaration.name = identifier;
                                     statement.variable_declaration.uninitialized = expression;
 
                                     return {
@@ -1958,6 +1960,7 @@ static Result<Statement> parse_statement(Context *context) {
                                     statement.type = StatementType::VariableDeclaration;
                                     statement.range = span_range(first_range, last_range);
                                     statement.variable_declaration.type = VariableDeclarationType::FullySpecified;
+                                    statement.variable_declaration.name = identifier;
                                     statement.variable_declaration.fully_specified = {
                                         expression,
                                         value_expression
