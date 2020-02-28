@@ -1420,6 +1420,8 @@ static Result<Statement> parse_statement(Context *context) {
                 return { false };
             }
 
+            context->next_token_index += 1;
+
             if(strcmp(token.identifier, "import") == 0) {
                 expect(string, expect_string(context));
 
@@ -1430,6 +1432,8 @@ static Result<Statement> parse_statement(Context *context) {
 
                     return { false };
                 }
+
+                context->next_token_index += 1;
 
                 auto import_path = allocate<char>(string.count + 1);
                 memcpy(import_path, string.elements, string.count);
@@ -1454,6 +1458,8 @@ static Result<Statement> parse_statement(Context *context) {
 
                     return { false };
                 }
+
+                context->next_token_index += 1;
 
                 auto library = allocate<char>(string.count + 1);
                 memcpy(library, string.elements, string.count);
