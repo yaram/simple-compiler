@@ -2136,6 +2136,13 @@ Result<Array<Statement>> parse_tokens(const char *path, Array<Token> tokens) {
         append(&statements, statement);
     }
 
+    for(auto statement : statements) {
+        statement.is_top_level = true;
+        statement.file_path = path;
+
+        set_statement_parents(&statement);
+    }
+
     return {
         true,
         to_array(statements)
