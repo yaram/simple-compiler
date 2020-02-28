@@ -117,6 +117,12 @@ struct StructType {
     Array<DeterminedStructTypeMember> members;
 };
 
+struct ParsedFile {
+    const char *path;
+
+    Array<Statement> statements;
+};
+
 struct GenerationContext {
     RegisterSize address_integer_size;
     RegisterSize default_integer_size;
@@ -150,6 +156,8 @@ struct GenerationContext {
     List<StaticConstant> static_constants;
 
     List<StructType> struct_types;
+
+    List<ParsedFile> parsed_files;
 };
 
 static void error(const char *file_path, FileRange range, const char *format, ...) {
@@ -1944,9 +1952,29 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
 
             expect(import_file_path_absolute, path_relative_to_absolute(import_file_path));
 
-            expect(tokens, tokenize_source(import_file_path_absolute));
+            auto already_parsed = false;
+            Array<Statement> statements;
+            for(auto file : context->parsed_files) {
+                if(strcmp(file.path, import_file_path_absolute) == 0) {
+                    already_parsed = true;
+                    statements = file.statements;
 
-            expect(statements, parse_tokens(import_file_path_absolute, tokens));
+                    break;
+                }
+            }
+
+            if(!already_parsed) {
+                expect(tokens, tokenize_source(import_file_path_absolute));
+
+                expect(new_statements, parse_tokens(import_file_path_absolute, tokens));
+
+                append(&context->parsed_files, {
+                    import_file_path_absolute,
+                    new_statements
+                });
+
+                statements = new_statements;
+            }
 
             Type type;
             type.category = TypeCategory::FileModule;
@@ -6138,6 +6166,11 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
         default_size,
         to_array(global_constants)
     };
+
+    append(&context.parsed_files, {
+        main_file_path,
+        main_file_statements
+    });
 
     auto main_found = false;
     for(auto statement : main_file_statements) {
