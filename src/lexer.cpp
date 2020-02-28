@@ -163,17 +163,13 @@ Result<Array<Token>> tokenize_source(const char *path) {
             character += 1;
 
             if(index == length) {
-                error(path, line, character, "Unexpected end of file");
-
-                return { false };
+                append_basic_token(line, character, &tokens, TokenType::ForwardSlash);
             } else if(source[index] == '/') {
                 index += 1;
 
                 while(true) {
                     if(index == length) {
-                        error(path, line, character, "Unexpected end of file");
-
-                        return { false };
+                        break;
                     } else if(source[index] == '\r') {
                         index += 1;
 
@@ -183,17 +179,19 @@ Result<Array<Token>> tokenize_source(const char *path) {
 
                         line += 1;
                         character = 1;
+
+                        break;
                     } else if(source[index] == '\n') {
                         index += 1;
 
                         line += 1;
                         character = 1;
+
+                        break;
                     } else {
                         index += 1;
 
                         character += 1;
-
-                        break;
                     }
                 }
             } else if(source[index] == '*') {
