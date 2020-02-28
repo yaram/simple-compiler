@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include "list.h"
+#include "util.h"
 
 static void error(const char *path, unsigned int line, unsigned int character, const char *format, ...) {
     va_list arguments;
@@ -109,8 +110,27 @@ void append_basic_token(unsigned int line, unsigned int character, List<Token> *
     append(tokens, token);
 }
 
-Result<Array<Token>> tokenize_source(const char *path, const char *source) {
-    auto length = strlen(source);
+Result<Array<Token>> tokenize_source(const char *path) {
+    auto file = fopen(path, "rb");
+
+    if(file == nullptr) {
+        fprintf(stderr, "Error: Unable to read source file at '%s'\n", path);
+
+        return { false };
+    }
+
+    fseek(file, 0, SEEK_END);
+
+    auto length = ftell(file);
+
+    fseek(file, 0, SEEK_SET);
+
+    auto source = allocate<char>(length + 1);
+
+    fread(source, 1, length, file);
+
+    source[length] = '\0';
+
     size_t index = 0;
 
     unsigned int line = 1;

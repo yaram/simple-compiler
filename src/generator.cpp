@@ -7,6 +7,8 @@
 #include "types.h"
 #include "util.h"
 #include "path.h"
+#include "lexer.h"
+#include "parser.h"
 
 struct PolymorphicDeterminer {
     const char *name;
@@ -27,6 +29,8 @@ union ConstantValue {
         Statement declaration;
 
         DeterminedDeclaration parent;
+
+        const char *file_path;
     } function;
 
     uint64_t integer;
@@ -47,7 +51,11 @@ union ConstantValue {
 
     ConstantValue *struct_;
 
-    Array<Statement> file_module;
+    struct {
+        const char *path;
+
+        Array<Statement> statements;
+    } file_module;
 };
 
 struct TypedConstantValue {
@@ -91,6 +99,8 @@ struct RuntimeFunction {
 
     DeterminedDeclaration parent;
 
+    const char *file_path;
+
     Array<PolymorphicDeterminer> polymorphic_determiners;
 };
 
@@ -113,15 +123,13 @@ struct GenerationContext {
 
     Array<GlobalConstant> global_constants;
 
-    Array<File> file_modules;
+    const char *current_file_path;
 
     bool is_top_level;
 
-    union {
-        DeterminedDeclaration determined_declaration;
+    DeterminedDeclaration determined_declaration;
 
-        Array<Statement> top_level_statements;
-    };
+    Array<Statement> top_level_statements;
 
     Array<PolymorphicDeterminer> polymorphic_determiners;
 
@@ -144,16 +152,16 @@ struct GenerationContext {
     List<StructType> struct_types;
 };
 
-static void error(FileRange range, const char *format, ...) {
+static void error(const char *file_path, FileRange range, const char *format, ...) {
     va_list arguments;
     va_start(arguments, format);
 
-    fprintf(stderr, "Error: %s(%u,%u): ", range.path, range.start_line, range.start_character);
+    fprintf(stderr, "Error: %s(%u,%u): ", file_path, range.start_line, range.start_character);
     vfprintf(stderr, format, arguments);
     fprintf(stderr, "\n");
 
     if(range.start_line == range.start_character) {
-        auto file = fopen(range.path, "rb");
+        auto file = fopen(file_path, "rb");
 
         if(file != nullptr) {
             unsigned int current_line = 1;
@@ -478,8 +486,6 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
         }
     }
 
-    auto old_determined_declaration = context->determined_declaration;
-
     if(context->is_top_level) {
         for(auto statement : context->top_level_statements) {
             if(match_declaration(statement, name.text)) {
@@ -487,12 +493,25 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
             }
         }
     } else {
-        while(true){
+        auto old_determined_declaration = context->determined_declaration;
+
+        while(true) {
             switch(context->determined_declaration.declaration.type) {
                 case StatementType::FunctionDeclaration: {
                     for(auto statement : context->determined_declaration.declaration.function_declaration.statements) {
                         if(match_declaration(statement, name.text)) {
-                            return resolve_declaration(context, statement);
+                            auto result = resolve_declaration(context, statement);
+
+                            if(!result.status) {
+                                return { false };
+                            }
+
+                            context->determined_declaration = old_determined_declaration;
+
+                            return {
+                                true,
+                                result.value
+                            };
                         }
                     }
 
@@ -503,6 +522,8 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
 
                             ConstantValue value;
                             value.type = polymorphic_determiner.type;
+
+                            context->determined_declaration = old_determined_declaration;
 
                             return {
                                 true,
@@ -516,7 +537,6 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
                 } break;
             }
 
-
             if(context->determined_declaration.declaration.is_top_level) {
                 break;
             } else {
@@ -524,14 +544,25 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
             }
         }
 
-        for(auto statement : context->determined_declaration.declaration.file->statements) {
+        for(auto statement : context->top_level_statements) {
             if(match_declaration(statement, name.text)) {
-                return resolve_declaration(context, statement);
+                auto result = resolve_declaration(context, statement);
+
+                if(!result.status) {
+                    return { false };
+                }
+
+                context->determined_declaration = old_determined_declaration;
+
+                return {
+                    true,
+                    result.value
+                };
             }
         }
-    }
 
-    context->determined_declaration = old_determined_declaration;
+        context->determined_declaration = old_determined_declaration;
+    }
 
     for(auto global_constant : context->global_constants) {
         if(strcmp(name.text, global_constant.name) == 0) {
@@ -545,20 +576,20 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
         }
     }
 
-    error(name.range, "Cannot find named reference %s", name.text);
+    error(context->current_file_path, name.range, "Cannot find named reference %s", name.text);
 
     return { false };
 }
 
-static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantValue value, FileRange range, Type index_type, ConstantValue index_value, FileRange index_range) {
+static Result<TypedConstantValue> evaluate_constant_index(GenerationContext context, Type type, ConstantValue value, FileRange range, Type index_type, ConstantValue index_value, FileRange index_range) {
     if(index_type.category != TypeCategory::Integer) {
-        error(index_range, "Expected an integer, got %s", type_description(index_type));
+        error(context.current_file_path, index_range, "Expected an integer, got %s", type_description(index_type));
     }
 
     size_t index;
     if(index_type.integer.is_undetermined) {
         if((int64_t)index_value.integer < 0) {
-            error(index_range, "Array index %lld out of bounds", (int64_t)index_value.integer);
+            error(context.current_file_path, index_range, "Array index %lld out of bounds", (int64_t)index_value.integer);
 
             return { false };
         }
@@ -568,7 +599,7 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
         switch(index_type.integer.size) {
             case RegisterSize::Size8: {
                 if((int8_t)index_value.integer < 0) {
-                    error(index_range, "Array index %hhd out of bounds", (int8_t)index_value.integer);
+                    error(context.current_file_path, index_range, "Array index %hhd out of bounds", (int8_t)index_value.integer);
 
                     return { false };
                 }
@@ -578,7 +609,7 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
 
             case RegisterSize::Size16: {
                 if((int16_t)index_value.integer < 0) {
-                    error(index_range, "Array index %hd out of bounds", (int16_t)index_value.integer);
+                    error(context.current_file_path, index_range, "Array index %hd out of bounds", (int16_t)index_value.integer);
 
                     return { false };
                 }
@@ -588,7 +619,7 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
 
             case RegisterSize::Size32: {
                 if((int32_t)index_value.integer < 0) {
-                    error(index_range, "Array index %d out of bounds", (int32_t)index_value.integer);
+                    error(context.current_file_path, index_range, "Array index %d out of bounds", (int32_t)index_value.integer);
 
                     return { false };
                 }
@@ -598,7 +629,7 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
 
             case RegisterSize::Size64: {
                 if((int8_t)index_value.integer < 0) {
-                    error(index_range, "Array index %lld out of bounds", (int64_t)index_value.integer);
+                    error(context.current_file_path, index_range, "Array index %lld out of bounds", (int64_t)index_value.integer);
 
                     return { false };
                 }
@@ -644,7 +675,7 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
                 } break;
 
                 default: {
-                    error(range, "Cannot have arrays of type %s", type_description(value.type));
+                    error(context.current_file_path, range, "Cannot have arrays of type %s", type_description(value.type));
 
                     return { false };
                 } break;
@@ -669,7 +700,7 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
 
         case TypeCategory::StaticArray: {
             if(index >= type.static_array.length) {
-                error(index_range, "Array index %zu out of bounds", index);
+                error(context.current_file_path, index_range, "Array index %zu out of bounds", index);
 
                 return { false };
             }
@@ -684,7 +715,7 @@ static Result<TypedConstantValue> evaluate_constant_index(Type type, ConstantVal
         } break;
 
         default: {
-            error(range, "Cannot index %s", type_description(type));
+            error(context.current_file_path, range, "Cannot index %s", type_description(type));
 
             return { false };
         } break;
@@ -695,7 +726,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
     switch(left_type.category) {
         case TypeCategory::Integer: {
             if(right_type.category != TypeCategory::Integer) {
-                error(range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
+                error(context.current_file_path, range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
 
                 return { false };
             }
@@ -725,7 +756,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                     size = left_type.integer.size;
                     is_signed = left_type.integer.is_signed;
                 } else {
-                    error(range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
+                    error(context.current_file_path, range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
 
                     return { false };
                 }
@@ -961,7 +992,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
 
         case TypeCategory::Boolean: {
             if(right_type.category != TypeCategory::Boolean) {
-                error(range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
+                error(context.current_file_path, range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
 
                 return { false };
             }
@@ -1012,7 +1043,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 } break;
 
                 default: {
-                    error(range, "Cannot perform that operation on booleans");
+                    error(context.current_file_path, range, "Cannot perform that operation on booleans");
 
                     return { false };
                 } break;
@@ -1020,7 +1051,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
         } break;
 
         default: {
-            error(range, "Cannot perform binary operations on %s", type_description(left_type));
+            error(context.current_file_path, range, "Cannot perform binary operations on %s", type_description(left_type));
 
             return { false };
         } break;
@@ -1089,14 +1120,14 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
                     } else if(value.type.integer.size == context.address_integer_size) {
                         result.pointer = value.integer;
                     } else {
-                        error(value_range, "Cannot cast from %s to pointer", type_description(value_type));
+                        error(context.current_file_path, value_range, "Cannot cast from %s to pointer", type_description(value_type));
 
                         return { false };
                     }
                 } break;
 
                 default: {
-                    error(type_range, "Cannot cast integer to this type");
+                    error(context.current_file_path, type_range, "Cannot cast integer to this type");
 
                     return { false };
                 } break;
@@ -1109,7 +1140,7 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
                     if(type.integer.size == context.address_integer_size) {
                         result.integer = value.pointer;
                     } else {
-                        error(value_range, "Cannot cast from pointer to %s", type_description(type));
+                        error(context.current_file_path, value_range, "Cannot cast from pointer to %s", type_description(type));
 
                         return { false };
                     }
@@ -1120,7 +1151,7 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
                 } break;
 
                 default: {
-                    error(type_range, "Cannot cast pointer to %s", type_description(type));
+                    error(context.current_file_path, type_range, "Cannot cast pointer to %s", type_description(type));
 
                     return { false };
                 } break;
@@ -1128,7 +1159,7 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
         } break;
 
         default: {
-            error(value_range, "Cannot cast from %s", type_description(value_type));
+            error(context.current_file_path, value_range, "Cannot cast from %s", type_description(value_type));
 
             return { false };
         } break;
@@ -1231,7 +1262,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                             }
                         };
                     } else {
-                        error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+                        error(context->current_file_path, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
 
                         return { false };
                     }
@@ -1257,11 +1288,11 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                             }
                         };
                     } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
-                        error(expression.member_reference.name.range, "Cannot access the 'pointer' member in a constant context");
+                        error(context->current_file_path, expression.member_reference.name.range, "Cannot access the 'pointer' member in a constant context");
 
                         return { false };
                     } else {
-                        error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+                        error(context->current_file_path, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
 
                         return { false };
                     }
@@ -1296,26 +1327,29 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                         }
                     }
 
-                    error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+                    error(context->current_file_path, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
 
                     return { false };
                 } break;
 
                 case TypeCategory::FileModule: {
-                    for(auto statement : expression_value.value.file_module) {
+                    for(auto statement : expression_value.value.file_module.statements) {
                         if(match_declaration(statement, expression.member_reference.name.text)) {
                             auto old_is_top_level = context->is_top_level;
                             auto old_determined_declaration = context->determined_declaration;
                             auto old_top_level_statements = context->top_level_statements;
+                            auto old_current_file_path = context->current_file_path;
 
                             context->is_top_level = true;
-                            context->top_level_statements = expression_value.value.file_module;
+                            context->top_level_statements = expression_value.value.file_module.statements;
+                            context->current_file_path = expression_value.value.file_module.path;
 
                             expect(value, resolve_declaration(context, statement));
 
-                            context->is_top_level = old_is_top_level;
-                            context->determined_declaration = old_determined_declaration;
+                            context->current_file_path = old_current_file_path;
                             context->top_level_statements = old_top_level_statements;
+                            context->determined_declaration = old_determined_declaration;
+                            context->is_top_level = old_is_top_level;
 
                             return {
                                 true,
@@ -1324,13 +1358,13 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                         }
                     }
 
-                    error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+                    error(context->current_file_path, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
 
                     return { false };
                 } break;
 
                 default: {
-                    error(expression.member_reference.expression->range, "%s has no members", type_description(expression_value.type));
+                    error(context->current_file_path, expression.member_reference.expression->range, "%s has no members", type_description(expression_value.type));
 
                     return { false };
                 } break;
@@ -1343,6 +1377,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             expect(index, evaluate_constant_expression(context, *expression.index_reference.index));
 
             return evaluate_constant_index(
+                *context,
                 expression_value.type,
                 expression_value.value,
                 expression.index_reference.expression->range,
@@ -1405,7 +1440,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
         case ExpressionType::ArrayLiteral: {
             if(expression.array_literal.count == 0) {
-                error(expression.range, "Empty array literal");
+                error(context->current_file_path, expression.range, "Empty array literal");
 
                 return { false };
             }
@@ -1423,7 +1458,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                         expect(element, evaluate_constant_expression(context, expression.array_literal[i]));
 
                         if(element.type.category != TypeCategory::Integer) {
-                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.type));
+                            error(context->current_file_path, expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.type));
 
                             return { false };
                         }
@@ -1433,7 +1468,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                                 element_type = element.type;
                             }
                         } else if(element.type.integer.size != element_type.integer.size || element.type.integer.is_signed != element_type.integer.is_signed) {
-                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.type));
+                            error(context->current_file_path, expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.type));
 
                             return { false };
                         }
@@ -1466,7 +1501,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                         expect(element, evaluate_constant_expression(context, expression.array_literal[i]));
 
                         if(!types_equal(first_element.type, element.type)) {
-                            error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(first_element.type), type_description(element.type));
+                            error(context->current_file_path, expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(first_element.type), type_description(element.type));
 
                             return { false };
                         }
@@ -1494,7 +1529,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 } break;
 
                 default: {
-                    error(expression.range, "Cannot have arrays of type %s", type_description(first_element.type));
+                    error(context->current_file_path, expression.range, "Cannot have arrays of type %s", type_description(first_element.type));
 
                     return { false };
                 } break;
@@ -1503,7 +1538,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
         case ExpressionType::StructLiteral: {
             if(expression.struct_literal.count == 0) {
-                error(expression.range, "Empty struct literal");
+                error(context->current_file_path, expression.range, "Empty struct literal");
 
                 return { false };
             }
@@ -1514,7 +1549,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             for(size_t i = 0; i < expression.struct_literal.count; i += 1) {
                 for(size_t j = 0; j < i; j += 1) {
                     if(strcmp(expression.struct_literal[i].name.text, type_members[j].name) == 0) {
-                        error(expression.struct_literal[i].name.range, "Duplicate struct member %s", expression.struct_literal[i].name.text);
+                        error(context->current_file_path, expression.struct_literal[i].name.range, "Duplicate struct member %s", expression.struct_literal[i].name.text);
 
                         return { false };
                     }
@@ -1525,7 +1560,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 auto representation = get_type_representation(*context, member.type);
 
                 if(!representation.is_in_register) {
-                    error(expression.struct_literal[i].value.range, "Cannot have struct members of type %s", type_description(member.type));
+                    error(context->current_file_path, expression.struct_literal[i].value.range, "Cannot have struct members of type %s", type_description(member.type));
 
                     return { false };
                 }
@@ -1559,7 +1594,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
         } break;
 
         case ExpressionType::FunctionCall: {
-            error(expression.range, "Function calls not allowed in global context");
+            error(context->current_file_path, expression.range, "Function calls not allowed in global context");
 
             return { false };
         } break;
@@ -1591,7 +1626,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             switch(expression.unary_operation.unary_operator) {
                 case UnaryOperator::Pointer: {
                     if(expression_value.type.category != TypeCategory::Type) {
-                        error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
+                        error(context->current_file_path, expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
 
                         return { false };
                     }
@@ -1614,7 +1649,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
                 case UnaryOperator::BooleanInvert: {
                     if(expression_value.type.category != TypeCategory::Boolean) {
-                        error(expression.unary_operation.expression->range, "Expected a boolean, got %s", type_description(expression_value.type));
+                        error(context->current_file_path, expression.unary_operation.expression->range, "Expected a boolean, got %s", type_description(expression_value.type));
 
                         return { false };
                     }
@@ -1633,7 +1668,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
                 case UnaryOperator::Negation: {
                     if(expression_value.type.category != TypeCategory::Integer) {
-                        error(expression.unary_operation.expression->range, "Expected an integer, got %s", type_description(expression_value.type));
+                        error(context->current_file_path, expression.unary_operation.expression->range, "Expected an integer, got %s", type_description(expression_value.type));
 
                         return { false };
                     }
@@ -1700,7 +1735,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 auto parameter = expression.function_type.parameters[i];
 
                 if(parameter.is_polymorphic_determiner) {
-                    error(parameter.polymorphic_determiner.range, "Function types cannot be polymorphic");
+                    error(context->current_file_path, parameter.polymorphic_determiner.range, "Function types cannot be polymorphic");
 
                     return { false };
                 }
@@ -1745,7 +1780,7 @@ static Result<Type> evaluate_type_expression(GenerationContext *context, Express
     expect(expression_value, evaluate_constant_expression(context, expression));
 
     if(expression_value.type.category != TypeCategory::Type) {
-        error(expression.range, "Expected a type, got %s", type_description(expression_value.type));
+        error(context->current_file_path, expression.range, "Expected a type, got %s", type_description(expression_value.type));
 
         return { false };
     }
@@ -1759,7 +1794,7 @@ static Result<Type> evaluate_type_expression(GenerationContext *context, Express
 static bool register_global_name(GenerationContext *context, const char *name, FileRange name_range) {
     for(auto global_name : context->global_names) {
         if(strcmp(global_name, name) == 0) {
-            error(name_range, "Duplicate global name %s", name);
+            error(context->current_file_path, name_range, "Duplicate global name %s", name);
 
             return false;
         }
@@ -1800,10 +1835,8 @@ static const char* generate_mangled_name(GenerationContext context, Statement de
     string_buffer_append(&buffer, get_declaration_name(declaration));
 
     if(declaration.is_top_level) {
-        if(strcmp(declaration.file->path, context.file_modules[0].path) != 0)  {
-            string_buffer_append(&buffer, "_");
-            string_buffer_append(&buffer, path_get_file_component(declaration.file->path));
-        }
+        string_buffer_append(&buffer, "_");
+        string_buffer_append(&buffer, path_get_file_component(context.current_file_path));
     } else {
         auto current = *declaration.parent;
 
@@ -1812,10 +1845,8 @@ static const char* generate_mangled_name(GenerationContext context, Statement de
             string_buffer_append(&buffer, get_declaration_name(current));
 
             if(current.is_top_level) {
-                if(strcmp(current.file->path, context.file_modules[0].path) != 0)  {
-                    string_buffer_append(&buffer, "_");
-                    string_buffer_append(&buffer, path_get_file_component(current.file->path));
-                }
+                string_buffer_append(&buffer, "_");
+                string_buffer_append(&buffer, path_get_file_component(context.current_file_path));
 
                 break;
             }
@@ -1840,7 +1871,8 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
                     ConstantValue value;
                     value.function = {
                         declaration,
-                        context->determined_declaration
+                        context->determined_declaration,
+                        context->current_file_path
                     };
 
                     return {
@@ -1880,7 +1912,8 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             ConstantValue value;
             value.function = {
                 declaration,
-                context->determined_declaration
+                context->determined_declaration,
+                context->current_file_path
             };
 
             return {
@@ -1902,16 +1935,27 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
         } break;
 
         case StatementType::Import: {
+            auto source_file_directory = path_get_directory_component(context->current_file_path);
+
+            char *import_file_path{};
+
+            string_buffer_append(&import_file_path, source_file_directory);
+            string_buffer_append(&import_file_path, declaration.import);
+
+            expect(import_file_path_absolute, path_relative_to_absolute(import_file_path));
+
+            expect(tokens, tokenize_source(import_file_path_absolute));
+
+            expect(statements, parse_tokens(import_file_path_absolute, tokens));
+
             Type type;
             type.category = TypeCategory::FileModule;
 
             ConstantValue value;
-
-            for(auto file_module : context->file_modules) {
-                if(strcmp(file_module.path, declaration.import) == 0) {
-                    value.file_module = file_module.statements;
-                }
-            }
+            value.file_module = {
+                import_file_path_absolute,
+                statements
+            };
 
             return {
                 true,
@@ -1938,7 +1982,7 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
                 for(size_t i = 0; i < declaration.struct_definition.members.count; i += 1) {
                     for(size_t j = 0; j < declaration.struct_definition.members.count; j += 1) {
                         if(j != i && strcmp(declaration.struct_definition.members[i].name.text, declaration.struct_definition.members[j].name.text) == 0) {
-                            error(declaration.struct_definition.members[i].name.range, "Duplicate struct member name %s", declaration.struct_definition.members[i].name.text);
+                            error(context->current_file_path, declaration.struct_definition.members[i].name.range, "Duplicate struct member name %s", declaration.struct_definition.members[i].name.text);
 
                             return { false };
                         }
@@ -1989,8 +2033,8 @@ static bool add_new_variable(GenerationContext *context, Identifier name, size_t
 
     for(auto variable : *variable_context) {
         if(strcmp(variable.name.text, name.text) == 0) {
-            error(name.range, "Duplicate variable name %s", name.text);
-            error(variable.name.range, "Original declared here");
+            error(context->current_file_path, name.range, "Duplicate variable name %s", name.text);
+            error(context->current_file_path, variable.name.range, "Original declared here");
 
             return false;
         }
@@ -2802,6 +2846,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
             if(expression_value.value.category == ValueCategory::Constant && index.value.category == ValueCategory::Constant) {
                 expect(constant, evaluate_constant_index(
+                    *context,
                     expression_value.type,
                     expression_value.value.constant,
                     expression.index_reference.expression->range,
@@ -2831,7 +2876,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     )
                 )
             ) {
-                error(expression.index_reference.index->range, "Expected usize, got %s", type_description(index.type));
+                error(context->current_file_path, expression.index_reference.index->range, "Expected usize, got %s", type_description(index.type));
 
                 return { false };
             }
@@ -2888,7 +2933,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
 
                         default: {
-                            error(expression.index_reference.expression->range, "Cannot index %s", type_description(expression_value.type));
+                            error(context->current_file_path, expression.index_reference.expression->range, "Cannot index %s", type_description(expression_value.type));
 
                             return { false };
                         } break;
@@ -2910,7 +2955,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
 
                         default: {
-                            error(expression.index_reference.expression->range, "Cannot index %s", type_description(expression_value.type));
+                            error(context->current_file_path, expression.index_reference.expression->range, "Cannot index %s", type_description(expression_value.type));
 
                             return { false };
                         } break;
@@ -2932,7 +2977,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
 
                         default: {
-                            error(expression.index_reference.expression->range, "Cannot index %s", type_description(expression_value.type));
+                            error(context->current_file_path, expression.index_reference.expression->range, "Cannot index %s", type_description(expression_value.type));
 
                             return { false };
                         } break;
@@ -3117,7 +3162,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             value
                         };
                     } else {
-                        error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+                        error(context->current_file_path, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
 
                         return { false };
                     }
@@ -3179,7 +3224,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             value
                         };
                     } else {
-                        error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+                        error(context->current_file_path, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
 
                         return { false };
                     }
@@ -3344,7 +3389,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         }
                     }
 
-                    error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+                    error(context->current_file_path, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
 
                     return { false };
                 } break;
@@ -3352,20 +3397,23 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 case TypeCategory::FileModule: {
                     assert(actual_expression_value.value.category == ValueCategory::Constant);
 
-                    for(auto statement : actual_expression_value.value.constant.file_module) {
+                    for(auto statement : actual_expression_value.value.constant.file_module.statements) {
                         if(match_declaration(statement, expression.member_reference.name.text)) {
                             auto old_is_top_level = context->is_top_level;
                             auto old_determined_declaration = context->determined_declaration;
                             auto old_top_level_statements = context->top_level_statements;
+                            auto old_current_file_path = context->current_file_path;
 
                             context->is_top_level = true;
-                            context->top_level_statements = actual_expression_value.value.constant.file_module;
+                            context->top_level_statements = actual_expression_value.value.constant.file_module.statements;
+                            context->current_file_path = actual_expression_value.value.constant.file_module.path;
 
                             expect(constant_value, resolve_declaration(context, statement));
 
-                            context->is_top_level = old_is_top_level;
-                            context->determined_declaration = old_determined_declaration;
+                            context->current_file_path = old_current_file_path;
                             context->top_level_statements = old_top_level_statements;
+                            context->determined_declaration = old_determined_declaration;
+                            context->is_top_level = old_is_top_level;
 
                             TypedValue value;
                             value.value.category = ValueCategory::Constant;
@@ -3379,13 +3427,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         }
                     }
 
-                    error(expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
+                    error(context->current_file_path, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
 
                     return { false };
                 } break;
 
                 default: {
-                    error(expression.member_reference.expression->range, "Type %s has no members", type_description(actual_expression_value.type));
+                    error(context->current_file_path, expression.member_reference.expression->range, "Type %s has no members", type_description(actual_expression_value.type));
 
                     return { false };
                 } break;
@@ -3437,7 +3485,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
         case ExpressionType::ArrayLiteral: {
             if(expression.array_literal.count == 0) {
-                error(expression.range, "Empty array literal");
+                error(context->current_file_path, expression.range, "Empty array literal");
 
                 return { false };
             }
@@ -3457,7 +3505,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                 if(element_type.category == TypeCategory::Integer && element_type.integer.is_undetermined) {
                     if(element_value.type.category != TypeCategory::Integer) {
-                        error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
+                        error(context->current_file_path, expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
 
                         return { false };
                     }
@@ -3466,7 +3514,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         element_type = element_value.type;
                     }
                 } else if(!types_equal(element_value.type, element_type)) {
-                    error(expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
+                    error(context->current_file_path, expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
 
                     return { false };
                 }
@@ -3607,7 +3655,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
         case ExpressionType::StructLiteral: {
             if(expression.struct_literal.count == 0) {
-                error(expression.range, "Empty struct literal");
+                error(context->current_file_path, expression.range, "Empty struct literal");
 
                 return { false };
             }
@@ -3619,7 +3667,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             for(size_t i = 0; i < expression.struct_literal.count; i += 1) {
                 for(size_t j = 0; j < i; j += 1) {
                     if(strcmp(expression.struct_literal[i].name.text, type_members[j].name) == 0) {
-                        error(expression.struct_literal[i].name.range, "Duplicate struct member %s", expression.struct_literal[i].name.text);
+                        error(context->current_file_path, expression.struct_literal[i].name.range, "Duplicate struct member %s", expression.struct_literal[i].name.text);
 
                         return { false };
                     }
@@ -3630,7 +3678,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 auto representation = get_type_representation(*context, member.type);
 
                 if(!representation.is_in_register) {
-                    error(expression.struct_literal[i].value.range, "Cannot have struct members of type %s", type_description(member.type));
+                    error(context->current_file_path, expression.struct_literal[i].value.range, "Cannot have struct members of type %s", type_description(member.type));
 
                     return { false };
                 }
@@ -3679,13 +3727,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             expect(expression_value, generate_expression(context, instructions, *expression.function_call.expression));
 
             if(expression_value.type.category != TypeCategory::Function) {
-                error(expression.function_call.expression->range, "Cannot call %s", type_description(expression_value.type));
+                error(context->current_file_path, expression.function_call.expression->range, "Cannot call %s", type_description(expression_value.type));
 
                 return { false };
             }
 
             if(expression.function_call.parameters.count != expression_value.type.function.parameter_count) {
-                error(expression.range, "Incorrect number of parameters. Expected %zu, got %zu", expression_value.type.function.parameter_count, expression.function_call.parameters.count);
+                error(context->current_file_path, expression.range, "Incorrect number of parameters. Expected %zu, got %zu", expression_value.type.function.parameter_count, expression.function_call.parameters.count);
 
                 return { false };
             }
@@ -3708,7 +3756,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     if(parameter.is_polymorphic_determiner) {
                         for(auto polymorphic_determiner : polymorphic_determiners) {
                             if(strcmp(polymorphic_determiner.name, parameter.polymorphic_determiner.text) == 0) {
-                                error(parameter.polymorphic_determiner.range, "Duplicate polymorphic parameter %s", parameter.polymorphic_determiner.text);
+                                error(context->current_file_path, parameter.polymorphic_determiner.range, "Duplicate polymorphic parameter %s", parameter.polymorphic_determiner.text);
 
                                 return { false };
                             }
@@ -3725,7 +3773,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 false
                             };
                         } else if(value.type.category == TypeCategory::Struct && value.type._struct.is_undetermined) {
-                            error(expression.function_call.parameters[i].range, "Cannot use anonymous structs as polymorphic determiners");
+                            error(context->current_file_path, expression.function_call.parameters[i].range, "Cannot use anonymous structs as polymorphic determiners");
 
                             return { false };
                         } else {
@@ -3779,6 +3827,17 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                 if(function_declaration.is_external) {
                     function_name = function_declaration.name.text;
+
+                    auto has_library = false;
+                    for(auto library : context->libraries) {
+                        if(strcmp(library, function_declaration.external_library) == 0) {
+                            has_library = true;
+
+                            break;
+                        }
+                    }
+
+                    append(&context->libraries, function_declaration.external_library);
                 } else {
                     char *mangled_name_buffer{};
 
@@ -3810,6 +3869,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 runtime_function.return_type = function_return_type;
                 runtime_function.declaration = expression_value.value.constant.function.declaration;
                 runtime_function.polymorphic_determiners = to_array(polymorphic_determiners);
+                runtime_function.file_path = expression_value.value.constant.function.file_path;
 
                 if(!expression_value.value.constant.function.declaration.is_top_level) {
                     runtime_function.parent = expression_value.value.constant.function.parent;
@@ -3830,6 +3890,17 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                 if(function_declaration.is_external) {
                     function_name = function_declaration.name.text;
+
+                    auto has_library = false;
+                    for(auto library : context->libraries) {
+                        if(strcmp(library, function_declaration.external_library) == 0) {
+                            has_library = true;
+
+                            break;
+                        }
+                    }
+
+                    append(&context->libraries, function_declaration.external_library);
                 } else {
                     function_name = generate_mangled_name(*context, expression_value.value.constant.function.declaration);
                 }
@@ -3865,6 +3936,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     runtime_function.return_type = function_return_type;
                     runtime_function.declaration = expression_value.value.constant.function.declaration;
                     runtime_function.polymorphic_determiners = {};
+                    runtime_function.file_path = expression_value.value.constant.function.file_path;
 
                     if(!expression_value.value.constant.function.declaration.is_top_level) {
                         runtime_function.parent = expression_value.value.constant.function.parent;
@@ -3904,7 +3976,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 Value determined_value;
                 if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
                     if(function_parameter_types[i].category != TypeCategory::Integer) {
-                        error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %zu. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+                        error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %zu. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
 
                         return { false };
                     }
@@ -3913,7 +3985,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     determined_value.constant.integer = value.value.constant.integer;
                 } else if(value.type.category == TypeCategory::Struct && value.type._struct.is_undetermined) {
                     if(function_parameter_types[i].category != TypeCategory::Struct) {
-                        error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %zu. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+                        error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %zu. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
 
                         return { false };
                     }
@@ -3921,14 +3993,14 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     auto struct_type = retrieve_struct_type(*context, function_parameter_types[i]._struct.name);
 
                     if(value.type._struct.members.count != struct_type.members.count) {
-                        error(expression.function_call.parameters[i].range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, value.type._struct.members.count);
+                        error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, value.type._struct.members.count);
 
                         return { false };
                     }
 
                     for(size_t i = 0; i < value.type._struct.members.count; i += 1) {
                         if(strcmp(struct_type.members[i].name.text, value.type._struct.members[i].name) != 0) {
-                            error(expression.function_call.parameters[i].range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, value.type._struct.members[i].name);
+                            error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, value.type._struct.members[i].name);
 
                             return { false };
                         }
@@ -3940,7 +4012,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             ) &&
                             !types_equal(struct_type.members[i].type, value.type._struct.members[i].type)
                         ) {
-                            error(expression.function_call.parameters[i].range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[i].type));
+                            error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[i].type));
 
                             return { false };
                         }
@@ -4046,7 +4118,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 } else if(types_equal(value.type, function_parameter_types[i])) {
                     determined_value = value.value;
                 } else {
-                    error(expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+                    error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
 
                     return { false };
                 }
@@ -4248,7 +4320,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         determined_type = left.type;
                     }
                 } else if(!types_equal(left.type, right.type)) {
-                    error(expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
+                    error(context->current_file_path, expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
 
                     return { false };
                 } else {
@@ -4439,7 +4511,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             } break;
 
                             default: {
-                                error(expression.range, "Cannot perform that operation on integers");
+                                error(context->current_file_path, expression.range, "Cannot perform that operation on integers");
 
                                 return { false };
                             } break;
@@ -4549,7 +4621,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             } break;
 
                             default: {
-                                error(expression.range, "Cannot perform that operation on booleans");
+                                error(context->current_file_path, expression.range, "Cannot perform that operation on booleans");
 
                                 return { false };
                             } break;
@@ -4557,7 +4629,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     } break;
 
                     default: {
-                        error(expression.range, "Cannot perform binary operations on %s", type_description(left.type));
+                        error(context->current_file_path, expression.range, "Cannot perform binary operations on %s", type_description(left.type));
 
                         return { false };
                     } break;
@@ -4588,7 +4660,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     auto parameter_count = expression_value.type.function.parameter_count;
 
                                     if(expression_value.type.function.is_polymorphic) {
-                                        error(expression.unary_operation.expression->range, "Cannot take pointers to polymorphic functions");
+                                        error(context->current_file_path, expression.unary_operation.expression->range, "Cannot take pointers to polymorphic functions");
 
                                         return { false };
                                     }
@@ -4596,6 +4668,17 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     const char *function_name;
                                     if(function_declaration.is_external) {
                                         function_name = function_declaration.name.text;
+
+                                        auto has_library = false;
+                                        for(auto library : context->libraries) {
+                                            if(strcmp(library, function_declaration.external_library) == 0) {
+                                                has_library = true;
+
+                                                break;
+                                            }
+                                        }
+
+                                        append(&context->libraries, function_declaration.external_library);
                                     } else {
                                         function_name = generate_mangled_name(*context, expression_value.value.constant.function.declaration);
                                     }
@@ -4628,6 +4711,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                         runtime_function.return_type = *expression_value.type.function.return_type;
                                         runtime_function.declaration = expression_value.value.constant.function.declaration;
                                         runtime_function.polymorphic_determiners = {};
+                                        runtime_function.file_path = expression_value.value.constant.function.file_path;
 
                                         if(!expression_value.value.constant.function.declaration.is_top_level) {
                                             runtime_function.parent = expression_value.value.constant.function.parent;
@@ -4668,7 +4752,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 } break;
 
                                 default: {
-                                    error(expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
+                                    error(context->current_file_path, expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
 
                                     return { false };
                                 }
@@ -4676,7 +4760,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
 
                         case ValueCategory::Anonymous: {
-                            error(expression.unary_operation.expression->range, "Cannot take pointers to anonymous values");
+                            error(context->current_file_path, expression.unary_operation.expression->range, "Cannot take pointers to anonymous values");
 
                             return { false };
                         } break;
@@ -4702,7 +4786,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                 case UnaryOperator::BooleanInvert: {
                     if(expression_value.type.category != TypeCategory::Boolean) {
-                        error(expression.unary_operation.expression->range, "Expected a boolean, got %s", type_description(expression_value.type));
+                        error(context->current_file_path, expression.unary_operation.expression->range, "Expected a boolean, got %s", type_description(expression_value.type));
 
                         return { false };
                     }
@@ -4758,7 +4842,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                 case UnaryOperator::Negation: {
                     if(expression_value.type.category != TypeCategory::Integer) {
-                        error(expression.unary_operation.expression->range, "Expected an integer, got %s", type_description(expression_value.type));
+                        error(context->current_file_path, expression.unary_operation.expression->range, "Expected an integer, got %s", type_description(expression_value.type));
 
                         return { false };
                     }
@@ -4876,7 +4960,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                         case TypeCategory::Pointer: {
                             if(expression_value.type.integer.size != context->address_integer_size) {
-                                error(expression.cast.expression->range, "Cannot cast from %s to pointer", type_description(expression_value.type));
+                                error(context->current_file_path, expression.cast.expression->range, "Cannot cast from %s to pointer", type_description(expression_value.type));
 
                                 return { false };
                             }
@@ -4900,7 +4984,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
 
                         default: {
-                            error(expression.cast.type->range, "Cannot cast from integer to %s", type_description(type));
+                            error(context->current_file_path, expression.cast.type->range, "Cannot cast from integer to %s", type_description(type));
 
                             return { false };
                         } break;
@@ -4926,7 +5010,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     switch(type.category) {
                         case TypeCategory::Integer: {
                             if(type.integer.size != context->address_integer_size) {
-                                error(expression.cast.expression->range, "Cannot cast from pointer to %s", type_description(type));
+                                error(context->current_file_path, expression.cast.expression->range, "Cannot cast from pointer to %s", type_description(type));
 
                                 return { false };
                             }
@@ -4939,7 +5023,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
 
                         default: {
-                            error(expression.cast.type->range, "Cannot cast from pointer to %s", type_description(type));
+                            error(context->current_file_path, expression.cast.type->range, "Cannot cast from pointer to %s", type_description(type));
 
                             return { false };
                         } break;
@@ -4947,7 +5031,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 } break;
 
                 default: {
-                    error(expression.cast.expression->range, "Cannot cast from %s", type_description(expression_value.type));
+                    error(context->current_file_path, expression.cast.expression->range, "Cannot cast from %s", type_description(expression_value.type));
 
                     return { false };
                 } break;
@@ -4971,7 +5055,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 auto parameter = expression.function_type.parameters[i];
 
                 if(parameter.is_polymorphic_determiner) {
-                    error(parameter.polymorphic_determiner.range, "Function types cannot be polymorphic");
+                    error(context->current_file_path, parameter.polymorphic_determiner.range, "Function types cannot be polymorphic");
 
                     return { false };
                 }
@@ -5063,7 +5147,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                             false
                         };
                     } else if(initializer_value.type.category == TypeCategory::Struct && initializer_value.type._struct.is_undetermined) {
-                        error(statement.variable_declaration.type_elided.range, "Cannot create a variable of an anonymous struct type");
+                        error(context->current_file_path, statement.variable_declaration.type_elided.range, "Cannot create a variable of an anonymous struct type");
 
                         return { false };
                     } else {
@@ -5140,7 +5224,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     Value determined_initializer_value;
                     if(initializer_value.type.category == TypeCategory::Integer && initializer_value.type.integer.is_undetermined) {
                         if(type.category != TypeCategory::Integer) {
-                            error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
+                            error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
 
                             return { false };
                         }
@@ -5149,7 +5233,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                         determined_initializer_value.constant.integer = initializer_value.value.constant.integer;
                     } else if(type.category == TypeCategory::Struct && initializer_value.type._struct.is_undetermined) {
                         if(type.category != TypeCategory::Struct) {
-                            error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
+                            error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
 
                             return { false };
                         }
@@ -5157,14 +5241,14 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                         auto struct_type = retrieve_struct_type(*context, type._struct.name);
 
                         if(initializer_value.type._struct.members.count != struct_type.members.count) {
-                            error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, initializer_value.type._struct.members.count);
+                            error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, initializer_value.type._struct.members.count);
 
                             return { false };
                         }
 
                         for(size_t i = 0; i < initializer_value.type._struct.members.count; i += 1) {
                             if(strcmp(struct_type.members[i].name.text, initializer_value.type._struct.members[i].name) != 0) {
-                                error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, initializer_value.type._struct.members[i].name);
+                                error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, initializer_value.type._struct.members[i].name);
 
                                 return { false };
                             }
@@ -5176,7 +5260,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                                 ) &&
                                 !types_equal(struct_type.members[i].type, initializer_value.type._struct.members[i].type)
                             ) {
-                                error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect member type for struct member %s. Expected %s, got %s", initializer_value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(initializer_value.type._struct.members[i].type));
+                                error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect member type for struct member %s. Expected %s, got %s", initializer_value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(initializer_value.type._struct.members[i].type));
 
                                 return { false };
                             }
@@ -5286,7 +5370,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     } else if(types_equal(type, initializer_value.type)) {
                         determined_initializer_value = initializer_value.value;
                     } else {
-                        error(statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
+                        error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
 
                         return false;
                     }
@@ -5352,7 +5436,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             expect(target, generate_expression(context, instructions, statement.assignment.target));
 
             if(target.value.category != ValueCategory::Address) {
-                error(statement.assignment.target.range, "Value is not assignable");
+                error(context->current_file_path, statement.assignment.target.range, "Value is not assignable");
 
                 return false;
             }
@@ -5362,7 +5446,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             Value determined_value;
             if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
                 if(target.type.category != TypeCategory::Integer) {
-                    error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+                    error(context->current_file_path, statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
 
                     return { false };
                 }
@@ -5371,7 +5455,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 determined_value.constant.integer = value.value.constant.integer;
             } else if(target.type.category == TypeCategory::Struct && value.type._struct.is_undetermined) {
                 if(target.type.category != TypeCategory::Struct) {
-                    error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+                    error(context->current_file_path, statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
 
                     return { false };
                 }
@@ -5379,14 +5463,14 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 auto struct_type = retrieve_struct_type(*context, target.type._struct.name);
 
                 if(value.type._struct.members.count != struct_type.members.count) {
-                    error(statement.assignment.value.range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, value.type._struct.members.count);
+                    error(context->current_file_path, statement.assignment.value.range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, value.type._struct.members.count);
 
                     return { false };
                 }
 
                 for(size_t i = 0; i < value.type._struct.members.count; i += 1) {
                     if(strcmp(struct_type.members[i].name.text, value.type._struct.members[i].name) != 0) {
-                        error(statement.assignment.value.range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, value.type._struct.members[i].name);
+                        error(context->current_file_path, statement.assignment.value.range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, value.type._struct.members[i].name);
 
                         return { false };
                     }
@@ -5398,7 +5482,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                         ) &&
                         !types_equal(struct_type.members[i].type, value.type._struct.members[i].type)
                     ) {
-                        error(statement.assignment.value.range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[i].type));
+                        error(context->current_file_path, statement.assignment.value.range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[i].type));
 
                         return { false };
                     }
@@ -5508,7 +5592,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             } else if(types_equal(target.type, value.type)) {
                 determined_value = value.value;
             } else {
-                error(statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
+                error(context->current_file_path, statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
 
                 return false;
             }
@@ -5564,7 +5648,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             expect(condition, generate_expression(context, instructions, statement.lone_if.condition));
 
             if(condition.type.category != TypeCategory::Boolean) {
-                error(statement.lone_if.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
+                error(context->current_file_path, statement.lone_if.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
 
                 return false;
             }
@@ -5623,7 +5707,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             expect(condition, generate_expression(context, instructions, statement.while_loop.condition));
 
             if(condition.type.category != TypeCategory::Boolean) {
-                error(statement.while_loop.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
+                error(context->current_file_path, statement.while_loop.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
 
                 return false;
             }
@@ -5684,7 +5768,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             Value determined_value;
             if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
                 if(context->return_type.category != TypeCategory::Integer) {
-                    error(statement._return.range, "Incorrect return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+                    error(context->current_file_path, statement._return.range, "Incorrect return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
 
                     return { false };
                 }
@@ -5693,7 +5777,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 determined_value.constant.integer = value.value.constant.integer;
             } else if(value.type.category == TypeCategory::StaticArray && value.type._struct.is_undetermined) {
                 if(context->return_type.category != TypeCategory::Struct) {
-                    error(statement.assignment.value.range, "Incorrect return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+                    error(context->current_file_path, statement.assignment.value.range, "Incorrect return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
 
                     return { false };
                 }
@@ -5701,14 +5785,14 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 auto struct_type = retrieve_struct_type(*context, context->return_type._struct.name);
 
                 if(value.type._struct.members.count != struct_type.members.count) {
-                    error(statement.assignment.value.range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, value.type._struct.members.count);
+                    error(context->current_file_path, statement.assignment.value.range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, value.type._struct.members.count);
 
                     return { false };
                 }
 
                 for(size_t i = 0; i < value.type._struct.members.count; i += 1) {
                     if(strcmp(struct_type.members[i].name.text, value.type._struct.members[i].name) != 0) {
-                        error(statement.assignment.value.range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, value.type._struct.members[i].name);
+                        error(context->current_file_path, statement.assignment.value.range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, value.type._struct.members[i].name);
 
                         return { false };
                     }
@@ -5720,7 +5804,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                         ) &&
                         !types_equal(struct_type.members[i].type, value.type._struct.members[i].type)
                     ) {
-                        error(statement.assignment.value.range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[i].type));
+                        error(context->current_file_path, statement.assignment.value.range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[i].type));
 
                         return { false };
                     }
@@ -5826,7 +5910,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             } else if(types_equal(value.type, context->return_type)) {
                 determined_value = value.value;
             } else {
-                error(statement._return.range, "Incorrect return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
+                error(context->current_file_path, statement._return.range, "Incorrect return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
 
                 return { false };
             }
@@ -6005,9 +6089,7 @@ inline GlobalConstant create_base_integer_type(const char *name, RegisterSize si
     return create_base_type(name, type);
 }
 
-Result<IR> generate_ir(Array<File> files, RegisterSize address_size, RegisterSize default_size) {
-    assert(files.count > 0);
-
+Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_statements, RegisterSize address_size, RegisterSize default_size) {
     List<GlobalConstant> global_constants{};
 
     append(&global_constants, create_base_integer_type("u8", RegisterSize::Size8, false));
@@ -6054,32 +6136,32 @@ Result<IR> generate_ir(Array<File> files, RegisterSize address_size, RegisterSiz
     GenerationContext context {
         address_size,
         default_size,
-        to_array(global_constants),
-        files
+        to_array(global_constants)
     };
 
     auto main_found = false;
-    for(auto statement : files[0].statements) {
+    for(auto statement : main_file_statements) {
         if(match_declaration(statement, "main")) {
             if(statement.type != StatementType::FunctionDeclaration) {
-                error(statement.range, "'main' must be a function");
+                error(main_file_path, statement.range, "'main' must be a function");
 
                 return { false };
             }
 
             if(statement.function_declaration.is_external) {
-                error(statement.range, "'main' must not be external");
+                error(main_file_path, statement.range, "'main' must not be external");
 
                 return { false };
             }
 
             context.is_top_level = true;
-            context.top_level_statements = files[0].statements;
+            context.top_level_statements = main_file_statements;
+            context.current_file_path = main_file_path;
 
             expect(value, resolve_declaration(&context, statement));
 
             if(value.type.function.is_polymorphic) {
-                error(statement.range, "'main' cannot be polymorphic");
+                error(main_file_path, statement.range, "'main' cannot be polymorphic");
 
                 return { false };
             }
@@ -6093,17 +6175,20 @@ Result<IR> generate_ir(Array<File> files, RegisterSize address_size, RegisterSiz
                 };
             }
 
-            auto mangled_name = generate_mangled_name(context, statement);
+            auto mangled_name = "main";
 
-            append(&context.runtime_functions, {
-                mangled_name,
-                {
-                    statement.function_declaration.parameters.count,
-                    runtimeParameters
-                },
-                *value.type.function.return_type,
-                statement
-            });
+            RuntimeFunction function;
+            function.mangled_name = mangled_name;
+            function.parameters = {
+                statement.function_declaration.parameters.count,
+                runtimeParameters
+            };
+            function.return_type = *value.type.function.return_type;
+            function.declaration = statement;
+            function.polymorphic_determiners = {};
+            function.file_path = main_file_path;
+
+            append(&context.runtime_functions, function);
 
             if(!register_global_name(&context, mangled_name, statement.function_declaration.name.range)) {
                 return { false };
@@ -6138,13 +6223,15 @@ Result<IR> generate_ir(Array<File> files, RegisterSize address_size, RegisterSiz
             }
 
             if(!generated) {
-                if(function.declaration.is_top_level) {
-                    context.is_top_level = true;
-                    context.top_level_statements = function.declaration.file->statements;
-                } else {
+                context.is_top_level = function.declaration.is_top_level;
+
+                if(!function.declaration.is_top_level) {
                     context.is_top_level = false;
                     context.determined_declaration = function.parent;
                 }
+
+                context.top_level_statements = main_file_statements;
+                context.current_file_path = function.file_path;
 
                 auto total_parameter_count = function.parameters.count;
 
@@ -6239,9 +6326,8 @@ Result<IR> generate_ir(Array<File> files, RegisterSize address_size, RegisterSiz
                                 }
                             } break;
 
-                            case StatementType::Library:
                             case StatementType::Import: {
-                                error(statement.range, "Compiler directives only allowed in global scope");
+                                error(main_file_path, statement.range, "Import directive only allowed in global scope");
 
                                 return { false };
                             } break;
@@ -6262,28 +6348,6 @@ Result<IR> generate_ir(Array<File> files, RegisterSize address_size, RegisterSiz
 
         if(done) {
             break;
-        }
-    }
-
-    for(size_t i = 0; i < files.count; i += 1) {
-        for(auto statement : files[i].statements) {
-            switch(statement.type) {
-                case StatementType::Library: {
-                    auto is_added = false;
-
-                    for(auto library : context.libraries) {
-                        if(strcmp(library, statement.library) == 0) {
-                            is_added = true;
-
-                            break;
-                        }
-                    }
-
-                    if(!is_added) {
-                        append(&context.libraries, statement.library);
-                    }
-                } break;
-            }
         }
     }
 

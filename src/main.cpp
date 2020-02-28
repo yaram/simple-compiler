@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <string.h>
 #include <time.h>
+#include "lexer.h"
 #include "parser.h"
 #include "generator.h"
 #include "c_backend.h"
@@ -11,6 +12,8 @@
 #include "path.h"
 
 int main(int argument_count, char *arguments[]) {
+    auto start_time = clock();
+
     const char *source_file_path = nullptr;
     const char *output_file_path = nullptr;
 
@@ -24,7 +27,6 @@ int main(int argument_count, char *arguments[]) {
     const char *os = "windows";
 #endif
 
-    auto print_ast = false;
     auto print_ir = false;
 
     int argument_index = 1;
@@ -63,8 +65,6 @@ int main(int argument_count, char *arguments[]) {
             }
 
             os = arguments[argument_index];
-        } else if(strcmp(argument, "-print-ast") == 0) {
-            print_ast = true;
         } else if(strcmp(argument, "-print-ir") == 0) {
             print_ir = true;
         } else {
@@ -97,6 +97,8 @@ int main(int argument_count, char *arguments[]) {
         return EXIT_FAILURE;
     }
 
+    expect(absolute_source_file_path, path_relative_to_absolute(source_file_path));
+
     if(output_file_path == nullptr) {
         if(strcmp(os, "windows") == 0) {
             output_file_path = "out.exe";
@@ -105,60 +107,39 @@ int main(int argument_count, char *arguments[]) {
         }
     }
 
-    clock_t total_time = 0;
-
-    Array<File> files;
+    Array<Token> source_file_tokens{};
     {
-        auto start_time = clock();
-        
-        auto result = parse_source(source_file_path);
+        auto result = tokenize_source(absolute_source_file_path);
 
         if(!result.status) {
             return EXIT_FAILURE;
         }
 
-        files = result.value;
-
-        auto end_time = clock();
-
-        auto time = end_time - start_time;
-
-        printf("Parser time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
-
-        total_time += time;
+        source_file_tokens = result.value;
     }
 
-    if(print_ast) {
-        for(auto file : files) {
-            for(auto statement : file.statements) {
-                print_statement(statement);
+    Array<Statement> source_file_statements;
+    {
+        auto result = parse_tokens(absolute_source_file_path, source_file_tokens);
 
-                printf("\n");
-            }
+        if(!result.status) {
+            return EXIT_FAILURE;
         }
+
+        source_file_statements = result.value;
     }
 
     IR ir;
     {
-        auto start_time = clock();
-
         auto register_sizes = get_register_sizes(architecture);
 
-        auto result = generate_ir(files, register_sizes.address_size, register_sizes.default_size);
+        auto result = generate_ir(absolute_source_file_path, source_file_statements, register_sizes.address_size, register_sizes.default_size);
 
         if(!result.status) {
             return EXIT_FAILURE;
         }
 
         ir = result.value;
-
-        auto end_time = clock();
-
-        auto time = end_time - start_time;
-
-        printf("Generator time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
-
-        total_time += time;
     }
 
     if(print_ir) {
@@ -194,23 +175,9 @@ int main(int argument_count, char *arguments[]) {
 
     auto output_file_directory = path_get_directory_component(output_file_path);
 
-    {
-        auto start_time = clock();
-
-        generate_c_object(ir.functions, ir.constants, architecture, os, output_file_directory, output_file_name);
-
-        auto end_time = clock();
-
-        auto time = end_time - start_time;
-
-        printf("Backend time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
-
-        total_time += time;
-    }
+    generate_c_object(ir.functions, ir.constants, architecture, os, output_file_directory, output_file_name);
 
     {
-        auto start_time = clock();
-
         char *buffer{};
 
         const char *linker_options;
@@ -245,15 +212,11 @@ int main(int argument_count, char *arguments[]) {
         if(system(buffer) != 0) {
             return EXIT_FAILURE;
         }
-
-        auto end_time = clock();
-
-        auto time = end_time - start_time;
-
-        printf("Linker time: %.1fms\n", (double)time / CLOCKS_PER_SEC * 1000);
-
-        total_time += time;
     }
+
+    auto end_time = clock();
+
+    auto total_time = end_time - start_time;
 
     printf("Total time: %.1fms\n", (double)total_time / CLOCKS_PER_SEC * 1000);
 
