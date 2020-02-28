@@ -1302,6 +1302,7 @@ static Result<Statement> continue_parsing_function_declaration_or_function_type_
     expect(pre_token, next_token(*context));
 
     auto is_external = false;
+    const char *external_library;
     auto has_return_type = false;
     Expression return_type;
     switch(pre_token.type) {
@@ -1325,9 +1326,24 @@ static Result<Statement> continue_parsing_function_declaration_or_function_type_
 
             context->next_token_index += 1;
 
-            last_range = token_range(*context, pre_token);
+            expect(token, next_token(*context));
+
+            if(token.type != TokenType::String) {
+                error(*context, "Expected a string, got '%s'", get_token_text(token));
+
+                return { false };
+            }
+
+            context->next_token_index += 1;
+
+            auto library = allocate<char>(token.string.count + 1);
+            memcpy(library, token.string.elements, token.string.count);
+            library[token.string.count] = 0;
+
+            last_range = token_range(*context, token);
 
             is_external = true;
+            external_library = library;
         } break;
     }
 
@@ -1363,6 +1379,10 @@ static Result<Statement> continue_parsing_function_declaration_or_function_type_
             statement.function_declaration.has_return_type = has_return_type;
             statement.function_declaration.is_external = is_external;
 
+            if(is_external) {
+                statement.function_declaration.external_library = external_library;
+            }
+
             if(has_return_type) {
                 statement.function_declaration.return_type = return_type;
             }
@@ -1386,6 +1406,7 @@ static Result<Statement> continue_parsing_function_declaration_or_function_type_
                 statement.function_declaration.parameters = parameters;
                 statement.function_declaration.has_return_type = has_return_type;
                 statement.function_declaration.is_external = true;
+                statement.function_declaration.external_library = external_library;
 
                 if(has_return_type) {
                     statement.function_declaration.return_type = return_type;
@@ -1442,7 +1463,7 @@ static Result<Statement> parse_statement(Context *context) {
             expect(token, next_token(*context));
 
             if(token.type != TokenType::Identifier) {
-                error(*context, "Expected 'import' or 'library', got '%s'", get_token_text(token));
+                error(*context, "Expected 'import', got '%s'", get_token_text(token));
 
                 return { false };
             }
@@ -1462,24 +1483,6 @@ static Result<Statement> parse_statement(Context *context) {
                 statement.type = StatementType::Import;
                 statement.range = span_range(first_range, last_range);
                 statement.import = import_path;
-
-                return {
-                    true,
-                    statement
-                };
-            } else if(strcmp(token.identifier, "library") == 0) {
-                expect(string, expect_string(context));
-
-                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
-
-                auto library = allocate<char>(string.count + 1);
-                memcpy(library, string.elements, string.count);
-                library[string.count] = 0;
-
-                Statement statement;
-                statement.type = StatementType::Library;
-                statement.range = span_range(first_range, token_range(*context, token));
-                statement.library = library;
 
                 return {
                     true,

@@ -139,8 +139,7 @@ enum struct StatementType {
     LoneIf,
     WhileLoop,
     Return,
-    Import,
-    Library
+    Import
 };
 
 enum struct VariableDeclarationType {
@@ -191,7 +190,11 @@ struct Statement {
 
             bool is_external;
 
-            Array<Statement> statements;
+            union {
+                Array<Statement> statements;
+
+                const char *external_library;
+            };
         } function_declaration;
 
         struct {
@@ -247,8 +250,6 @@ struct Statement {
         Expression _return;
 
         const char *import;
-
-        const char *library;
     };
 };
 
