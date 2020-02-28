@@ -1301,8 +1301,6 @@ static Result<Statement> continue_parsing_function_declaration_or_function_type_
 
     expect(pre_token, next_token(*context));
 
-    auto is_external = false;
-    const char *external_library;
     auto has_return_type = false;
     Expression return_type;
     switch(pre_token.type) {
@@ -1315,35 +1313,6 @@ static Result<Statement> continue_parsing_function_declaration_or_function_type_
 
             has_return_type = true;
             return_type = expression;
-        } break;
-
-        case TokenType::Identifier: {
-            if(strcmp(pre_token.identifier, "extern") != 0) {
-                error(*context, "Expected '->', '{', ';' or 'extern', got '%s'", pre_token.identifier);
-
-                return { false };
-            }
-
-            context->next_token_index += 1;
-
-            expect(token, next_token(*context));
-
-            if(token.type != TokenType::String) {
-                error(*context, "Expected a string, got '%s'", get_token_text(token));
-
-                return { false };
-            }
-
-            context->next_token_index += 1;
-
-            auto library = allocate<char>(token.string.count + 1);
-            memcpy(library, token.string.elements, token.string.count);
-            library[token.string.count] = 0;
-
-            last_range = token_range(*context, token);
-
-            is_external = true;
-            external_library = library;
         } break;
     }
 
@@ -1377,11 +1346,7 @@ static Result<Statement> continue_parsing_function_declaration_or_function_type_
             statement.function_declaration.name = name;
             statement.function_declaration.parameters = parameters;
             statement.function_declaration.has_return_type = has_return_type;
-            statement.function_declaration.is_external = is_external;
-
-            if(is_external) {
-                statement.function_declaration.external_library = external_library;
-            }
+            statement.function_declaration.is_external = false;
 
             if(has_return_type) {
                 statement.function_declaration.return_type = return_type;
@@ -1398,49 +1363,73 @@ static Result<Statement> continue_parsing_function_declaration_or_function_type_
         case TokenType::Semicolon: {
             context->next_token_index += 1;
 
-            if(is_external) {
-                Statement statement;
-                statement.type = StatementType::FunctionDeclaration;
-                statement.range = span_range(name.range, last_range);
-                statement.function_declaration.name = name;
-                statement.function_declaration.parameters = parameters;
-                statement.function_declaration.has_return_type = has_return_type;
-                statement.function_declaration.is_external = true;
-                statement.function_declaration.external_library = external_library;
+            Expression expression;
+            expression.type = ExpressionType::FunctionType;
+            expression.range = span_range(parameters_range, last_range);
+            expression.function_type.parameters = parameters;
 
-                if(has_return_type) {
-                    statement.function_declaration.return_type = return_type;
-                }
-
-                return {
-                    true,
-                    statement
-                };
+            if(has_return_type) {
+                expression.function_type.return_type = heapify(return_type);
             } else {
-                Expression expression;
-                expression.type = ExpressionType::FunctionType;
-                expression.range = span_range(parameters_range, last_range);
-                expression.function_type.parameters = parameters;
-
-                if(has_return_type) {
-                    expression.function_type.return_type = heapify(return_type);
-                } else {
-                    expression.function_type.return_type = nullptr;
-                }
-
-                Statement statement;
-                statement.type = StatementType::ConstantDefinition;
-                statement.range = span_range(parameters_range, token_range(*context, token));
-                statement.constant_definition = {
-                    name,
-                    expression
-                };
-
-                return {
-                    true,
-                    statement
-                };
+                expression.function_type.return_type = nullptr;
             }
+
+            Statement statement;
+            statement.type = StatementType::ConstantDefinition;
+            statement.range = span_range(parameters_range, token_range(*context, token));
+            statement.constant_definition = {
+                name,
+                expression
+            };
+
+            return {
+                true,
+                statement
+            };
+        } break;
+
+        case TokenType::Identifier: {
+            if(strcmp(token.identifier, "extern") != 0) {
+                error(*context, "Expected '->', '{', ';' or 'extern', got '%s'", token.identifier);
+
+                return { false };
+            }
+
+            context->next_token_index += 1;
+
+            expect(token, next_token(*context));
+
+            if(token.type != TokenType::String) {
+                error(*context, "Expected a string, got '%s'", get_token_text(token));
+
+                return { false };
+            }
+
+            context->next_token_index += 1;
+
+            auto library = allocate<char>(token.string.count + 1);
+            memcpy(library, token.string.elements, token.string.count);
+            library[token.string.count] = 0;
+
+            expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+
+            Statement statement;
+            statement.type = StatementType::FunctionDeclaration;
+            statement.range = span_range(name.range, token_range(*context, token));
+            statement.function_declaration.name = name;
+            statement.function_declaration.parameters = parameters;
+            statement.function_declaration.has_return_type = has_return_type;
+            statement.function_declaration.is_external = true;
+            statement.function_declaration.external_library = library;
+
+            if(has_return_type) {
+                statement.function_declaration.return_type = return_type;
+            }
+
+            return {
+                true,
+                statement
+            };
         } break;
 
         default: {
