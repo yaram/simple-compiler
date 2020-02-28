@@ -6158,6 +6158,10 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                         } break;
                     }
                 }
+            } else if(context->return_type.category != TypeCategory::Void) {
+                error(context->current_file_path, statement.range, "Missing return value");
+
+                return { false };
             }
 
             append(instructions, return_);
