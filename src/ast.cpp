@@ -9,29 +9,11 @@ static void indent(unsigned int level) {
     }
 }
 
-static void print_range(FileRange range) {
-    const size_t max_path_length = 17;
-
-    auto path_length = strlen(range.path);
-
-    if(path_length <= max_path_length) {
-        printf("%s", range.path);
-    } else {
-        printf("...%.*s", max_path_length, range.path + path_length - max_path_length);
-    }
-
-    printf("(%u:%u)", range.start_line, range.start_character);
-}
-
 static void print_indentifier(Identifier identifier) {
-    print_range(identifier.range);
-
     printf("%s", identifier.text);
 }
 
 static void print_expression_indent(Expression expression, unsigned int indentation_level) {
-    print_range(expression.range);
-
     switch(expression.type) {
         case ExpressionType::NamedReference: {
             printf("NamedReference: ");
@@ -317,8 +299,6 @@ void print_expression(Expression expression) {
 }
 
 static void print_statement_indent(Statement statement, unsigned int indentation_level) {
-    print_range(statement.range);
-
     switch(statement.type) {
         case StatementType::FunctionDeclaration: {
             printf("FunctionDeclaration {\n");

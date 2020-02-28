@@ -4,8 +4,6 @@
 #include "array.h"
 
 struct FileRange {
-    const char *path;
-
     unsigned int start_line;
     unsigned int start_character;
 
@@ -177,7 +175,7 @@ struct Statement {
     bool is_top_level;
 
     union {
-        const char *file_name;
+        const char *file_path;
 
         Statement *parent;
     };

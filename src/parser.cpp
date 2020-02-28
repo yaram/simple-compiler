@@ -119,7 +119,6 @@ static void error(Context context, const char *format, ...) {
 
 static FileRange token_range(Context context, Token token) {
     return {
-        context.path,
         token.line,
         token.first_character,
         token.line,
@@ -129,7 +128,6 @@ static FileRange token_range(Context context, Token token) {
 
 static FileRange span_range(FileRange first, FileRange last) {
     return {
-        first.path,
         first.start_line,
         first.start_character,
         last.end_character,
