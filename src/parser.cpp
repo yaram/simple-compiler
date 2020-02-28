@@ -1859,6 +1859,30 @@ static Result<Statement> parse_statement(Context *context) {
                                         };
                                     } else {
                                         auto sub_identifier = identifier_from_token(*context, token);
+
+                                        auto expression = named_reference_from_identifier(sub_identifier);
+
+                                        List<Operation> operation_stack{};
+                                        List<Expression> expression_stack{};
+
+                                        append(&expression_stack, expression);
+
+                                        expect(right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, true));
+
+                                        expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+
+                                        Statement statement;
+                                        statement.type = StatementType::ConstantDefinition;
+                                        statement.range = span_range(first_range, last_range);
+                                        statement.constant_definition = {
+                                            sub_identifier,
+                                            right_expression
+                                        };
+
+                                        return {
+                                            true,
+                                            statement
+                                        };
                                     }
                                 } break;
 
