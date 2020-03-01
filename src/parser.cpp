@@ -1905,6 +1905,15 @@ static Result<Statement> parse_statement(Context *context) {
                                     context->next_token_index += 1;
 
                                     if(strcmp(token.identifier, "struct") == 0) {
+                                        expect(pre_token, next_token(*context));
+
+                                        auto is_union = false;
+                                        if(pre_token.type == TokenType::Identifier && strcmp(pre_token.identifier, "union") == 0) {
+                                            context->next_token_index += 1;
+
+                                            is_union = true;
+                                        }
+
                                         if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
                                             return { false };
                                         }
@@ -1967,6 +1976,7 @@ static Result<Statement> parse_statement(Context *context) {
                                         statement.range = span_range(first_range, token_range(*context, token));
                                         statement.struct_definition = {
                                             identifier,
+                                            is_union,
                                             to_array(members)
                                         };
 

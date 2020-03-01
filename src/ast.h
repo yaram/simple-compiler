@@ -216,6 +216,8 @@ struct Statement {
         struct {
             Identifier name;
 
+            bool is_union;
+
             Array<StructMember> members;
         } struct_definition;
 
