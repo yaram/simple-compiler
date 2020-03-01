@@ -6409,12 +6409,11 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
 
     while(true) {
         auto done = true;
-
-        for(auto function : context.runtime_functions) {
+        RuntimeFunction function;
+        for(auto runtime_function : context.runtime_functions) {
             auto generated = false;
-
             for(auto generated_function : functions) {
-                if(strcmp(generated_function.name, function.mangled_name) == 0) {
+                if(strcmp(generated_function.name, runtime_function.mangled_name) == 0) {
                     generated = true;
 
                     break;
@@ -6422,151 +6421,155 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
             }
 
             if(!generated) {
-                context.is_top_level = function.declaration.is_top_level;
-
-                if(!function.declaration.is_top_level) {
-                    context.is_top_level = false;
-                    context.determined_declaration = function.parent;
-                }
-
-                context.top_level_statements = main_file_statements;
-                context.current_file_path = function.file_path;
-
-                auto total_parameter_count = function.parameters.count;
-
-                bool has_return;
-                RegisterRepresentation return_representation;                
-                if(function.return_type.category == TypeCategory::Void) {
-                    has_return = false;
-                } else {
-                    has_return = true;
-
-                    return_representation = get_type_representation(context, function.return_type);
-
-                    if(!return_representation.is_in_register) {
-                        total_parameter_count += 1;
-                    }
-                }
-
-                auto parameter_sizes = allocate<RegisterSize>(total_parameter_count);
-
-                for(size_t i = 0; i < function.parameters.count; i += 1) {
-                    auto representation = get_type_representation(context, function.parameters[i].type);
-
-                    if(representation.is_in_register) {
-                        parameter_sizes[i] = representation.value_size;
-                    } else {
-                        parameter_sizes[i] = address_size;
-                    }
-                }
-
-                if(has_return && !return_representation.is_in_register) {
-                    parameter_sizes[total_parameter_count - 1] = address_size;
-                }
-
-                Function ir_function;
-                ir_function.name = function.mangled_name;
-                ir_function.is_external = function.declaration.function_declaration.is_external;
-                ir_function.parameter_sizes = {
-                    total_parameter_count,
-                    parameter_sizes
-                };
-                ir_function.has_return = has_return && return_representation.is_in_register;
-
-                if(has_return && return_representation.is_in_register) {
-                    ir_function.return_size = return_representation.value_size;
-                }
-
-                if(!function.declaration.function_declaration.is_external) {
-                    append(&context.variable_context_stack, List<Variable>{});
-
-                    auto parameters = allocate<Variable>(function.parameters.count);
-
-                    for(size_t i = 0; i < function.parameters.count; i += 1) {
-                        auto parameter = function.parameters[i];
-
-                        parameters[i] = {
-                            parameter.name,
-                            parameter.type,
-                            parameter.type_range,
-                            i
-                        };
-                    }
-
-                    context.is_top_level = false;
-                    context.determined_declaration = {
-                        function.declaration,
-                        function.polymorphic_determiners,
-                        heapify(function.parent)
-                    };
-                    context.parameters = {
-                        function.parameters.count,
-                        parameters
-                    };
-                    context.return_type = function.return_type;
-                    context.next_register = total_parameter_count;
-
-                    if(has_return && !return_representation.is_in_register) {
-                        context.return_parameter_register = total_parameter_count - 1;
-                    }
-
-                    List<Instruction> instructions{};
-
-                    for(auto statement : function.declaration.function_declaration.statements) {
-                        switch(statement.type) {
-                            case StatementType::Expression:
-                            case StatementType::VariableDeclaration:
-                            case StatementType::Assignment:
-                            case StatementType::If:
-                            case StatementType::WhileLoop:
-                            case StatementType::Return: {
-                                if(!generate_statement(&context, &instructions, statement)) {
-                                    return { false };
-                                }
-                            } break;
-
-                            case StatementType::Import: {
-                                error(main_file_path, statement.range, "Import directive only allowed in global scope");
-
-                                return { false };
-                            } break;
-                        }
-                    }
-
-                    auto has_return_at_end = false;
-                    if(function.declaration.function_declaration.statements.count > 0) {
-                        has_return_at_end = function.declaration.function_declaration.statements[
-                            function.declaration.function_declaration.statements.count - 1
-                        ].type == StatementType::Return;
-                    }
-
-                    if(!has_return_at_end) {
-                        if(has_return) {
-                            error(function.file_path, function.declaration.range, "Function '%s' must end with a return", function.declaration.function_declaration.name.text);
-
-                            return { false };
-                        } else {
-                            Instruction return_;
-                            return_.type = InstructionType::Return;
-
-                            append(&instructions, return_);
-                        }
-                    }
-
-                    context.variable_context_stack.count -= 1;
-                    context.next_register = 0;
-
-                    ir_function.instructions = to_array(instructions);
-                }
-
-                append(&functions, ir_function);
-
                 done = false;
+
+                function = runtime_function;
+
+                break;
             }
         }
 
         if(done) {
             break;
+        } else {
+            context.is_top_level = function.declaration.is_top_level;
+
+            if(!function.declaration.is_top_level) {
+                context.is_top_level = false;
+                context.determined_declaration = function.parent;
+            }
+
+            context.top_level_statements = main_file_statements;
+            context.current_file_path = function.file_path;
+
+            auto total_parameter_count = function.parameters.count;
+
+            bool has_return;
+            RegisterRepresentation return_representation;                
+            if(function.return_type.category == TypeCategory::Void) {
+                has_return = false;
+            } else {
+                has_return = true;
+
+                return_representation = get_type_representation(context, function.return_type);
+
+                if(!return_representation.is_in_register) {
+                    total_parameter_count += 1;
+                }
+            }
+
+            auto parameter_sizes = allocate<RegisterSize>(total_parameter_count);
+
+            for(size_t i = 0; i < function.parameters.count; i += 1) {
+                auto representation = get_type_representation(context, function.parameters[i].type);
+
+                if(representation.is_in_register) {
+                    parameter_sizes[i] = representation.value_size;
+                } else {
+                    parameter_sizes[i] = address_size;
+                }
+            }
+
+            if(has_return && !return_representation.is_in_register) {
+                parameter_sizes[total_parameter_count - 1] = address_size;
+            }
+
+            Function ir_function;
+            ir_function.name = function.mangled_name;
+            ir_function.is_external = function.declaration.function_declaration.is_external;
+            ir_function.parameter_sizes = {
+                total_parameter_count,
+                parameter_sizes
+            };
+            ir_function.has_return = has_return && return_representation.is_in_register;
+
+            if(has_return && return_representation.is_in_register) {
+                ir_function.return_size = return_representation.value_size;
+            }
+
+            if(!function.declaration.function_declaration.is_external) {
+                append(&context.variable_context_stack, List<Variable>{});
+
+                auto parameters = allocate<Variable>(function.parameters.count);
+
+                for(size_t i = 0; i < function.parameters.count; i += 1) {
+                    auto parameter = function.parameters[i];
+
+                    parameters[i] = {
+                        parameter.name,
+                        parameter.type,
+                        parameter.type_range,
+                        i
+                    };
+                }
+
+                context.is_top_level = false;
+                context.determined_declaration = {
+                    function.declaration,
+                    function.polymorphic_determiners,
+                    heapify(function.parent)
+                };
+                context.parameters = {
+                    function.parameters.count,
+                    parameters
+                };
+                context.return_type = function.return_type;
+                context.next_register = total_parameter_count;
+
+                if(has_return && !return_representation.is_in_register) {
+                    context.return_parameter_register = total_parameter_count - 1;
+                }
+
+                List<Instruction> instructions{};
+
+                for(auto statement : function.declaration.function_declaration.statements) {
+                    switch(statement.type) {
+                        case StatementType::Expression:
+                        case StatementType::VariableDeclaration:
+                        case StatementType::Assignment:
+                        case StatementType::If:
+                        case StatementType::WhileLoop:
+                        case StatementType::Return: {
+                            if(!generate_statement(&context, &instructions, statement)) {
+                                return { false };
+                            }
+                        } break;
+
+                        case StatementType::Import: {
+                            error(main_file_path, statement.range, "Import directive only allowed in global scope");
+
+                            return { false };
+                        } break;
+                    }
+                }
+
+                auto has_return_at_end = false;
+                if(function.declaration.function_declaration.statements.count > 0) {
+                    has_return_at_end = function.declaration.function_declaration.statements[
+                        function.declaration.function_declaration.statements.count - 1
+                    ].type == StatementType::Return;
+                }
+
+                if(!has_return_at_end) {
+                    if(has_return) {
+                        error(function.file_path, function.declaration.range, "Function '%s' must end with a return", function.declaration.function_declaration.name.text);
+
+                        return { false };
+                    } else {
+                        Instruction return_;
+                        return_.type = InstructionType::Return;
+
+                        append(&instructions, return_);
+                    }
+                }
+
+                context.variable_context_stack.count -= 1;
+                context.next_register = 0;
+
+                ir_function.instructions = to_array(instructions);
+            }
+
+            append(&functions, ir_function);
         }
     }
 
