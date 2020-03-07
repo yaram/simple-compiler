@@ -1273,6 +1273,52 @@ static RegisterRepresentation get_type_representation(GenerationContext context,
     }
 }
 
+static Result<Type> coerce_to_default_type(GenerationContext context, FileRange range, Type type) {
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            if(type.integer.is_undetermined) {
+                Type type;
+                type.category = TypeCategory::Integer;
+                type.integer = {
+                    context.default_integer_size,
+                    true,
+                    false
+                };
+
+                return {
+                    true,
+                    type
+                };
+            } else {
+                return {
+                    true,
+                    type
+                };
+            }
+        } break;
+
+        case TypeCategory::Struct: {
+            if(type._struct.is_undetermined) {
+                error(context.current_file_path, range, "Undetermined struct types cannot exist at runtime");
+
+                return { false };
+            }
+
+            return {
+                true,
+                type
+            };
+        } break;
+
+        default: {
+            return {
+                true,
+                type
+            };
+        } break;
+    }
+}
+
 static Result<Type> evaluate_type_expression(GenerationContext *context, Expression expression);
 
 static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression expression) {
@@ -1575,14 +1621,6 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 }
 
                 expect(member, evaluate_constant_expression(context, expression.struct_literal[i].value));
-
-                auto representation = get_type_representation(*context, member.type);
-
-                if(!representation.is_in_register) {
-                    error(context->current_file_path, expression.struct_literal[i].value.range, "Cannot have struct members of type %s", type_description(member.type));
-
-                    return { false };
-                }
 
                 type_members[i] = {
                     expression.struct_literal[i].name.text,
@@ -2158,197 +2196,127 @@ static size_t allocate_register(GenerationContext *context) {
     return index;
 }
 
-static void write_integer(uint8_t *buffer, size_t index, uint8_t value) {
-    buffer[index] = value;
-}
-
-static void write_integer(uint8_t *buffer, size_t index, uint16_t value) {
-    buffer[index] = value & 0xF;
-    buffer[index + 1] = (value >> 8) & 0xF;
-}
-
-static void write_integer(uint8_t *buffer, size_t index, uint32_t value) {
-    buffer[index] = value & 0xF;
-    buffer[index + 1] = (value >> 8) & 0xF;
-    buffer[index + 2] = (value >> 16) & 0xF;
-    buffer[index + 3] = (value >> 24) & 0xF;
-}
-
-static void write_integer(uint8_t *buffer, size_t index, uint64_t value) {
-    buffer[index] = value & 0xF;
-    buffer[index + 1] = (value >> 8) & 0xF;
-    buffer[index + 2] = (value >> 16) & 0xF;
-    buffer[index + 3] = (value >> 24) & 0xF;
-    buffer[index + 4] = (value >> 32) & 0xF;
-    buffer[index + 5] = (value >> 40) & 0xF;
-    buffer[index + 6] = (value >> 48) & 0xF;
-    buffer[index + 7] = (value >> 56) & 0xF;
-}
-
-static const char *register_static_array_constant(GenerationContext *context, Type type, Array<ConstantValue> values) {
-    size_t element_size;
-    size_t element_alignment;
-    uint8_t *data;
-
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            switch(type.integer.size) {
-                case RegisterSize::Size8: {
-                    element_size = 1;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        write_integer(data, i * element_size, (uint8_t)values[i].integer);
-                    }
-                } break;
-
-                case RegisterSize::Size16: {
-                    element_size = 2;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        write_integer(data, i * element_size, (uint16_t)values[i].integer);
-                    }
-                } break;
-
-                case RegisterSize::Size32: {
-                    element_size = 4;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        write_integer(data, i * element_size, (uint32_t)values[i].integer);
-                    }
-                } break;
-
-                case RegisterSize::Size64: {
-                    element_size = 8;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        write_integer(data, i * element_size, (uint64_t)values[i].integer);
-                    }
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            element_alignment = element_size;
-        } break;
-
-        case TypeCategory::Boolean: {
-            switch(context->default_integer_size) {
-                case RegisterSize::Size8: {
-                    element_size = 1;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        if(values[i].boolean) {
-                            write_integer(data, i * element_size, (uint8_t)1);
-                        } else {
-                            write_integer(data, i * element_size, (uint8_t)0);
-                        }
-                    }
-                } break;
-
-                case RegisterSize::Size16: {
-                    element_size = 2;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        if(values[i].boolean) {
-                            write_integer(data, i * element_size, (uint16_t)1);
-                        } else {
-                            write_integer(data, i * element_size, (uint16_t)0);
-                        }
-                    }
-                } break;
-
-                case RegisterSize::Size32: {
-                    element_size = 4;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        if(values[i].boolean) {
-                            write_integer(data, i * element_size, (uint32_t)1);
-                        } else {
-                            write_integer(data, i * element_size, (uint32_t)0);
-                        }
-                    }
-                } break;
-
-                case RegisterSize::Size64: {
-                    element_size = 8;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        if(values[i].boolean) {
-                            write_integer(data, i * element_size, (uint64_t)1);
-                        } else {
-                            write_integer(data, i * element_size, (uint64_t)0);
-                        }
-                    }
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            element_alignment = element_size;
-        } break;
-
-        case TypeCategory::Pointer: {
-            switch(context->address_integer_size) {
-                case RegisterSize::Size8: {
-                    element_size = 1;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        write_integer(data, i * element_size, (uint8_t)values[i].pointer);
-                    }
-                } break;
-
-                case RegisterSize::Size16: {
-                    element_size = 2;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        write_integer(data, i * element_size, (uint16_t)values[i].pointer);
-                    }
-                } break;
-
-                case RegisterSize::Size32: {
-                    element_size = 4;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        write_integer(data, i * element_size, (uint32_t)values[i].pointer);
-                    }
-                } break;
-
-                case RegisterSize::Size64: {
-                    element_size = 8;
-                    data = allocate<uint8_t>(values.count * element_size);
-
-                    for(auto i = 0; i < values.count; i += 1) {
-                        write_integer(data, i * element_size, (uint64_t)values[i].pointer);
-                    }
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            element_alignment = element_size;
-        } break;
-
-        default: {
-            abort();
-        } break;
+static void write_integer(uint8_t *buffer, size_t offset, RegisterSize size, uint64_t value) {
+    if(size >= RegisterSize::Size8) {
+        buffer[offset] = value;
+    } else if(size >= RegisterSize::Size16) {
+        buffer[offset + 1] = (value >> 8);
+    } else if(size >= RegisterSize::Size32) {
+        buffer[offset + 2] = (value >> 16);
+        buffer[offset + 3] = (value >> 24);
+    } else if(size == RegisterSize::Size64) {
+        buffer[offset + 4] = (value >> 32);
+        buffer[offset + 5] = (value >> 40);
+        buffer[offset + 6] = (value >> 48);
+        buffer[offset + 7] = (value >> 56);
+    } else {
+        abort();
     }
+}
+
+static void write_static_array(GenerationContext context, uint8_t *data, size_t offset, Type type, Array<ConstantValue> elements);
+
+static void write_struct(GenerationContext context, uint8_t *data, size_t offset, StructType struct_type, ConstantValue *members) {
+    for(size_t i = 0; i < struct_type.members.count; i += 1) {
+        auto member_offset = get_struct_member_offset(context, struct_type, i);
+
+        auto representation = get_type_representation(context, struct_type.members[i].type);
+
+        auto size = get_type_size(context, struct_type.members[i].type);
+
+        if(representation.is_in_register) {
+            uint64_t value;
+            switch(struct_type.members[i].type.category) {
+                case TypeCategory::Integer: {
+                    value = members[i].integer;
+                } break;
+
+                case TypeCategory::Boolean: {
+                    value = members[i].boolean;
+                } break;
+
+                case TypeCategory::Pointer: {
+                    value = members[i].pointer;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+
+            write_integer(data, offset + member_offset, representation.value_size, value);
+        } else {
+            switch(struct_type.members[i].type.category) {
+                case TypeCategory::Array: {
+                    write_integer(data, offset + member_offset, context.address_integer_size, members[i].array.pointer);
+                    write_integer(data, offset + member_offset + register_size_to_byte_size(context.address_integer_size), context.address_integer_size, members[i].array.length);
+                } break;
+
+                case TypeCategory::StaticArray: {
+                    write_static_array(context, data, offset + member_offset, *struct_type.members[i].type.static_array.type, { struct_type.members[i].type.static_array.length, members[i].static_array });
+                } break;
+
+                case TypeCategory::Struct: {
+                    write_struct(context, data, offset + member_offset, retrieve_struct_type(context, struct_type.members[i].type._struct.name), members[i].struct_);
+                } break;
+            }
+        }
+    }
+}
+
+static void write_static_array(GenerationContext context, uint8_t *data, size_t offset, Type type, Array<ConstantValue> elements) {
+    auto representation = get_type_representation(context, type);
+
+    auto element_size = get_type_size(context, type);
+
+    for(size_t i = 0; i < elements.count; i += 1) {
+        if(representation.is_in_register) {
+            uint64_t value;
+            switch(type.category) {
+                case TypeCategory::Integer: {
+                    value = elements[i].integer;
+                } break;
+
+                case TypeCategory::Boolean: {
+                    value = elements[i].boolean;
+                } break;
+
+                case TypeCategory::Pointer: {
+                    value = elements[i].pointer;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+
+            write_integer(data, offset + i * element_size, representation.value_size, value);
+        } else {
+            switch(type.category) {
+                case TypeCategory::Array: {
+                    write_integer(data, offset + i * element_size, context.address_integer_size, elements[i].array.pointer);
+                    write_integer(data, offset + i * element_size + register_size_to_byte_size(context.address_integer_size), context.address_integer_size, elements[i].array.length);
+                } break;
+
+                case TypeCategory::StaticArray: {
+                    write_static_array(context, data, offset + i * element_size, *type.static_array.type, { type.static_array.length, elements[i].static_array });
+                } break;
+
+                case TypeCategory::Struct: {
+                    write_struct(context, data, offset + i * element_size, retrieve_struct_type(context, type._struct.name), elements[i].struct_);
+                } break;
+            }
+        }
+    }
+}
+
+static const char *register_static_array_constant(GenerationContext *context, Type type, Array<ConstantValue> elements) {
+    auto element_size = get_type_size(*context, type);
+    auto element_alignment = get_type_alignment(*context, type);
+
+    auto data = allocate<uint8_t>(element_size);
+
+    write_static_array(*context, data, 0, type, elements);
 
     char *name_buffer{};
     string_buffer_append(&name_buffer, "constant_");
@@ -2358,7 +2326,7 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
         name_buffer,
         element_alignment,
         {
-            values.count * element_size,
+            elements.count * element_size,
             data
         }
     });
@@ -2366,108 +2334,13 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
     return name_buffer;
 }
 
-static const char *register_struct_constant(GenerationContext *context, StructType struct_type, ConstantValue *values) {
+static const char *register_struct_constant(GenerationContext *context, StructType struct_type, ConstantValue *members) {
     auto length = get_struct_size(*context, struct_type);
+    auto alignment = get_struct_alignment(*context, struct_type);
 
     auto data = allocate<uint8_t>(length);
 
-    for(auto i = 0; i < struct_type.members.count; i += 1) {
-        auto offset = get_struct_member_offset(*context, struct_type, i);
-
-        switch(struct_type.members[i].type.category) {
-            case TypeCategory::Integer: {
-                switch(struct_type.members[i].type.integer.size) {
-                    case RegisterSize::Size8: {
-                        write_integer(data, offset, (uint8_t)values[i].integer);
-                    } break;
-
-                    case RegisterSize::Size16: {
-                        write_integer(data, offset, (uint16_t)values[i].integer);
-                    } break;
-
-                    case RegisterSize::Size32: {
-                        write_integer(data, offset, (uint32_t)values[i].integer);
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        write_integer(data, offset, (uint64_t)values[i].integer);
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
-            } break;
-
-            case TypeCategory::Boolean: {
-                switch(context->default_integer_size) {
-                    case RegisterSize::Size8: {
-                        if(values[i].boolean) {
-                            write_integer(data, offset, (uint8_t)1);
-                        } else {
-                            write_integer(data, offset, (uint8_t)0);
-                        }
-                    } break;
-
-                    case RegisterSize::Size16: {
-                        if(values[i].boolean) {
-                            write_integer(data, offset, (uint16_t)1);
-                        } else {
-                            write_integer(data, offset, (uint16_t)0);
-                        }
-                    } break;
-
-                    case RegisterSize::Size32: {
-                        if(values[i].boolean) {
-                            write_integer(data, offset, (uint32_t)1);
-                        } else {
-                            write_integer(data, offset, (uint32_t)0);
-                        }
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        if(values[i].boolean) {
-                            write_integer(data, offset, (uint64_t)1);
-                        } else {
-                            write_integer(data, offset, (uint64_t)0);
-                        }
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
-            } break;
-
-            case TypeCategory::Pointer: {
-                switch(context->address_integer_size) {
-                    case RegisterSize::Size8: {
-                        write_integer(data, offset, (uint8_t)values[i].pointer);
-                    } break;
-
-                    case RegisterSize::Size16: {
-                        write_integer(data, offset, (uint16_t)values[i].pointer);
-                    } break;
-
-                    case RegisterSize::Size32: {
-                        write_integer(data, offset, (uint32_t)values[i].pointer);
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        write_integer(data, offset, (uint64_t)values[i].pointer);
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
-            } break;
-
-            default: {
-                abort();
-            } break;
-        }
-    }
+    write_struct(*context, data, 0, struct_type, members);
 
     char *name_buffer{};
     string_buffer_append(&name_buffer, "constant_");
@@ -2475,7 +2348,7 @@ static const char *register_struct_constant(GenerationContext *context, StructTy
 
     append(&context->static_constants, {
         name_buffer,
-        get_struct_alignment(*context, struct_type),
+        alignment,
         {
             length,
             data
@@ -2483,78 +2356,6 @@ static const char *register_struct_constant(GenerationContext *context, StructTy
     });
 
     return name_buffer;
-}
-
-static void generate_array_copy(GenerationContext *context, List<Instruction> *instructions, size_t source_address_register, size_t destination_address_register) {
-    auto pointer_register = allocate_register(context);
-
-    Instruction load_pointer;
-    load_pointer.type = InstructionType::LoadInteger;
-    load_pointer.load_integer.size = context->address_integer_size;
-    load_pointer.load_integer.address_register = source_address_register;
-    load_pointer.load_integer.destination_register = pointer_register;
-
-    append(instructions, load_pointer);
-
-    Instruction store_pointer;
-    store_pointer.type = InstructionType::StoreInteger;
-    store_pointer.store_integer.size = context->address_integer_size;
-    store_pointer.store_integer.source_register = pointer_register;
-    store_pointer.store_integer.address_register = destination_address_register;
-
-    append(instructions, store_pointer);
-
-    auto offset_register = allocate_register(context);
-
-    Instruction constant;
-    constant.type = InstructionType::Constant;
-    constant.constant.size = context->address_integer_size;
-    constant.constant.destination_register = offset_register;
-    constant.constant.value = register_size_to_byte_size(context->address_integer_size);
-
-    append(instructions, constant);
-
-    auto source_length_address_register = allocate_register(context);
-
-    Instruction source_add;
-    source_add.type = InstructionType::ArithmeticOperation;
-    source_add.arithmetic_operation.type = ArithmeticOperationType::Add;
-    source_add.arithmetic_operation.size = context->address_integer_size;
-    source_add.arithmetic_operation.source_register_a = source_address_register;
-    source_add.arithmetic_operation.source_register_b = offset_register;
-    source_add.arithmetic_operation.destination_register = source_length_address_register;
-
-    append(instructions, source_add);
-
-    auto length_register = allocate_register(context);
-
-    Instruction load_length;
-    load_length.type = InstructionType::LoadInteger;
-    load_length.load_integer.size = context->address_integer_size;
-    load_length.load_integer.address_register = source_length_address_register;
-    load_length.load_integer.destination_register = length_register;
-
-    append(instructions, load_length);
-
-    auto destination_length_address_register = allocate_register(context);
-
-    Instruction destination_add;
-    destination_add.type = InstructionType::ArithmeticOperation;
-    destination_add.arithmetic_operation.type = ArithmeticOperationType::Add;
-    destination_add.arithmetic_operation.size = context->address_integer_size;
-    destination_add.arithmetic_operation.source_register_a = destination_address_register;
-    destination_add.arithmetic_operation.source_register_b = offset_register;
-    destination_add.arithmetic_operation.destination_register = destination_length_address_register;
-
-    append(instructions, destination_add);
-
-    Instruction store_length;
-    store_length.type = InstructionType::StoreInteger;
-    store_length.store_integer.size = context->address_integer_size;
-    store_length.store_integer.source_register = length_register;
-    store_length.store_integer.address_register = destination_length_address_register;
-
-    append(instructions, store_length);
 }
 
 static size_t append_arithmetic_operation(GenerationContext *context, List<Instruction> *instructions, ArithmeticOperationType type, RegisterSize size, size_t source_register_a, size_t source_register_b) {
@@ -3324,52 +3125,6 @@ static Result<Value> coerce_to_type(
 
                 return { false };
             }
-        } break;
-    }
-}
-
-static Result<Type> coerce_to_default_type(GenerationContext context, FileRange range, Type type) {
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            if(type.integer.is_undetermined) {
-                Type type;
-                type.category = TypeCategory::Integer;
-                type.integer = {
-                    context.default_integer_size,
-                    true,
-                    false
-                };
-
-                return {
-                    true,
-                    type
-                };
-            } else {
-                return {
-                    true,
-                    type
-                };
-            }
-        } break;
-
-        case TypeCategory::Struct: {
-            if(type._struct.is_undetermined) {
-                error(context.current_file_path, range, "Undetermined struct types cannot exist at runtime");
-
-                return { false };
-            }
-
-            return {
-                true,
-                type
-            };
-        } break;
-
-        default: {
-            return {
-                true,
-                type
-            };
         } break;
     }
 }
@@ -4241,14 +3996,6 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 }
 
                 expect(member, generate_expression(context, instructions, expression.struct_literal[i].value));
-
-                auto representation = get_type_representation(*context, member.type);
-
-                if(!representation.is_in_register) {
-                    error(context->current_file_path, expression.struct_literal[i].value.range, "Cannot have struct members of type %s", type_description(member.type));
-
-                    return { false };
-                }
 
                 type_members[i] = {
                     expression.struct_literal[i].name.text,
