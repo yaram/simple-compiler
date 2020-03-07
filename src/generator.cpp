@@ -810,6 +810,31 @@ static Result<ConstantValue> coerce_constant_to_type(
             };
         } break;
 
+        case TypeCategory::Pointer: {
+            switch(value.type.category) {
+                case TypeCategory::Integer: {
+                    if(value.type.integer.is_undetermined) {
+                        ConstantValue result;
+                        result.pointer = value.value.integer;
+
+                        return {
+                            true,
+                            result
+                        };
+                    }
+                } break;
+
+                case TypeCategory::Pointer: {
+                    if(types_equal(*type.pointer, *value.type.pointer)) {
+                        return {
+                            true,
+                            value.value
+                        };
+                    }
+                } break;
+            }
+        } break;
+
         case TypeCategory::Struct: {
             return coerce_constant_to_struct_type(context, range, value, retrieve_struct_type(context, type._struct.name), probing);
         } break;
@@ -820,15 +845,15 @@ static Result<ConstantValue> coerce_constant_to_type(
                     true,
                     value.value
                 };
-            } else {
-                if(!probing) {
-                    error(context.current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), type_description(type));
-                }
-
-                return { false };
             }
         } break;
     }
+
+    if(!probing) {
+        error(context.current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), type_description(type));
+    }
+
+    return { false };
 }
 
 static Result<TypedConstantValue> evaluate_constant_index(GenerationContext context, Type type, ConstantValue value, FileRange range, Type index_type, ConstantValue index_value, FileRange index_range) {
@@ -3177,6 +3202,32 @@ static Result<Value> coerce_to_type(
             return coerce_to_integer_type(*context, range, value, type.integer.size, type.integer.is_signed, probing);
         } break;
 
+        case TypeCategory::Pointer: {
+            switch(value.type.category) {
+                case TypeCategory::Integer: {
+                    if(value.type.integer.is_undetermined) {
+                        Value result;
+                        result.category = ValueCategory::Constant;
+                        result.constant.pointer = value.value.constant.integer;
+
+                        return {
+                            true,
+                            result
+                        };
+                    }
+                } break;
+
+                case TypeCategory::Pointer: {
+                    if(types_equal(*type.pointer, *value.type.pointer)) {
+                        return {
+                            true,
+                            value.value
+                        };
+                    }
+                } break;
+            }
+        } break;
+
         case TypeCategory::Struct: {
             return coerce_to_struct_type(context, instructions, range, value, retrieve_struct_type(*context, type._struct.name), probing);
         } break;
@@ -3187,15 +3238,15 @@ static Result<Value> coerce_to_type(
                     true,
                     value.value
                 };
-            } else {
-                if(!probing) {
-                    error(context->current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), type_description(type));
-                }
-
-                return { false };
             }
         } break;
     }
+
+    if(!probing) {
+        error(context->current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), type_description(type));
+    }
+
+    return { false };
 }
 
 static size_t generate_in_register_integer_value(GenerationContext *context, List<Instruction> *instructions, RegisterSize size, Value value) {
