@@ -113,7 +113,11 @@ struct Expression {
             Expression *type;
         } cast;
 
-        Expression *array_type;
+        struct {
+            Expression *expression;
+
+            Expression *index;
+        } array_type;
 
         struct {
             Array<FunctionParameter> parameters;

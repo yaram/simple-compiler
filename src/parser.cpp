@@ -263,9 +263,9 @@ enum struct OperationType {
     FunctionCall,
     MemberReference,
     IndexReference,
-    ArrayType,
 
     Pointer,
+    ArrayType,
     BooleanInvert,
     Negation,
 
@@ -293,8 +293,8 @@ enum struct OperationType {
 };
 
 unsigned int operation_precedences[] = {
-    1, 1, 1, 1,
-    2, 2, 2,
+    1, 1, 1,
+    2, 2, 2, 2,
     3,
     4, 4, 4,
     5, 5,
@@ -314,6 +314,12 @@ struct Operation {
         Identifier member_reference;
 
         Expression index_reference;
+
+        struct {
+            bool has_index;
+
+            Expression index;
+        } array_type;
 
         Array<Expression> function_call;
     };
@@ -371,6 +377,21 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
             };
         } break;
 
+        case OperationType::ArrayType: {
+            auto sub_expression = take_last(expression_stack);
+
+            expression.type = ExpressionType::ArrayType;
+            expression.range = span_range(operation.range, sub_expression.range);
+
+            expression.array_type.expression = heapify(sub_expression);
+
+            if(operation.array_type.has_index) {
+                expression.array_type.index = heapify(operation.array_type.index);
+            } else {
+                expression.array_type.index = nullptr;
+            }
+        } break;
+
         case OperationType::BooleanInvert: {
             auto sub_expression = take_last(expression_stack);
 
@@ -406,15 +427,6 @@ static void apply_operation(List<Expression> *expression_stack, Operation operat
                 heapify(sub_expression),
                 heapify(type)
             };
-        } break;
-
-        case OperationType::ArrayType: {
-            auto sub_expression = take_last(expression_stack);
-
-            expression.type = ExpressionType::ArrayType;
-            expression.range = span_range(sub_expression.range, operation.range);
-
-            expression.array_type = heapify(sub_expression);
         } break;
 
         default: {
@@ -1028,6 +1040,44 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                         } break;
                     }
                 } break;
+
+                case TokenType::OpenSquareBracket: {
+                    context->next_token_index += 1;
+
+                    expect(token, next_token(*context));
+
+                    bool has_index;
+                    Expression index;
+                    FileRange last_range;
+                    if(token.type == TokenType::CloseSquareBracket) {
+                        context->next_token_index += 1;
+
+                        has_index = false;
+                        last_range = token_range(*context, token);
+                    } else {
+                        expect(expression, parse_expression(context));
+
+                        expect(range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
+
+                        has_index = true;
+                        index = expression;
+                        last_range = range;
+                    }
+
+                    Operation operation;
+                    operation.type = OperationType::ArrayType;
+                    operation.range = token_range(*context, token);
+
+                    operation.array_type.has_index = has_index;
+
+                    if(has_index) {
+                        operation.array_type.index = index;
+                    }
+
+                    append(operation_stack, operation);
+
+                    continue;
+                }
 
                 default: {
                     error(*context, "Expected an expression. Got '%s'", get_token_text(token));

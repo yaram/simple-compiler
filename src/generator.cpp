@@ -688,38 +688,6 @@ static Result<TypedConstantValue> evaluate_constant_index(GenerationContext cont
     }
 
     switch(type.category) {
-        case TypeCategory::Type: {
-            switch(value.type.category) {
-                case TypeCategory::Integer:
-                case TypeCategory::Boolean:
-                case TypeCategory::Pointer: {
-
-                } break;
-
-                default: {
-                    error(context.current_file_path, range, "Cannot have arrays of type %s", type_description(value.type));
-
-                    return { false };
-                } break;
-            }
-
-            Type type_type;
-            type_type.category = TypeCategory::Type;
-
-            ConstantValue type_value;
-            type_value.type.category = TypeCategory::StaticArray;
-            type_value.type.static_array.length = index;
-            type_value.type.static_array.type = heapify(value.type);
-
-            return {
-                true,
-                {
-                    type_type,
-                    type_value
-                }
-            };
-        } break;
-
         case TypeCategory::StaticArray: {
             if(index >= type.static_array.length) {
                 error(context.current_file_path, index_range, "Array index %zu out of bounds", index);
@@ -1765,12 +1733,114 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
         } break;
 
         case ExpressionType::ArrayType: {
-            expect(expression_value, evaluate_type_expression(context, *expression.array_type));
+            expect(type, evaluate_type_expression(context, *expression.array_type.expression));
+
+            auto type_representation = get_type_representation(*context, type);
+
+            if(!type_representation.is_in_register) {
+                error(context->current_file_path, expression.array_type.expression->range, "Cannot have arrays of type %s", type_description(type));
+
+                return { false };
+            }
 
             TypedConstantValue value;
             value.type.category = TypeCategory::Type;
-            value.value.type.category = TypeCategory::Array;
-            value.value.type.array = heapify(expression_value);
+
+            if(expression.array_type.index != nullptr) {
+                expect(index_value, evaluate_constant_expression(context, *expression.array_type.index));
+
+                if(index_value.type.category != TypeCategory::Integer) {
+                    error(context->current_file_path, expression.array_type.index->range, "Expected an integer, got '%s'", type_description(index_value.type));
+                }
+
+                size_t length;
+                if(index_value.type.integer.is_undetermined) {
+                    if((int64_t)index_value.value.integer < 0) {
+                        error(context->current_file_path, expression.array_type.index->range, "Array index %lld out of bounds", (int64_t)index_value.value.integer);
+
+                        return { false };
+                    }
+
+                    length = index_value.value.integer;
+                } else if(index_value.type.integer.is_signed) {
+                    switch(index_value.type.integer.size) {
+                        case RegisterSize::Size8: {
+                            if((int8_t)index_value.value.integer < 0) {
+                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %hhd", (int8_t)index_value.value.integer);
+
+                                return { false };
+                            }
+
+                            length = (uint8_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size16: {
+                            if((int16_t)index_value.value.integer < 0) {
+                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %hd", (int16_t)index_value.value.integer);
+
+                                return { false };
+                            }
+
+                            length = (uint16_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size32: {
+                            if((int32_t)index_value.value.integer < 0) {
+                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %d", (int32_t)index_value.value.integer);
+
+                                return { false };
+                            }
+
+                            length = (uint32_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size64: {
+                            if((int8_t)index_value.value.integer < 0) {
+                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %lld", (int64_t)index_value.value.integer);
+
+                                return { false };
+                            }
+
+                            length = index_value.value.integer;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } else {
+                    switch(index_value.type.integer.size) {
+                        case RegisterSize::Size8: {
+                            length = (uint8_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size16: {
+                            length = (uint16_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size32: {
+                            length = (uint32_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size64: {
+                            length = index_value.value.integer;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                }
+
+                value.value.type.category = TypeCategory::StaticArray;
+                value.value.type.static_array = {
+                    length,
+                    heapify(type)
+                };
+            } else {
+                value.value.type.category = TypeCategory::Array;
+                value.value.type.array = heapify(type);
+            }
 
             return {
                 true,
@@ -5275,13 +5345,115 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
         } break;
 
         case ExpressionType::ArrayType: {
-            expect(expression_value, evaluate_type_expression(context, *expression.array_type));
+            expect(type, evaluate_type_expression(context, *expression.array_type.expression));
+
+            auto type_representation = get_type_representation(*context, type);
+
+            if(!type_representation.is_in_register) {
+                error(context->current_file_path, expression.array_type.expression->range, "Cannot have arrays of type %s", type_description(type));
+
+                return { false };
+            }
 
             TypedValue value;
             value.type.category = TypeCategory::Type;
             value.value.category = ValueCategory::Constant;
-            value.value.constant.type.category = TypeCategory::Array;
-            value.value.constant.type.array = heapify(expression_value);
+
+            if(expression.array_type.index != nullptr) {
+                expect(index_value, evaluate_constant_expression(context, *expression.array_type.index));
+
+                if(index_value.type.category != TypeCategory::Integer) {
+                    error(context->current_file_path, expression.array_type.index->range, "Expected an integer, got '%s'", type_description(index_value.type));
+                }
+
+                size_t length;
+                if(index_value.type.integer.is_undetermined) {
+                    if((int64_t)index_value.value.integer < 0) {
+                        error(context->current_file_path, expression.array_type.index->range, "Array index %lld out of bounds", (int64_t)index_value.value.integer);
+
+                        return { false };
+                    }
+
+                    length = index_value.value.integer;
+                } else if(index_value.type.integer.is_signed) {
+                    switch(index_value.type.integer.size) {
+                        case RegisterSize::Size8: {
+                            if((int8_t)index_value.value.integer < 0) {
+                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %hhd", (int8_t)index_value.value.integer);
+
+                                return { false };
+                            }
+
+                            length = (uint8_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size16: {
+                            if((int16_t)index_value.value.integer < 0) {
+                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %hd", (int16_t)index_value.value.integer);
+
+                                return { false };
+                            }
+
+                            length = (uint16_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size32: {
+                            if((int32_t)index_value.value.integer < 0) {
+                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %d", (int32_t)index_value.value.integer);
+
+                                return { false };
+                            }
+
+                            length = (uint32_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size64: {
+                            if((int8_t)index_value.value.integer < 0) {
+                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %lld", (int64_t)index_value.value.integer);
+
+                                return { false };
+                            }
+
+                            length = index_value.value.integer;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } else {
+                    switch(index_value.type.integer.size) {
+                        case RegisterSize::Size8: {
+                            length = (uint8_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size16: {
+                            length = (uint16_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size32: {
+                            length = (uint32_t)index_value.value.integer;
+                        } break;
+
+                        case RegisterSize::Size64: {
+                            length = index_value.value.integer;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                }
+
+                value.value.constant.type.category = TypeCategory::StaticArray;
+                value.value.constant.type.static_array = {
+                    length,
+                    heapify(type)
+                };
+            } else {
+                value.value.constant.type.category = TypeCategory::Array;
+                value.value.constant.type.array = heapify(type);
+            }
 
             return {
                 true,
