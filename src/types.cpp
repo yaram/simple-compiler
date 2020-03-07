@@ -87,50 +87,8 @@ const char *type_description(Type type) {
         case TypeCategory::Integer: {
             if(type.integer.is_undetermined) {
                 return "{integer}";
-            } else if(type.integer.is_signed) {
-                switch(type.integer.size) {
-                    case RegisterSize::Size8: {
-                        return "i8";
-                    } break;
-
-                    case RegisterSize::Size16: {
-                        return "i16";
-                    } break;
-
-                    case RegisterSize::Size32: {
-                        return "i32";
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        return "i64";
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
             } else {
-                switch(type.integer.size) {
-                    case RegisterSize::Size8: {
-                        return "u8";
-                    } break;
-
-                    case RegisterSize::Size16: {
-                        return "u16";
-                    } break;
-
-                    case RegisterSize::Size32: {
-                        return "u32";
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        return "u64";
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
+                return determined_integer_type_description(type.integer.size, type.integer.is_signed);
             }
         } break;
 
@@ -194,5 +152,53 @@ const char *type_description(Type type) {
         default: {
             abort();
         } break;
+    }
+}
+
+const char *determined_integer_type_description(RegisterSize size, bool is_signed) {
+    if(is_signed) {
+        switch(size) {
+            case RegisterSize::Size8: {
+                return "i8";
+            } break;
+
+            case RegisterSize::Size16: {
+                return "i16";
+            } break;
+
+            case RegisterSize::Size32: {
+                return "i32";
+            } break;
+
+            case RegisterSize::Size64: {
+                return "i64";
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+    } else {
+        switch(size) {
+            case RegisterSize::Size8: {
+                return "u8";
+            } break;
+
+            case RegisterSize::Size16: {
+                return "u16";
+            } break;
+
+            case RegisterSize::Size32: {
+                return "u32";
+            } break;
+
+            case RegisterSize::Size64: {
+                return "u64";
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
     }
 }

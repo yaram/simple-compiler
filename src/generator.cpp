@@ -1227,6 +1227,38 @@ static RegisterRepresentation get_type_representation(GenerationContext context,
     }
 }
 
+static Result<Type> determine_binary_operation_type(GenerationContext context, FileRange range, Type left, Type right) {
+    if(left.category == TypeCategory::Integer && right.category == TypeCategory::Integer) {
+        Type type;
+        type.category = TypeCategory::Integer;
+
+        if(left.integer.is_undetermined && right.integer.is_undetermined) {
+            type.integer.is_undetermined = true;
+        } else if(left.integer.is_undetermined) {
+            type.integer = right.integer;
+        } else {
+            type.integer = left.integer;
+        }
+
+        return {
+            true,
+            type
+        };
+    } else if(left.category == TypeCategory::Boolean && right.category == TypeCategory::Boolean) {
+        Type type;
+        type.category = TypeCategory::Boolean;
+
+        return {
+            true,
+            type
+        };
+    } else {
+        error(context.current_file_path, range, "Cannot perform binary operations on '%s' and '%s'", type_description(left), type_description(right));
+
+        return { false };
+    }
+}
+
 static Result<Type> evaluate_type_expression(GenerationContext *context, Expression expression);
 
 static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression expression) {
@@ -2841,33 +2873,34 @@ static size_t generate_boolean_invert(GenerationContext *context, List<Instructi
     return result_register;
 }
 
-static void generate_constant_value_assignment(GenerationContext *context, List<Instruction> *instructions, Type type, ConstantValue value, size_t address_register) {
+static size_t generate_in_register_constant_value(GenerationContext *context, List<Instruction> *instructions, Type type, ConstantValue value) {
     switch(type.category) {
         case TypeCategory::Integer: {
-            auto value_register = append_constant(context, instructions, type.integer.size, value.integer);
-
-            append_store_integer(context, instructions, type.integer.size, value_register, address_register);
+            return append_constant(context, instructions, type.integer.size, value.integer);
         } break;
 
         case TypeCategory::Boolean: {
-            uint64_t integer_value;
-            if(value.boolean) {
-                integer_value = 1;
-            } else {
-                integer_value = 0;
-            }
-
-            auto value_register = append_constant(context, instructions, context->default_integer_size, integer_value);
-
-            append_store_integer(context, instructions, context->default_integer_size, value_register, address_register);
+            return append_constant(context, instructions, context->default_integer_size, value.boolean);
         } break;
-
+        
         case TypeCategory::Pointer: {
-            auto value_register = append_constant(context, instructions, context->address_integer_size, value.pointer);
-
-            append_store_integer(context, instructions, context->address_integer_size, value_register, address_register);
+            return append_constant(context, instructions, context->address_integer_size, value.pointer);
         } break;
 
+        default: {
+            abort();
+        } break;
+    }
+}
+
+static void generate_not_in_register_constant_write(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    Type type,
+    ConstantValue value,
+    size_t address_register
+) {
+    switch(type.category) {
         case TypeCategory::Array: {
             auto pointer_register = append_constant(context, instructions, context->address_integer_size, value.array.pointer);
 
@@ -2926,6 +2959,556 @@ static void generate_constant_value_assignment(GenerationContext *context, List<
             );
 
             append_copy_memory(context, instructions, length_register, constant_address_register, address_register);
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
+static size_t generate_not_in_register_constant_value(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    Type type,
+    ConstantValue value
+) {
+    switch(type.category) {
+        case TypeCategory::Array: {
+            auto address_register = append_allocate_local(
+                context,
+                instructions,
+                2 * register_size_to_byte_size(context->address_integer_size),
+                register_size_to_byte_size(context->address_integer_size)
+            );
+
+            auto pointer_register = append_constant(context, instructions, context->address_integer_size, value.array.pointer);
+
+            append_store_integer(context, instructions, context->address_integer_size, pointer_register, address_register);
+
+            auto length_register = append_constant(context, instructions, context->address_integer_size, value.array.length);
+
+            auto length_address_register = generate_address_offset(
+                context,
+                instructions,
+                address_register,
+                register_size_to_byte_size(context->address_integer_size)
+            );
+
+            append_store_integer(context, instructions, context->address_integer_size, length_register, length_address_register);
+
+            return address_register;
+        } break;
+
+        case TypeCategory::StaticArray: {
+            auto constant_name = register_static_array_constant(
+                context,
+                *type.static_array.type,
+                Array<ConstantValue> {
+                    type.static_array.length,
+                    value.static_array
+                }
+            );
+
+            auto constant_address_register = append_reference_static(context, instructions, constant_name);
+
+            return constant_address_register;
+        } break;
+
+        case TypeCategory::Struct: {
+            auto struct_type = retrieve_struct_type(*context, type._struct.name);
+
+            auto constant_name = register_struct_constant(
+                context,
+                struct_type,
+                value.struct_
+            );
+
+            auto constant_address_register = append_reference_static(context, instructions, constant_name);
+
+            return constant_address_register;
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
+static void generate_constant_value_write(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    Type type,
+    ConstantValue value,
+    size_t address_register
+) {
+    auto representation = get_type_representation(*context, type);
+
+    if(representation.is_in_register) {
+        auto value_register = generate_in_register_constant_value(context, instructions, type, value);
+
+        append_store_integer(context, instructions, representation.value_size, value_register, address_register);
+    } else {
+        generate_not_in_register_constant_write(context, instructions, type, value, address_register);
+    }
+}
+
+static Result<Value> coerce_to_integer_type(
+    GenerationContext context,
+    FileRange range,
+    TypedValue value,
+    RegisterSize size,
+    bool is_signed,
+    bool probing
+) {
+    switch(value.type.category) {
+        case TypeCategory::Integer: {
+            if(value.type.integer.is_undetermined) {
+                Value result;
+                result.category = ValueCategory::Constant;
+                result.constant.integer = value.value.constant.integer;
+
+                return {
+                    true,
+                    result
+                };
+            } else {
+                if(value.type.integer.size != size || value.type.integer.is_signed != is_signed) {
+                    return { false };
+                }
+
+                return {
+                    true,
+                    value.value
+                };
+            }
+        } break;
+
+        default: {
+            if(!probing) {
+                error(context.current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), determined_integer_type_description(size, is_signed));
+            }
+
+            return { false };
+        } break;
+    }
+}
+
+static Result<Value> coerce_to_type(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    FileRange range,
+    TypedValue value,
+    Type type,
+    bool probing
+);
+
+static Result<Value> coerce_to_struct_type(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    FileRange range,
+    TypedValue value,
+    StructType struct_type,
+    bool probing
+) {
+    if(value.type.category != TypeCategory::Struct) {
+        if(!probing) {
+            error(context->current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), struct_type.name);
+        }
+
+        return { false };
+    }
+
+    auto value_type = value.type._struct;
+
+    Value result_value;
+    if(value_type.is_undetermined) {
+        if(struct_type.is_union) {
+            if(value_type.members.count != 1) {
+                error(context->current_file_path, range, "Too many union members. Expected 1, got %zu", value_type.members.count);
+
+                return { false };
+            }
+
+            auto found = false;
+            size_t member_index;
+            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                if(strcmp(value_type.members[0].name, struct_type.members[i].name.text) == 0) {
+                    found = true;
+                    member_index = i;
+
+                    break;
+                }
+            }
+
+            if(!found) {
+                error(context->current_file_path, range, "Unknown union member '%s'", value_type.members[0].name);
+
+                return { false };
+            }
+
+            Value member_value;
+            switch(value.value.category) {
+                case ValueCategory::Constant: {
+                    member_value.category = ValueCategory::Constant;
+                    member_value.constant = value.value.constant.struct_[0];
+                } break;
+
+                case ValueCategory::Anonymous: {
+                    member_value = value.value.anonymous.undetermined_struct[0];
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+
+            expect(coerced_member_value, coerce_to_type(
+                context,
+                instructions,
+                range,
+                { value_type.members[0].type, member_value },
+                struct_type.members[member_index].type,
+                probing
+            ));
+
+            switch(coerced_member_value.category) {
+                case ValueCategory::Constant: {
+                    result_value.category = ValueCategory::Constant;
+                    result_value.constant.struct_ = heapify(coerced_member_value.constant);
+                } break;
+
+                case ValueCategory::Anonymous: {
+                    auto address_register = append_allocate_local(
+                        context,
+                        instructions,
+                        get_struct_size(*context, struct_type),
+                        get_struct_alignment(*context, struct_type)
+                    );
+
+                    auto member_representation = get_type_representation(*context, struct_type.members[member_index].type);
+
+                    if(member_representation.is_in_register) {
+                        append_store_integer(
+                            context,
+                            instructions,
+                            member_representation.value_size,
+                            coerced_member_value.anonymous.register_,
+                            address_register
+                        );
+                    } else {
+                        auto length_register = append_constant(
+                            context,
+                            instructions,
+                            context->address_integer_size,
+                            get_type_size(*context, struct_type.members[member_index].type)
+                        );
+
+                        append_copy_memory(
+                            context,
+                            instructions,
+                            length_register,
+                            coerced_member_value.anonymous.register_,
+                            address_register
+                        );
+                    }
+
+                    result_value.category = ValueCategory::Anonymous;
+                    result_value.anonymous.register_ = address_register;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } else {
+            if(value_type.members.count != struct_type.members.count) {
+                error(context->current_file_path, range, "Too many struct members. Expected %zu, got %zu", struct_type.members.count, value_type.members.count);
+
+                return { false };
+            }
+
+            auto all_constant = false;
+            auto coerced_member_values = allocate<Value>(struct_type.members.count);
+
+            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                if(strcmp(value_type.members[i].name, struct_type.members[i].name.text) != 0) {
+                    error(context->current_file_path, range, "Incorrect struct member name. Expected '%s', got '%s", struct_type.members[i].name.text, value_type.members[i].name);
+
+                    return { false };
+                }
+
+                Value member_value;
+                switch(value.value.category) {
+                    case ValueCategory::Constant: {
+                        member_value.category = ValueCategory::Constant;
+                        member_value.constant = value.value.constant.struct_[i];
+                    } break;
+
+                    case ValueCategory::Anonymous: {
+                        member_value = value.value.anonymous.undetermined_struct[i];
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                expect(coerced_member_value, coerce_to_type(
+                    context,
+                    instructions,
+                    range,
+                    { value_type.members[i].type, member_value },
+                    struct_type.members[i].type,
+                    probing
+                ));
+
+                if(coerced_member_value.category != ValueCategory::Constant) {
+                    all_constant = false;
+                }
+
+                coerced_member_values[i] = coerced_member_value;
+            }
+
+            if(all_constant) {
+                auto member_values = allocate<ConstantValue>(struct_type.members.count);
+
+                for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                    member_values[i] = coerced_member_values[i].constant;
+                }
+
+                result_value.category = ValueCategory::Constant;
+                result_value.constant.struct_ = member_values;
+            } else {
+                auto address_register = append_allocate_local(
+                    context,
+                    instructions,
+                    get_struct_size(*context, struct_type),
+                    get_struct_alignment(*context, struct_type)
+                );
+
+                for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                    auto offset = get_struct_member_offset(*context, struct_type, i);
+
+                    auto final_address_register = generate_address_offset(context, instructions, address_register, offset);
+
+                    auto member_representation = get_type_representation(*context, struct_type.members[i].type);
+
+                    switch(coerced_member_values[i].category) {
+                        case ValueCategory::Constant: {
+                            generate_constant_value_write(
+                                context,
+                                instructions,
+                                struct_type.members[i].type,
+                                coerced_member_values[i].constant,
+                                final_address_register
+                            );
+                        } break;
+
+                        case ValueCategory::Anonymous: {
+                            if(member_representation.is_in_register) {
+                                append_store_integer(
+                                    context,
+                                    instructions,
+                                    member_representation.value_size,
+                                    coerced_member_values[i].anonymous.register_,
+                                    final_address_register
+                                );
+                            } else {
+                                auto length_register = append_constant(
+                                    context,
+                                    instructions,
+                                    context->address_integer_size,
+                                    get_type_size(*context, struct_type.members[i].type)
+                                );
+
+                                append_copy_memory(
+                                    context,
+                                    instructions,
+                                    length_register,
+                                    coerced_member_values[i].anonymous.register_,
+                                    final_address_register
+                                );
+                            }
+                        } break;
+
+                        case ValueCategory::Address: {
+                            if(member_representation.is_in_register) {
+                                auto value_register = append_load_integer(
+                                    context,
+                                    instructions,
+                                    member_representation.value_size,
+                                    coerced_member_values[i].address
+                                );
+
+                                append_store_integer(
+                                    context,
+                                    instructions,
+                                    member_representation.value_size,
+                                    value_register,
+                                    final_address_register
+                                );
+                            } else {
+                                auto length_register = append_constant(
+                                    context,
+                                    instructions,
+                                    context->address_integer_size,
+                                    get_type_size(*context, struct_type.members[i].type)
+                                );
+
+                                append_copy_memory(
+                                    context,
+                                    instructions,
+                                    length_register,
+                                    coerced_member_values[i].address,
+                                    final_address_register
+                                );
+                            }
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                }
+
+                result_value.category = ValueCategory::Anonymous;
+                result_value.anonymous.register_ = address_register;
+            }
+        }
+
+        return {
+            true,
+            result_value
+        };
+    } else {
+        if(strcmp(value_type.name, struct_type.name) != 0) {
+            if(!probing) {
+                error(context->current_file_path, range, "Cannot implicitly convert '%s' to '%s'", value_type.name, struct_type.name);
+            }
+
+            return { false };
+        }
+
+        return {
+            true,
+            value.value
+        };
+    }
+}
+
+static Result<Value> coerce_to_type(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    FileRange range,
+    TypedValue value,
+    Type type,
+    bool probing
+) {
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            return coerce_to_integer_type(*context, range, value, type.integer.size, type.integer.is_signed, probing);
+        } break;
+
+        case TypeCategory::Struct: {
+            return coerce_to_struct_type(context, instructions, range, value, retrieve_struct_type(*context, type._struct.name), probing);
+        } break;
+
+        default: {
+            if(types_equal(type, value.type)) {
+                return {
+                    true,
+                    value.value
+                };
+            } else {
+                if(!probing) {
+                    error(context->current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), type_description(type));
+                }
+
+                return { false };
+            }
+        } break;
+    }
+}
+
+static Result<Type> coerce_to_default_type(GenerationContext context, FileRange range, Type type) {
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            if(type.integer.is_undetermined) {
+                Type type;
+                type.category = TypeCategory::Integer;
+                type.integer = {
+                    context.default_integer_size,
+                    true,
+                    false
+                };
+
+                return {
+                    true,
+                    type
+                };
+            } else {
+                return {
+                    true,
+                    type
+                };
+            }
+        } break;
+
+        case TypeCategory::Struct: {
+            if(type._struct.is_undetermined) {
+                error(context.current_file_path, range, "Undetermined struct types cannot exist at runtime");
+
+                return { false };
+            }
+
+            return {
+                true,
+                type
+            };
+        } break;
+
+        default: {
+            return {
+                true,
+                type
+            };
+        } break;
+    }
+}
+
+static size_t generate_in_register_integer_value(GenerationContext *context, List<Instruction> *instructions, RegisterSize size, Value value) {
+    switch(value.category) {
+        case ValueCategory::Constant: {
+            return append_constant(context, instructions, size, value.constant.integer);
+        } break;
+
+        case ValueCategory::Anonymous: {
+            return value.anonymous.register_;
+        } break;
+
+        case ValueCategory::Address: {
+            return append_load_integer(context, instructions, size, value.address);
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
+static size_t generate_in_register_boolean_value(GenerationContext *context, List<Instruction> *instructions, Value value) {
+    switch(value.category) {
+        case ValueCategory::Constant: {
+            return append_constant(context, instructions, context->default_integer_size, value.constant.boolean);
+        } break;
+
+        case ValueCategory::Anonymous: {
+            return value.anonymous.register_;
+        } break;
+
+        case ValueCategory::Address: {
+            return append_load_integer(context, instructions, context->default_integer_size, value.address);
         } break;
 
         default: {
@@ -3007,33 +3590,27 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 };
             }
 
-            if(
-                index.type.category != TypeCategory::Integer ||
-                (
-                    !index.type.integer.is_undetermined &&
-                    (
-                        index.type.integer.size != context->address_integer_size ||
-                        index.type.integer.is_signed
-                    )
-                )
-            ) {
-                error(context->current_file_path, expression.index_reference.index->range, "Expected usize, got %s", type_description(index.type));
-
-                return { false };
-            }
+            expect(index_value, coerce_to_integer_type(
+                *context,
+                expression.index_reference.index->range,
+                index,
+                context->address_integer_size,
+                false,
+                false
+            ));
 
             size_t index_register;
             switch(index.value.category) {
                 case ValueCategory::Constant: {
-                    index_register = append_constant(context, instructions, context->address_integer_size, index.value.constant.integer);
+                    index_register = append_constant(context, instructions, context->address_integer_size, index_value.constant.integer);
                 } break;
 
                 case ValueCategory::Anonymous: {
-                    index_register = index.value.anonymous.register_;
+                    index_register = index_value.anonymous.register_;
                 } break;
 
                 case ValueCategory::Address: {
-                    index_register = append_load_integer(context, instructions, context->address_integer_size, index.value.address);
+                    index_register = append_load_integer(context, instructions, context->address_integer_size, index_value.address);
                 } break;
 
                 default: {
@@ -3375,10 +3952,14 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     if(actual_expression_value.type._struct.is_undetermined) {
                         for(size_t i = 0; i < actual_expression_value.type._struct.members.count; i += 1) {
                             if(strcmp(actual_expression_value.type._struct.members[i].name, expression.member_reference.name.text) == 0) {
-                                auto member_type = actual_expression_value.type._struct.members[i].type;
+                                expect(member_type, coerce_to_default_type(
+                                    *context,
+                                    expression.member_reference.expression->range,
+                                    actual_expression_value.type._struct.members[i].type
+                                ));
 
                                 TypedValue value;
-                                value.type = actual_expression_value.type._struct.members[i].type;
+                                value.type = member_type;
 
                                 switch(actual_expression_value.value.category) {
                                     case ValueCategory::Constant: {
@@ -3391,54 +3972,22 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                                         auto member_value = actual_expression_value.value.anonymous.undetermined_struct[i];
 
-                                        Type determined_type;
-                                        if(member_type.category == TypeCategory::Integer && member_type.integer.is_undetermined) {
-                                            determined_type.category = TypeCategory::Integer;
-                                            determined_type.integer = {
-                                                context->default_integer_size,
-                                                true,
-                                                false
-                                            };
-                                        } else {
-                                            determined_type = member_type;
-                                        }
-
-                                        auto representation = get_type_representation(*context, determined_type);
+                                        auto representation = get_type_representation(*context, member_type);
 
                                         switch(member_value.category) {
                                             case ValueCategory::Constant: {
-                                                switch(determined_type.category) {
-                                                    case TypeCategory::Integer: {
-                                                        value.value.anonymous.register_ = append_constant(context, instructions, determined_type.integer.size, member_value.constant.integer);
-                                                    } break;
-
-                                                    case TypeCategory::Boolean: {
-                                                        uint64_t integer_value;
-                                                        if(member_value.constant.boolean) {
-                                                            integer_value = 1;
-                                                        } else {
-                                                            integer_value = 0;
-                                                        }
-
-                                                        value.value.anonymous.register_ = append_constant(context, instructions, context->default_integer_size, integer_value);
-                                                    } break;
-
-                                                    case TypeCategory::Pointer: {
-                                                        value.value.anonymous.register_ = append_constant(context, instructions, context->address_integer_size, member_value.constant.pointer);
-                                                    } break;
-
-                                                    default: {
-                                                        abort();
-                                                    } break;
+                                                size_t result_register;
+                                                if(representation.is_in_register) {
+                                                    result_register = generate_in_register_constant_value(context, instructions, member_type, member_value.constant);
+                                                } else {
+                                                    result_register = generate_not_in_register_constant_value(context, instructions, member_type, member_value.constant);
                                                 }
+
+                                                value.value.anonymous.register_ = result_register;
                                             } break;
 
                                             case ValueCategory::Anonymous: {
-                                                if(representation.is_in_register) {
-                                                    value.value.anonymous.register_ = member_value.anonymous.register_;
-                                                } else {
-                                                    abort();
-                                                }
+                                                value.value.anonymous.register_ = member_value.anonymous.register_;
                                             } break;
 
                                             case ValueCategory::Address: {
@@ -3450,7 +3999,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                                         member_value.address
                                                     );
                                                 } else {
-                                                    abort();
+                                                    value.value.anonymous.register_ = member_value.address;
                                                 }
                                             } break;
 
@@ -3644,38 +4193,28 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     all_constant = false;
                 }
 
-                if(element_type.category == TypeCategory::Integer && element_type.integer.is_undetermined) {
-                    if(element_value.type.category != TypeCategory::Integer) {
-                        error(context->current_file_path, expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
-
-                        return { false };
-                    }
-
-                    if(!element_value.type.integer.is_undetermined) {
-                        element_type = element_value.type;
-                    }
-                } else if(!types_equal(element_value.type, element_type)) {
-                    error(context->current_file_path, expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element_value.type));
-
-                    return { false };
+                if(is_type_undetermined(element_type) && !is_type_undetermined(element_value.type)) {
+                    element_type = element_value.type;
                 }
 
                 element_values[i] = element_value;
             }
 
-            if(element_type.category == TypeCategory::Integer && element_type.integer.is_undetermined) {
-                element_type.integer = {
-                    context->default_integer_size,
-                    true,
-                    false
-                };
-            }
+            expect(determined_element_type, coerce_to_default_type(*context, expression.range, element_type));
 
             if(all_constant) {
                 auto elements = allocate<ConstantValue>(expression.array_literal.count);
 
                 for(size_t i = 0; i < expression.array_literal.count; i += 1) {
-                    elements[i] = element_values[i].value.constant;
+                    expect(element_value, coerce_constant_to_type(
+                        *context,
+                        expression.array_literal.elements[i].range,
+                        { element_values[i].type, element_values[i].value.constant },
+                        element_type,
+                        false
+                    ));
+
+                    elements[i] = element_value;
                 }
 
                 TypedValue value;
@@ -3683,7 +4222,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 value.type.category = TypeCategory::StaticArray;
                 value.type.static_array = {
                     expression.array_literal.count,
-                    heapify(element_type)
+                    heapify(determined_element_type)
                 };
                 value.value.constant.static_array = elements;
 
@@ -3703,57 +4242,49 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                 auto element_size_register = append_constant(context, instructions, context->address_integer_size, element_size);
 
+                auto representation = get_type_representation(*context, element_type);
+
+                size_t length_register;
+                if(representation.is_in_register) {
+                    length_register = append_constant(
+                        context,
+                        instructions,
+                        context->address_integer_size,
+                        get_type_size(*context, element_type)
+                    );
+                }
+
                 auto address_register = base_address_register;
                 for(size_t i = 0; i < expression.array_literal.count; i += 1) {
-                    size_t value_register;
-                    RegisterSize value_size;
+                    expect(element_value, coerce_to_type(
+                        context,
+                        instructions,
+                        expression.array_literal.elements[i].range,
+                        element_values[i],
+                        element_type,
+                        false
+                    ));
+
                     switch(element_values[i].value.category) {
                         case ValueCategory::Constant: {
-                            switch(element_type.category) {
-                                case TypeCategory::Integer: {
-                                    value_register = append_constant(context, instructions, element_type.integer.size, element_values[i].value.constant.integer);
-                                } break;
-
-                                case TypeCategory::Boolean: {
-                                    uint64_t integer_value;
-                                    if(element_values[i].value.constant.boolean) {
-                                        integer_value = 1;
-                                    } else {
-                                        integer_value = 0;
-                                    }
-
-                                    value_register = append_constant(context, instructions, context->default_integer_size, integer_value);
-                                } break;
-
-                                case TypeCategory::Pointer: {
-                                    value_register = append_constant(context, instructions, context->address_integer_size, element_values[i].value.constant.pointer);
-                                } break;
-
-                                default: {
-                                    abort();
-                                } break;
-                            }
+                            generate_constant_value_write(context, instructions, element_type, element_value.constant, address_register);
                         } break;
 
                         case ValueCategory::Anonymous: {
-                            auto representation = get_type_representation(*context, element_type);
-
                             if(representation.is_in_register) {
-                                value_register = element_values[i].value.anonymous.register_;
-                                value_size = representation.value_size;
+                                append_store_integer(context, instructions, representation.value_size, element_value.anonymous.register_, address_register);
                             } else {
-                                abort();
+                                append_copy_memory(context, instructions, length_register, element_value.anonymous.register_, address_register);
                             }
                         } break;
 
                         case ValueCategory::Address: {
-                            auto representation = get_type_representation(*context, element_type);
-
                             if(representation.is_in_register) {
-                                value_register = append_load_integer(context, instructions, representation.value_size, element_values[i].value.address);
-                                value_size = representation.value_size;
+                                auto value_register = append_load_integer(context, instructions, representation.value_size, element_value.address);
+
+                                append_store_integer(context, instructions, representation.value_size, value_register, address_register);
                             } else {
-                                abort();
+                                append_copy_memory(context, instructions, length_register, element_value.address, address_register);
                             }
                         } break;
 
@@ -3761,8 +4292,6 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             abort();
                         } break;
                     }
-
-                    append_store_integer(context, instructions, value_size, value_register, address_register);
 
                     if(i != expression.array_literal.count - 1) {
                         auto new_address_register = append_arithmetic_operation(
@@ -3905,25 +4434,11 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                         expect(value, generate_expression(context, instructions, expression.function_call.parameters[i]));
 
-                        Type actual_type;
-                        if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
-                            actual_type.category = TypeCategory::Integer;
-                            actual_type.integer = {
-                                context->default_integer_size,
-                                true,
-                                false
-                            };
-                        } else if(value.type.category == TypeCategory::Struct && value.type._struct.is_undetermined) {
-                            error(context->current_file_path, expression.function_call.parameters[i].range, "Cannot use anonymous structs as polymorphic determiners");
-
-                            return { false };
-                        } else {
-                            actual_type = value.type;
-                        }
+                        expect(determined_type, coerce_to_default_type(*context, expression.function_call.parameters[i].range, value.type));
 
                         append(&polymorphic_determiners, {
                             parameter.polymorphic_determiner.text,
-                            actual_type
+                            determined_type
                         });
 
                         function_parameter_values[i] = value;
@@ -4112,372 +4627,37 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             auto function_parameter_registers = allocate<size_t>(total_parameter_count);
 
             for(size_t i = 0; i < parameter_count; i += 1) {
-                auto value = function_parameter_values[i];
+                expect(parameter_value, coerce_to_type(
+                    context,
+                    instructions,
+                    expression.function_call.parameters[i].range,
+                    function_parameter_values[i],
+                    function_parameter_types[i],
+                    false
+                ));
 
-                Value determined_value;
-                if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
-                    if(function_parameter_types[i].category != TypeCategory::Integer) {
-                        error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %zu. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
+                auto representation = get_type_representation(*context, function_parameter_types[i]);
 
-                        return { false };
-                    }
-
-                    determined_value.category = ValueCategory::Constant;
-                    determined_value.constant.integer = value.value.constant.integer;
-                } else if(value.type.category == TypeCategory::Struct && value.type._struct.is_undetermined) {
-                    if(function_parameter_types[i].category != TypeCategory::Struct) {
-                        error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %zu. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
-
-                        return { false };
-                    }
-
-                    auto struct_type = retrieve_struct_type(*context, function_parameter_types[i]._struct.name);
-
-                    if(struct_type.is_union) {
-                        if(value.type._struct.members.count != 1) {
-                            error(context->current_file_path, expression.function_call.parameters[i].range, "Only one member can be specified for a union. Got %zu", value.type._struct.members.count);
-
-                            return { false };
-                        }
-
-                        auto found = false;
-                        Type type;
-                        for(size_t i = 0; i < struct_type.members.count; i += 1) {
-                            if(strcmp(struct_type.members[i].name.text, value.type._struct.members[0].name) == 0) {
-                                if(
-                                    !(
-                                        value.type._struct.members[0].type.category == TypeCategory::Integer &&
-                                        value.type._struct.members[0].type.integer.is_undetermined
-                                    ) &&
-                                    !types_equal(struct_type.members[i].type, value.type._struct.members[0].type)
-                                ) {
-                                    error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[0].type));
-
-                                    return { false };
-                                }
-
-                                found = true;
-                                type = struct_type.members[i].type;
-                            }
-                        }
-
-                        if(!found) {
-                            error(context->current_file_path, expression.function_call.parameters[i].range, "Unknown union member %s", value.type._struct.members[0].name);
-
-                            return { false };
-                        }
-
-                        switch(value.value.category) {
-                            case ValueCategory::Constant: {
-                                determined_value.category = ValueCategory::Constant;
-                                determined_value.constant.struct_ = value.value.constant.struct_;
-                            } break;
-
-                            case ValueCategory::Anonymous: {
-                                determined_value.category = ValueCategory::Anonymous;
-
-                                auto address_register = append_allocate_local(
-                                    context,
-                                    instructions,
-                                    get_struct_size(*context, struct_type),
-                                    get_struct_alignment(*context, struct_type)
-                                );
-
-                                auto representation = get_type_representation(*context, type);
-
-                                switch(value.value.anonymous.undetermined_struct[0].category) {
-                                    case ValueCategory::Constant: {
-                                        size_t register_index;
-                                        switch(value.type._struct.members[0].type.category) {
-                                            case TypeCategory::Integer: {
-                                                register_index = append_constant(context, instructions, value.type._struct.members[0].type.integer.size, value.value.anonymous.undetermined_struct[0].constant.integer);
-                                            } break;
-
-                                            case TypeCategory::Boolean: {
-                                                uint64_t integer_value;
-                                                if(value.value.anonymous.undetermined_struct[0].constant.boolean) {
-                                                    integer_value = 1;
-                                                } else {
-                                                    integer_value = 0;
-                                                }
-
-                                                register_index = append_constant(context, instructions, context->default_integer_size, integer_value);
-                                            } break;
-
-                                            case TypeCategory::Pointer: {
-                                                register_index = append_constant(context, instructions, context->address_integer_size, value.value.anonymous.undetermined_struct[0].constant.pointer);
-                                            } break;
-
-                                            default: {
-                                                abort();
-                                            } break;
-                                        }
-
-                                        if(representation.is_in_register) {
-                                            append_store_integer(context, instructions, representation.value_size, register_index, address_register);
-                                        } else {
-                                            abort();
-                                        }
-                                    } break;
-
-                                    case ValueCategory::Anonymous: {
-                                        if(representation.is_in_register) {
-                                            append_store_integer(context, instructions, representation.value_size, value.value.anonymous.undetermined_struct[0].anonymous.register_, address_register);
-                                        } else {
-                                            abort();
-                                        }
-                                    } break;
-
-                                    case ValueCategory::Address: {
-                                        if(representation.is_in_register) {
-                                            auto value_register = append_load_integer(context, instructions, representation.value_size, value.value.anonymous.undetermined_struct[0].address);
-
-                                            append_store_integer(context, instructions, representation.value_size, value_register, address_register);
-                                        } else {
-                                            abort();
-                                        }
-                                    } break;
-
-                                    default: {
-                                        abort();
-                                    } break;
-                                }
-
-                                determined_value.anonymous.register_ = address_register;
-                            } break;
-                        }
-                    } else {
-                        if(value.type._struct.members.count != struct_type.members.count) {
-                            error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, value.type._struct.members.count);
-
-                            return { false };
-                        }
-
-                        for(size_t i = 0; i < value.type._struct.members.count; i += 1) {
-                            if(strcmp(struct_type.members[i].name.text, value.type._struct.members[i].name) != 0) {
-                                error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, value.type._struct.members[i].name);
-
-                                return { false };
-                            }
-
-                            if(
-                                !(
-                                    value.type._struct.members[i].type.category == TypeCategory::Integer &&
-                                    value.type._struct.members[i].type.integer.is_undetermined
-                                ) &&
-                                !types_equal(struct_type.members[i].type, value.type._struct.members[i].type)
-                            ) {
-                                error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[i].type));
-
-                                return { false };
-                            }
-                        }
-
-                        switch(value.value.category) {
-                            case ValueCategory::Constant: {
-                                determined_value.category = ValueCategory::Constant;
-                                determined_value.constant.struct_ = value.value.constant.struct_;
-                            } break;
-
-                            case ValueCategory::Anonymous: {
-                                determined_value.category = ValueCategory::Anonymous;
-
-                                auto address_register = append_allocate_local(
-                                    context,
-                                    instructions,
-                                    get_struct_size(*context, struct_type),
-                                    get_struct_alignment(*context, struct_type)
-                                );
-
-                                for(size_t i = 0; i < struct_type.members.count; i += 1) {
-                                    auto member_type = value.type._struct.members[i].type;
-                                    auto member_value = value.value.anonymous.undetermined_struct[i];
-
-                                    auto offset = get_struct_member_offset(*context, struct_type, i);
-
-                                    auto offset_register = append_constant(context, instructions, context->address_integer_size, offset);
-
-                                    auto final_address_register = append_arithmetic_operation(
-                                        context,
-                                        instructions,
-                                        ArithmeticOperationType::Add,
-                                        context->address_integer_size,
-                                        address_register,
-                                        offset_register
-                                    );
-
-                                    auto representation = get_type_representation(*context, member_type);
-
-                                    switch(member_value.category) {
-                                        case ValueCategory::Constant: {
-                                            size_t register_index;
-                                            switch(member_type.category) {
-                                                case TypeCategory::Integer: {
-                                                    register_index = append_constant(context, instructions, member_type.integer.size, member_value.constant.integer);
-                                                } break;
-
-                                                case TypeCategory::Boolean: {
-                                                    uint64_t integer_value;
-                                                    if(member_value.constant.boolean) {
-                                                        integer_value = 1;
-                                                    } else {
-                                                        integer_value = 0;
-                                                    }
-
-                                                    register_index = append_constant(context, instructions, context->default_integer_size, integer_value);
-                                                } break;
-
-                                                case TypeCategory::Pointer: {
-                                                    register_index = append_constant(context, instructions, context->address_integer_size, member_value.constant.pointer);
-                                                } break;
-
-                                                default: {
-                                                    abort();
-                                                } break;
-                                            }
-
-                                            if(representation.is_in_register) {
-                                                append_store_integer(context, instructions, representation.value_size, register_index, final_address_register);
-                                            } else {
-                                                abort();
-                                            }
-                                        } break;
-
-                                        case ValueCategory::Anonymous: {
-                                            if(representation.is_in_register) {
-                                                append_store_integer(context, instructions, representation.value_size, member_value.anonymous.register_, final_address_register);
-                                            } else {
-                                                abort();
-                                            }
-                                        } break;
-
-                                        case ValueCategory::Address: {
-                                            if(representation.is_in_register) {
-                                                auto value_register = append_load_integer(context, instructions, representation.value_size, member_value.address);
-
-                                                append_store_integer(context, instructions, representation.value_size, value_register, final_address_register);
-                                            } else {
-                                                abort();
-                                            }
-                                        } break;
-
-                                        default: {
-                                            abort();
-                                        } break;
-                                    }
-                                }
-
-                                determined_value.anonymous.register_ = address_register;
-                            } break;
-                        }
-                    }
-                } else if(types_equal(value.type, function_parameter_types[i])) {
-                    determined_value = value.value;
-                } else {
-                    error(context->current_file_path, expression.function_call.parameters[i].range, "Incorrect parameter type for parameter %d. Expected %s, got %s", i, type_description(function_parameter_types[i]), type_description(value.type));
-
-                    return { false };
-                }
-
-                switch(determined_value.category) {
+                switch(parameter_value.category) {
                     case ValueCategory::Constant: {
-                        switch(function_parameter_types[i].category) {
-                            case TypeCategory::Integer: {
-                                auto value_register = append_constant(context, instructions, function_parameter_types[i].integer.size, determined_value.constant.integer);
-
-                                function_parameter_registers[i] = value_register;
-                            } break;
-
-                            case TypeCategory::Boolean: {
-                                uint64_t constant_value;
-                                if(determined_value.constant.boolean) {
-                                    constant_value = 1;
-                                } else {
-                                    constant_value = 0;
-                                }
-
-                                auto value_register = append_constant(context, instructions, context->default_integer_size, constant_value);
-
-                                function_parameter_registers[i] = value_register;
-                            } break;
-
-                            case TypeCategory::Pointer: {
-                                auto value_register = append_constant(context, instructions, context->address_integer_size, determined_value.constant.pointer);
-
-                                function_parameter_registers[i] = value_register;
-                            } break;
-
-                            case TypeCategory::Array: {
-                                auto local_register = append_allocate_local(
-                                    context, instructions,
-                                    2 * register_size_to_byte_size(context->address_integer_size),
-                                    register_size_to_byte_size(context->address_integer_size)
-                                );
-
-                                auto pointer_register = append_constant(context, instructions, context->address_integer_size, determined_value.constant.array.pointer);
-
-                                append_store_integer(context, instructions, context->address_integer_size, pointer_register, local_register);
-
-                                auto length_register = append_constant(context, instructions, context->address_integer_size, determined_value.constant.array.length);
-
-                                auto length_address_register = generate_address_offset(
-                                    context,
-                                    instructions,
-                                    local_register,
-                                    register_size_to_byte_size(context->address_integer_size)
-                                );
-
-                                append_store_integer(context, instructions, context->address_integer_size, length_register, length_address_register);
-
-                                function_parameter_registers[i] = local_register;
-                            } break;
-
-                            case TypeCategory::StaticArray: {
-                                auto constant_name = register_static_array_constant(
-                                    context,
-                                    *function_parameter_types[i].static_array.type,
-                                    Array<ConstantValue> {
-                                        function_parameter_types[i].static_array.length,
-                                        determined_value.constant.static_array
-                                    }
-                                );
-
-                                auto constant_address_register = append_reference_static(context, instructions, constant_name);
-
-                                function_parameter_registers[i] = constant_address_register;
-                            } break;
-
-                            case TypeCategory::Struct: {
-                                auto constant_name = register_struct_constant(
-                                    context,
-                                    retrieve_struct_type(*context, function_parameter_types[i]._struct.name),
-                                    determined_value.constant.struct_
-                                );
-
-                                auto constant_address_register = append_reference_static(context, instructions, constant_name);
-
-                                function_parameter_registers[i] = constant_address_register;
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
+                        if(representation.is_in_register) {
+                            function_parameter_registers[i] = generate_in_register_constant_value(context, instructions, function_parameter_types[i], parameter_value.constant);
+                        } else {
+                            function_parameter_registers[i] = generate_not_in_register_constant_value(context, instructions, function_parameter_types[i], parameter_value.constant);
                         }
                     } break;
 
                     case ValueCategory::Anonymous: {
-                        function_parameter_registers[i] = determined_value.anonymous.register_;
+                        function_parameter_registers[i] = parameter_value.anonymous.register_;
                     } break;
 
                     case ValueCategory::Address: {
-                        auto representation = get_type_representation(*context, function_parameter_types[i]);
-
                         if(representation.is_in_register) {
-                            auto value_register = append_load_integer(context, instructions, representation.value_size, determined_value.address);
+                            auto value_register = append_load_integer(context, instructions, representation.value_size, parameter_value.address);
 
                             function_parameter_registers[i] = value_register;
                         } else {
-                            function_parameter_registers[i] = determined_value.address;
+                            function_parameter_registers[i] = parameter_value.address;
                         }
                     } break;
 
@@ -4558,72 +4738,19 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     value
                 };
             } else {
-                Type determined_type;
-                if(
-                    left.type.category == TypeCategory::Integer && right.type.category == TypeCategory::Integer &&
-                    (left.type.integer.is_undetermined || right.type.integer.is_undetermined)
-                ) {
-                    if(left.type.integer.is_undetermined && right.type.integer.is_undetermined) {
-                        determined_type.category = TypeCategory::Integer;
-                        determined_type.integer = {
-                            context->default_integer_size,
-                            true,
-                            false
-                        };
-                    } else if(left.type.integer.is_undetermined) {
-                        determined_type = right.type;
-                    } else {
-                        determined_type = left.type;
-                    }
-                } else if(!types_equal(left.type, right.type)) {
-                    error(context->current_file_path, expression.range, "Mismatched types %s and %s", type_description(left.type), type_description(right.type));
+                expect(type, determine_binary_operation_type(*context, expression.range, left.type, right.type));
 
-                    return { false };
-                } else {
-                    determined_type = left.type;
-                }
+                expect(left_value, coerce_to_type(context, instructions, expression.binary_operation.left->range, left, type, false));
+
+                expect(right_value, coerce_to_type(context, instructions, expression.binary_operation.right->range, right, type, false));
 
                 size_t result_register;
                 Type result_type;
                 switch(left.type.category) {
                     case TypeCategory::Integer: {
-                        size_t left_register;
-                        switch(left.value.category) {
-                            case ValueCategory::Constant: {
-                                left_register = append_constant(context, instructions, determined_type.integer.size, left.value.constant.integer);
-                            } break;
+                        auto left_register = generate_in_register_integer_value(context, instructions, type.integer.size, left_value);
 
-                            case ValueCategory::Anonymous: {
-                                left_register = left.value.anonymous.register_;
-                            } break;
-
-                            case ValueCategory::Address: {
-                                left_register = append_load_integer(context, instructions, determined_type.integer.size, left.value.address);
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
-
-                        size_t right_register;
-                        switch(right.value.category) {
-                            case ValueCategory::Constant: {
-                                right_register = append_constant(context, instructions, determined_type.integer.size, right.value.constant.integer);
-                            } break;
-
-                            case ValueCategory::Anonymous: {
-                                right_register = right.value.anonymous.register_;
-                            } break;
-
-                            case ValueCategory::Address: {
-                                right_register = append_load_integer(context, instructions, determined_type.integer.size, right.value.address);
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
+                        auto right_register = generate_in_register_integer_value(context, instructions, type.integer.size, right_value);
 
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Addition: {
@@ -4631,12 +4758,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     context,
                                     instructions,
                                     ArithmeticOperationType::Add,
-                                    determined_type.integer.size,
+                                    type.integer.size,
                                     left_register,
                                     right_register
                                 );
 
-                                result_type = determined_type;
+                                result_type = type;
                             } break;
 
                             case BinaryOperator::Subtraction: {
@@ -4644,17 +4771,17 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     context,
                                     instructions,
                                     ArithmeticOperationType::Subtract,
-                                    determined_type.integer.size,
+                                    type.integer.size,
                                     left_register,
                                     right_register
                                 );
 
-                                result_type = determined_type;
+                                result_type = type;
                             } break;
 
                             case BinaryOperator::Multiplication: {
                                 ArithmeticOperationType operation_type;
-                                if(determined_type.integer.is_signed) {
+                                if(type.integer.is_signed) {
                                     operation_type = ArithmeticOperationType::SignedMultiply;
                                 } else {
                                     operation_type = ArithmeticOperationType::UnsignedMultiply;
@@ -4664,17 +4791,17 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     context,
                                     instructions,
                                     operation_type,
-                                    determined_type.integer.size,
+                                    type.integer.size,
                                     left_register,
                                     right_register
                                 );
 
-                                result_type = determined_type;
+                                result_type = type;
                             } break;
 
                             case BinaryOperator::Division: {
                                 ArithmeticOperationType operation_type;
-                                if(determined_type.integer.is_signed) {
+                                if(type.integer.is_signed) {
                                     operation_type = ArithmeticOperationType::SignedDivide;
                                 } else {
                                     operation_type = ArithmeticOperationType::UnsignedDivide;
@@ -4684,17 +4811,17 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     context,
                                     instructions,
                                     operation_type,
-                                    determined_type.integer.size,
+                                    type.integer.size,
                                     left_register,
                                     right_register
                                 );
 
-                                result_type = determined_type;
+                                result_type = type;
                             } break;
 
                             case BinaryOperator::Modulo: {
                                 ArithmeticOperationType operation_type;
-                                if(determined_type.integer.is_signed) {
+                                if(type.integer.is_signed) {
                                     operation_type = ArithmeticOperationType::SignedModulus;
                                 } else {
                                     operation_type = ArithmeticOperationType::UnsignedModulus;
@@ -4704,12 +4831,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     context,
                                     instructions,
                                     operation_type,
-                                    determined_type.integer.size,
+                                    type.integer.size,
                                     left_register,
                                     right_register
                                 );
 
-                                result_type = determined_type;
+                                result_type = type;
                             } break;
 
                             case BinaryOperator::BitwiseAnd: {
@@ -4717,12 +4844,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     context,
                                     instructions,
                                     ArithmeticOperationType::BitwiseAnd,
-                                    determined_type.integer.size,
+                                    type.integer.size,
                                     left_register,
                                     right_register
                                 );
 
-                                result_type = determined_type;
+                                result_type = type;
                             } break;
 
                             case BinaryOperator::BitwiseOr: {
@@ -4730,12 +4857,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     context,
                                     instructions,
                                     ArithmeticOperationType::BitwiseOr,
-                                    determined_type.integer.size,
+                                    type.integer.size,
                                     left_register,
                                     right_register
                                 );
 
-                                result_type = determined_type;
+                                result_type = type;
                             } break;
 
                             case BinaryOperator::Equal: {
@@ -4743,7 +4870,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     context,
                                     instructions,
                                     ComparisonOperationType::Equal,
-                                    determined_type.integer.size,
+                                    type.integer.size,
                                     left_register,
                                     right_register
                                 );
@@ -4756,7 +4883,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     context,
                                     instructions,
                                     ComparisonOperationType::Equal,
-                                    determined_type.integer.size,
+                                    type.integer.size,
                                     left_register,
                                     right_register
                                 );
@@ -4768,7 +4895,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                             case BinaryOperator::LessThan: {
                                 ComparisonOperationType operation_type;
-                                if(determined_type.integer.is_signed) {
+                                if(type.integer.is_signed) {
                                     operation_type = ComparisonOperationType::SignedLessThan;
                                 } else {
                                     operation_type = ComparisonOperationType::UnsignedLessThan;
@@ -4778,7 +4905,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     context,
                                     instructions,
                                     operation_type,
-                                    determined_type.integer.size,
+                                    type.integer.size,
                                     left_register,
                                     right_register
                                 );
@@ -4788,7 +4915,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                             case BinaryOperator::GreaterThan: {
                                 ComparisonOperationType operation_type;
-                                if(determined_type.integer.is_signed) {
+                                if(type.integer.is_signed) {
                                     operation_type = ComparisonOperationType::SignedGreaterThan;
                                 } else {
                                     operation_type = ComparisonOperationType::UnsignedGreaterThan;
@@ -4798,7 +4925,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     context,
                                     instructions,
                                     operation_type,
-                                    determined_type.integer.size,
+                                    type.integer.size,
                                     left_register,
                                     right_register
                                 );
@@ -4815,57 +4942,9 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     } break;
 
                     case TypeCategory::Boolean: {
-                        size_t left_register;
-                        switch(left.value.category) {
-                            case ValueCategory::Constant: {
-                                uint64_t integer_value;
-                                if(left.value.constant.boolean) {
-                                    integer_value = 1;
-                                } else {
-                                    integer_value = 0;
-                                }
+                        auto left_register = generate_in_register_boolean_value(context, instructions, left_value);
 
-                                left_register = append_constant(context, instructions, context->default_integer_size, integer_value);
-                            } break;
-
-                            case ValueCategory::Anonymous: {
-                                left_register = left.value.anonymous.register_;
-                            } break;
-
-                            case ValueCategory::Address: {
-                                left_register = append_load_integer(context, instructions, context->default_integer_size, left.value.address);
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
-
-                        size_t right_register;
-                        switch(right.value.category) {
-                            case ValueCategory::Constant: {
-                                uint64_t integer_value;
-                                if(right.value.constant.boolean) {
-                                    integer_value = 1;
-                                } else {
-                                    integer_value = 0;
-                                }
-
-                                right_register = append_constant(context, instructions, context->default_integer_size, integer_value);
-                            } break;
-
-                            case ValueCategory::Anonymous: {
-                                right_register = right.value.anonymous.register_;
-                            } break;
-
-                            case ValueCategory::Address: {
-                                right_register = append_load_integer(context, instructions, context->default_integer_size, right.value.address);
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
+                        auto right_register = generate_in_register_boolean_value(context, instructions, right_value);
 
                         result_type.category = TypeCategory::Boolean;
 
@@ -4922,12 +5001,6 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 return { false };
                             } break;
                         }
-                    } break;
-
-                    default: {
-                        error(context->current_file_path, expression.range, "Cannot perform binary operations on %s", type_description(left.type));
-
-                        return { false };
                     } break;
                 }
 
@@ -5087,11 +5160,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         return { false };
                     }
 
+                    TypedValue value;
+                    value.type.category = TypeCategory::Boolean;
+
+                    size_t value_register;
                     switch(expression_value.value.category) {
                         case ValueCategory::Constant: {
-                            TypedValue value;
                             value.value.category = ValueCategory::Constant;
-                            value.type.category = TypeCategory::Boolean;
                             value.value.constant.boolean = !expression_value.value.constant.boolean;
 
                             return {
@@ -5101,39 +5176,27 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
 
                         case ValueCategory::Anonymous: {
-                            auto result_register = generate_boolean_invert(context, instructions, expression_value.value.anonymous.register_);
-
-                            TypedValue value;
-                            value.value.category = ValueCategory::Anonymous;
-                            value.type.category = TypeCategory::Boolean;
-                            value.value.anonymous.register_ = result_register;
-
-                            return {
-                                true,
-                                value
-                            };
+                            value_register = expression_value.value.anonymous.register_;
                         } break;
 
                         case ValueCategory::Address: {
-                            auto value_register = append_load_integer(context, instructions, context->default_integer_size, expression_value.value.address);
-
-                            auto result_register = generate_boolean_invert(context, instructions, value_register);
-
-                            TypedValue value;
-                            value.value.category = ValueCategory::Anonymous;
-                            value.type.category = TypeCategory::Boolean;
-                            value.value.anonymous.register_ = result_register;
-
-                            return {
-                                true,
-                                value
-                            };
+                            value_register = append_load_integer(context, instructions, context->default_integer_size, expression_value.value.address);
                         } break;
 
                         default: {
                             abort();
                         } break;
                     }
+
+                    auto result_register = generate_boolean_invert(context, instructions, value_register);
+
+                    value.value.category = ValueCategory::Anonymous;
+                    value.value.anonymous.register_ = result_register;
+
+                    return {
+                        true,
+                        value
+                    };
                 } break;
 
                 case UnaryOperator::Negation: {
@@ -5221,6 +5284,25 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 return {
                     true,
                     value
+                };
+            }
+
+            auto coerce_result = coerce_to_type(
+                context,
+                instructions,
+                expression.cast.expression->range,
+                expression_value,
+                type,
+                true
+            );
+
+            if(coerce_result.status) {
+                return {
+                    true,
+                    {
+                        type,
+                        coerce_result.value
+                    }
                 };
             }
 
@@ -5369,7 +5451,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 size_t length;
                 if(index_value.type.integer.is_undetermined) {
                     if((int64_t)index_value.value.integer < 0) {
-                        error(context->current_file_path, expression.array_type.index->range, "Array index %lld out of bounds", (int64_t)index_value.value.integer);
+                        error(context->current_file_path, expression.array_type.index->range, "Negative array length: %lld", (int64_t)index_value.value.integer);
 
                         return { false };
                     }
@@ -5551,27 +5633,13 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     expect(initializer_value, generate_expression(context, instructions, statement.variable_declaration.type_elided));
 
-                    Type determined_type;
-                    if(initializer_value.type.category == TypeCategory::Integer && initializer_value.type.integer.is_undetermined) {
-                        determined_type.category = TypeCategory::Integer;
-                        determined_type.integer = {
-                            context->default_integer_size,
-                            true,
-                            false
-                        };
-                    } else if(initializer_value.type.category == TypeCategory::Struct && initializer_value.type._struct.is_undetermined) {
-                        error(context->current_file_path, statement.variable_declaration.type_elided.range, "Cannot create a variable of an anonymous struct type");
+                    expect(coerced_type, coerce_to_default_type(*context, statement.variable_declaration.type_elided.range, initializer_value.type));
 
-                        return { false };
-                    } else {
-                        determined_type = initializer_value.type;
-                    }
-
-                    auto representation = get_type_representation(*context, determined_type);
+                    auto representation = get_type_representation(*context, coerced_type);
 
                     switch(initializer_value.value.category) {
                         case ValueCategory::Constant: {
-                            generate_constant_value_assignment(context, instructions, determined_type, initializer_value.value.constant, address_register);
+                            generate_constant_value_write(context, instructions, coerced_type, initializer_value.value.constant, address_register);
                         } break;
 
                         case ValueCategory::Anonymous: {
@@ -5582,7 +5650,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                                     context,
                                     instructions,
                                     context->address_integer_size,
-                                    get_type_size(*context, determined_type)
+                                    get_type_size(*context, coerced_type)
                                 );
 
                                 append_copy_memory(context, instructions, length_register, initializer_value.value.anonymous.register_, address_register);
@@ -5599,7 +5667,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                                     context,
                                     instructions,
                                     context->address_integer_size,
-                                    get_type_size(*context, determined_type)
+                                    get_type_size(*context, coerced_type)
                                 );
 
                                 append_copy_memory(context, instructions, length_register, initializer_value.value.address, address_register);
@@ -5611,10 +5679,10 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                         } break;
                     }
 
-                    (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, determined_type);
-                    (*instructions)[allocate_index].allocate_local.alignment = get_type_alignment(*context, determined_type);
+                    (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, coerced_type);
+                    (*instructions)[allocate_index].allocate_local.alignment = get_type_alignment(*context, coerced_type);
 
-                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, determined_type, statement.variable_declaration.type_elided.range)) {
+                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, coerced_type, statement.variable_declaration.type_elided.range)) {
                         return false;
                     }
 
@@ -5634,170 +5702,25 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     expect(initializer_value, generate_expression(context, instructions, statement.variable_declaration.fully_specified.initializer));
 
-                    Value determined_initializer_value;
-                    if(initializer_value.type.category == TypeCategory::Integer && initializer_value.type.integer.is_undetermined) {
-                        if(type.category != TypeCategory::Integer) {
-                            error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
-
-                            return { false };
-                        }
-
-                        determined_initializer_value.category = ValueCategory::Constant;
-                        determined_initializer_value.constant.integer = initializer_value.value.constant.integer;
-                    } else if(type.category == TypeCategory::Struct && initializer_value.type._struct.is_undetermined) {
-                        if(type.category != TypeCategory::Struct) {
-                            error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
-
-                            return { false };
-                        }
-
-                        auto struct_type = retrieve_struct_type(*context, type._struct.name);
-
-                        if(initializer_value.type._struct.members.count != struct_type.members.count) {
-                            error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, initializer_value.type._struct.members.count);
-
-                            return { false };
-                        }
-
-                        for(size_t i = 0; i < initializer_value.type._struct.members.count; i += 1) {
-                            if(strcmp(struct_type.members[i].name.text, initializer_value.type._struct.members[i].name) != 0) {
-                                error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, initializer_value.type._struct.members[i].name);
-
-                                return { false };
-                            }
-
-                            if(
-                                !(
-                                    initializer_value.type._struct.members[i].type.category == TypeCategory::Integer &&
-                                    initializer_value.type._struct.members[i].type.integer.is_undetermined
-                                ) &&
-                                !types_equal(struct_type.members[i].type, initializer_value.type._struct.members[i].type)
-                            ) {
-                                error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect member type for struct member %s. Expected %s, got %s", initializer_value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(initializer_value.type._struct.members[i].type));
-
-                                return { false };
-                            }
-                        }
-
-                        switch(initializer_value.value.category) {
-                            case ValueCategory::Constant: {
-                                determined_initializer_value.category = ValueCategory::Constant;
-                                determined_initializer_value.constant.struct_ = initializer_value.value.constant.struct_;
-                            } break;
-
-                            case ValueCategory::Anonymous: {
-                                determined_initializer_value.category = ValueCategory::Anonymous;
-
-                                auto address_register = append_allocate_local(
-                                    context,
-                                    instructions,
-                                    get_struct_size(*context, struct_type),
-                                    get_struct_alignment(*context, struct_type)
-                                );
-
-                                for(size_t i = 0; i < struct_type.members.count; i += 1) {
-                                    auto member_type = struct_type.members.elements[i].type;
-                                    auto member_value = initializer_value.value.anonymous.undetermined_struct[i];
-
-                                    auto offset = get_struct_member_offset(*context, struct_type, i);
-
-                                    auto offset_register = append_constant(context, instructions, context->address_integer_size, offset);
-
-                                    auto final_address_register = append_arithmetic_operation(
-                                        context,
-                                        instructions,
-                                        ArithmeticOperationType::Add,
-                                        context->address_integer_size,
-                                        address_register,
-                                        offset_register
-                                    );
-
-                                    auto representation = get_type_representation(*context, member_type);
-
-                                    switch(member_value.category) {
-                                        case ValueCategory::Constant: {
-                                            size_t register_index;
-                                            switch(member_type.category) {
-                                                case TypeCategory::Integer: {
-                                                    register_index = append_constant(context, instructions, member_type.integer.size, member_value.constant.integer);
-                                                } break;
-
-                                                case TypeCategory::Boolean: {
-                                                    uint64_t integer_value;
-                                                    if(member_value.constant.boolean) {
-                                                        integer_value = 1;
-                                                    } else {
-                                                        integer_value = 0;
-                                                    }
-
-                                                    register_index = append_constant(context, instructions, context->default_integer_size, integer_value);
-                                                } break;
-
-                                                case TypeCategory::Pointer: {
-                                                    register_index = append_constant(context, instructions, context->address_integer_size, member_value.constant.pointer);
-                                                } break;
-
-                                                default: {
-                                                    abort();
-                                                } break;
-                                            }
-
-                                            if(representation.is_in_register) {
-                                                append_store_integer(context, instructions, representation.value_size, register_index, final_address_register);
-                                            } else {
-                                                abort();
-                                            }
-                                        } break;
-
-                                        case ValueCategory::Anonymous: {
-                                            if(representation.is_in_register) {
-                                                append_store_integer(context, instructions, representation.value_size, member_value.anonymous.register_, final_address_register);
-                                            } else {
-                                                abort();
-                                            }
-                                        } break;
-
-                                        case ValueCategory::Address: {
-                                            if(representation.is_in_register) {
-                                                auto value_register = append_load_integer(context, instructions, representation.value_size, member_value.address);
-
-                                                append_store_integer(context, instructions, representation.value_size, value_register, final_address_register);
-                                            } else {
-                                                abort();
-                                            }
-                                        } break;
-
-                                        default: {
-                                            abort();
-                                        } break;
-                                    }
-                                }
-
-                                determined_initializer_value.anonymous.register_ = address_register;
-                            } break;
-
-                            default: {
-                                abort();
-                            }
-                        }
-                    } else if(types_equal(type, initializer_value.type)) {
-                        determined_initializer_value = initializer_value.value;
-                    } else {
-                        error(context->current_file_path, statement.variable_declaration.fully_specified.initializer.range, "Incorrect assignment type. Expected %s, got %s", type_description(type), type_description(initializer_value.type));
-
-                        return false;
-                    }
+                    expect(coerced_initializer_value, coerce_to_type(
+                        context,
+                        instructions,
+                        statement.variable_declaration.fully_specified.initializer.range,
+                        initializer_value,
+                        type,
+                        false
+                    ));
 
                     auto representation = get_type_representation(*context, type);
 
-                    switch(determined_initializer_value.category) {
+                    switch(coerced_initializer_value.category) {
                         case ValueCategory::Constant: {
-                            generate_constant_value_assignment(context, instructions, type, determined_initializer_value.constant, address_register);
+                            generate_constant_value_write(context, instructions, type, coerced_initializer_value.constant, address_register);
                         } break;
 
                         case ValueCategory::Anonymous: {
                             if(representation.is_in_register) {
-                                append_store_integer(context, instructions, representation.value_size, determined_initializer_value.anonymous.register_, address_register);
+                                append_store_integer(context, instructions, representation.value_size, coerced_initializer_value.anonymous.register_, address_register);
                             } else {
                                 auto length_register = append_constant(
                                     context,
@@ -5806,13 +5729,13 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                                     get_type_size(*context, type)
                                 );
 
-                                append_copy_memory(context, instructions, length_register, determined_initializer_value.anonymous.register_, address_register);
+                                append_copy_memory(context, instructions, length_register, coerced_initializer_value.anonymous.register_, address_register);
                             }
                         } break;
 
                         case ValueCategory::Address: {
                             if(representation.is_in_register) {
-                                auto value_register = append_load_integer(context, instructions, representation.value_size, determined_initializer_value.address);
+                                auto value_register = append_load_integer(context, instructions, representation.value_size, coerced_initializer_value.address);
 
                                 append_store_integer(context, instructions, representation.value_size, value_register, address_register);
                             } else {
@@ -5823,7 +5746,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                                     get_type_size(*context, type)
                                 );
 
-                                append_copy_memory(context, instructions, length_register, determined_initializer_value.address, address_register);
+                                append_copy_memory(context, instructions, length_register, coerced_initializer_value.address, address_register);
                             }
                         } break;
 
@@ -5856,170 +5779,25 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             expect(value, generate_expression(context, instructions, statement.assignment.value));
 
-            Value determined_value;
-            if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
-                if(target.type.category != TypeCategory::Integer) {
-                    error(context->current_file_path, statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
-
-                    return { false };
-                }
-
-                determined_value.category = ValueCategory::Constant;
-                determined_value.constant.integer = value.value.constant.integer;
-            } else if(target.type.category == TypeCategory::Struct && value.type._struct.is_undetermined) {
-                if(target.type.category != TypeCategory::Struct) {
-                    error(context->current_file_path, statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
-
-                    return { false };
-                }
-
-                auto struct_type = retrieve_struct_type(*context, target.type._struct.name);
-
-                if(value.type._struct.members.count != struct_type.members.count) {
-                    error(context->current_file_path, statement.assignment.value.range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, value.type._struct.members.count);
-
-                    return { false };
-                }
-
-                for(size_t i = 0; i < value.type._struct.members.count; i += 1) {
-                    if(strcmp(struct_type.members[i].name.text, value.type._struct.members[i].name) != 0) {
-                        error(context->current_file_path, statement.assignment.value.range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, value.type._struct.members[i].name);
-
-                        return { false };
-                    }
-
-                    if(
-                        !(
-                            value.type._struct.members[i].type.category == TypeCategory::Integer &&
-                            value.type._struct.members[i].type.integer.is_undetermined
-                        ) &&
-                        !types_equal(struct_type.members[i].type, value.type._struct.members[i].type)
-                    ) {
-                        error(context->current_file_path, statement.assignment.value.range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[i].type));
-
-                        return { false };
-                    }
-                }
-
-                switch(value.value.category) {
-                    case ValueCategory::Constant: {
-                        determined_value.category = ValueCategory::Constant;
-                        determined_value.constant.struct_ = value.value.constant.struct_;
-                    } break;
-
-                    case ValueCategory::Anonymous: {
-                        determined_value.category = ValueCategory::Anonymous;
-
-                        auto address_register = append_allocate_local(
-                            context,
-                            instructions,
-                            get_struct_size(*context, struct_type),
-                            get_struct_alignment(*context, struct_type)
-                        );
-
-                        for(size_t i = 0; i < struct_type.members.count; i += 1) {
-                            auto member_type = struct_type.members[i].type;
-                            auto member_value = value.value.anonymous.undetermined_struct[i];
-
-                            auto offset = get_struct_member_offset(*context, struct_type, i);
-
-                            auto offset_register = append_constant(context, instructions, context->address_integer_size, offset);
-
-                            auto final_address_register = append_arithmetic_operation(
-                                context,
-                                instructions,
-                                ArithmeticOperationType::Add,
-                                context->address_integer_size,
-                                address_register,
-                                offset_register
-                            );
-
-                            auto representation = get_type_representation(*context, member_type);
-
-                            switch(member_value.category) {
-                                case ValueCategory::Constant: {
-                                    size_t register_index;
-                                    switch(member_type.category) {
-                                        case TypeCategory::Integer: {
-                                            register_index = append_constant(context, instructions, member_type.integer.size, member_value.constant.integer);
-                                        } break;
-
-                                        case TypeCategory::Boolean: {
-                                            uint64_t integer_value;
-                                            if(member_value.constant.boolean) {
-                                                integer_value = 1;
-                                            } else {
-                                                integer_value = 0;
-                                            }
-
-                                            register_index = append_constant(context, instructions, context->default_integer_size, integer_value);
-                                        } break;
-
-                                        case TypeCategory::Pointer: {
-                                            register_index = append_constant(context, instructions, context->address_integer_size, member_value.constant.pointer);
-                                        } break;
-
-                                        default: {
-                                            abort();
-                                        } break;
-                                    }
-
-                                    if(representation.is_in_register) {
-                                        append_store_integer(context, instructions, representation.value_size, register_index, final_address_register);
-                                    } else {
-                                        abort();
-                                    }
-                                } break;
-
-                                case ValueCategory::Anonymous: {
-                                    if(representation.is_in_register) {
-                                        append_store_integer(context, instructions, representation.value_size, member_value.anonymous.register_, final_address_register);
-                                    } else {
-                                        abort();
-                                    }
-                                } break;
-
-                                case ValueCategory::Address: {
-                                    if(representation.is_in_register) {
-                                        auto value_register = append_load_integer(context, instructions, representation.value_size, member_value.address);
-
-                                        append_store_integer(context, instructions, representation.value_size, value_register, final_address_register);
-                                    } else {
-                                        abort();
-                                    }
-                                } break;
-
-                                default: {
-                                    abort();
-                                } break;
-                            }
-                        }
-
-                        determined_value.anonymous.register_ = address_register;
-                    }
-
-                    default: {
-                        abort();
-                    } break;
-                }
-            } else if(types_equal(target.type, value.type)) {
-                determined_value = value.value;
-            } else {
-                error(context->current_file_path, statement.assignment.value.range, "Incorrect assignment type. Expected %s, got %s", type_description(target.type), type_description(value.type));
-
-                return false;
-            }
+            expect(coerced_value, coerce_to_type(
+                context,
+                instructions,
+                statement.assignment.value.range,
+                value,
+                target.type,
+                false
+            ));
 
             auto representation = get_type_representation(*context, target.type);
 
-            switch(determined_value.category) {
+            switch(coerced_value.category) {
                 case ValueCategory::Constant: {
-                    generate_constant_value_assignment(context, instructions, target.type, determined_value.constant, target.value.address);
+                    generate_constant_value_write(context, instructions, target.type, coerced_value.constant, target.value.address);
                 } break;
 
                 case ValueCategory::Anonymous: {
                     if(representation.is_in_register) {
-                        append_store_integer(context, instructions, representation.value_size, determined_value.anonymous.register_, target.value.address);
+                        append_store_integer(context, instructions, representation.value_size, coerced_value.anonymous.register_, target.value.address);
                     } else {
                         auto length_register = append_constant(
                             context,
@@ -6028,13 +5806,13 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                             get_type_size(*context, target.type)
                         );
 
-                        append_copy_memory(context, instructions, length_register, determined_value.anonymous.register_, target.value.address);
+                        append_copy_memory(context, instructions, length_register, coerced_value.anonymous.register_, target.value.address);
                     }
                 } break;
 
                 case ValueCategory::Address: {
                     if(representation.is_in_register) {
-                        auto value_register = append_load_integer(context, instructions, representation.value_size, determined_value.address);
+                        auto value_register = append_load_integer(context, instructions, representation.value_size, coerced_value.address);
 
                         append_store_integer(context, instructions, representation.value_size, value_register, target.value.address);
                     } else {
@@ -6045,7 +5823,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                             get_type_size(*context, target.type)
                         );
 
-                        append_copy_memory(context, instructions, length_register, determined_value.address, target.value.address);
+                        append_copy_memory(context, instructions, length_register, coerced_value.address, target.value.address);
                     }
                 } break;
 
@@ -6069,31 +5847,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 return false;
             }
 
-            size_t condition_register;
-            switch(condition.value.category) {
-                case ValueCategory::Constant: {
-                    uint64_t integer_value;
-                    if(condition.value.constant.boolean) {
-                        integer_value = 1;
-                    } else {
-                        integer_value = 0;
-                    }
-
-                    condition_register = append_constant(context, instructions, context->default_integer_size, integer_value);
-                } break;
-
-                case ValueCategory::Anonymous: {
-                    condition_register = condition.value.anonymous.register_;
-                } break;
-
-                case ValueCategory::Address: {
-                    condition_register = append_load_integer(context, instructions, context->default_integer_size, condition.value.address);
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
+            auto condition_register = generate_in_register_boolean_value(context, instructions, condition.value);
 
             append_branch(context, instructions, condition_register, instructions->count + 2);
 
@@ -6128,31 +5882,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     return false;
                 }
 
-                size_t condition_register;
-                switch(condition.value.category) {
-                    case ValueCategory::Constant: {
-                        uint64_t integer_value;
-                        if(condition.value.constant.boolean) {
-                            integer_value = 1;
-                        } else {
-                            integer_value = 0;
-                        }
-
-                        condition_register = append_constant(context, instructions, context->default_integer_size, integer_value);
-                    } break;
-
-                    case ValueCategory::Anonymous: {
-                        condition_register = condition.value.anonymous.register_;
-                    } break;
-
-                    case ValueCategory::Address: {
-                        condition_register = append_load_integer(context, instructions, context->default_integer_size, condition.value.address);
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
+                auto condition_register = generate_in_register_boolean_value(context, instructions, condition.value);
 
                 append_branch(context, instructions, condition_register, instructions->count + 2);
 
@@ -6208,31 +5938,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 return false;
             }
 
-            size_t condition_register;
-            switch(condition.value.category) {
-                case ValueCategory::Constant: {
-                    uint64_t integer_value;
-                    if(condition.value.constant.boolean) {
-                        integer_value = 1;
-                    } else {
-                        integer_value = 0;
-                    }
-
-                    condition_register = append_constant(context, instructions, context->default_integer_size, integer_value);
-                } break;
-
-                case ValueCategory::Anonymous: {
-                    condition_register = condition.value.anonymous.register_;
-                } break;
-
-                case ValueCategory::Address: {
-                    condition_register = append_load_integer(context, instructions, context->default_integer_size, condition.value.address);
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
+            auto condition_register = generate_in_register_boolean_value(context, instructions, condition.value);
 
             append_branch(context, instructions, condition_register, instructions->count + 2);
 
@@ -6265,256 +5971,32 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             if(statement._return.has_value) {
                 expect(value, generate_expression(context, instructions, statement._return.value));
 
-                Value determined_value;
-                if(value.type.category == TypeCategory::Integer && value.type.integer.is_undetermined) {
-                    if(context->return_type.category != TypeCategory::Integer) {
-                        error(context->current_file_path, statement._return.value.range, "Incorrect return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
-
-                        return { false };
-                    }
-
-                    determined_value.category = ValueCategory::Constant;
-                    determined_value.constant.integer = value.value.constant.integer;
-                } else if(value.type.category == TypeCategory::Struct && value.type._struct.is_undetermined) {
-                    if(context->return_type.category != TypeCategory::Struct) {
-                        error(context->current_file_path, statement.assignment.value.range, "Incorrect return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
-
-                        return { false };
-                    }
-
-                    auto struct_type = retrieve_struct_type(*context, context->return_type._struct.name);
-
-                    if(value.type._struct.members.count != struct_type.members.count) {
-                        error(context->current_file_path, statement.assignment.value.range, "Incorrect member count. Expected %zu, got %zu", struct_type.members.count, value.type._struct.members.count);
-
-                        return { false };
-                    }
-
-                    for(size_t i = 0; i < value.type._struct.members.count; i += 1) {
-                        if(strcmp(struct_type.members[i].name.text, value.type._struct.members[i].name) != 0) {
-                            error(context->current_file_path, statement.assignment.value.range, "Incorrect member name. Expected %s, got %s", struct_type.members[i].name.text, value.type._struct.members[i].name);
-
-                            return { false };
-                        }
-
-                        if(
-                            !(
-                                value.type._struct.members[i].type.category == TypeCategory::Integer &&
-                                value.type._struct.members[i].type.integer.is_undetermined
-                            ) &&
-                            !types_equal(struct_type.members[i].type, value.type._struct.members[i].type)
-                        ) {
-                            error(context->current_file_path, statement.assignment.value.range, "Incorrect member type for struct member %s. Expected %s, got %s", value.type._struct.members[i].name, type_description(struct_type.members[i].type), type_description(value.type._struct.members[i].type));
-
-                            return { false };
-                        }
-                    }
-
-                    switch(value.value.category) {
-                        case ValueCategory::Constant: {
-                            determined_value.category = ValueCategory::Constant;
-                            determined_value.constant.struct_ = value.value.constant.struct_;
-                        } break;
-
-                        case ValueCategory::Anonymous: {
-                            determined_value.category = ValueCategory::Anonymous;
-
-                            auto address_register = append_allocate_local(
-                                context,
-                                instructions,
-                                get_struct_size(*context, struct_type),
-                                get_struct_alignment(*context, struct_type)
-                            );
-
-                            for(size_t i = 0; i < struct_type.members.count; i += 1) {
-                                auto member_type = struct_type.members[i].type;
-                                auto member_value = value.value.anonymous.undetermined_struct[i];
-
-                                auto offset = get_struct_member_offset(*context, struct_type, i);
-
-                                auto offset_register = append_constant(context, instructions, context->address_integer_size, offset);
-
-                                auto final_address_register = append_arithmetic_operation(
-                                    context,
-                                    instructions,
-                                    ArithmeticOperationType::Add,
-                                    context->address_integer_size,
-                                    address_register,
-                                    offset_register
-                                );
-
-                                auto representation = get_type_representation(*context, member_type);
-
-                                switch(member_value.category) {
-                                    case ValueCategory::Constant: {
-                                        size_t register_index;
-                                        switch(member_type.category) {
-                                            case TypeCategory::Integer: {
-                                                register_index = append_constant(context, instructions, member_type.integer.size, member_value.constant.integer);
-                                            } break;
-
-                                            case TypeCategory::Boolean: {
-                                                uint64_t integer_value;
-                                                if(member_value.constant.boolean) {
-                                                    integer_value = 1;
-                                                } else {
-                                                    integer_value = 0;
-                                                }
-
-                                                register_index = append_constant(context, instructions, context->default_integer_size, integer_value);
-                                            } break;
-
-                                            case TypeCategory::Pointer: {
-                                                register_index = append_constant(context, instructions, context->address_integer_size, member_value.constant.pointer);
-                                            } break;
-
-                                            default: {
-                                                abort();
-                                            } break;
-                                        }
-
-                                        if(representation.is_in_register) {
-                                            append_store_integer(context, instructions, representation.value_size, register_index, final_address_register);
-                                        } else {
-                                            abort();
-                                        }
-                                    } break;
-
-                                    case ValueCategory::Anonymous: {
-                                        if(representation.is_in_register) {
-                                            append_store_integer(context, instructions, representation.value_size, member_value.anonymous.register_, final_address_register);
-                                        } else {
-                                            abort();
-                                        }
-                                    } break;
-
-                                    case ValueCategory::Address: {
-                                        if(representation.is_in_register) {
-                                            auto value_register = append_load_integer(context, instructions, representation.value_size, member_value.address);
-
-                                            append_store_integer(context, instructions, representation.value_size, value_register, final_address_register);
-                                        } else {
-                                            abort();
-                                        }
-                                    } break;
-
-                                    default: {
-                                        abort();
-                                    } break;
-                                }
-                            }
-
-                            determined_value.anonymous.register_ = address_register;
-                        } break;
-                    }
-                } else if(types_equal(value.type, context->return_type)) {
-                    determined_value = value.value;
-                } else {
-                    error(context->current_file_path, statement._return.value.range, "Incorrect return type. Expected %s, got %s", type_description(context->return_type), type_description(value.type));
-
-                    return { false };
-                }
+                expect(coerced_value, coerce_to_type(
+                    context,
+                    instructions,
+                    statement._return.value.range,
+                    value,
+                    context->return_type,
+                    false
+                ));
 
                 if(context->return_type.category != TypeCategory::Void) {
                     auto representation = get_type_representation(*context, context->return_type);
 
-                    switch(determined_value.category) {
+                    switch(coerced_value.category) {
                         case ValueCategory::Constant: {
-                            switch(context->return_type.category) {
-                                case TypeCategory::Integer: {
-                                    auto value_register = append_constant(context, instructions, context->return_type.integer.size, determined_value.constant.integer);
+                            if(representation.is_in_register) {
+                                auto value_register = generate_in_register_constant_value(context, instructions, context->return_type, coerced_value.constant);
 
-                                    return_.return_.value_register = value_register;
-                                } break;
-
-                                case TypeCategory::Boolean: {
-                                    uint64_t integer_value;
-                                    if(determined_value.constant.boolean) {
-                                        integer_value = 1;
-                                    } else {
-                                        integer_value = 0;
-                                    }
-
-                                    auto value_register = append_constant(context, instructions, context->default_integer_size, integer_value);
-
-                                    return_.return_.value_register = value_register;
-                                } break;
-
-                                case TypeCategory::Pointer: {
-                                    auto value_register = append_constant(context, instructions, context->address_integer_size, determined_value.constant.pointer);
-
-                                    return_.return_.value_register = value_register;
-                                } break;
-
-                                case TypeCategory::Array: {
-                                    auto pointer_register = append_constant(context, instructions, context->address_integer_size, determined_value.constant.array.pointer);
-
-                                    append_store_integer(context, instructions, context->address_integer_size, pointer_register, context->return_parameter_register);
-
-                                    auto length_register = append_constant(context, instructions, context->address_integer_size, determined_value.constant.array.length);
-
-                                    auto length_address_register = generate_address_offset(
-                                        context,
-                                        instructions,
-                                        context->return_parameter_register,
-                                        register_size_to_byte_size(context->address_integer_size)
-                                    );
-
-                                    append_store_integer(context, instructions, context->address_integer_size, length_register, length_address_register);
-                                } break;
-
-                                case TypeCategory::StaticArray: {
-                                    auto constant_name = register_static_array_constant(
-                                        context,
-                                        *context->return_type.static_array.type,
-                                        Array<ConstantValue> {
-                                            context->return_type.static_array.length,
-                                            determined_value.constant.static_array
-                                        }
-                                    );
-
-                                    auto constant_address_register = append_reference_static(context, instructions, constant_name);
-
-                                    auto length_register = append_constant(
-                                        context,
-                                        instructions,
-                                        context->address_integer_size,
-                                        context->return_type.static_array.length * get_type_size(*context, *context->return_type.static_array.type)
-                                    );
-
-                                    append_copy_memory(context, instructions, length_register, constant_address_register, context->return_parameter_register);
-                                } break;
-
-                                case TypeCategory::Struct: {
-                                    auto struct_type = retrieve_struct_type(*context, context->return_type._struct.name);
-
-                                    auto constant_name = register_struct_constant(
-                                        context,
-                                        struct_type,
-                                        determined_value.constant.struct_
-                                    );
-
-                                    auto constant_address_register = append_reference_static(context, instructions, constant_name);
-
-                                    auto length_register = append_constant(
-                                        context,
-                                        instructions,
-                                        context->address_integer_size,
-                                        get_struct_size(*context, struct_type)
-                                    );
-
-                                    append_copy_memory(context, instructions, length_register, constant_address_register, context->return_parameter_register);
-                                } break;
-
-                                default: {
-                                    abort();
-                                } break;
+                                return_.return_.value_register = value_register;
+                            } else {
+                                generate_not_in_register_constant_write(context, instructions, context->return_type, coerced_value.constant, context->return_parameter_register);
                             }
                         } break;
 
                         case ValueCategory::Anonymous: {
                             if(representation.is_in_register) {
-                                return_.return_.value_register = determined_value.anonymous.register_;
+                                return_.return_.value_register = coerced_value.anonymous.register_;
                             } else {
                                 auto length_register = append_constant(
                                     context,
@@ -6523,13 +6005,13 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                                     get_type_size(*context, context->return_type)
                                 );
 
-                                append_copy_memory(context, instructions, length_register, determined_value.anonymous.register_, context->return_parameter_register);
+                                append_copy_memory(context, instructions, length_register, coerced_value.anonymous.register_, context->return_parameter_register);
                             }
                         } break;
 
                         case ValueCategory::Address: {
                             if(representation.is_in_register) {
-                                auto value_register = append_load_integer(context, instructions, representation.value_size, determined_value.address);
+                                auto value_register = append_load_integer(context, instructions, representation.value_size, coerced_value.address);
 
                                 return_.return_.value_register = value_register;
                             } else {
@@ -6540,7 +6022,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                                     get_type_size(*context, context->return_type)
                                 );
 
-                                append_copy_memory(context, instructions, length_register, determined_value.address, context->return_parameter_register);
+                                append_copy_memory(context, instructions, length_register, coerced_value.address, context->return_parameter_register);
                             }
                         } break;
 
