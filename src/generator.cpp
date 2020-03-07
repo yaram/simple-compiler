@@ -640,6 +640,66 @@ static Result<size_t> coerce_constant_to_integer_type(
     }
 }
 
+static Result<size_t> coerce_constant_to_undetermined_integer(
+    GenerationContext context,
+    FileRange range,
+    TypedConstantValue value,
+    bool probing
+) {
+    switch(value.type.category) {
+        case TypeCategory::Integer: {
+            if(value.type.integer.is_undetermined) {
+                return {
+                    true,
+                    value.value.integer
+                };
+            } else {
+                switch(value.type.integer.size) {
+                    case RegisterSize::Size8: {
+                        return {
+                            true,
+                            (uint8_t)value.value.integer
+                        };
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        return {
+                            true,
+                            (uint16_t)value.value.integer
+                        };
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        return {
+                            true,
+                            (uint32_t)value.value.integer
+                        };
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        return {
+                            true,
+                            value.value.integer
+                        };
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            }
+        } break;
+
+        default: {
+            if(!probing) {
+                error(context.current_file_path, range, "Cannot implicitly convert '%s' to '{integer}'", type_description(value.type));
+            }
+
+            return { false };
+        } break;
+    }
+}
+
 static Result<ConstantValue> coerce_constant_to_type(
     GenerationContext context,
     FileRange range,
@@ -730,10 +790,19 @@ static Result<ConstantValue> coerce_constant_to_type(
 ) {
     switch(type.category) {
         case TypeCategory::Integer: {
-            expect(integer_value, coerce_constant_to_integer_type(context, range, value, type.integer.size, type.integer.is_signed, probing));
+            uint64_t result_value;
+            if(type.integer.is_undetermined) {
+                expect(integer_value, coerce_constant_to_undetermined_integer(context, range, value, probing));
+
+                result_value = integer_value;
+            } else {
+                expect(integer_value, coerce_constant_to_integer_type(context, range, value, type.integer.size, type.integer.is_signed, probing));
+
+                result_value = integer_value;
+            }
 
             ConstantValue result;
-            result.integer = integer_value;
+            result.integer = result_value;
 
             return {
                 true,
