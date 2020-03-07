@@ -71,3 +71,4 @@ struct StructTypeMember {
 bool types_equal(Type a, Type b);
 const char *type_description(Type type);
 const char *determined_integer_type_description(RegisterSize size, bool is_signed);
+bool is_type_undetermined(Type type);

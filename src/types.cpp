@@ -202,3 +202,19 @@ const char *determined_integer_type_description(RegisterSize size, bool is_signe
         }
     }
 }
+
+bool is_type_undetermined(Type type) {
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            return type.integer.is_undetermined;
+        } break;
+
+        case TypeCategory::Struct: {
+            return type._struct.is_undetermined;
+        } break;
+
+        default: {
+            return false;
+        } break;
+    }
+}

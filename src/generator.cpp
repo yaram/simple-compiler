@@ -603,89 +603,171 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
     return { false };
 }
 
+static Result<size_t> coerce_constant_to_integer_type(
+    GenerationContext context,
+    FileRange range,
+    TypedConstantValue value,
+    RegisterSize size,
+    bool is_signed,
+    bool probing
+) {
+    switch(value.type.category) {
+        case TypeCategory::Integer: {
+            if(value.type.integer.is_undetermined) {
+                return {
+                    true,
+                    value.value.integer
+                };
+            } else {
+                if(value.type.integer.size != size || value.type.integer.is_signed != is_signed) {
+                    return { false };
+                }
+
+                return {
+                    true,
+                    value.value.integer
+                };
+            }
+        } break;
+
+        default: {
+            if(!probing) {
+                error(context.current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), determined_integer_type_description(size, is_signed));
+            }
+
+            return { false };
+        } break;
+    }
+}
+
+static Result<ConstantValue> coerce_constant_to_type(
+    GenerationContext context,
+    FileRange range,
+    TypedConstantValue value,
+    Type type,
+    bool probing
+);
+
+static Result<ConstantValue> coerce_constant_to_struct_type(
+    GenerationContext context,
+    FileRange range,
+    TypedConstantValue value,
+    StructType struct_type,
+    bool probing
+) {
+    if(value.type.category != TypeCategory::Struct) {
+        if(!probing) {
+            error(context.current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), struct_type.name);
+        }
+
+        return { false };
+    }
+
+    auto value_type = value.type._struct;
+
+    ConstantValue result_value;
+    if(value_type.is_undetermined) {
+        if(struct_type.is_union) {
+            error(context.current_file_path, range, "Constants cannot be unions");
+
+            return { false };
+        } else {
+            if(value_type.members.count != struct_type.members.count) {
+                error(context.current_file_path, range, "Too many struct members. Expected %zu, got %zu", struct_type.members.count, value_type.members.count);
+
+                return { false };
+            }
+
+            auto member_values = allocate<ConstantValue>(struct_type.members.count);
+
+            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                if(strcmp(value_type.members[i].name, struct_type.members[i].name.text) != 0) {
+                    error(context.current_file_path, range, "Incorrect struct member name. Expected '%s', got '%s", struct_type.members[i].name.text, value_type.members[i].name);
+
+                    return { false };
+                }
+
+                expect(coerced_member_value, coerce_constant_to_type(
+                    context,
+                    range,
+                    { value_type.members[i].type, value.value.struct_[i] },
+                    struct_type.members[i].type,
+                    probing
+                ));
+
+                member_values[i] = coerced_member_value;
+            }
+
+            result_value.struct_ = member_values;
+        }
+
+        return {
+            true,
+            result_value
+        };
+    } else {
+        if(strcmp(value_type.name, struct_type.name) != 0) {
+            if(!probing) {
+                error(context.current_file_path, range, "Cannot implicitly convert '%s' to '%s'", value_type.name, struct_type.name);
+            }
+
+            return { false };
+        }
+
+        return {
+            true,
+            value.value
+        };
+    }
+}
+
+static Result<ConstantValue> coerce_constant_to_type(
+    GenerationContext context,
+    FileRange range,
+    TypedConstantValue value,
+    Type type,
+    bool probing
+) {
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            expect(integer_value, coerce_constant_to_integer_type(context, range, value, type.integer.size, type.integer.is_signed, probing));
+
+            ConstantValue result;
+            result.integer = integer_value;
+
+            return {
+                true,
+                result
+            };
+        } break;
+
+        case TypeCategory::Struct: {
+            return coerce_constant_to_struct_type(context, range, value, retrieve_struct_type(context, type._struct.name), probing);
+        } break;
+
+        default: {
+            if(types_equal(type, value.type)) {
+                return {
+                    true,
+                    value.value
+                };
+            } else {
+                if(!probing) {
+                    error(context.current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), type_description(type));
+                }
+
+                return { false };
+            }
+        } break;
+    }
+}
+
 static Result<TypedConstantValue> evaluate_constant_index(GenerationContext context, Type type, ConstantValue value, FileRange range, Type index_type, ConstantValue index_value, FileRange index_range) {
     if(index_type.category != TypeCategory::Integer) {
         error(context.current_file_path, index_range, "Expected an integer, got %s", type_description(index_type));
     }
 
-    size_t index;
-    if(index_type.integer.is_undetermined) {
-        if((int64_t)index_value.integer < 0) {
-            error(context.current_file_path, index_range, "Array index %lld out of bounds", (int64_t)index_value.integer);
-
-            return { false };
-        }
-
-        index = index_value.integer;
-    } else if(index_type.integer.is_signed) {
-        switch(index_type.integer.size) {
-            case RegisterSize::Size8: {
-                if((int8_t)index_value.integer < 0) {
-                    error(context.current_file_path, index_range, "Array index %hhd out of bounds", (int8_t)index_value.integer);
-
-                    return { false };
-                }
-
-                index = (uint8_t)index_value.integer;
-            } break;
-
-            case RegisterSize::Size16: {
-                if((int16_t)index_value.integer < 0) {
-                    error(context.current_file_path, index_range, "Array index %hd out of bounds", (int16_t)index_value.integer);
-
-                    return { false };
-                }
-
-                index = (uint16_t)index_value.integer;
-            } break;
-
-            case RegisterSize::Size32: {
-                if((int32_t)index_value.integer < 0) {
-                    error(context.current_file_path, index_range, "Array index %d out of bounds", (int32_t)index_value.integer);
-
-                    return { false };
-                }
-
-                index = (uint32_t)index_value.integer;
-            } break;
-
-            case RegisterSize::Size64: {
-                if((int8_t)index_value.integer < 0) {
-                    error(context.current_file_path, index_range, "Array index %lld out of bounds", (int64_t)index_value.integer);
-
-                    return { false };
-                }
-
-                index = index_value.integer;
-            } break;
-
-            default: {
-                abort();
-            } break;
-        }
-    } else {
-        switch(index_type.integer.size) {
-            case RegisterSize::Size8: {
-                index = (uint8_t)index_value.integer;
-            } break;
-
-            case RegisterSize::Size16: {
-                index = (uint16_t)index_value.integer;
-            } break;
-
-            case RegisterSize::Size32: {
-                index = (uint32_t)index_value.integer;
-            } break;
-
-            case RegisterSize::Size64: {
-                index = index_value.integer;
-            } break;
-
-            default: {
-                abort();
-            } break;
-        }
-    }
+    expect(index, coerce_constant_to_integer_type(context, index_range, { index_type, index_value, }, context.address_integer_size, false, false));
 
     switch(type.category) {
         case TypeCategory::StaticArray: {
@@ -712,113 +794,70 @@ static Result<TypedConstantValue> evaluate_constant_index(GenerationContext cont
     }
 }
 
-static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationContext context, BinaryOperator binary_operator, FileRange range, Type left_type, ConstantValue left_value, Type right_type, ConstantValue right_value) {
-    switch(left_type.category) {
+static Result<Type> determine_binary_operation_type(GenerationContext context, FileRange range, Type left, Type right) {
+    if(left.category == TypeCategory::Integer && right.category == TypeCategory::Integer) {
+        Type type;
+        type.category = TypeCategory::Integer;
+
+        if(left.integer.is_undetermined && right.integer.is_undetermined) {
+            type.integer.is_undetermined = true;
+        } else if(left.integer.is_undetermined) {
+            type.integer = right.integer;
+        } else {
+            type.integer = left.integer;
+        }
+
+        return {
+            true,
+            type
+        };
+    } else if(left.category == TypeCategory::Boolean && right.category == TypeCategory::Boolean) {
+        Type type;
+        type.category = TypeCategory::Boolean;
+
+        return {
+            true,
+            type
+        };
+    } else {
+        error(context.current_file_path, range, "Mismatched types '%s' and '%s'", type_description(left), type_description(right));
+
+        return { false };
+    }
+}
+
+static Result<TypedConstantValue> evaluate_constant_binary_operation(
+    GenerationContext context,
+    FileRange range,
+    BinaryOperator binary_operator,
+    FileRange left_range,
+    Type left_type,
+    ConstantValue left_value,
+    FileRange right_range,
+    Type right_type,
+    ConstantValue right_value
+) {
+    expect(type, determine_binary_operation_type(context, range, left_type, right_type));
+
+    expect(coerced_left_value, coerce_constant_to_type(context, left_range, { left_type, left_value }, type, false));
+
+    expect(coerced_right_value, coerce_constant_to_type(context, right_range, { right_type, right_value }, type, false));
+
+    switch(type.category) {
         case TypeCategory::Integer: {
-            if(right_type.category != TypeCategory::Integer) {
-                error(context.current_file_path, range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
-
-                return { false };
-            }
-
-            RegisterSize size;
-            bool is_signed;
-            bool is_undetermined;
-
-            uint64_t left;
-            uint64_t right;
-
-            if(left_type.integer.is_undetermined && right_type.integer.is_undetermined) {
-                is_undetermined = true;
-
-                left = left_value.integer;
-                right = right_value.integer;
-            } else {
-                is_undetermined = false;
-
-                if(left_type.integer.is_undetermined) {
-                    size = right_type.integer.size;
-                    is_signed = right_type.integer.is_signed;
-                } else if(right_type.integer.is_undetermined) {
-                    size = left_type.integer.size;
-                    is_signed = left_type.integer.is_signed;
-                } else if(left_type.integer.size == right_type.integer.size && left_type.integer.is_signed == right_type.integer.is_signed) {
-                    size = left_type.integer.size;
-                    is_signed = left_type.integer.is_signed;
-                } else {
-                    error(context.current_file_path, range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
-
-                    return { false };
-                }
-
-                if(is_signed) {
-                    switch(size) {
-                        case RegisterSize::Size8: {
-                            left = (int8_t)left_value.integer;
-                            right = (int8_t)right_value.integer;
-                        } break;
-
-                        case RegisterSize::Size16: {
-                            left = (int16_t)left_value.integer;
-                            right = (int16_t)right_value.integer;
-                        } break;
-
-                        case RegisterSize::Size32: {
-                            left = (int32_t)left_value.integer;
-                            right = (int32_t)right_value.integer;
-                        } break;
-
-                        case RegisterSize::Size64: {
-                            left = left_value.integer;
-                            right = right_value.integer;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-                } else {
-                    switch(size) {
-                        case RegisterSize::Size8: {
-                            left = (uint8_t)left_value.integer;
-                            right = (uint8_t)right_value.integer;
-                        } break;
-
-                        case RegisterSize::Size16: {
-                            left = (uint16_t)left_value.integer;
-                            right = (uint16_t)right_value.integer;
-                        } break;
-
-                        case RegisterSize::Size32: {
-                            left = (uint32_t)left_value.integer;
-                            right = (uint32_t)right_value.integer;
-                        } break;
-
-                        case RegisterSize::Size64: {
-                            left = left_value.integer;
-                            right = right_value.integer;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-                }
-            }
-
             switch(binary_operator) {
                 case BinaryOperator::Addition: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Integer;
-                    if(is_undetermined) {
+                    if(type.integer.is_undetermined) {
                         result.type.integer.is_undetermined = true;
                     } else {
-                        result.type.integer.size = size;
-                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.size = type.integer.size;
+                        result.type.integer.is_signed = type.integer.is_signed;
                         result.type.integer.is_undetermined = true;
                     }
 
-                    result.value.integer = left + right;
+                    result.value.integer = coerced_left_value.integer + coerced_right_value.integer;
 
                     return {
                         true,
@@ -829,15 +868,15 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::Subtraction: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Integer;
-                    if(is_undetermined) {
+                    if(type.integer.is_undetermined) {
                         result.type.integer.is_undetermined = true;
                     } else {
-                        result.type.integer.size = size;
-                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.size = type.integer.size;
+                        result.type.integer.is_signed = type.integer.is_signed;
                         result.type.integer.is_undetermined = true;
                     }
 
-                    result.value.integer = left - right;
+                    result.value.integer = coerced_left_value.integer - coerced_right_value.integer;
 
                     return {
                         true,
@@ -848,18 +887,18 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::Multiplication: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Integer;
-                    if(is_undetermined) {
+                    if(type.integer.is_undetermined) {
                         result.type.integer.is_undetermined = true;
                     } else {
-                        result.type.integer.size = size;
-                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.size = type.integer.size;
+                        result.type.integer.is_signed = type.integer.is_signed;
                         result.type.integer.is_undetermined = true;
                     }
 
-                    if(is_undetermined || is_signed) {
-                        result.value.integer = (int64_t)left * (int64_t)right;
+                    if(type.integer.is_undetermined || type.integer.is_signed) {
+                        result.value.integer = (int64_t)coerced_left_value.integer * (int64_t)coerced_right_value.integer;
                     } else {
-                        result.value.integer = left * right;
+                        result.value.integer = coerced_left_value.integer * coerced_right_value.integer;
                     }
 
                     return {
@@ -871,18 +910,18 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::Division: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Integer;
-                    if(is_undetermined) {
+                    if(type.integer.is_undetermined) {
                         result.type.integer.is_undetermined = true;
                     } else {
-                        result.type.integer.size = size;
-                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.size = type.integer.size;
+                        result.type.integer.is_signed = type.integer.is_signed;
                         result.type.integer.is_undetermined = true;
                     }
 
-                    if(is_undetermined || is_signed) {
-                        result.value.integer = (int64_t)left / (int64_t)right;
+                    if(type.integer.is_undetermined || type.integer.is_signed) {
+                        result.value.integer = (int64_t)coerced_left_value.integer / (int64_t)coerced_right_value.integer;
                     } else {
-                        result.value.integer = left / right;
+                        result.value.integer = coerced_left_value.integer / coerced_right_value.integer;
                     }
 
                     return {
@@ -894,18 +933,18 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::Modulo: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Integer;
-                    if(is_undetermined) {
+                    if(type.integer.is_undetermined) {
                         result.type.integer.is_undetermined = true;
                     } else {
-                        result.type.integer.size = size;
-                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.size = type.integer.size;
+                        result.type.integer.is_signed = type.integer.is_signed;
                         result.type.integer.is_undetermined = true;
                     }
 
-                    if(is_undetermined || is_signed) {
-                        result.value.integer = (int64_t)left % (int64_t)right;
+                    if(type.integer.is_undetermined || type.integer.is_signed) {
+                        result.value.integer = (int64_t)coerced_left_value.integer % (int64_t)coerced_right_value.integer;
                     } else {
-                        result.value.integer = left % right;
+                        result.value.integer = coerced_left_value.integer % coerced_right_value.integer;
                     }
 
                     return {
@@ -917,15 +956,15 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::BitwiseAnd: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Integer;
-                    if(is_undetermined) {
+                    if(type.integer.is_undetermined) {
                         result.type.integer.is_undetermined = true;
                     } else {
-                        result.type.integer.size = size;
-                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.size = type.integer.size;
+                        result.type.integer.is_signed = type.integer.is_signed;
                         result.type.integer.is_undetermined = true;
                     }
 
-                    result.value.integer = left & right;
+                    result.value.integer = coerced_left_value.integer & coerced_right_value.integer;
 
                     return {
                         true,
@@ -936,15 +975,15 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::BitwiseOr: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Integer;
-                    if(is_undetermined) {
+                    if(type.integer.is_undetermined) {
                         result.type.integer.is_undetermined = true;
                     } else {
-                        result.type.integer.size = size;
-                        result.type.integer.is_signed = is_signed;
+                        result.type.integer.size = type.integer.size;
+                        result.type.integer.is_signed = type.integer.is_signed;
                         result.type.integer.is_undetermined = true;
                     }
 
-                    result.value.integer = left | right;
+                    result.value.integer = coerced_left_value.integer | coerced_right_value.integer;
 
                     return {
                         true,
@@ -955,7 +994,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::Equal: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = left == right;
+                    result.value.boolean = coerced_left_value.integer == coerced_right_value.integer;
 
                     return {
                         true,
@@ -966,7 +1005,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::NotEqual: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = left != right;
+                    result.value.boolean = coerced_left_value.integer != coerced_right_value.integer;
 
                     return {
                         true,
@@ -977,7 +1016,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::LessThan: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = left < right;
+                    result.value.boolean = coerced_left_value.integer < coerced_right_value.integer;
 
                     return {
                         true,
@@ -988,7 +1027,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::GreaterThan: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = left > right;
+                    result.value.boolean = coerced_left_value.integer > coerced_right_value.integer;
 
                     return {
                         true,
@@ -1003,17 +1042,11 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
         } break;
 
         case TypeCategory::Boolean: {
-            if(right_type.category != TypeCategory::Boolean) {
-                error(context.current_file_path, range, "Mismatched types %s and %s", type_description(left_type), type_description(right_type));
-
-                return { false };
-            }
-
             switch(binary_operator) {
                 case BinaryOperator::BooleanAnd: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = left_value.boolean && right_value.boolean;
+                    result.value.boolean = coerced_left_value.boolean && coerced_right_value.boolean;
 
                     return {
                         true,
@@ -1024,7 +1057,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::BooleanOr: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = left_value.boolean || right_value.boolean;
+                    result.value.boolean = coerced_left_value.boolean || coerced_right_value.boolean;
 
                     return {
                         true,
@@ -1035,7 +1068,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::Equal: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = left_value.boolean == right_value.boolean;
+                    result.value.boolean = coerced_left_value.boolean == coerced_right_value.boolean;
 
                     return {
                         true,
@@ -1046,7 +1079,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
                 case BinaryOperator::NotEqual: {
                     TypedConstantValue result;
                     result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = left_value.boolean != right_value.boolean;
+                    result.value.boolean = coerced_left_value.boolean != coerced_right_value.boolean;
 
                     return {
                         true,
@@ -1063,14 +1096,27 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(GenerationC
         } break;
 
         default: {
-            error(context.current_file_path, range, "Cannot perform binary operations on %s", type_description(left_type));
-
-            return { false };
+            abort();
         } break;
     }
 }
 
 static Result<ConstantValue> evaluate_constant_conversion(GenerationContext context, ConstantValue value, Type value_type, FileRange value_range, Type type, FileRange type_range) {
+    auto coerce_result = coerce_constant_to_type(
+        context,
+        value_range,
+        { value_type, value },
+        type,
+        true
+    );
+
+    if(coerce_result.status) {
+        return {
+            true,
+            coerce_result.value
+        };
+    }
+
     ConstantValue result;
 
     switch(value_type.category) {
@@ -1224,38 +1270,6 @@ static RegisterRepresentation get_type_representation(GenerationContext context,
         default: {
             abort();
         } break;
-    }
-}
-
-static Result<Type> determine_binary_operation_type(GenerationContext context, FileRange range, Type left, Type right) {
-    if(left.category == TypeCategory::Integer && right.category == TypeCategory::Integer) {
-        Type type;
-        type.category = TypeCategory::Integer;
-
-        if(left.integer.is_undetermined && right.integer.is_undetermined) {
-            type.integer.is_undetermined = true;
-        } else if(left.integer.is_undetermined) {
-            type.integer = right.integer;
-        } else {
-            type.integer = left.integer;
-        }
-
-        return {
-            true,
-            type
-        };
-    } else if(left.category == TypeCategory::Boolean && right.category == TypeCategory::Boolean) {
-        Type type;
-        type.category = TypeCategory::Boolean;
-
-        return {
-            true,
-            type
-        };
-    } else {
-        error(context.current_file_path, range, "Cannot perform binary operations on '%s' and '%s'", type_description(left), type_description(right));
-
-        return { false };
     }
 }
 
@@ -1495,95 +1509,50 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 return { false };
             }
 
-            auto elements = allocate<ConstantValue>(expression.array_literal.count);
+            auto elements = allocate<TypedConstantValue>(expression.array_literal.count);
 
             expect(first_element, evaluate_constant_expression(context, expression.array_literal[0]));
-            elements[0] = first_element.value;
+            elements[0] = first_element;
 
-            switch(first_element.type.category) {
-                case TypeCategory::Integer: {
-                    auto element_type = first_element.type;
+            auto element_type = first_element.type;
+            for(size_t i = 1; i < expression.array_literal.count; i += 1) {
+                expect(element, evaluate_constant_expression(context, expression.array_literal[i]));
 
-                    for(size_t i = 1; i < expression.array_literal.count; i += 1) {
-                        expect(element, evaluate_constant_expression(context, expression.array_literal[i]));
+                if(is_type_undetermined(element_type) && !is_type_undetermined(element.type)) {
+                    element_type = element.type;
+                }
 
-                        if(element.type.category != TypeCategory::Integer) {
-                            error(context->current_file_path, expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.type));
-
-                            return { false };
-                        }
-
-                        if(element_type.integer.is_undetermined) {
-                            if(!element.type.integer.is_undetermined) {
-                                element_type = element.type;
-                            }
-                        } else if(element.type.integer.size != element_type.integer.size || element.type.integer.is_signed != element_type.integer.is_signed) {
-                            error(context->current_file_path, expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(element_type), type_description(element.type));
-
-                            return { false };
-                        }
-
-                        elements[i] = element.value;
-                    }
-
-                    Type type;
-                    type.category = TypeCategory::StaticArray;
-                    type.static_array = {
-                        expression.array_literal.count,
-                        heapify(type)
-                    };
-
-                    ConstantValue value;
-                    value.static_array = elements;
-
-                    return {
-                        true,
-                        {
-                            type,
-                            value
-                        }
-                    };
-                } break;
-
-                case TypeCategory::Boolean:
-                case TypeCategory::Pointer: {
-                    for(size_t i = 1; i < expression.array_literal.count; i += 1) {
-                        expect(element, evaluate_constant_expression(context, expression.array_literal[i]));
-
-                        if(!types_equal(first_element.type, element.type)) {
-                            error(context->current_file_path, expression.array_literal[i].range, "Mismatched array literal type. Expected %s, got %s", type_description(first_element.type), type_description(element.type));
-
-                            return { false };
-                        }
-
-                        elements[i] = element.value;
-                    }
-
-                    Type type;
-                    type.category = TypeCategory::StaticArray;
-                    type.static_array = {
-                        expression.array_literal.count,
-                        heapify(first_element.type)
-                    };
-
-                    ConstantValue value;
-                    value.static_array = elements;
-
-                    return {
-                        true,
-                        {
-                            type,
-                            value
-                        }
-                    };
-                } break;
-
-                default: {
-                    error(context->current_file_path, expression.range, "Cannot have arrays of type %s", type_description(first_element.type));
-
-                    return { false };
-                } break;
+                elements[i] = element;
             }
+
+            expect(determined_element_type, coerce_to_default_type(*context, expression.range, element_type));
+
+            auto element_values = allocate<ConstantValue>(expression.array_literal.count);
+
+            for(size_t i = 0; i < expression.array_literal.count; i += 1) {
+                expect(element_value, coerce_constant_to_type(
+                    *context,
+                    expression.array_literal.elements[i].range,
+                    elements[i],
+                    element_type,
+                    false
+                ));
+
+                element_values[i] = element_value;
+            }
+
+            TypedConstantValue value;
+            value.type.category = TypeCategory::StaticArray;
+            value.type.static_array = {
+                expression.array_literal.count,
+                heapify(determined_element_type)
+            };
+            value.value.static_array = element_values;
+
+            return {
+                true,
+                value
+            };
         } break;
 
         case ExpressionType::StructLiteral: {
@@ -1656,10 +1625,12 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
             expect(value, evaluate_constant_binary_operation(
                 *context,
-                expression.binary_operation.binary_operator,
                 expression.range,
+                expression.binary_operation.binary_operator,
+                expression.binary_operation.left->range,
                 left.type,
                 left.value,
+                expression.binary_operation.right->range,
                 right.type,
                 right.value
             ));
@@ -1781,88 +1752,14 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             if(expression.array_type.index != nullptr) {
                 expect(index_value, evaluate_constant_expression(context, *expression.array_type.index));
 
-                if(index_value.type.category != TypeCategory::Integer) {
-                    error(context->current_file_path, expression.array_type.index->range, "Expected an integer, got '%s'", type_description(index_value.type));
-                }
-
-                size_t length;
-                if(index_value.type.integer.is_undetermined) {
-                    if((int64_t)index_value.value.integer < 0) {
-                        error(context->current_file_path, expression.array_type.index->range, "Array index %lld out of bounds", (int64_t)index_value.value.integer);
-
-                        return { false };
-                    }
-
-                    length = index_value.value.integer;
-                } else if(index_value.type.integer.is_signed) {
-                    switch(index_value.type.integer.size) {
-                        case RegisterSize::Size8: {
-                            if((int8_t)index_value.value.integer < 0) {
-                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %hhd", (int8_t)index_value.value.integer);
-
-                                return { false };
-                            }
-
-                            length = (uint8_t)index_value.value.integer;
-                        } break;
-
-                        case RegisterSize::Size16: {
-                            if((int16_t)index_value.value.integer < 0) {
-                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %hd", (int16_t)index_value.value.integer);
-
-                                return { false };
-                            }
-
-                            length = (uint16_t)index_value.value.integer;
-                        } break;
-
-                        case RegisterSize::Size32: {
-                            if((int32_t)index_value.value.integer < 0) {
-                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %d", (int32_t)index_value.value.integer);
-
-                                return { false };
-                            }
-
-                            length = (uint32_t)index_value.value.integer;
-                        } break;
-
-                        case RegisterSize::Size64: {
-                            if((int8_t)index_value.value.integer < 0) {
-                                error(context->current_file_path, expression.array_type.index->range, "Negative array length: %lld", (int64_t)index_value.value.integer);
-
-                                return { false };
-                            }
-
-                            length = index_value.value.integer;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-                } else {
-                    switch(index_value.type.integer.size) {
-                        case RegisterSize::Size8: {
-                            length = (uint8_t)index_value.value.integer;
-                        } break;
-
-                        case RegisterSize::Size16: {
-                            length = (uint16_t)index_value.value.integer;
-                        } break;
-
-                        case RegisterSize::Size32: {
-                            length = (uint32_t)index_value.value.integer;
-                        } break;
-
-                        case RegisterSize::Size64: {
-                            length = index_value.value.integer;
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-                }
+                expect(length, coerce_constant_to_integer_type(
+                    *context,
+                    expression.array_type.index->range,
+                    index_value,
+                    context->address_integer_size,
+                    false,
+                    false
+                ));
 
                 value.value.type.category = TypeCategory::StaticArray;
                 value.value.type.static_array = {
@@ -4720,10 +4617,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             if(left.value.category == ValueCategory::Constant && right.value.category == ValueCategory::Constant) {
                 expect(constant, evaluate_constant_binary_operation(
                     *context,
-                    expression.binary_operation.binary_operator,
                     expression.range,
+                    expression.binary_operation.binary_operator,
+                    expression.binary_operation.left->range,
                     left.type,
                     left.value.constant,
+                    expression.binary_operation.right->range,
                     right.type,
                     right.value.constant
                 ));
