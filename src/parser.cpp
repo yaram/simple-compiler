@@ -952,7 +952,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                                                 }
 
                                                 if(done) {
-                                                    auto last_range = token_range(*context, token);
+                                                    last_range = token_range(*context, token);
 
                                                     break;
                                                 }
@@ -1017,7 +1017,7 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
                                         }
 
                                         if(done) {
-                                            auto last_range = token_range(*context, token);
+                                            last_range = token_range(*context, token);
 
                                             break;
                                         }
