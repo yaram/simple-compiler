@@ -913,6 +913,16 @@ static Result<Type> determine_binary_operation_type(GenerationContext context, F
             true,
             type
         };
+    } else if(left.category == TypeCategory::Pointer && right.category == TypeCategory::Integer && right.integer.is_undetermined) {
+        return {
+            true,
+            left
+        };
+    } else if(right.category == TypeCategory::Pointer && left.category == TypeCategory::Integer && left.integer.is_undetermined) {
+        return {
+            true,
+            right
+        };
     } else {
         error(context.current_file_path, range, "Mismatched types '%s' and '%s'", type_description(left), type_description(right));
 
@@ -1183,6 +1193,38 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(
 
                 default: {
                     error(context.current_file_path, range, "Cannot perform that operation on booleans");
+
+                    return { false };
+                } break;
+            }
+        } break;
+
+        case TypeCategory::Pointer: {
+            switch(binary_operator) {
+                case BinaryOperator::Equal: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Boolean;
+                    result.value.boolean = coerced_left_value.pointer == coerced_right_value.pointer;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                case BinaryOperator::NotEqual: {
+                    TypedConstantValue result;
+                    result.type.category = TypeCategory::Boolean;
+                    result.value.boolean = coerced_left_value.pointer != coerced_right_value.pointer;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+
+                default: {
+                    error(context.current_file_path, range, "Cannot perform that operation on pointers");
 
                     return { false };
                 } break;
@@ -3368,6 +3410,26 @@ static size_t generate_in_register_boolean_value(GenerationContext *context, Lis
     }
 }
 
+static size_t generate_in_register_pointer_value(GenerationContext *context, List<Instruction> *instructions, FileRange range, Value value) {
+    switch(value.category) {
+        case ValueCategory::Constant: {
+            return append_constant(context, instructions, range.first_line, context->address_integer_size, value.constant.pointer);
+        } break;
+
+        case ValueCategory::Anonymous: {
+            return value.anonymous.register_;
+        } break;
+
+        case ValueCategory::Address: {
+            return append_load_integer(context, instructions, range.first_line, context->address_integer_size, value.address);
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 static Result<TypedValue> generate_expression(GenerationContext *context, List<Instruction> *instructions, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
@@ -5033,6 +5095,58 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                             default: {
                                 error(context->current_file_path, expression.range, "Cannot perform that operation on booleans");
+
+                                return { false };
+                            } break;
+                        }
+                    } break;
+
+                    case TypeCategory::Pointer: {
+                        auto left_register = generate_in_register_pointer_value(
+                            context,
+                            instructions,
+                            expression.binary_operation.left->range,
+                            left_value
+                        );
+
+                        auto right_register = generate_in_register_pointer_value(
+                            context,
+                            instructions,
+                            expression.binary_operation.right->range,
+                            right_value
+                        );
+
+                        result_type.category = TypeCategory::Boolean;
+
+                        switch(expression.binary_operation.binary_operator) {
+                            case BinaryOperator::Equal: {
+                                result_register = append_comparison_operation(
+                                    context,
+                                    instructions,
+                                    expression.range.first_line,
+                                    ComparisonOperationType::Equal,
+                                    context->address_integer_size,
+                                    left_register,
+                                    right_register
+                                );
+                            } break;
+
+                            case BinaryOperator::NotEqual: {
+                                auto equal_register = append_comparison_operation(
+                                    context,
+                                    instructions,
+                                    expression.range.first_line,
+                                    ComparisonOperationType::Equal,
+                                    context->address_integer_size,
+                                    left_register,
+                                    right_register
+                                );
+
+                                result_register = generate_boolean_invert(context, instructions, expression.range, equal_register);
+                            } break;
+
+                            default: {
+                                error(context->current_file_path, expression.range, "Cannot perform that operation on pointers");
 
                                 return { false };
                             } break;
