@@ -1709,6 +1709,12 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
             expect(determined_element_type, coerce_to_default_type(*context, expression.range, element_type));
 
+            if(!is_runtime_type(determined_element_type)) {
+                error(context->current_file_path, expression.range, "Arrays cannot be of type '%s'", type_description(determined_element_type));
+
+                return { false };
+            }
+
             auto element_values = allocate<ConstantValue>(expression.array_literal.count);
 
             for(size_t i = 0; i < expression.array_literal.count; i += 1) {
@@ -1757,6 +1763,12 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 }
 
                 expect(member, evaluate_constant_expression(context, expression.struct_literal[i].value));
+
+                if(!is_runtime_type(member.type)) {
+                    error(context->current_file_path, expression.struct_literal[i].value.range, "Struct members cannot be of type '%s'", type_description(member.type));
+
+                    return { false };
+                }
 
                 type_members[i] = {
                     expression.struct_literal[i].name.text,
@@ -1821,7 +1833,20 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             switch(expression.unary_operation.unary_operator) {
                 case UnaryOperator::Pointer: {
                     if(expression_value.type.category != TypeCategory::Type) {
-                        error(context->current_file_path, expression.unary_operation.expression->range, "Cannot take pointers to constants of type %s", type_description(expression_value.type));
+                        error(context->current_file_path, expression.range, "Cannot take pointers at constant time");
+
+                        return { false };
+                    }
+
+                    if(
+                        !is_runtime_type(expression_value.value.type) &&
+                        expression_value.value.type.category != TypeCategory::Void &&
+                        !(
+                            expression_value.value.type.category == TypeCategory::Function &&
+                            !expression_value.value.type.function.is_polymorphic
+                        )
+                    ) {
+                        error(context->current_file_path, expression.unary_operation.expression->range, "Cannot create pointers to type '%s'", type_description(expression_value.value.type));
 
                         return { false };
                     }
@@ -1912,10 +1937,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
         case ExpressionType::ArrayType: {
             expect(type, evaluate_type_expression(context, *expression.array_type.expression));
 
-            auto type_representation = get_type_representation(*context, type);
-
-            if(!type_representation.is_in_register) {
-                error(context->current_file_path, expression.array_type.expression->range, "Cannot have arrays of type %s", type_description(type));
+            if(!is_runtime_type(type)) {
+                error(context->current_file_path, expression.array_type.expression->range, "Cannot have arrays of type '%s'", type_description(type));
 
                 return { false };
             }
@@ -1965,6 +1988,12 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
                 expect(type, evaluate_type_expression(context, parameter.type));
 
+                if(!is_runtime_type(type)) {
+                    error(context->current_file_path, expression.function_type.parameters[i].type.range, "Function parameters cannot be of type '%s'", type_description(type));
+
+                    return { false };
+                }
+
                 parameters[i] = type;
             }
 
@@ -1973,6 +2002,12 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 return_type.category = TypeCategory::Void;
             } else {
                 expect(return_type_value, evaluate_type_expression(context, *expression.function_type.return_type));
+
+                if(!is_runtime_type(return_type_value)) {
+                    error(context->current_file_path, expression.function_type.return_type->range, "Function returns cannot be of type '%s'", type_description(return_type_value));
+
+                    return { false };
+                }
 
                 return_type = return_type_value;
             }
@@ -2111,12 +2146,24 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
             for(size_t i = 0; i < declaration.function_declaration.parameters.count; i += 1) {
                 expect(type, evaluate_type_expression(context, declaration.function_declaration.parameters[i].type));
 
+                if(!is_runtime_type(type)) {
+                    error(context->current_file_path, declaration.function_declaration.parameters[i].type.range, "Function parameters cannot be of type '%s'", type_description(type));
+
+                    return { false };
+                }
+
                 parameterTypes[i] = type;
             }
 
             Type return_type;
             if(declaration.function_declaration.has_return_type) {
                 expect(return_type_value, evaluate_type_expression(context, declaration.function_declaration.return_type));
+
+                if(!is_runtime_type(return_type_value)) {
+                    error(context->current_file_path, declaration.function_declaration.return_type.range, "Function parameters cannot be of type '%s'", type_description(return_type_value));
+
+                    return { false };
+                }
 
                 return_type = return_type_value;
             } else {
@@ -2231,11 +2278,17 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
                         }
                     }
 
-                    expect(value, evaluate_type_expression(context, declaration.struct_definition.members[i].type));
+                    expect(type, evaluate_type_expression(context, declaration.struct_definition.members[i].type));
+
+                    if(!is_runtime_type(type)) {
+                        error(context->current_file_path, declaration.struct_definition.members[i].type.range, "Struct members cannot be of type '%s'", type_description(type));
+
+                        return { false };
+                    }
 
                     members[i] = {
                         declaration.struct_definition.members[i].name,
-                        value
+                        type
                     };
                 }
 
@@ -4271,6 +4324,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
             expect(determined_element_type, coerce_to_default_type(*context, expression.range, element_type));
 
+            if(!is_runtime_type(determined_element_type)) {
+                error(context->current_file_path, expression.range, "Arrays cannot be of type '%s'", type_description(determined_element_type));
+
+                return { false };
+            }
+
             if(all_constant) {
                 auto elements = allocate<ConstantValue>(expression.array_literal.count);
 
@@ -4545,6 +4604,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         expect(value, generate_expression(context, instructions, expression.function_call.parameters[i]));
 
                         expect(determined_type, coerce_to_default_type(*context, expression.function_call.parameters[i].range, value.type));
+
+                        if(!is_runtime_type(determined_type)) {
+                            error(context->current_file_path, expression.function_call.parameters[i].range, "Function parameters cannot be of type '%s'", type_description(determined_type));
+
+                            return { false };
+                        }
 
                         append(&polymorphic_determiners, {
                             parameter.polymorphic_determiner.text,
@@ -5340,6 +5405,19 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 } break;
 
                                 case TypeCategory::Type: {
+                                    if(
+                                        !is_runtime_type(expression_value.value.constant.type) &&
+                                        expression_value.value.constant.type.category != TypeCategory::Void &&
+                                        !(
+                                            expression_value.value.constant.type.category == TypeCategory::Function &&
+                                            !expression_value.value.constant.type.function.is_polymorphic
+                                        )
+                                    ) {
+                                        error(context->current_file_path, expression.unary_operation.expression->range, "Cannot create pointers to type '%s'", type_description(expression_value.value.constant.type));
+
+                                        return { false };
+                                    }
+
                                     TypedValue value;
                                     value.value.category = ValueCategory::Constant;
                                     value.type.category = TypeCategory::Type;
@@ -5367,6 +5445,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
 
                         case ValueCategory::Address: {
+                            if(!is_runtime_type(expression_value.type)) {
+                                error(context->current_file_path, expression.unary_operation.expression->range, "Cannot take pointers to values of type '%s'", type_description(expression_value.type));
+
+                                return { false };
+                            }
+
                             TypedValue value;
                             value.value.category = ValueCategory::Anonymous;
                             value.type.category = TypeCategory::Pointer;
@@ -5704,10 +5788,8 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
         case ExpressionType::ArrayType: {
             expect(type, evaluate_type_expression(context, *expression.array_type.expression));
 
-            auto type_representation = get_type_representation(*context, type);
-
-            if(!type_representation.is_in_register) {
-                error(context->current_file_path, expression.array_type.expression->range, "Cannot have arrays of type %s", type_description(type));
+            if(!is_runtime_type(type)) {
+                error(context->current_file_path, expression.array_type.expression->range, "Arrays cannot be of type '%s'", type_description(type));
 
                 return { false };
             }
@@ -5832,6 +5914,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                 expect(type, evaluate_type_expression(context, parameter.type));
 
+                if(!is_runtime_type(type)) {
+                    error(context->current_file_path, expression.function_type.parameters[i].type.range, "Function parameters cannot be of type '%s'", type_description(type));
+
+                    return { false };
+                }
+
                 parameters[i] = type;
             }
 
@@ -5840,6 +5928,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 return_type.category = TypeCategory::Void;
             } else {
                 expect(return_type_value, evaluate_type_expression(context, *expression.function_type.return_type));
+
+                if(!is_runtime_type(return_type_value)) {
+                    error(context->current_file_path, expression.function_type.return_type->range, "Function returns cannot be of type '%s'", type_description(return_type_value));
+
+                    return { false };
+                }
 
                 return_type = return_type_value;
             }
@@ -5882,6 +5976,12 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 case VariableDeclarationType::Uninitialized: {
                     expect(type, evaluate_type_expression(context, statement.variable_declaration.uninitialized));
 
+                    if(!is_runtime_type(type)) {
+                        error(context->current_file_path, statement.variable_declaration.uninitialized.range, "Cannot create variables of type '%s'", type_description(type));
+
+                        return false;
+                    }
+
                     auto address_register = append_allocate_local(
                         context,
                         instructions,
@@ -5916,6 +6016,12 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     expect(initializer_value, generate_expression(context, instructions, statement.variable_declaration.type_elided));
 
                     expect(coerced_type, coerce_to_default_type(*context, statement.variable_declaration.type_elided.range, initializer_value.type));
+
+                    if(!is_runtime_type(coerced_type)) {
+                        error(context->current_file_path, statement.variable_declaration.type_elided.range, "Cannot create variables of type '%s'", type_description(coerced_type));
+
+                        return false;
+                    }
 
                     auto representation = get_type_representation(*context, coerced_type);
 
@@ -6017,6 +6123,12 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                 case VariableDeclarationType::FullySpecified: {
                     expect(type, evaluate_type_expression(context, statement.variable_declaration.fully_specified.type));
+
+                    if(!is_runtime_type(type)) {
+                        error(context->current_file_path, statement.variable_declaration.fully_specified.type.range, "Cannot create variables of type '%s'", type_description(type));
+
+                        return false;
+                    }
 
                     auto address_register = append_allocate_local(
                         context,

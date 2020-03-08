@@ -218,3 +218,26 @@ bool is_type_undetermined(Type type) {
         } break;
     }
 }
+
+bool is_runtime_type(Type type) {
+    switch(type.category) {
+        case TypeCategory::Integer: {
+            return !type.integer.is_undetermined;
+        } break;
+
+        case TypeCategory::Boolean:
+        case TypeCategory::Pointer:
+        case TypeCategory::Array:
+        case TypeCategory::StaticArray: {
+            return true;
+        } break;
+
+        case TypeCategory::Struct: {
+            return !type._struct.is_undetermined;
+        } break;
+
+        default: {
+            return false;
+        } break;
+    }
+}
