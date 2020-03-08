@@ -36,3 +36,11 @@ void string_buffer_append(char **string_buffer, size_t number) {
 
     string_buffer_append(string_buffer, (const char*)buffer);
 }
+
+void string_buffer_append_character(char **string_buffer, char character) {
+    char buffer[2];
+    buffer[0] = character;
+    buffer[1] = 0;
+
+    string_buffer_append(string_buffer, (const char*)buffer);
+}

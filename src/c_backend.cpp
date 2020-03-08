@@ -106,12 +106,36 @@ bool generate_c_object(
         string_buffer_append(&forward_declaration_source, ";\n");
 
         if(!function.is_external) {
+            string_buffer_append(&implementation_source, "#line ");
+            string_buffer_append(&implementation_source, function.line);
+            string_buffer_append(&implementation_source, " \"");
+            for(size_t i = 0; i < strlen(function.file); i += 1) {
+                auto character = function.file[i];
+
+                if(character == '\\') {
+                    string_buffer_append(&implementation_source, "\\\\");
+                } else {
+                    string_buffer_append_character(&implementation_source, character);
+                }
+            }
+            string_buffer_append(&implementation_source, "\"\n");
+
+            auto last_line = function.line;
+
             generate_function_signature(&implementation_source, function);
 
             string_buffer_append(&implementation_source, "{\n");
 
             for(size_t i = 0 ; i < function.instructions.count; i += 1) {
                 auto instruction = function.instructions[i];
+
+                if(instruction.line > last_line) {
+                    string_buffer_append(&implementation_source, "#line ");
+                    string_buffer_append(&implementation_source, instruction.line);
+                    string_buffer_append(&implementation_source, "\n");
+
+                    last_line = instruction.line;
+                }
 
                 string_buffer_append(&implementation_source, function.name);
                 string_buffer_append(&implementation_source, "_");
