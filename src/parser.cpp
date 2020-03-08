@@ -1472,30 +1472,77 @@ static Result<Statement> continue_parsing_function_declaration_or_function_type_
 
             context->next_token_index += 1;
 
+            List<const char *> libraries{};
+
             expect(token, next_token(*context));
 
+            FileRange last_range;
+            switch(token.type) {
+                case TokenType::Semicolon: {
+                    context->next_token_index += 1;
+
+                    last_range = token_range(*context, token);
+                } break;
+
+                case TokenType::String: {
+                    while(true) {
+                        expect(string, expect_string(context));
+
+                        auto library = allocate<char>(string.count + 1);
+                        memcpy(library, string.elements, string.count);
+                        library[string.count] = 0;
+
+                        append(&libraries, (const char *)library);
+
+                        expect(token, next_token(*context));
+
+                        auto done = false;
+                        switch(token.type) {
+                            case TokenType::Comma: {
+                                context->next_token_index += 1;
+                            } break;
+
+                            case TokenType::Semicolon: {
+                                context->next_token_index += 1;
+
+                                done = true;
+                            } break;
+
+                            default: {
+                                error(*context, "Expected ',' or ';', got '%s'", get_token_text(token));
+
+                                return { false };
+                            } break;
+                        }
+
+                        if(done) {
+                            last_range = token_range(*context, token);
+
+                            break;
+                        }
+                    }
+                } break;
+
+                default: {
+                    error(*context, "Expected ';' or a string, got '%s'", get_token_text(token));
+
+                    return { false };
+                } break;
+            }
             if(token.type != TokenType::String) {
                 error(*context, "Expected a string, got '%s'", get_token_text(token));
 
                 return { false };
             }
 
-            context->next_token_index += 1;
-
-            auto library = allocate<char>(token.string.count + 1);
-            memcpy(library, token.string.elements, token.string.count);
-            library[token.string.count] = 0;
-
-            expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
-
             Statement statement;
             statement.type = StatementType::FunctionDeclaration;
-            statement.range = span_range(name.range, token_range(*context, token));
+            statement.range = span_range(name.range, last_range);
             statement.function_declaration.name = name;
             statement.function_declaration.parameters = parameters;
             statement.function_declaration.has_return_type = has_return_type;
             statement.function_declaration.is_external = true;
-            statement.function_declaration.external_library = library;
+            statement.function_declaration.external_libraries = to_array(libraries);
 
             if(has_return_type) {
                 statement.function_declaration.return_type = return_type;

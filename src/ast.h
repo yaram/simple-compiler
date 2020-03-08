@@ -207,7 +207,7 @@ struct Statement {
             union {
                 Array<Statement> statements;
 
-                const char *external_library;
+                Array<const char *> external_libraries;
             };
         } function_declaration;
 

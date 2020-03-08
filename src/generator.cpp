@@ -4248,16 +4248,18 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 if(function_declaration.is_external) {
                     function_name = function_declaration.name.text;
 
-                    auto has_library = false;
-                    for(auto library : context->libraries) {
-                        if(strcmp(library, function_declaration.external_library) == 0) {
-                            has_library = true;
+                    for(auto library : function_declaration.external_libraries) {
+                        auto has_library = false;
+                        for(auto library : context->libraries) {
+                            if(strcmp(library, library) == 0) {
+                                has_library = true;
 
-                            break;
+                                break;
+                            }
                         }
-                    }
 
-                    append(&context->libraries, function_declaration.external_library);
+                        append(&context->libraries, library);
+                    }
                 } else {
                     char *mangled_name_buffer{};
 
@@ -4311,16 +4313,18 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 if(function_declaration.is_external) {
                     function_name = function_declaration.name.text;
 
-                    auto has_library = false;
-                    for(auto library : context->libraries) {
-                        if(strcmp(library, function_declaration.external_library) == 0) {
-                            has_library = true;
+                    for(auto library : function_declaration.external_libraries) {
+                        auto has_library = false;
+                        for(auto library : context->libraries) {
+                            if(strcmp(library, library) == 0) {
+                                has_library = true;
 
-                            break;
+                                break;
+                            }
                         }
-                    }
 
-                    append(&context->libraries, function_declaration.external_library);
+                        append(&context->libraries, library);
+                    }
                 } else {
                     function_name = generate_mangled_name(*context, expression_value.value.constant.function.declaration);
                 }
@@ -4804,16 +4808,18 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     if(function_declaration.is_external) {
                                         function_name = function_declaration.name.text;
 
-                                        auto has_library = false;
-                                        for(auto library : context->libraries) {
-                                            if(strcmp(library, function_declaration.external_library) == 0) {
-                                                has_library = true;
+                                        for(auto library : function_declaration.external_libraries) {
+                                            auto has_library = false;
+                                            for(auto library : context->libraries) {
+                                                if(strcmp(library, library) == 0) {
+                                                    has_library = true;
 
-                                                break;
+                                                    break;
+                                                }
                                             }
-                                        }
 
-                                        append(&context->libraries, function_declaration.external_library);
+                                            append(&context->libraries, library);
+                                        }
                                     } else {
                                         function_name = generate_mangled_name(*context, expression_value.value.constant.function.declaration);
                                     }
