@@ -3349,6 +3349,81 @@ static Result<Value> coerce_to_type(
             }
         } break;
 
+        case TypeCategory::Array: {
+            switch(value.type.category) {
+                case TypeCategory::StaticArray: {
+                    size_t pointer_register;
+                    switch(value.value.category) {
+                        case ValueCategory::Constant: {
+                            auto constant_name = register_static_array_constant(
+                                context,
+                                *value.type.static_array.type,
+                                { value.type.static_array.length, value.value.constant.static_array}
+                            );
+
+                            pointer_register = append_reference_static(context, instructions, range.first_line, constant_name);
+                        } break;
+
+                        case ValueCategory::Anonymous: {
+                            pointer_register = value.value.anonymous.register_;
+                        } break;
+
+                        case ValueCategory::Address: {
+                            pointer_register = value.value.address;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+
+                    auto length_register = append_constant(
+                        context,
+                        instructions,
+                        range.first_line,
+                        context->address_integer_size,
+                        value.type.static_array.length
+                    );
+
+                    auto address_register = append_allocate_local(
+                        context,
+                        instructions,
+                        range.first_line,
+                        2 * register_size_to_byte_size(context->address_integer_size),
+                        register_size_to_byte_size(context->address_integer_size)
+                    );
+
+                    append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_register, address_register);
+
+                    auto length_address_register = generate_address_offset(
+                        context,
+                        instructions,
+                        range,
+                        address_register,
+                        register_size_to_byte_size(context->address_integer_size)
+                    );
+
+                    append_store_integer(
+                        context,
+                        instructions,
+                        range.first_line,
+                        context->address_integer_size,
+                        length_register,
+                        length_address_register
+                    );
+
+                    Value result;
+                    result.category = ValueCategory::Anonymous;
+                    result.anonymous.register_ = address_register;
+
+                    return {
+                        true,
+                        result
+                    };
+                } break;
+            }
+        } break;
+
         case TypeCategory::Struct: {
             return coerce_to_struct_type(context, instructions, range, value, retrieve_struct_type(*context, type._struct.name), probing);
         } break;
