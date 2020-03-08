@@ -166,17 +166,17 @@ static void error(const char *file_path, FileRange range, const char *format, ..
     va_list arguments;
     va_start(arguments, format);
 
-    fprintf(stderr, "Error: %s(%u,%u): ", file_path, range.start_line, range.start_character);
+    fprintf(stderr, "Error: %s(%u,%u): ", file_path, range.first_line, range.first_character);
     vfprintf(stderr, format, arguments);
     fprintf(stderr, "\n");
 
-    if(range.start_line == range.start_character) {
+    if(range.first_line == range.first_character) {
         auto file = fopen(file_path, "rb");
 
         if(file != nullptr) {
             unsigned int current_line = 1;
 
-            while(current_line != range.start_line) {
+            while(current_line != range.first_line) {
                 auto character = fgetc(file);
 
                 switch(character) {
@@ -245,14 +245,14 @@ static void error(const char *file_path, FileRange range, const char *format, ..
 
             fprintf(stderr, "\n");
 
-            for(unsigned int i = 1; i < range.start_character - skipped_spaces; i += 1) {
+            for(unsigned int i = 1; i < range.first_character - skipped_spaces; i += 1) {
                 fprintf(stderr, " ");
             }
 
-            if(range.end_character - range.start_character == 0) {
+            if(range.last_character - range.first_character == 0) {
                 fprintf(stderr, "^");
             } else {
-                for(unsigned int i = range.start_character; i <= range.end_character; i += 1) {
+                for(unsigned int i = range.first_character; i <= range.last_character; i += 1) {
                     fprintf(stderr, "-");
                 }
             }
@@ -2452,11 +2452,20 @@ static const char *register_struct_constant(GenerationContext *context, StructTy
     return name_buffer;
 }
 
-static size_t append_arithmetic_operation(GenerationContext *context, List<Instruction> *instructions, ArithmeticOperationType type, RegisterSize size, size_t source_register_a, size_t source_register_b) {
+static size_t append_arithmetic_operation(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    unsigned int line,
+    ArithmeticOperationType type,
+    RegisterSize size,
+    size_t source_register_a,
+    size_t source_register_b
+) {
     auto destination_register = allocate_register(context);
 
     Instruction arithmetic_operation;
     arithmetic_operation.type = InstructionType::ArithmeticOperation;
+    arithmetic_operation.line = line;
     arithmetic_operation.arithmetic_operation = {
         type,
         size,
@@ -2470,11 +2479,20 @@ static size_t append_arithmetic_operation(GenerationContext *context, List<Instr
     return destination_register;
 }
 
-static size_t append_comparison_operation(GenerationContext *context, List<Instruction> *instructions, ComparisonOperationType type, RegisterSize size, size_t source_register_a, size_t source_register_b) {
+static size_t append_comparison_operation(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    unsigned int line,
+    ComparisonOperationType type,
+    RegisterSize size,
+    size_t source_register_a,
+    size_t source_register_b
+) {
     auto destination_register = allocate_register(context);
 
     Instruction comparison_operation;
     comparison_operation.type = InstructionType::ComparisonOperation;
+    comparison_operation.line = line;
     comparison_operation.comparison_operation = {
         type,
         size,
@@ -2488,11 +2506,12 @@ static size_t append_comparison_operation(GenerationContext *context, List<Instr
     return destination_register;
 }
 
-static size_t append_constant(GenerationContext *context, List<Instruction> *instructions, RegisterSize size, uint64_t value) {
+static size_t append_constant(GenerationContext *context, List<Instruction> *instructions, unsigned int line, RegisterSize size, uint64_t value) {
     auto destination_register = allocate_register(context);
 
     Instruction constant;
     constant.type = InstructionType::Constant;
+    constant.line = line;
     constant.constant = {
         size,
         destination_register,
@@ -2504,11 +2523,20 @@ static size_t append_constant(GenerationContext *context, List<Instruction> *ins
     return destination_register;
 }
 
-static size_t append_integer_upcast(GenerationContext *context, List<Instruction> *instructions, bool is_signed, RegisterSize source_size, RegisterSize destination_size, size_t source_register) {
+static size_t append_integer_upcast(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    unsigned int line,
+    bool is_signed,
+    RegisterSize source_size,
+    RegisterSize destination_size,
+    size_t source_register
+) {
     auto destination_register = allocate_register(context);
 
     Instruction integer_upcast;
     integer_upcast.type = InstructionType::IntegerUpcast;
+    integer_upcast.line = line;
     integer_upcast.integer_upcast = {
         is_signed,
         source_size,
@@ -2522,11 +2550,12 @@ static size_t append_integer_upcast(GenerationContext *context, List<Instruction
     return destination_register;
 }
 
-static size_t append_reference_static(GenerationContext *context, List<Instruction> *instructions, const char *name) {
+static size_t append_reference_static(GenerationContext *context, List<Instruction> *instructions, unsigned int line, const char *name) {
     auto destination_register = allocate_register(context);
 
     Instruction reference_static;
     reference_static.type = InstructionType::ReferenceStatic;
+    reference_static.line = line;
     reference_static.reference_static = {
         name,
         destination_register
@@ -2537,11 +2566,12 @@ static size_t append_reference_static(GenerationContext *context, List<Instructi
     return destination_register;
 }
 
-static size_t append_allocate_local(GenerationContext *context, List<Instruction> *instructions, size_t size, size_t alignment) {
+static size_t append_allocate_local(GenerationContext *context, List<Instruction> *instructions, unsigned int line, size_t size, size_t alignment) {
     auto destination_register = allocate_register(context);
 
     Instruction allocate_local;
     allocate_local.type = InstructionType::AllocateLocal;
+    allocate_local.line = line;
     allocate_local.allocate_local = {
         size,
         alignment,
@@ -2553,9 +2583,16 @@ static size_t append_allocate_local(GenerationContext *context, List<Instruction
     return destination_register;
 }
 
-static void append_branch(GenerationContext *context, List<Instruction> *instructions, size_t condition_register, size_t instruction_index) {
+static void append_branch(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    unsigned int line,
+    size_t condition_register,
+    size_t instruction_index
+) {
     Instruction branch;
     branch.type = InstructionType::Branch;
+    branch.line = line;
     branch.branch = {
         condition_register,
         instruction_index
@@ -2564,9 +2601,10 @@ static void append_branch(GenerationContext *context, List<Instruction> *instruc
     append(instructions, branch);
 }
 
-static void append_jump(GenerationContext *context, List<Instruction> *instructions, size_t instruction_index) {
+static void append_jump(GenerationContext *context, List<Instruction> *instructions, unsigned int line, size_t instruction_index) {
     Instruction jump;
     jump.type = InstructionType::Jump;
+    jump.line = line;
     jump.branch = {
         instruction_index
     };
@@ -2577,12 +2615,14 @@ static void append_jump(GenerationContext *context, List<Instruction> *instructi
 static void append_copy_memory(
     GenerationContext *context,
     List<Instruction> *instructions,
+    unsigned int line,
     size_t length_register,
     size_t source_address_register,
     size_t destination_address_register
 ) {
     Instruction copy_memory;
     copy_memory.type = InstructionType::CopyMemory;
+    copy_memory.line = line;
     copy_memory.copy_memory = {
         length_register,
         source_address_register,
@@ -2592,11 +2632,18 @@ static void append_copy_memory(
     append(instructions, copy_memory);
 }
 
-static size_t append_load_integer(GenerationContext *context, List<Instruction> *instructions, RegisterSize size, size_t address_register) {
+static size_t append_load_integer(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    unsigned int line,
+    RegisterSize size,
+    size_t address_register
+) {
     auto destination_register = allocate_register(context);
 
     Instruction load_integer;
     load_integer.type = InstructionType::LoadInteger;
+    load_integer.line = line;
     load_integer.load_integer = {
         size,
         address_register,
@@ -2608,9 +2655,17 @@ static size_t append_load_integer(GenerationContext *context, List<Instruction> 
     return destination_register;
 }
 
-static void append_store_integer(GenerationContext *context, List<Instruction> *instructions, RegisterSize size, size_t source_register, size_t address_register) {
+static void append_store_integer(
+    GenerationContext *context,
+    List<Instruction> *instructions,
+    unsigned int line,
+    RegisterSize size,
+    size_t source_register,
+    size_t address_register
+) {
     Instruction store_integer;
     store_integer.type = InstructionType::StoreInteger;
+    store_integer.line = line;
     store_integer.store_integer = {
         size,
         source_register,
@@ -2620,10 +2675,11 @@ static void append_store_integer(GenerationContext *context, List<Instruction> *
     append(instructions, store_integer);
 }
 
-static size_t generate_address_offset(GenerationContext *context, List<Instruction> *instructions, size_t address_register, size_t offset) {
+static size_t generate_address_offset(GenerationContext *context, List<Instruction> *instructions, FileRange range, size_t address_register, size_t offset) {
     auto offset_register = append_constant(
         context,
         instructions,
+        range.first_line,
         context->address_integer_size,
         offset
     );
@@ -2631,6 +2687,7 @@ static size_t generate_address_offset(GenerationContext *context, List<Instructi
     auto final_address_register = append_arithmetic_operation(
         context,
         instructions,
+        range.first_line,
         ArithmeticOperationType::Add,
         context->address_integer_size,
         address_register,
@@ -2640,43 +2697,44 @@ static size_t generate_address_offset(GenerationContext *context, List<Instructi
     return final_address_register;
 }
 
-static size_t generate_boolean_invert(GenerationContext *context, List<Instruction> *instructions, size_t value_register) {
+static size_t generate_boolean_invert(GenerationContext *context, List<Instruction> *instructions, FileRange range, size_t value_register) {
     auto local_register = append_allocate_local(
         context,
         instructions,
+        range.first_line,
         register_size_to_byte_size(context->default_integer_size),
         register_size_to_byte_size(context->default_integer_size)
     );
 
-    append_branch(context, instructions, value_register, instructions->count + 4);
+    append_branch(context, instructions, range.first_line, value_register, instructions->count + 4);
 
-    auto true_register = append_constant(context, instructions, context->default_integer_size, 1);
+    auto true_register = append_constant(context, instructions, range.first_line, context->default_integer_size, 1);
 
-    append_store_integer(context, instructions, context->default_integer_size, true_register, local_register);
+    append_store_integer(context, instructions, range.first_line, context->default_integer_size, true_register, local_register);
 
-    append_jump(context, instructions, instructions->count + 3);
+    append_jump(context, instructions, range.first_line, instructions->count + 3);
 
-    auto false_register = append_constant(context, instructions, context->default_integer_size, 0);
+    auto false_register = append_constant(context, instructions, range.first_line, context->default_integer_size, 0);
 
-    append_store_integer(context, instructions, context->default_integer_size, false_register, local_register);
+    append_store_integer(context, instructions, range.first_line, context->default_integer_size, false_register, local_register);
 
-    auto result_register = append_load_integer(context, instructions, context->default_integer_size, local_register);
+    auto result_register = append_load_integer(context, instructions, range.first_line, context->default_integer_size, local_register);
 
     return result_register;
 }
 
-static size_t generate_in_register_constant_value(GenerationContext *context, List<Instruction> *instructions, Type type, ConstantValue value) {
+static size_t generate_in_register_constant_value(GenerationContext *context, List<Instruction> *instructions, FileRange range, Type type, ConstantValue value) {
     switch(type.category) {
         case TypeCategory::Integer: {
-            return append_constant(context, instructions, type.integer.size, value.integer);
+            return append_constant(context, instructions, range.first_line, type.integer.size, value.integer);
         } break;
 
         case TypeCategory::Boolean: {
-            return append_constant(context, instructions, context->default_integer_size, value.boolean);
+            return append_constant(context, instructions, range.first_line, context->default_integer_size, value.boolean);
         } break;
         
         case TypeCategory::Pointer: {
-            return append_constant(context, instructions, context->address_integer_size, value.pointer);
+            return append_constant(context, instructions, range.first_line, context->address_integer_size, value.pointer);
         } break;
 
         default: {
@@ -2688,26 +2746,28 @@ static size_t generate_in_register_constant_value(GenerationContext *context, Li
 static void generate_not_in_register_constant_write(
     GenerationContext *context,
     List<Instruction> *instructions,
+    FileRange range,
     Type type,
     ConstantValue value,
     size_t address_register
 ) {
     switch(type.category) {
         case TypeCategory::Array: {
-            auto pointer_register = append_constant(context, instructions, context->address_integer_size, value.array.pointer);
+            auto pointer_register = append_constant(context, instructions, range.first_line, context->address_integer_size, value.array.pointer);
 
-            append_store_integer(context, instructions, context->address_integer_size, pointer_register, address_register);
+            append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_register, address_register);
 
-            auto length_register = append_constant(context, instructions, context->address_integer_size, value.array.length);
+            auto length_register = append_constant(context, instructions, range.first_line, context->address_integer_size, value.array.length);
 
             auto length_address_register = generate_address_offset(
                 context,
                 instructions,
+                range,
                 address_register,
                 register_size_to_byte_size(context->address_integer_size)
             );
 
-            append_store_integer(context, instructions, context->address_integer_size, length_register, length_address_register);
+            append_store_integer(context, instructions, range.first_line, context->address_integer_size, length_register, length_address_register);
         } break;
 
         case TypeCategory::StaticArray: {
@@ -2720,16 +2780,17 @@ static void generate_not_in_register_constant_write(
                 }
             );
 
-            auto constant_address_register = append_reference_static(context, instructions, constant_name);
+            auto constant_address_register = append_reference_static(context, instructions, range.first_line, constant_name);
 
             auto length_register = append_constant(
                 context,
                 instructions,
+                range.first_line,
                 context->address_integer_size,
                 type.static_array.length * get_type_size(*context, *type.static_array.type)
             );
 
-            append_copy_memory(context, instructions, length_register, constant_address_register, address_register);
+            append_copy_memory(context, instructions, range.first_line, length_register, constant_address_register, address_register);
         } break;
 
         case TypeCategory::Struct: {
@@ -2741,16 +2802,17 @@ static void generate_not_in_register_constant_write(
                 value.struct_
             );
 
-            auto constant_address_register = append_reference_static(context, instructions, constant_name);
+            auto constant_address_register = append_reference_static(context, instructions, range.first_line, constant_name);
 
             auto length_register = append_constant(
                 context,
                 instructions,
+                range.first_line,
                 context->address_integer_size,
                 get_struct_size(*context, struct_type)
             );
 
-            append_copy_memory(context, instructions, length_register, constant_address_register, address_register);
+            append_copy_memory(context, instructions, range.first_line, length_register, constant_address_register, address_register);
         } break;
 
         default: {
@@ -2762,6 +2824,7 @@ static void generate_not_in_register_constant_write(
 static size_t generate_not_in_register_constant_value(
     GenerationContext *context,
     List<Instruction> *instructions,
+    FileRange range,
     Type type,
     ConstantValue value
 ) {
@@ -2770,24 +2833,26 @@ static size_t generate_not_in_register_constant_value(
             auto address_register = append_allocate_local(
                 context,
                 instructions,
+                range.first_line,
                 2 * register_size_to_byte_size(context->address_integer_size),
                 register_size_to_byte_size(context->address_integer_size)
             );
 
-            auto pointer_register = append_constant(context, instructions, context->address_integer_size, value.array.pointer);
+            auto pointer_register = append_constant(context, instructions, range.first_line, context->address_integer_size, value.array.pointer);
 
-            append_store_integer(context, instructions, context->address_integer_size, pointer_register, address_register);
+            append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_register, address_register);
 
-            auto length_register = append_constant(context, instructions, context->address_integer_size, value.array.length);
+            auto length_register = append_constant(context, instructions, range.first_line, context->address_integer_size, value.array.length);
 
             auto length_address_register = generate_address_offset(
                 context,
                 instructions,
+                range,
                 address_register,
                 register_size_to_byte_size(context->address_integer_size)
             );
 
-            append_store_integer(context, instructions, context->address_integer_size, length_register, length_address_register);
+            append_store_integer(context, instructions, range.first_line, context->address_integer_size, length_register, length_address_register);
 
             return address_register;
         } break;
@@ -2802,7 +2867,7 @@ static size_t generate_not_in_register_constant_value(
                 }
             );
 
-            auto constant_address_register = append_reference_static(context, instructions, constant_name);
+            auto constant_address_register = append_reference_static(context, instructions, range.first_line, constant_name);
 
             return constant_address_register;
         } break;
@@ -2816,7 +2881,7 @@ static size_t generate_not_in_register_constant_value(
                 value.struct_
             );
 
-            auto constant_address_register = append_reference_static(context, instructions, constant_name);
+            auto constant_address_register = append_reference_static(context, instructions, range.first_line, constant_name);
 
             return constant_address_register;
         } break;
@@ -2830,6 +2895,7 @@ static size_t generate_not_in_register_constant_value(
 static void generate_constant_value_write(
     GenerationContext *context,
     List<Instruction> *instructions,
+    FileRange range,
     Type type,
     ConstantValue value,
     size_t address_register
@@ -2837,11 +2903,11 @@ static void generate_constant_value_write(
     auto representation = get_type_representation(*context, type);
 
     if(representation.is_in_register) {
-        auto value_register = generate_in_register_constant_value(context, instructions, type, value);
+        auto value_register = generate_in_register_constant_value(context, instructions, range, type, value);
 
-        append_store_integer(context, instructions, representation.value_size, value_register, address_register);
+        append_store_integer(context, instructions, range.first_line, representation.value_size, value_register, address_register);
     } else {
-        generate_not_in_register_constant_write(context, instructions, type, value, address_register);
+        generate_not_in_register_constant_write(context, instructions, range, type, value, address_register);
     }
 }
 
@@ -2974,6 +3040,7 @@ static Result<Value> coerce_to_struct_type(
                     auto address_register = append_allocate_local(
                         context,
                         instructions,
+                        range.first_line,
                         get_struct_size(*context, struct_type),
                         get_struct_alignment(*context, struct_type)
                     );
@@ -2984,6 +3051,7 @@ static Result<Value> coerce_to_struct_type(
                         append_store_integer(
                             context,
                             instructions,
+                            range.first_line,
                             member_representation.value_size,
                             coerced_member_value.anonymous.register_,
                             address_register
@@ -2992,6 +3060,7 @@ static Result<Value> coerce_to_struct_type(
                         auto length_register = append_constant(
                             context,
                             instructions,
+                            range.first_line,
                             context->address_integer_size,
                             get_type_size(*context, struct_type.members[member_index].type)
                         );
@@ -2999,6 +3068,7 @@ static Result<Value> coerce_to_struct_type(
                         append_copy_memory(
                             context,
                             instructions,
+                            range.first_line,
                             length_register,
                             coerced_member_value.anonymous.register_,
                             address_register
@@ -3075,6 +3145,7 @@ static Result<Value> coerce_to_struct_type(
                 auto address_register = append_allocate_local(
                     context,
                     instructions,
+                    range.first_line,
                     get_struct_size(*context, struct_type),
                     get_struct_alignment(*context, struct_type)
                 );
@@ -3082,7 +3153,7 @@ static Result<Value> coerce_to_struct_type(
                 for(size_t i = 0; i < struct_type.members.count; i += 1) {
                     auto offset = get_struct_member_offset(*context, struct_type, i);
 
-                    auto final_address_register = generate_address_offset(context, instructions, address_register, offset);
+                    auto final_address_register = generate_address_offset(context, instructions, range, address_register, offset);
 
                     auto member_representation = get_type_representation(*context, struct_type.members[i].type);
 
@@ -3091,6 +3162,7 @@ static Result<Value> coerce_to_struct_type(
                             generate_constant_value_write(
                                 context,
                                 instructions,
+                                range,
                                 struct_type.members[i].type,
                                 coerced_member_values[i].constant,
                                 final_address_register
@@ -3102,6 +3174,7 @@ static Result<Value> coerce_to_struct_type(
                                 append_store_integer(
                                     context,
                                     instructions,
+                                    range.first_line,
                                     member_representation.value_size,
                                     coerced_member_values[i].anonymous.register_,
                                     final_address_register
@@ -3110,6 +3183,7 @@ static Result<Value> coerce_to_struct_type(
                                 auto length_register = append_constant(
                                     context,
                                     instructions,
+                                    range.first_line,
                                     context->address_integer_size,
                                     get_type_size(*context, struct_type.members[i].type)
                                 );
@@ -3117,6 +3191,7 @@ static Result<Value> coerce_to_struct_type(
                                 append_copy_memory(
                                     context,
                                     instructions,
+                                    range.first_line,
                                     length_register,
                                     coerced_member_values[i].anonymous.register_,
                                     final_address_register
@@ -3129,6 +3204,7 @@ static Result<Value> coerce_to_struct_type(
                                 auto value_register = append_load_integer(
                                     context,
                                     instructions,
+                                    range.first_line,
                                     member_representation.value_size,
                                     coerced_member_values[i].address
                                 );
@@ -3136,6 +3212,7 @@ static Result<Value> coerce_to_struct_type(
                                 append_store_integer(
                                     context,
                                     instructions,
+                                    range.first_line,
                                     member_representation.value_size,
                                     value_register,
                                     final_address_register
@@ -3144,6 +3221,7 @@ static Result<Value> coerce_to_struct_type(
                                 auto length_register = append_constant(
                                     context,
                                     instructions,
+                                    range.first_line,
                                     context->address_integer_size,
                                     get_type_size(*context, struct_type.members[i].type)
                                 );
@@ -3151,6 +3229,7 @@ static Result<Value> coerce_to_struct_type(
                                 append_copy_memory(
                                     context,
                                     instructions,
+                                    range.first_line,
                                     length_register,
                                     coerced_member_values[i].address,
                                     final_address_register
@@ -3249,10 +3328,10 @@ static Result<Value> coerce_to_type(
     return { false };
 }
 
-static size_t generate_in_register_integer_value(GenerationContext *context, List<Instruction> *instructions, RegisterSize size, Value value) {
+static size_t generate_in_register_integer_value(GenerationContext *context, List<Instruction> *instructions, FileRange range, RegisterSize size, Value value) {
     switch(value.category) {
         case ValueCategory::Constant: {
-            return append_constant(context, instructions, size, value.constant.integer);
+            return append_constant(context, instructions, range.first_line, size, value.constant.integer);
         } break;
 
         case ValueCategory::Anonymous: {
@@ -3260,7 +3339,7 @@ static size_t generate_in_register_integer_value(GenerationContext *context, Lis
         } break;
 
         case ValueCategory::Address: {
-            return append_load_integer(context, instructions, size, value.address);
+            return append_load_integer(context, instructions, range.first_line, size, value.address);
         } break;
 
         default: {
@@ -3269,10 +3348,10 @@ static size_t generate_in_register_integer_value(GenerationContext *context, Lis
     }
 }
 
-static size_t generate_in_register_boolean_value(GenerationContext *context, List<Instruction> *instructions, Value value) {
+static size_t generate_in_register_boolean_value(GenerationContext *context, List<Instruction> *instructions, FileRange range, Value value) {
     switch(value.category) {
         case ValueCategory::Constant: {
-            return append_constant(context, instructions, context->default_integer_size, value.constant.boolean);
+            return append_constant(context, instructions, range.first_line, context->default_integer_size, value.constant.boolean);
         } break;
 
         case ValueCategory::Anonymous: {
@@ -3280,7 +3359,7 @@ static size_t generate_in_register_boolean_value(GenerationContext *context, Lis
         } break;
 
         case ValueCategory::Address: {
-            return append_load_integer(context, instructions, context->default_integer_size, value.address);
+            return append_load_integer(context, instructions, range.first_line, context->default_integer_size, value.address);
         } break;
 
         default: {
@@ -3374,7 +3453,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             size_t index_register;
             switch(index.value.category) {
                 case ValueCategory::Constant: {
-                    index_register = append_constant(context, instructions, context->address_integer_size, index_value.constant.integer);
+                    index_register = append_constant(
+                        context,
+                        instructions,
+                        expression.index_reference.index->range.first_line,
+                        context->address_integer_size,
+                        index_value.constant.integer
+                    );
                 } break;
 
                 case ValueCategory::Anonymous: {
@@ -3382,7 +3467,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 } break;
 
                 case ValueCategory::Address: {
-                    index_register = append_load_integer(context, instructions, context->address_integer_size, index_value.address);
+                    index_register = append_load_integer(
+                        context,
+                        instructions,
+                        expression.index_reference.index->range.first_line,
+                        context->address_integer_size,
+                        index_value.address
+                    );
                 } break;
 
                 default: {
@@ -3400,6 +3491,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             base_address_register = append_constant(
                                 context,
                                 instructions,
+                                expression.index_reference.expression->range.first_line,
                                 context->address_integer_size,
                                 expression_value.value.constant.array.pointer
                             );
@@ -3417,7 +3509,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 }
                             );
 
-                            base_address_register = append_reference_static(context, instructions, constant_name);
+                            base_address_register = append_reference_static(
+                                context,
+                                instructions,
+                                expression.index_reference.expression->range.first_line,
+                                constant_name
+                            );
                             element_type = *expression_value.type.static_array.type;
                             assignable = false;
                         } break;
@@ -3433,7 +3530,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 case ValueCategory::Anonymous: {
                     switch(expression_value.type.category) {
                         case TypeCategory::Array: {
-                            base_address_register = append_load_integer(context, instructions, context->address_integer_size, expression_value.value.anonymous.register_);
+                            base_address_register = append_load_integer(
+                                context,
+                                instructions,
+                                expression.index_reference.expression->range.first_line,
+                                context->address_integer_size,
+                                expression_value.value.anonymous.register_
+                            );
                             element_type = *expression_value.type.array;
                             assignable = true;
                         } break;
@@ -3455,7 +3558,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 case ValueCategory::Address: {
                     switch(expression_value.type.category) {
                         case TypeCategory::Array: {
-                            base_address_register = append_load_integer(context, instructions, context->address_integer_size, expression_value.value.address);
+                            base_address_register = append_load_integer(
+                                context,
+                                instructions,
+                                expression.index_reference.expression->range.first_line,
+                                context->address_integer_size,
+                                expression_value.value.address
+                            );
                             element_type = *expression_value.type.array;
                             assignable = true;
                         } break;
@@ -3479,11 +3588,18 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 } break;
             }
 
-            auto element_size_register = append_constant(context, instructions, context->address_integer_size, get_type_size(*context, element_type));
+            auto element_size_register = append_constant(
+                context,
+                instructions,
+                expression.index_reference.index->range.first_line,
+                context->address_integer_size,
+                get_type_size(*context, element_type)
+            );
 
             auto offset_register = append_arithmetic_operation(
                 context,
                 instructions,
+                expression.index_reference.index->range.first_line,
                 ArithmeticOperationType::UnsignedMultiply,
                 context->address_integer_size,
                 index_register,
@@ -3493,6 +3609,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             auto final_address_register = append_arithmetic_operation(
                 context,
                 instructions,
+                expression.index_reference.index->range.first_line,
                 ArithmeticOperationType::Add,
                 context->address_integer_size,
                 base_address_register,
@@ -3510,7 +3627,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                 size_t register_index;
                 if(representation.is_in_register) {
-                    register_index = append_load_integer(context, instructions, representation.value_size, final_address_register);
+                    register_index = append_load_integer(
+                        context,
+                        instructions,
+                        expression.index_reference.index->range.first_line,
+                        representation.value_size,
+                        final_address_register
+                    );
                 } else {
                     register_index = final_address_register;
                 }
@@ -3536,6 +3659,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         address_register = append_constant(
                             context,
                             instructions,
+                            expression.member_reference.expression->range.first_line,
                             context->address_integer_size,
                             expression_value.value.constant.pointer
                         );
@@ -3549,6 +3673,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         address_register = append_load_integer(
                             context,
                             instructions,
+                            expression.member_reference.expression->range.first_line,
                             context->address_integer_size,
                             expression_value.value.address
                         );
@@ -3587,11 +3712,18 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 auto final_address_register = generate_address_offset(
                                     context,
                                     instructions,
+                                    expression.member_reference.name.range,
                                     expression_value.value.anonymous.register_,
                                     register_size_to_byte_size(context->address_integer_size)
                                 );
 
-                                auto value_register = append_load_integer(context, instructions, context->address_integer_size, final_address_register);
+                                auto value_register = append_load_integer(
+                                    context,
+                                    instructions,
+                                    expression.member_reference.name.range.first_line,
+                                    context->address_integer_size,
+                                    final_address_register
+                                );
 
                                 value.value.anonymous.register_ = value_register;
                             } break;
@@ -3600,6 +3732,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 auto final_address_register = generate_address_offset(
                                     context,
                                     instructions,
+                                    expression.member_reference.name.range,
                                     expression_value.value.address,
                                     register_size_to_byte_size(context->address_integer_size)
                                 );
@@ -3631,6 +3764,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 auto value_register = append_load_integer(
                                     context,
                                     instructions,
+                                    expression.member_reference.name.range.first_line,
                                     context->address_integer_size,
                                     actual_expression_value.value.anonymous.register_
                                 );
@@ -3691,7 +3825,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                     }
                                 );
 
-                                auto register_index = append_reference_static(context, instructions, constant_name);
+                                auto register_index = append_reference_static(
+                                    context,
+                                    instructions,
+                                    expression.member_reference.name.range.first_line,
+                                    constant_name
+                                );
 
                                 value.value.anonymous.register_ = register_index;
                             } break;
@@ -3750,9 +3889,21 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                             case ValueCategory::Constant: {
                                                 size_t result_register;
                                                 if(representation.is_in_register) {
-                                                    result_register = generate_in_register_constant_value(context, instructions, member_type, member_value.constant);
+                                                    result_register = generate_in_register_constant_value(
+                                                        context,
+                                                        instructions,
+                                                        expression.member_reference.name.range,
+                                                        member_type,
+                                                        member_value.constant
+                                                    );
                                                 } else {
-                                                    result_register = generate_not_in_register_constant_value(context, instructions, member_type, member_value.constant);
+                                                    result_register = generate_not_in_register_constant_value(
+                                                        context,
+                                                        instructions,
+                                                        expression.member_reference.name.range,
+                                                        member_type,
+                                                        member_value.constant
+                                                    );
                                                 }
 
                                                 value.value.anonymous.register_ = result_register;
@@ -3767,6 +3918,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                                     value.value.anonymous.register_ = append_load_integer(
                                                         context,
                                                         instructions,
+                                                        expression.member_reference.name.range.first_line,
                                                         representation.value_size,
                                                         member_value.address
                                                     );
@@ -3812,6 +3964,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                         auto final_address_register = generate_address_offset(
                                             context,
                                             instructions,
+                                            expression.member_reference.name.range,
                                             expression_value.value.anonymous.register_,
                                             offset
                                         );
@@ -3819,7 +3972,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                         auto representation = get_type_representation(*context, struct_type.members[i].type);
 
                                         if(representation.is_in_register) {
-                                            auto value_register = append_load_integer(context, instructions, representation.value_size, final_address_register);
+                                            auto value_register = append_load_integer(
+                                                context,
+                                                instructions,
+                                                expression.member_reference.name.range.first_line,
+                                                representation.value_size,
+                                                final_address_register
+                                            );
 
                                             value.value.anonymous.register_ = value_register;
                                         } else {
@@ -3831,6 +3990,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                         auto final_address_register = generate_address_offset(
                                             context,
                                             instructions,
+                                            expression.member_reference.name.range,
                                             expression_value.value.address,
                                             offset
                                         );
@@ -4008,11 +4168,18 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 auto base_address_register = append_allocate_local(
                     context,
                     instructions,
+                    expression.range.first_line,
                     element_size * expression.array_literal.count,
                     get_type_alignment(*context, element_type)
                 );
 
-                auto element_size_register = append_constant(context, instructions, context->address_integer_size, element_size);
+                auto element_size_register = append_constant(
+                    context,
+                    instructions,
+                    expression.range.first_line,
+                    context->address_integer_size,
+                    element_size
+                );
 
                 auto representation = get_type_representation(*context, element_type);
 
@@ -4021,6 +4188,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     length_register = append_constant(
                         context,
                         instructions,
+                        expression.range.first_line,
                         context->address_integer_size,
                         get_type_size(*context, element_type)
                     );
@@ -4039,24 +4207,64 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                     switch(element_values[i].value.category) {
                         case ValueCategory::Constant: {
-                            generate_constant_value_write(context, instructions, element_type, element_value.constant, address_register);
+                            generate_constant_value_write(context,
+                            instructions,
+                            expression.array_literal[i].range,
+                            element_type,
+                            element_value.constant,
+                            address_register
+                        );
                         } break;
 
                         case ValueCategory::Anonymous: {
                             if(representation.is_in_register) {
-                                append_store_integer(context, instructions, representation.value_size, element_value.anonymous.register_, address_register);
+                                append_store_integer(
+                                    context,
+                                    instructions,
+                                    expression.array_literal[i].range.first_line,
+                                    representation.value_size,
+                                    element_value.anonymous.register_,
+                                    address_register
+                                );
                             } else {
-                                append_copy_memory(context, instructions, length_register, element_value.anonymous.register_, address_register);
+                                append_copy_memory(
+                                    context,
+                                    instructions,
+                                    expression.array_literal[i].range.first_line,
+                                    length_register,
+                                    element_value.anonymous.register_,
+                                    address_register
+                                );
                             }
                         } break;
 
                         case ValueCategory::Address: {
                             if(representation.is_in_register) {
-                                auto value_register = append_load_integer(context, instructions, representation.value_size, element_value.address);
+                                auto value_register = append_load_integer(
+                                    context,
+                                    instructions,
+                                    expression.array_literal[i].range.first_line,
+                                    representation.value_size,
+                                    element_value.address
+                                );
 
-                                append_store_integer(context, instructions, representation.value_size, value_register, address_register);
+                                append_store_integer(
+                                    context,
+                                    instructions,
+                                    expression.array_literal[i].range.first_line,
+                                    representation.value_size,
+                                    value_register,
+                                    address_register
+                                );
                             } else {
-                                append_copy_memory(context, instructions, length_register, element_value.address, address_register);
+                                append_copy_memory(
+                                    context,
+                                    instructions,
+                                    expression.array_literal[i].range.first_line,
+                                    length_register,
+                                    element_value.address,
+                                    address_register
+                                );
                             }
                         } break;
 
@@ -4069,6 +4277,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         auto new_address_register = append_arithmetic_operation(
                             context,
                             instructions,
+                            expression.array_literal[i + 1].range.first_line,
                             ArithmeticOperationType::Add,
                             context->address_integer_size,
                             address_register,
@@ -4409,9 +4618,21 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 switch(parameter_value.category) {
                     case ValueCategory::Constant: {
                         if(representation.is_in_register) {
-                            function_parameter_registers[i] = generate_in_register_constant_value(context, instructions, function_parameter_types[i], parameter_value.constant);
+                            function_parameter_registers[i] = generate_in_register_constant_value(
+                                context,
+                                instructions,
+                                expression.function_call.parameters[i].range,
+                                function_parameter_types[i],
+                                parameter_value.constant
+                            );
                         } else {
-                            function_parameter_registers[i] = generate_not_in_register_constant_value(context, instructions, function_parameter_types[i], parameter_value.constant);
+                            function_parameter_registers[i] = generate_not_in_register_constant_value(
+                                context,
+                                instructions,
+                                expression.function_call.parameters[i].range,
+                                function_parameter_types[i],
+                                parameter_value.constant
+                            );
                         }
                     } break;
 
@@ -4421,7 +4642,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                     case ValueCategory::Address: {
                         if(representation.is_in_register) {
-                            auto value_register = append_load_integer(context, instructions, representation.value_size, parameter_value.address);
+                            auto value_register = append_load_integer(
+                                context,
+                                instructions,
+                                expression.function_call.parameters[i].range.first_line,
+                                representation.value_size,
+                                parameter_value.address
+                            );
 
                             function_parameter_registers[i] = value_register;
                         } else {
@@ -4441,6 +4668,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 auto local_register = append_allocate_local(
                     context,
                     instructions,
+                    expression.function_call.expression->range.first_line,
                     get_type_size(*context, function_return_type),
                     get_type_alignment(*context, function_return_type)
                 );
@@ -4451,6 +4679,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
             Instruction call;
             call.type = InstructionType::FunctionCall;
+            call.line = expression.range.first_line;
             call.function_call.function_name = function_name;
             call.function_call.parameter_registers = {
                 total_parameter_count,
@@ -4518,15 +4747,28 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 Type result_type;
                 switch(left.type.category) {
                     case TypeCategory::Integer: {
-                        auto left_register = generate_in_register_integer_value(context, instructions, type.integer.size, left_value);
+                        auto left_register = generate_in_register_integer_value(
+                            context,
+                            instructions,
+                            expression.binary_operation.left->range,
+                            type.integer.size,
+                            left_value
+                        );
 
-                        auto right_register = generate_in_register_integer_value(context, instructions, type.integer.size, right_value);
+                        auto right_register = generate_in_register_integer_value(
+                            context,
+                            instructions,
+                            expression.binary_operation.right->range,
+                            type.integer.size,
+                            right_value
+                        );
 
                         switch(expression.binary_operation.binary_operator) {
                             case BinaryOperator::Addition: {
                                 result_register = append_arithmetic_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     ArithmeticOperationType::Add,
                                     type.integer.size,
                                     left_register,
@@ -4540,6 +4782,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 result_register = append_arithmetic_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     ArithmeticOperationType::Subtract,
                                     type.integer.size,
                                     left_register,
@@ -4560,6 +4803,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 result_register = append_arithmetic_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     operation_type,
                                     type.integer.size,
                                     left_register,
@@ -4580,6 +4824,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 result_register = append_arithmetic_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     operation_type,
                                     type.integer.size,
                                     left_register,
@@ -4600,6 +4845,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 result_register = append_arithmetic_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     operation_type,
                                     type.integer.size,
                                     left_register,
@@ -4613,6 +4859,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 result_register = append_arithmetic_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     ArithmeticOperationType::BitwiseAnd,
                                     type.integer.size,
                                     left_register,
@@ -4626,6 +4873,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 result_register = append_arithmetic_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     ArithmeticOperationType::BitwiseOr,
                                     type.integer.size,
                                     left_register,
@@ -4639,6 +4887,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 result_register = append_comparison_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     ComparisonOperationType::Equal,
                                     type.integer.size,
                                     left_register,
@@ -4652,13 +4901,14 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 auto equal_register = append_comparison_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     ComparisonOperationType::Equal,
                                     type.integer.size,
                                     left_register,
                                     right_register
                                 );
 
-                                result_register = generate_boolean_invert(context, instructions, equal_register);
+                                result_register = generate_boolean_invert(context,  instructions, expression.range, equal_register);
 
                                 result_type.category = TypeCategory::Boolean;
                             } break;
@@ -4674,6 +4924,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 result_register = append_comparison_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     operation_type,
                                     type.integer.size,
                                     left_register,
@@ -4694,6 +4945,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 result_register = append_comparison_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     operation_type,
                                     type.integer.size,
                                     left_register,
@@ -4712,9 +4964,19 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     } break;
 
                     case TypeCategory::Boolean: {
-                        auto left_register = generate_in_register_boolean_value(context, instructions, left_value);
+                        auto left_register = generate_in_register_boolean_value(
+                            context,
+                            instructions,
+                            expression.binary_operation.left->range,
+                            left_value
+                        );
 
-                        auto right_register = generate_in_register_boolean_value(context, instructions, right_value);
+                        auto right_register = generate_in_register_boolean_value(
+                            context,
+                            instructions,
+                            expression.binary_operation.right->range,
+                            right_value
+                        );
 
                         result_type.category = TypeCategory::Boolean;
 
@@ -4723,6 +4985,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 result_register = append_comparison_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     ComparisonOperationType::Equal,
                                     context->default_integer_size,
                                     left_register,
@@ -4734,19 +4997,21 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 auto equal_register = append_comparison_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     ComparisonOperationType::Equal,
                                     context->default_integer_size,
                                     left_register,
                                     right_register
                                 );
 
-                                result_register = generate_boolean_invert(context, instructions, equal_register);
+                                result_register = generate_boolean_invert(context, instructions, expression.range, equal_register);
                             } break;
 
                             case BinaryOperator::BooleanAnd: {
                                 result_register = append_arithmetic_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     ArithmeticOperationType::BitwiseAnd,
                                     context->default_integer_size,
                                     left_register,
@@ -4758,6 +5023,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 result_register = append_arithmetic_operation(
                                     context,
                                     instructions,
+                                    expression.range.first_line,
                                     ArithmeticOperationType::BitwiseOr,
                                     context->default_integer_size,
                                     left_register,
@@ -4865,7 +5131,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                         }
                                     }
 
-                                    auto address_regsiter = append_reference_static(context, instructions, function_name);
+                                    auto address_regsiter = append_reference_static(
+                                        context,
+                                        instructions,
+                                        expression.range.first_line,
+                                        function_name
+                                    );
 
                                     TypedValue value;
                                     value.value.category = ValueCategory::Anonymous;
@@ -4952,7 +5223,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
 
                         case ValueCategory::Address: {
-                            value_register = append_load_integer(context, instructions, context->default_integer_size, expression_value.value.address);
+                            value_register = append_load_integer(
+                                context,
+                                instructions,
+                                expression.unary_operation.expression->range.first_line,
+                                context->default_integer_size,
+                                expression_value.value.address
+                            );
                         } break;
 
                         default: {
@@ -4960,7 +5237,12 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
                     }
 
-                    auto result_register = generate_boolean_invert(context, instructions, value_register);
+                    auto result_register = generate_boolean_invert(
+                        context,
+                        instructions,
+                        expression.range,
+                        value_register
+                    );
 
                     value.value.category = ValueCategory::Anonymous;
                     value.value.anonymous.register_ = result_register;
@@ -4999,7 +5281,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
 
                         case ValueCategory::Address: {
-                            value_register = append_load_integer(context, instructions, expression_value.type.integer.size, expression_value.value.address);
+                            value_register = append_load_integer(
+                                context,
+                                instructions,
+                                expression.unary_operation.expression->range.first_line,
+                                expression_value.type.integer.size,
+                                expression_value.value.address
+                            );
                         } break;
 
                         default: {
@@ -5007,11 +5295,18 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
                     }
 
-                    auto zero_register = append_constant(context, instructions, expression_value.type.integer.size, 0);
+                    auto zero_register = append_constant(
+                        context,
+                        instructions,
+                        expression.range.first_line,
+                        expression_value.type.integer.size,
+                        0
+                    );
 
                     auto result_register = append_arithmetic_operation(
                         context,
                         instructions,
+                        expression.range.first_line,
                         ArithmeticOperationType::Subtract,
                         expression_value.type.integer.size,
                         zero_register,
@@ -5090,7 +5385,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 } break;
 
                                 case ValueCategory::Address: {
-                                    value_register = append_load_integer(context, instructions, expression_value.type.integer.size, expression_value.value.address);
+                                    value_register = append_load_integer(
+                                        context,
+                                        instructions,
+                                        expression.cast.expression->range.first_line,
+                                        expression_value.type.integer.size,
+                                        expression_value.value.address
+                                    );
                                 } break;
 
                                 default: {
@@ -5101,6 +5402,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             result_register = append_integer_upcast(
                                 context,
                                 instructions,
+                                expression.range.first_line,
                                 expression_value.type.integer.is_signed,
                                 expression_value.type.integer.size,
                                 type.integer.size,
@@ -5122,7 +5424,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                                 } break;
 
                                 case ValueCategory::Address: {
-                                    value_register = append_load_integer(context, instructions, context->address_integer_size, expression_value.value.address);
+                                    value_register = append_load_integer(
+                                        context,
+                                        instructions,
+                                        expression.range.first_line,
+                                        context->address_integer_size,
+                                        expression_value.value.address
+                                    );
                                 } break;
 
                                 default: {
@@ -5149,7 +5457,13 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         } break;
 
                         case ValueCategory::Address: {
-                            value_register = append_load_integer(context, instructions, context->address_integer_size, expression_value.value.address);
+                            value_register = append_load_integer(
+                                context,
+                                instructions,
+                                expression.range.first_line,
+                                context->address_integer_size,
+                                expression_value.value.address
+                            );
                         } break;
 
                         default: {
@@ -5379,7 +5693,13 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 case VariableDeclarationType::Uninitialized: {
                     expect(type, evaluate_type_expression(context, statement.variable_declaration.uninitialized));
 
-                    auto address_register = append_allocate_local(context, instructions, get_type_size(*context, type), get_type_alignment(*context, type));
+                    auto address_register = append_allocate_local(
+                        context,
+                        instructions,
+                        statement.range.first_line,
+                        get_type_size(*context, type),
+                        get_type_alignment(*context, type)
+                    );
 
                     if(!add_new_variable(
                         context,
@@ -5399,6 +5719,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     Instruction allocate;
                     allocate.type = InstructionType::AllocateLocal;
+                    allocate.line = statement.range.first_line;
                     allocate.allocate_local.destination_register = address_register;
 
                     auto allocate_index = append(instructions, allocate);
@@ -5411,38 +5732,81 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     switch(initializer_value.value.category) {
                         case ValueCategory::Constant: {
-                            generate_constant_value_write(context, instructions, coerced_type, initializer_value.value.constant, address_register);
+                            generate_constant_value_write(
+                                context,
+                                instructions,
+                                statement.range,
+                                coerced_type,
+                                initializer_value.value.constant,
+                                address_register
+                            );
                         } break;
 
                         case ValueCategory::Anonymous: {
                             if(representation.is_in_register) {
-                                append_store_integer(context, instructions, representation.value_size, initializer_value.value.anonymous.register_, address_register);
+                                append_store_integer(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    representation.value_size,
+                                    initializer_value.value.anonymous.register_,
+                                    address_register
+                                );
                             } else {
                                 auto length_register = append_constant(
                                     context,
                                     instructions,
+                                    statement.range.first_line,
                                     context->address_integer_size,
                                     get_type_size(*context, coerced_type)
                                 );
 
-                                append_copy_memory(context, instructions, length_register, initializer_value.value.anonymous.register_, address_register);
+                                append_copy_memory(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    length_register,
+                                    initializer_value.value.anonymous.register_,
+                                    address_register
+                                );
                             }
                         } break;
 
                         case ValueCategory::Address: {
                             if(representation.is_in_register) {
-                                auto value_register = append_load_integer(context, instructions, representation.value_size, initializer_value.value.address);
+                                auto value_register = append_load_integer(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    representation.value_size,
+                                    initializer_value.value.address
+                                );
 
-                                append_store_integer(context, instructions, representation.value_size, value_register, address_register);
+                                append_store_integer(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    representation.value_size,
+                                    value_register,
+                                    address_register
+                                );
                             } else {
                                 auto length_register = append_constant(
                                     context,
                                     instructions,
+                                    statement.range.first_line,
                                     context->address_integer_size,
                                     get_type_size(*context, coerced_type)
                                 );
 
-                                append_copy_memory(context, instructions, length_register, initializer_value.value.address, address_register);
+                                append_copy_memory(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    length_register,
+                                    initializer_value.value.address,
+                                    address_register
+                                );
                             }
                         } break;
 
@@ -5468,6 +5832,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     auto address_register = append_allocate_local(
                         context,
                         instructions,
+                        statement.range.first_line,
                         get_type_size(*context, type),
                         get_type_alignment(*context, type)
                     );
@@ -5487,38 +5852,81 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                     switch(coerced_initializer_value.category) {
                         case ValueCategory::Constant: {
-                            generate_constant_value_write(context, instructions, type, coerced_initializer_value.constant, address_register);
+                            generate_constant_value_write(
+                                context,
+                                instructions,
+                                statement.range,
+                                type,
+                                coerced_initializer_value.constant,
+                                address_register
+                            );
                         } break;
 
                         case ValueCategory::Anonymous: {
                             if(representation.is_in_register) {
-                                append_store_integer(context, instructions, representation.value_size, coerced_initializer_value.anonymous.register_, address_register);
+                                append_store_integer(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    representation.value_size,
+                                    coerced_initializer_value.anonymous.register_,
+                                    address_register
+                                );
                             } else {
                                 auto length_register = append_constant(
                                     context,
                                     instructions,
+                                    statement.range.first_line,
                                     context->address_integer_size,
                                     get_type_size(*context, type)
                                 );
 
-                                append_copy_memory(context, instructions, length_register, coerced_initializer_value.anonymous.register_, address_register);
+                                append_copy_memory(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    length_register,
+                                    coerced_initializer_value.anonymous.register_,
+                                    address_register
+                                );
                             }
                         } break;
 
                         case ValueCategory::Address: {
                             if(representation.is_in_register) {
-                                auto value_register = append_load_integer(context, instructions, representation.value_size, coerced_initializer_value.address);
+                                auto value_register = append_load_integer(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    representation.value_size,
+                                    coerced_initializer_value.address
+                                );
 
-                                append_store_integer(context, instructions, representation.value_size, value_register, address_register);
+                                append_store_integer(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    representation.value_size,
+                                    value_register,
+                                    address_register
+                                );
                             } else {
                                 auto length_register = append_constant(
                                     context,
                                     instructions,
+                                    statement.range.first_line,
                                     context->address_integer_size,
                                     get_type_size(*context, type)
                                 );
 
-                                append_copy_memory(context, instructions, length_register, coerced_initializer_value.address, address_register);
+                                append_copy_memory(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    length_register,
+                                    coerced_initializer_value.address,
+                                    address_register
+                                );
                             }
                         } break;
 
@@ -5564,38 +5972,81 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             switch(coerced_value.category) {
                 case ValueCategory::Constant: {
-                    generate_constant_value_write(context, instructions, target.type, coerced_value.constant, target.value.address);
+                    generate_constant_value_write(
+                        context,
+                        instructions,
+                        statement.range,
+                        target.type,
+                        coerced_value.constant,
+                        target.value.address
+                    );
                 } break;
 
                 case ValueCategory::Anonymous: {
                     if(representation.is_in_register) {
-                        append_store_integer(context, instructions, representation.value_size, coerced_value.anonymous.register_, target.value.address);
+                        append_store_integer(
+                            context,
+                            instructions,
+                            statement.range.first_line,
+                            representation.value_size,
+                            coerced_value.anonymous.register_,
+                            target.value.address
+                        );
                     } else {
                         auto length_register = append_constant(
                             context,
                             instructions,
+                            statement.range.first_line,
                             context->address_integer_size,
                             get_type_size(*context, target.type)
                         );
 
-                        append_copy_memory(context, instructions, length_register, coerced_value.anonymous.register_, target.value.address);
+                        append_copy_memory(
+                            context,
+                            instructions,
+                            statement.range.first_line,
+                            length_register,
+                            coerced_value.anonymous.register_,
+                            target.value.address
+                        );
                     }
                 } break;
 
                 case ValueCategory::Address: {
                     if(representation.is_in_register) {
-                        auto value_register = append_load_integer(context, instructions, representation.value_size, coerced_value.address);
+                        auto value_register = append_load_integer(
+                            context,
+                            instructions,
+                            statement.range.first_line,
+                            representation.value_size,
+                            coerced_value.address
+                        );
 
-                        append_store_integer(context, instructions, representation.value_size, value_register, target.value.address);
+                        append_store_integer(
+                            context,
+                            instructions,
+                            statement.range.first_line,
+                            representation.value_size,
+                            value_register,
+                            target.value.address
+                        );
                     } else {
                         auto length_register = append_constant(
                             context,
                             instructions,
+                            statement.range.first_line,
                             context->address_integer_size,
                             get_type_size(*context, target.type)
                         );
 
-                        append_copy_memory(context, instructions, length_register, coerced_value.address, target.value.address);
+                        append_copy_memory(
+                            context,
+                            instructions,
+                            statement.range.first_line,
+                            length_register,
+                            coerced_value.address,
+                            target.value.address
+                        );
                     }
                 } break;
 
@@ -5619,12 +6070,13 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 return false;
             }
 
-            auto condition_register = generate_in_register_boolean_value(context, instructions, condition.value);
+            auto condition_register = generate_in_register_boolean_value(context, instructions, statement.if_.condition.range, condition.value);
 
-            append_branch(context, instructions, condition_register, instructions->count + 2);
+            append_branch(context, instructions, statement.if_.condition.range.first_line, condition_register, instructions->count + 2);
 
             Instruction jump;
             jump.type = InstructionType::Jump;
+            jump.line = statement.if_.condition.range.first_line;
 
             auto jump_index = append(instructions, jump);
 
@@ -5640,8 +6092,9 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             Instruction end_jump;
             end_jump.type = InstructionType::Jump;
+            end_jump.line = statement.range.first_line;
 
-            end_jump_indices[0] = append(instructions, jump);
+            end_jump_indices[0] = append(instructions, end_jump);
 
             (*instructions)[jump_index].jump.destination_instruction = instructions->count;
 
@@ -5654,12 +6107,24 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     return false;
                 }
 
-                auto condition_register = generate_in_register_boolean_value(context, instructions, condition.value);
+                auto condition_register = generate_in_register_boolean_value(
+                    context,
+                    instructions,
+                    statement.if_.else_ifs[i].condition.range,
+                    condition.value
+                );
 
-                append_branch(context, instructions, condition_register, instructions->count + 2);
+                append_branch(
+                    context,
+                    instructions,
+                    statement.if_.else_ifs[i].condition.range.first_line,
+                    condition_register,
+                    instructions->count + 2
+                );
 
                 Instruction jump;
                 jump.type = InstructionType::Jump;
+                jump.line = statement.if_.else_ifs[i].condition.range.first_line;
 
                 auto jump_index = append(instructions, jump);
 
@@ -5675,8 +6140,9 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
                 Instruction end_jump;
                 end_jump.type = InstructionType::Jump;
+                end_jump.line = statement.range.first_line;
 
-                end_jump_indices[i + 1] = append(instructions, jump);
+                end_jump_indices[i + 1] = append(instructions, end_jump);
 
                 (*instructions)[jump_index].jump.destination_instruction = instructions->count;
             }
@@ -5710,12 +6176,24 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                 return false;
             }
 
-            auto condition_register = generate_in_register_boolean_value(context, instructions, condition.value);
+            auto condition_register = generate_in_register_boolean_value(
+                context,
+                instructions,
+                statement.while_loop.condition.range,
+                condition.value
+            );
 
-            append_branch(context, instructions, condition_register, instructions->count + 2);
+            append_branch(
+                context,
+                instructions,
+                statement.while_loop.condition.range.first_line,
+                condition_register,
+                instructions->count + 2
+            );
 
             Instruction jump_out;
             jump_out.type = InstructionType::Jump;
+            jump_out.line = statement.while_loop.condition.range.first_line;
 
             auto jump_out_index = append(instructions, jump_out);
 
@@ -5729,7 +6207,12 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             context->variable_context_stack.count -= 1;
 
-            append_jump(context, instructions, condition_index);
+            append_jump(
+                context,
+                instructions,
+                statement.range.first_line,
+                condition_index
+            );
 
             (*instructions)[jump_out_index].jump.destination_instruction = instructions->count;
 
@@ -5739,6 +6222,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
         case StatementType::Return: {
             Instruction return_;
             return_.type = InstructionType::Return;
+            return_.line = statement.range.first_line;
 
             if(statement._return.has_value) {
                 expect(value, generate_expression(context, instructions, statement._return.value));
@@ -5758,11 +6242,24 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                     switch(coerced_value.category) {
                         case ValueCategory::Constant: {
                             if(representation.is_in_register) {
-                                auto value_register = generate_in_register_constant_value(context, instructions, context->return_type, coerced_value.constant);
+                                auto value_register = generate_in_register_constant_value(
+                                    context,
+                                    instructions,
+                                    statement.range,
+                                    context->return_type,
+                                    coerced_value.constant
+                                );
 
                                 return_.return_.value_register = value_register;
                             } else {
-                                generate_not_in_register_constant_write(context, instructions, context->return_type, coerced_value.constant, context->return_parameter_register);
+                                generate_not_in_register_constant_write(
+                                    context,
+                                    instructions,
+                                    statement.range,
+                                    context->return_type,
+                                    coerced_value.constant,
+                                    context->return_parameter_register
+                                );
                             }
                         } break;
 
@@ -5773,28 +6270,50 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
                                 auto length_register = append_constant(
                                     context,
                                     instructions,
+                                    statement.range.first_line,
                                     context->address_integer_size,
                                     get_type_size(*context, context->return_type)
                                 );
 
-                                append_copy_memory(context, instructions, length_register, coerced_value.anonymous.register_, context->return_parameter_register);
+                                append_copy_memory(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    length_register,
+                                    coerced_value.anonymous.register_,
+                                    context->return_parameter_register
+                                );
                             }
                         } break;
 
                         case ValueCategory::Address: {
                             if(representation.is_in_register) {
-                                auto value_register = append_load_integer(context, instructions, representation.value_size, coerced_value.address);
+                                auto value_register = append_load_integer(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    representation.value_size,
+                                    coerced_value.address
+                                );
 
                                 return_.return_.value_register = value_register;
                             } else {
                                 auto length_register = append_constant(
                                     context,
                                     instructions,
+                                    statement.range.first_line,
                                     context->address_integer_size,
                                     get_type_size(*context, context->return_type)
                                 );
 
-                                append_copy_memory(context, instructions, length_register, coerced_value.address, context->return_parameter_register);
+                                append_copy_memory(
+                                    context,
+                                    instructions,
+                                    statement.range.first_line,
+                                    length_register,
+                                    coerced_value.address,
+                                    context->return_parameter_register
+                                );
                             }
                         } break;
 
@@ -6044,6 +6563,8 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
                 parameter_sizes
             };
             ir_function.has_return = has_return && return_representation.is_in_register;
+            ir_function.file = function.file_path;
+            ir_function.line = function.declaration.range.first_line;
 
             if(has_return && return_representation.is_in_register) {
                 ir_function.return_size = return_representation.value_size;

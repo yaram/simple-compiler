@@ -128,10 +128,10 @@ static FileRange token_range(Context context, Token token) {
 
 static FileRange span_range(FileRange first, FileRange last) {
     return {
-        first.start_line,
-        first.start_character,
-        last.end_character,
-        last.end_line
+        first.first_line,
+        first.first_character,
+        last.last_character,
+        last.last_line
     };
 }
 

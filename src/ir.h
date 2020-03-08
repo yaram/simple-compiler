@@ -54,6 +54,8 @@ enum struct InstructionType {
 struct Instruction {
     InstructionType type;
 
+    unsigned int line;
+
     union {
         struct {
             ArithmeticOperationType type;
@@ -171,6 +173,9 @@ struct Function {
     bool is_external;
 
     Array<Instruction> instructions;
+
+    const char *file;
+    unsigned int line;
 };
 
 void print_function(Function function);

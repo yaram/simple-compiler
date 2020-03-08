@@ -4,11 +4,11 @@
 #include "array.h"
 
 struct FileRange {
-    unsigned int start_line;
-    unsigned int start_character;
+    unsigned int first_line;
+    unsigned int first_character;
 
-    unsigned int end_line;
-    unsigned int end_character;
+    unsigned int last_line;
+    unsigned int last_character;
 };
 
 struct Identifier {
