@@ -2421,8 +2421,6 @@ static void write_struct(GenerationContext context, uint8_t *data, size_t offset
 
         auto representation = get_type_representation(context, struct_type.members[i].type);
 
-        auto size = get_type_size(context, struct_type.members[i].type);
-
         if(representation.is_in_register) {
             uint64_t value;
             switch(struct_type.members[i].type.category) {
@@ -4733,7 +4731,6 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 }
             } else {
                 for(size_t i = 0; i < expression.function_call.parameters.count; i += 1) {
-                    char *parameter_source{};
                     expect(value, generate_expression(context, instructions, expression.function_call.parameters[i]));
 
                     function_parameter_values[i] = value;
@@ -5334,7 +5331,6 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             switch(expression_value.type.category) {
                                 case TypeCategory::Function: {
                                     auto function_declaration = expression_value.value.constant.function.declaration.function_declaration;
-                                    auto parameter_count = expression_value.type.function.parameter_count;
 
                                     if(expression_value.type.function.is_polymorphic) {
                                         error(context->current_file_path, expression.unary_operation.expression->range, "Cannot take pointers to polymorphic functions");

@@ -226,23 +226,6 @@ static Result<Identifier> expect_identifier(Context *context) {
     };
 }
 
-static Result<uint64_t> expect_integer(Context *context) {
-    expect(token, next_token(*context));
-
-    if(token.type != TokenType::Integer) {
-        error(*context, "Expected an integer, got '%s'", get_token_text(token));
-
-        return { false };
-    }
-
-    context->next_token_index += 1;
-
-    return {
-        true,
-        token.integer
-    };
-}
-
 static Identifier identifier_from_token(Context context, Token token) {
     return {
         token.identifier,
@@ -549,8 +532,6 @@ static Result<Expression> parse_right_expressions(Context *context, List<Operati
             switch(token.type) {
                 case TokenType::Identifier: {
                     context->next_token_index += 1;
-
-                    auto range = token_range(*context, token);
 
                     auto identifier = identifier_from_token(*context, token);
 
