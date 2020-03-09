@@ -620,6 +620,10 @@ static Result<size_t> coerce_constant_to_integer_type(
                 };
             } else {
                 if(value.type.integer.size != size || value.type.integer.is_signed != is_signed) {
+                    if(!probing) {
+                        error(context.current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), determined_integer_type_description(size, is_signed));
+                    }
+
                     return { false };
                 }
 
@@ -728,12 +732,16 @@ static Result<ConstantValue> coerce_constant_to_struct_type(
     ConstantValue result_value;
     if(value_type.is_undetermined) {
         if(struct_type.is_union) {
-            error(context.current_file_path, range, "Constants cannot be unions");
+            if(!probing) {
+                error(context.current_file_path, range, "Constants cannot be unions");
+            }
 
             return { false };
         } else {
             if(value_type.members.count != struct_type.members.count) {
-                error(context.current_file_path, range, "Too many struct members. Expected %zu, got %zu", struct_type.members.count, value_type.members.count);
+                if(!probing) {
+                    error(context.current_file_path, range, "Too many struct members. Expected %zu, got %zu", struct_type.members.count, value_type.members.count);
+                }
 
                 return { false };
             }
@@ -742,7 +750,9 @@ static Result<ConstantValue> coerce_constant_to_struct_type(
 
             for(size_t i = 0; i < struct_type.members.count; i += 1) {
                 if(strcmp(value_type.members[i].name, struct_type.members[i].name.text) != 0) {
-                    error(context.current_file_path, range, "Incorrect struct member name. Expected '%s', got '%s", struct_type.members[i].name.text, value_type.members[i].name);
+                    if(!probing) {
+                        error(context.current_file_path, range, "Incorrect struct member name. Expected '%s', got '%s", struct_type.members[i].name.text, value_type.members[i].name);
+                    }
 
                     return { false };
                 }
@@ -3027,6 +3037,10 @@ static Result<Value> coerce_to_integer_type(
                 };
             } else {
                 if(value.type.integer.size != size || value.type.integer.is_signed != is_signed) {
+                    if(!probing) {
+                        error(context.current_file_path, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), determined_integer_type_description(size, is_signed));
+                    }
+
                     return { false };
                 }
 
@@ -3078,7 +3092,9 @@ static Result<Value> coerce_to_struct_type(
     if(value_type.is_undetermined) {
         if(struct_type.is_union) {
             if(value_type.members.count != 1) {
-                error(context->current_file_path, range, "Too many union members. Expected 1, got %zu", value_type.members.count);
+                if(!probing) {
+                    error(context->current_file_path, range, "Too many union members. Expected 1, got %zu", value_type.members.count);
+                }
 
                 return { false };
             }
@@ -3095,7 +3111,9 @@ static Result<Value> coerce_to_struct_type(
             }
 
             if(!found) {
-                error(context->current_file_path, range, "Unknown union member '%s'", value_type.members[0].name);
+                if(!probing) {
+                    error(context->current_file_path, range, "Unknown union member '%s'", value_type.members[0].name);
+                }
 
                 return { false };
             }
