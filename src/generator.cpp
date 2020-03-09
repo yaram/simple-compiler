@@ -2511,7 +2511,7 @@ static const char *register_static_array_constant(GenerationContext *context, Ty
     auto element_size = get_type_size(*context, type);
     auto element_alignment = get_type_alignment(*context, type);
 
-    auto data = allocate<uint8_t>(element_size);
+    auto data = allocate<uint8_t>(element_size * elements.count);
 
     write_static_array(*context, data, 0, type, elements);
 
