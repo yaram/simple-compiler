@@ -1796,6 +1796,20 @@ static Result<Statement> parse_statement(Context *context) {
                     true,
                     statement
                 };
+            } else if(strcmp(token.identifier, "using") == 0) {
+                expect(expression, parse_expression(context));
+
+                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+
+                Statement statement;
+                statement.type = StatementType::Using;
+                statement.range = span_range(first_range, last_range);
+                statement.using_ = expression;
+
+                return {
+                    true,
+                    statement
+                };
             } else {
                 auto identifier = identifier_from_token(*context, token);
 

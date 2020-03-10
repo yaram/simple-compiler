@@ -145,7 +145,8 @@ enum struct StatementType {
     If,
     WhileLoop,
     Return,
-    Import
+    Import,
+    Using
 };
 
 enum struct VariableDeclarationType {
@@ -275,6 +276,8 @@ struct Statement {
         } _return;
 
         const char *import;
+
+        Expression using_;
     };
 };
 

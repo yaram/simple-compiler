@@ -266,6 +266,30 @@ static void error(const char *file_path, FileRange range, const char *format, ..
     va_end(arguments);
 }
 
+static bool match_public_declaration(Statement statement, const char *name) {
+    switch(statement.type) {
+        case StatementType::FunctionDeclaration: {
+            if(strcmp(statement.function_declaration.name.text, name) == 0) {
+                return true;
+            }
+        } break;
+
+        case StatementType::ConstantDefinition: {
+            if(strcmp(statement.constant_definition.name.text, name) == 0) {
+                return true;
+            }
+        } break;
+
+        case StatementType::StructDefinition: {
+            if(strcmp(statement.struct_definition.name.text, name) == 0) {
+                return true;
+            }
+        } break;
+    }
+
+    return false;
+}
+
 static bool match_declaration(Statement statement, const char *name) {
     switch(statement.type) {
         case StatementType::FunctionDeclaration: {
@@ -508,32 +532,43 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
         }
     }
 
-    if(context->is_top_level) {
-        for(auto statement : context->top_level_statements) {
-            if(match_declaration(statement, name.text)) {
-                return resolve_declaration(context, statement);
-            }
-        }
-    } else {
-        auto old_determined_declaration = context->determined_declaration;
+    auto old_determined_declaration = context->determined_declaration;
 
+    if(!context->is_top_level) {
         while(true) {
             switch(context->determined_declaration.declaration.type) {
                 case StatementType::FunctionDeclaration: {
                     for(auto statement : context->determined_declaration.declaration.function_declaration.statements) {
                         if(match_declaration(statement, name.text)) {
-                            auto result = resolve_declaration(context, statement);
-
-                            if(!result.status) {
-                                return { false };
-                            }
+                            expect(value, resolve_declaration(context, statement));
 
                             context->determined_declaration = old_determined_declaration;
 
                             return {
                                 true,
-                                result.value
+                                value
                             };
+                        } else if(statement.type == StatementType::Using) {
+                            expect(expression_value, evaluate_constant_expression(context, statement.using_));
+
+                            if(expression_value.type.category != TypeCategory::FileModule) {
+                                error(context->current_file_path, statement.using_.range, "Expected a module, got '%s'", type_description(expression_value.type));
+
+                                return { false };
+                            }
+
+                            for(auto statement : expression_value.value.file_module.statements) {
+                                if(match_public_declaration(statement, name.text)) {
+                                    expect(value, resolve_declaration(context, statement));
+
+                                    context->determined_declaration = old_determined_declaration;
+
+                                    return {
+                                        true,
+                                        value
+                                    };
+                                }
+                            }
                         }
                     }
 
@@ -565,26 +600,43 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
                 context->determined_declaration = *context->determined_declaration.parent;
             }
         }
+    }
 
-        for(auto statement : context->top_level_statements) {
-            if(match_declaration(statement, name.text)) {
-                auto result = resolve_declaration(context, statement);
+    for(auto statement : context->top_level_statements) {
+        if(match_declaration(statement, name.text)) {
+            expect(value, resolve_declaration(context, statement));
 
-                if(!result.status) {
-                    return { false };
+            context->determined_declaration = old_determined_declaration;
+
+            return {
+                true,
+                value
+            };
+        } else if(statement.type == StatementType::Using) {
+            expect(expression_value, evaluate_constant_expression(context, statement.using_));
+
+            if(expression_value.type.category != TypeCategory::FileModule) {
+                error(context->current_file_path, statement.using_.range, "Expected a module, got '%s'", type_description(expression_value.type));
+
+                return { false };
+            }
+
+            for(auto statement : expression_value.value.file_module.statements) {
+                if(match_public_declaration(statement, name.text)) {
+                    expect(value, resolve_declaration(context, statement));
+
+                    context->determined_declaration = old_determined_declaration;
+
+                    return {
+                        true,
+                        value
+                    };
                 }
-
-                context->determined_declaration = old_determined_declaration;
-
-                return {
-                    true,
-                    result.value
-                };
             }
         }
-
-        context->determined_declaration = old_determined_declaration;
     }
+
+    context->determined_declaration = old_determined_declaration;
 
     for(auto global_constant : context->global_constants) {
         if(strcmp(name.text, global_constant.name) == 0) {
@@ -1735,58 +1787,84 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 } break;
 
                 case TypeCategory::FileModule: {
+                    Statement declaration;
                     for(auto statement : expression_value.value.file_module.statements) {
                         if(match_declaration(statement, expression.member_reference.name.text)) {
-                            auto old_is_top_level = context->is_top_level;
-                            auto old_determined_declaration = context->determined_declaration;
-                            auto old_top_level_statements = context->top_level_statements;
-                            auto old_current_file_path = context->current_file_path;
+                            declaration = statement;
+                        } else if(statement.type == StatementType::Using) {
+                            expect(expression_value, evaluate_constant_expression(context, statement.using_));
 
-                            context->is_top_level = true;
-                            context->top_level_statements = expression_value.value.file_module.statements;
-                            context->current_file_path = expression_value.value.file_module.path;
+                            if(expression_value.type.category != TypeCategory::FileModule) {
+                                error(context->current_file_path, statement.using_.range, "Expected a module, got '%s'", type_description(expression_value.type));
 
-                            TypedConstantValue value;
-                            switch(statement.type) {
-                                case StatementType::FunctionDeclaration: {
-                                    expect(function_value, evaluate_function_declaration(context, statement));
-
-                                    value = function_value;
-                                } break;
-
-                                case StatementType::ConstantDefinition: {
-                                    expect(expression_value, evaluate_constant_expression(context, statement.constant_definition.expression));
-
-                                    value = expression_value;
-                                } break;
-
-                                case StatementType::Import: {
-                                    error(context->current_file_path, expression.member_reference.expression->range, "Cannot access module member '%s'. Imports are private", expression.member_reference.name.text);
-
-                                    return { false };
-                                } break;
-
-                                case StatementType::StructDefinition: {
-                                    expect(struct_value, evaluate_struct_definition(context, statement));
-
-                                    value = struct_value;
-                                } break;
-
-                                default: {
-                                    abort();
-                                } break;
+                                return { false };
                             }
 
-                            context->current_file_path = old_current_file_path;
-                            context->top_level_statements = old_top_level_statements;
-                            context->determined_declaration = old_determined_declaration;
-                            context->is_top_level = old_is_top_level;
+                            auto found = false;
+                            for(auto statement : expression_value.value.file_module.statements) {
+                                if(match_declaration(statement, expression.member_reference.name.text)) {
+                                    declaration = statement;
 
-                            return {
-                                true,
-                                value
-                            };
+                                    found = true;
+                                }
+                            }
+
+                            if(!found) {
+                                continue;
+                            }
+                        } else {
+                            continue;
                         }
+
+                        auto old_is_top_level = context->is_top_level;
+                        auto old_determined_declaration = context->determined_declaration;
+                        auto old_top_level_statements = context->top_level_statements;
+                        auto old_current_file_path = context->current_file_path;
+
+                        context->is_top_level = true;
+                        context->top_level_statements = expression_value.value.file_module.statements;
+                        context->current_file_path = expression_value.value.file_module.path;
+
+                        TypedConstantValue value;
+                        switch(statement.type) {
+                            case StatementType::FunctionDeclaration: {
+                                expect(function_value, evaluate_function_declaration(context, statement));
+
+                                value = function_value;
+                            } break;
+
+                            case StatementType::ConstantDefinition: {
+                                expect(expression_value, evaluate_constant_expression(context, statement.constant_definition.expression));
+
+                                value = expression_value;
+                            } break;
+
+                            case StatementType::Import: {
+                                error(context->current_file_path, expression.member_reference.expression->range, "Cannot access module member '%s'. Imports are private", expression.member_reference.name.text);
+
+                                return { false };
+                            } break;
+
+                            case StatementType::StructDefinition: {
+                                expect(struct_value, evaluate_struct_definition(context, statement));
+
+                                value = struct_value;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+
+                        context->current_file_path = old_current_file_path;
+                        context->top_level_statements = old_top_level_statements;
+                        context->determined_declaration = old_determined_declaration;
+                        context->is_top_level = old_is_top_level;
+
+                        return {
+                            true,
+                            value
+                        };
                     }
 
                     error(context->current_file_path, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
@@ -4274,65 +4352,89 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 } break;
 
                 case TypeCategory::FileModule: {
-                    assert(actual_expression_value.value.category == ValueCategory::Constant);
-
-                    for(auto statement : actual_expression_value.value.constant.file_module.statements) {
+                    Statement declaration;
+                    for(auto statement : expression_value.value.constant.file_module.statements) {
                         if(match_declaration(statement, expression.member_reference.name.text)) {
-                            auto old_is_top_level = context->is_top_level;
-                            auto old_determined_declaration = context->determined_declaration;
-                            auto old_top_level_statements = context->top_level_statements;
-                            auto old_current_file_path = context->current_file_path;
+                            declaration = statement;
+                        } else if(statement.type == StatementType::Using) {
+                            expect(expression_value, evaluate_constant_expression(context, statement.using_));
 
-                            context->is_top_level = true;
-                            context->top_level_statements = actual_expression_value.value.constant.file_module.statements;
-                            context->current_file_path = actual_expression_value.value.constant.file_module.path;
+                            if(expression_value.type.category != TypeCategory::FileModule) {
+                                error(context->current_file_path, statement.using_.range, "Expected a module, got '%s'", type_description(expression_value.type));
 
-                            TypedConstantValue constant_value;
-                            switch(statement.type) {
-                                case StatementType::FunctionDeclaration: {
-                                    expect(function_value, evaluate_function_declaration(context, statement));
-
-                                    constant_value = function_value;
-                                } break;
-
-                                case StatementType::ConstantDefinition: {
-                                    expect(expression_value, evaluate_constant_expression(context, statement.constant_definition.expression));
-
-                                    constant_value = expression_value;
-                                } break;
-
-                                case StatementType::Import: {
-                                    error(context->current_file_path, expression.member_reference.expression->range, "Cannot access module member '%s'. Imports are private", expression.member_reference.name.text);
-
-                                    return { false };
-                                } break;
-
-                                case StatementType::StructDefinition: {
-                                    expect(struct_value, evaluate_struct_definition(context, statement));
-
-                                    constant_value = struct_value;
-                                } break;
-
-                                default: {
-                                    abort();
-                                } break;
+                                return { false };
                             }
 
-                            context->current_file_path = old_current_file_path;
-                            context->top_level_statements = old_top_level_statements;
-                            context->determined_declaration = old_determined_declaration;
-                            context->is_top_level = old_is_top_level;
+                            auto found = false;
+                            for(auto statement : expression_value.value.file_module.statements) {
+                                if(match_declaration(statement, expression.member_reference.name.text)) {
+                                    declaration = statement;
 
-                            TypedValue value;
-                            value.value.category = ValueCategory::Constant;
-                            value.type = constant_value.type;
-                            value.value.constant = constant_value.value;
+                                    found = true;
+                                }
+                            }
 
-                            return {
-                                true,
-                                value
-                            };
+                            if(!found) {
+                                continue;
+                            }
+                        } else {
+                            continue;
                         }
+
+                        auto old_is_top_level = context->is_top_level;
+                        auto old_determined_declaration = context->determined_declaration;
+                        auto old_top_level_statements = context->top_level_statements;
+                        auto old_current_file_path = context->current_file_path;
+
+                        context->is_top_level = true;
+                        context->top_level_statements = expression_value.value.constant.file_module.statements;
+                        context->current_file_path = expression_value.value.constant.file_module.path;
+
+                        TypedConstantValue constant_value;
+                        switch(statement.type) {
+                            case StatementType::FunctionDeclaration: {
+                                expect(function_value, evaluate_function_declaration(context, statement));
+
+                                constant_value = function_value;
+                            } break;
+
+                            case StatementType::ConstantDefinition: {
+                                expect(expression_value, evaluate_constant_expression(context, statement.constant_definition.expression));
+
+                                constant_value = expression_value;
+                            } break;
+
+                            case StatementType::Import: {
+                                error(context->current_file_path, expression.member_reference.expression->range, "Cannot access module member '%s'. Imports are private", expression.member_reference.name.text);
+
+                                return { false };
+                            } break;
+
+                            case StatementType::StructDefinition: {
+                                expect(struct_value, evaluate_struct_definition(context, statement));
+
+                                constant_value = struct_value;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+
+                        context->current_file_path = old_current_file_path;
+                        context->top_level_statements = old_top_level_statements;
+                        context->determined_declaration = old_determined_declaration;
+                        context->is_top_level = old_is_top_level;
+
+                        TypedValue value;
+                        value.type = constant_value.type;
+                        value.value.category = ValueCategory::Constant;
+                        value.value.constant = constant_value.value;
+
+                        return {
+                            true,
+                            value
+                        };
                     }
 
                     error(context->current_file_path, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
