@@ -1467,6 +1467,152 @@ static Result<Type> coerce_to_default_type(GenerationContext context, FileRange 
 
 static Result<Type> evaluate_type_expression(GenerationContext *context, Expression expression);
 
+static Result<TypedConstantValue> evaluate_function_declaration(GenerationContext *context, Statement declaration) {
+    auto parameterTypes = allocate<Type>(declaration.function_declaration.parameters.count);
+
+    for(auto parameter : declaration.function_declaration.parameters) {
+        if(parameter.is_polymorphic_determiner) {
+            Type type;
+            type.category = TypeCategory::Function;
+            type.function.is_polymorphic = true;
+            type.function.parameter_count = declaration.function_declaration.parameters.count;
+
+            ConstantValue value;
+            value.function = {
+                declaration,
+                context->determined_declaration,
+                context->current_file_path
+            };
+
+            return {
+                true,
+                {
+                    type,
+                    value
+                }
+            };
+        }
+    }
+
+    for(size_t i = 0; i < declaration.function_declaration.parameters.count; i += 1) {
+        expect(type, evaluate_type_expression(context, declaration.function_declaration.parameters[i].type));
+
+        if(!is_runtime_type(type)) {
+            error(context->current_file_path, declaration.function_declaration.parameters[i].type.range, "Function parameters cannot be of type '%s'", type_description(type));
+
+            return { false };
+        }
+
+        parameterTypes[i] = type;
+    }
+
+    Type return_type;
+    if(declaration.function_declaration.has_return_type) {
+        expect(return_type_value, evaluate_type_expression(context, declaration.function_declaration.return_type));
+
+        if(!is_runtime_type(return_type_value)) {
+            error(context->current_file_path, declaration.function_declaration.return_type.range, "Function parameters cannot be of type '%s'", type_description(return_type_value));
+
+            return { false };
+        }
+
+        return_type = return_type_value;
+    } else {
+        return_type.category = TypeCategory::Void;
+    }
+
+    Type type;
+    type.category = TypeCategory::Function;
+    type.function = {
+        false,
+        declaration.function_declaration.parameters.count,
+        parameterTypes,
+        heapify(return_type)
+    };
+
+    ConstantValue value;
+    value.function = {
+        declaration,
+        context->determined_declaration,
+        context->current_file_path
+    };
+
+    return {
+        true,
+        {
+            type,
+            value
+        }
+    };
+}
+
+static const char* generate_mangled_name(GenerationContext context, Statement declaration);
+
+static Result<TypedConstantValue> evaluate_struct_definition(GenerationContext *context, Statement definition) {
+    auto mangled_name = generate_mangled_name(*context, definition);
+
+    auto is_registered = false;
+    for(auto struct_type : context->struct_types) {
+        if(strcmp(struct_type.name, mangled_name) == 0) {
+            is_registered = true;
+        }
+    }
+
+    if(!is_registered) {
+        auto members = allocate<DeterminedStructTypeMember>(definition.struct_definition.members.count);
+
+        for(size_t i = 0; i < definition.struct_definition.members.count; i += 1) {
+            for(size_t j = 0; j < definition.struct_definition.members.count; j += 1) {
+                if(j != i && strcmp(definition.struct_definition.members[i].name.text, definition.struct_definition.members[j].name.text) == 0) {
+                    error(context->current_file_path, definition.struct_definition.members[i].name.range, "Duplicate struct member name %s", definition.struct_definition.members[i].name.text);
+
+                    return { false };
+                }
+            }
+
+            expect(type, evaluate_type_expression(context, definition.struct_definition.members[i].type));
+
+            if(!is_runtime_type(type)) {
+                error(context->current_file_path, definition.struct_definition.members[i].type.range, "Struct members cannot be of type '%s'", type_description(type));
+
+                return { false };
+            }
+
+            members[i] = {
+                definition.struct_definition.members[i].name,
+                type
+            };
+        }
+
+        append(&context->struct_types, {
+            mangled_name,
+            definition.struct_definition.is_union,
+            {
+                definition.struct_definition.members.count,
+                members
+            }
+        });
+    }
+
+    Type type;
+    type.category = TypeCategory::Type;
+
+    ConstantValue value;
+    value.type.category = TypeCategory::Struct;
+    value.type._struct.is_undetermined = false;
+    value.type._struct.name = mangled_name;
+
+    return {
+        true,
+        {
+            type,
+            value
+        }
+    };
+}
+
+static Result<Type> evaluate_type_expression(GenerationContext *context, Expression expression);
+
 static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression expression) {
     switch(expression.type) {
         case ExpressionType::NamedReference: {
@@ -1600,7 +1746,36 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                             context->top_level_statements = expression_value.value.file_module.statements;
                             context->current_file_path = expression_value.value.file_module.path;
 
-                            expect(value, resolve_declaration(context, statement));
+                            TypedConstantValue value;
+                            switch(statement.type) {
+                                case StatementType::FunctionDeclaration: {
+                                    expect(function_value, evaluate_function_declaration(context, statement));
+
+                                    value = function_value;
+                                } break;
+
+                                case StatementType::ConstantDefinition: {
+                                    expect(expression_value, evaluate_constant_expression(context, statement.constant_definition.expression));
+
+                                    value = expression_value;
+                                } break;
+
+                                case StatementType::Import: {
+                                    error(context->current_file_path, expression.member_reference.expression->range, "Cannot access module member '%s'. Imports are private", expression.member_reference.name.text);
+
+                                    return { false };
+                                } break;
+
+                                case StatementType::StructDefinition: {
+                                    expect(struct_value, evaluate_struct_definition(context, statement));
+
+                                    value = struct_value;
+                                } break;
+
+                                default: {
+                                    abort();
+                                } break;
+                            }
 
                             context->current_file_path = old_current_file_path;
                             context->top_level_statements = old_top_level_statements;
@@ -2127,81 +2302,11 @@ static const char* generate_mangled_name(GenerationContext context, Statement de
 static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Statement declaration) {
     switch(declaration.type) {
         case StatementType::FunctionDeclaration: {
-            auto parameterTypes = allocate<Type>(declaration.function_declaration.parameters.count);
-
-            for(auto parameter : declaration.function_declaration.parameters) {
-                if(parameter.is_polymorphic_determiner) {
-                    Type type;
-                    type.category = TypeCategory::Function;
-                    type.function.is_polymorphic = true;
-                    type.function.parameter_count = declaration.function_declaration.parameters.count;
-
-                    ConstantValue value;
-                    value.function = {
-                        declaration,
-                        context->determined_declaration,
-                        context->current_file_path
-                    };
-
-                    return {
-                        true,
-                        {
-                            type,
-                            value
-                        }
-                    };
-                }
-            }
-
-            for(size_t i = 0; i < declaration.function_declaration.parameters.count; i += 1) {
-                expect(type, evaluate_type_expression(context, declaration.function_declaration.parameters[i].type));
-
-                if(!is_runtime_type(type)) {
-                    error(context->current_file_path, declaration.function_declaration.parameters[i].type.range, "Function parameters cannot be of type '%s'", type_description(type));
-
-                    return { false };
-                }
-
-                parameterTypes[i] = type;
-            }
-
-            Type return_type;
-            if(declaration.function_declaration.has_return_type) {
-                expect(return_type_value, evaluate_type_expression(context, declaration.function_declaration.return_type));
-
-                if(!is_runtime_type(return_type_value)) {
-                    error(context->current_file_path, declaration.function_declaration.return_type.range, "Function parameters cannot be of type '%s'", type_description(return_type_value));
-
-                    return { false };
-                }
-
-                return_type = return_type_value;
-            } else {
-                return_type.category = TypeCategory::Void;
-            }
-
-            Type type;
-            type.category = TypeCategory::Function;
-            type.function = {
-                false,
-                declaration.function_declaration.parameters.count,
-                parameterTypes,
-                heapify(return_type)
-            };
-
-            ConstantValue value;
-            value.function = {
-                declaration,
-                context->determined_declaration,
-                context->current_file_path
-            };
+            expect(value, evaluate_function_declaration(context, declaration));
 
             return {
                 true,
-                {
-                    type,
-                    value
-                }
+                value
             };
         } break;
 
@@ -2267,65 +2372,11 @@ static Result<TypedConstantValue> resolve_declaration(GenerationContext *context
         } break;
 
         case StatementType::StructDefinition: {
-            auto mangled_name = generate_mangled_name(*context, declaration);
-
-            auto is_registered = false;
-            for(auto struct_type : context->struct_types) {
-                if(strcmp(struct_type.name, mangled_name) == 0) {
-                    is_registered = true;
-                }
-            }
-
-            if(!is_registered) {
-                auto members = allocate<DeterminedStructTypeMember>(declaration.struct_definition.members.count);
-
-                for(size_t i = 0; i < declaration.struct_definition.members.count; i += 1) {
-                    for(size_t j = 0; j < declaration.struct_definition.members.count; j += 1) {
-                        if(j != i && strcmp(declaration.struct_definition.members[i].name.text, declaration.struct_definition.members[j].name.text) == 0) {
-                            error(context->current_file_path, declaration.struct_definition.members[i].name.range, "Duplicate struct member name %s", declaration.struct_definition.members[i].name.text);
-
-                            return { false };
-                        }
-                    }
-
-                    expect(type, evaluate_type_expression(context, declaration.struct_definition.members[i].type));
-
-                    if(!is_runtime_type(type)) {
-                        error(context->current_file_path, declaration.struct_definition.members[i].type.range, "Struct members cannot be of type '%s'", type_description(type));
-
-                        return { false };
-                    }
-
-                    members[i] = {
-                        declaration.struct_definition.members[i].name,
-                        type
-                    };
-                }
-
-                append(&context->struct_types, {
-                    mangled_name,
-                    declaration.struct_definition.is_union,
-                    {
-                        declaration.struct_definition.members.count,
-                        members
-                    }
-                });
-            }
-
-            Type type;
-            type.category = TypeCategory::Type;
-
-            ConstantValue value;
-            value.type.category = TypeCategory::Struct;
-            value.type._struct.is_undetermined = false;
-            value.type._struct.name = mangled_name;
+            expect(value, evaluate_struct_definition(context, declaration));
 
             return {
                 true,
-                {
-                    type,
-                    value
-                }
+                value
             };
         } break;
 
@@ -4236,7 +4287,36 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             context->top_level_statements = actual_expression_value.value.constant.file_module.statements;
                             context->current_file_path = actual_expression_value.value.constant.file_module.path;
 
-                            expect(constant_value, resolve_declaration(context, statement));
+                            TypedConstantValue constant_value;
+                            switch(statement.type) {
+                                case StatementType::FunctionDeclaration: {
+                                    expect(function_value, evaluate_function_declaration(context, statement));
+
+                                    constant_value = function_value;
+                                } break;
+
+                                case StatementType::ConstantDefinition: {
+                                    expect(expression_value, evaluate_constant_expression(context, statement.constant_definition.expression));
+
+                                    constant_value = expression_value;
+                                } break;
+
+                                case StatementType::Import: {
+                                    error(context->current_file_path, expression.member_reference.expression->range, "Cannot access module member '%s'. Imports are private", expression.member_reference.name.text);
+
+                                    return { false };
+                                } break;
+
+                                case StatementType::StructDefinition: {
+                                    expect(struct_value, evaluate_struct_definition(context, statement));
+
+                                    constant_value = struct_value;
+                                } break;
+
+                                default: {
+                                    abort();
+                                } break;
+                            }
 
                             context->current_file_path = old_current_file_path;
                             context->top_level_statements = old_top_level_statements;
