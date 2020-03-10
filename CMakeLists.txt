@@ -42,6 +42,8 @@ add_executable(compiler
     src/c_backend.h
     src/c_backend.cpp
 
+    src/jobs.h
+
     src/main.cpp
 )
 
