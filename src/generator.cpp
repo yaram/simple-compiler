@@ -1959,18 +1959,13 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             expect(first_element, evaluate_constant_expression(context, expression.array_literal[0]));
             elements[0] = first_element;
 
-            auto element_type = first_element.type;
             for(size_t i = 1; i < expression.array_literal.count; i += 1) {
                 expect(element, evaluate_constant_expression(context, expression.array_literal[i]));
-
-                if(is_type_undetermined(element_type) && !is_type_undetermined(element.type)) {
-                    element_type = element.type;
-                }
 
                 elements[i] = element;
             }
 
-            expect(determined_element_type, coerce_to_default_type(*context, expression.range, element_type));
+            expect(determined_element_type, coerce_to_default_type(*context, expression.range, first_element.type));
 
             if(!is_runtime_type(determined_element_type)) {
                 error(context->current_file_path, expression.range, "Arrays cannot be of type '%s'", type_description(determined_element_type));
@@ -1985,7 +1980,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                     *context,
                     expression.array_literal.elements[i].range,
                     elements[i],
-                    element_type,
+                    determined_element_type,
                     false
                 ));
 
@@ -4505,7 +4500,6 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             element_values[0] = first_element_value;
 
             auto all_constant = first_element_value.value.category == ValueCategory::Constant;
-            auto element_type = first_element_value.type;
             for(size_t i = 1; i < expression.array_literal.count; i += 1) {
                 expect(element_value, generate_expression(context, instructions, expression.array_literal[i]));
 
@@ -4513,14 +4507,10 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     all_constant = false;
                 }
 
-                if(is_type_undetermined(element_type) && !is_type_undetermined(element_value.type)) {
-                    element_type = element_value.type;
-                }
-
                 element_values[i] = element_value;
             }
 
-            expect(determined_element_type, coerce_to_default_type(*context, expression.range, element_type));
+            expect(determined_element_type, coerce_to_default_type(*context, expression.range, first_element_value.type));
 
             if(!is_runtime_type(determined_element_type)) {
                 error(context->current_file_path, expression.range, "Arrays cannot be of type '%s'", type_description(determined_element_type));
@@ -4536,7 +4526,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         *context,
                         expression.array_literal.elements[i].range,
                         { element_values[i].type, element_values[i].value.constant },
-                        element_type,
+                        determined_element_type,
                         false
                     ));
 
@@ -4557,14 +4547,14 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     value
                 };
             } else {
-                auto element_size = get_type_size(*context, element_type);
+                auto element_size = get_type_size(*context, determined_element_type);
 
                 auto base_address_register = append_allocate_local(
                     context,
                     instructions,
                     expression.range.first_line,
                     element_size * expression.array_literal.count,
-                    get_type_alignment(*context, element_type)
+                    get_type_alignment(*context, determined_element_type)
                 );
 
                 auto element_size_register = append_constant(
@@ -4575,7 +4565,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     element_size
                 );
 
-                auto representation = get_type_representation(*context, element_type);
+                auto representation = get_type_representation(*context, determined_element_type);
 
                 size_t length_register;
                 if(representation.is_in_register) {
@@ -4584,7 +4574,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         instructions,
                         expression.range.first_line,
                         context->address_integer_size,
-                        get_type_size(*context, element_type)
+                        get_type_size(*context, determined_element_type)
                     );
                 }
 
@@ -4595,7 +4585,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         instructions,
                         expression.array_literal.elements[i].range,
                         element_values[i],
-                        element_type,
+                        determined_element_type,
                         false
                     ));
 
@@ -4604,7 +4594,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             generate_constant_value_write(context,
                             instructions,
                             expression.array_literal[i].range,
-                            element_type,
+                            determined_element_type,
                             element_value.constant,
                             address_register
                         );
@@ -4687,7 +4677,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 value.type.category = TypeCategory::StaticArray;
                 value.type.static_array = {
                     expression.array_literal.count,
-                    heapify(element_type)
+                    heapify(determined_element_type)
                 };
                 value.value.anonymous.register_ = base_address_register;
 
