@@ -11,7 +11,7 @@
 #include "platform.h"
 #include "path.h"
 
-int main(int argument_count, char *arguments[]) {
+bool cli_entry(Array<const char*> arguments) {
     auto start_time = clock();
 
     const char *source_file_path = nullptr;
@@ -32,48 +32,48 @@ int main(int argument_count, char *arguments[]) {
     auto print_ir = false;
 
     int argument_index = 1;
-    while(argument_index < argument_count) {
+    while(argument_index < arguments.count) {
         auto argument = arguments[argument_index];
 
-        if(argument_index == argument_count - 1) {
+        if(argument_index == arguments.count - 1) {
             source_file_path = argument;
         } else if(strcmp(argument, "-output") == 0) {
             argument_index += 1;
 
-            if(argument_index == argument_count - 1) {
+            if(argument_index == arguments.count - 1) {
                 fprintf(stderr, "Missing value for '-output' option\n");
 
-                return EXIT_FAILURE;
+                return false;
             }
 
             output_file_path = arguments[argument_index];
         } else if(strcmp(argument, "-arch") == 0) {
             argument_index += 1;
 
-            if(argument_index == argument_count - 1) {
+            if(argument_index == arguments.count - 1) {
                 fprintf(stderr, "Missing value for '-arch' option\n");
 
-                return EXIT_FAILURE;
+                return false;
             }
 
             architecture = arguments[argument_index];
         } else if(strcmp(argument, "-os") == 0) {
             argument_index += 1;
 
-            if(argument_index == argument_count - 1) {
+            if(argument_index == arguments.count - 1) {
                 fprintf(stderr, "Missing value for '-os' option\n");
 
-                return EXIT_FAILURE;
+                return false;
             }
 
             os = arguments[argument_index];
         } else if(strcmp(argument, "-config") == 0) {
             argument_index += 1;
 
-            if(argument_index == argument_count - 1) {
+            if(argument_index == arguments.count - 1) {
                 fprintf(stderr, "Missing value for '-config' option\n");
 
-                return EXIT_FAILURE;
+                return false;
             }
 
             config = arguments[argument_index];
@@ -82,7 +82,7 @@ int main(int argument_count, char *arguments[]) {
         } else {
             fprintf(stderr, "Unknown option '%s'\n", argument);
 
-            return EXIT_FAILURE;
+            return false;
         }
 
         argument_index += 1;
@@ -94,7 +94,7 @@ int main(int argument_count, char *arguments[]) {
     ) {
         fprintf(stderr, "Unknown config '%s'\n", config);
 
-        return EXIT_FAILURE;
+        return false;
     }
 
     if(
@@ -103,19 +103,19 @@ int main(int argument_count, char *arguments[]) {
     ) {
         fprintf(stderr, "Unknown OS '%s'\n", os);
 
-        return EXIT_FAILURE;
+        return false;
     }
 
     if(strcmp(architecture, "x64") != 0) {
         fprintf(stderr, "Unknown architecture '%s'\n", architecture);
 
-        return EXIT_FAILURE;
+        return false;
     }
 
     if(source_file_path == nullptr) {
         fprintf(stderr, "No source file provided\n");
 
-        return EXIT_FAILURE;
+        return false;
     }
 
     expect(absolute_source_file_path, path_relative_to_absolute(source_file_path));
@@ -128,40 +128,13 @@ int main(int argument_count, char *arguments[]) {
         }
     }
 
-    Array<Token> source_file_tokens{};
-    {
-        auto result = tokenize_source(absolute_source_file_path);
+    expect(source_file_tokens, tokenize_source(absolute_source_file_path));
 
-        if(!result.status) {
-            return EXIT_FAILURE;
-        }
+    expect(source_file_statements, parse_tokens(absolute_source_file_path, source_file_tokens));
 
-        source_file_tokens = result.value;
-    }
+    auto register_sizes = get_register_sizes(architecture);
 
-    Array<Statement> source_file_statements;
-    {
-        auto result = parse_tokens(absolute_source_file_path, source_file_tokens);
-
-        if(!result.status) {
-            return EXIT_FAILURE;
-        }
-
-        source_file_statements = result.value;
-    }
-
-    IR ir;
-    {
-        auto register_sizes = get_register_sizes(architecture);
-
-        auto result = generate_ir(absolute_source_file_path, source_file_statements, register_sizes.address_size, register_sizes.default_size);
-
-        if(!result.status) {
-            return EXIT_FAILURE;
-        }
-
-        ir = result.value;
-    }
+    expect(ir, generate_ir(absolute_source_file_path, source_file_statements, register_sizes.address_size, register_sizes.default_size));
 
     if(print_ir) {
         for(auto function : ir.functions) {
@@ -237,7 +210,7 @@ int main(int argument_count, char *arguments[]) {
         string_buffer_append(&buffer, ".o");
 
         if(system(buffer) != 0) {
-            return EXIT_FAILURE;
+            return false;
         }
     }
 
@@ -247,5 +220,13 @@ int main(int argument_count, char *arguments[]) {
 
     printf("Total time: %.1fms\n", (double)total_time / CLOCKS_PER_SEC * 1000);
 
-    return EXIT_SUCCESS;
+    return true;
+}
+
+int main(int argument_count, const char *arguments[]) {
+    if(cli_entry({ (size_t)argument_count, arguments })) {
+        return 0;
+    } else {
+        return 1;
+    }
 }
