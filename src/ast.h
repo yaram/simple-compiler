@@ -173,6 +173,12 @@ struct FunctionParameter {
     };
 };
 
+struct StructParameter {
+    Identifier name;
+
+    Expression type;
+};
+
 struct Statement;
 
 struct ElseIf {
@@ -222,6 +228,8 @@ struct Statement {
             Identifier name;
 
             bool is_union;
+
+            Array<StructParameter> parameters;
 
             Array<StructMember> members;
         } struct_definition;

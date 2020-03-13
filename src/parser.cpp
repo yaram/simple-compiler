@@ -1997,13 +1997,65 @@ static Result<Statement> parse_statement(Context *context) {
                                     context->next_token_index += 1;
 
                                     if(strcmp(token.identifier, "struct") == 0) {
-                                        expect(pre_token, next_token(*context));
+                                        expect(maybe_union_token, next_token(*context));
 
                                         auto is_union = false;
-                                        if(pre_token.type == TokenType::Identifier && strcmp(pre_token.identifier, "union") == 0) {
+                                        if(maybe_union_token.type == TokenType::Identifier && strcmp(maybe_union_token.identifier, "union") == 0) {
                                             context->next_token_index += 1;
 
                                             is_union = true;
+                                        }
+
+                                        expect(maybe_parameter_token, next_token(*context));
+
+                                        List<StructParameter> parameters{};
+
+                                        if(maybe_parameter_token.type == TokenType::OpenRoundBracket) {
+                                            context->next_token_index += 1;
+
+                                            expect(token, next_token(*context));
+
+                                            if(token.type == TokenType::CloseRoundBracket) {
+                                                context->next_token_index += 1;
+                                            } else {
+                                                while(true) {
+                                                    expect(name, expect_identifier(context));
+
+                                                    if(!expect_basic_token(context, TokenType::Colon)) {
+                                                        return { false };
+                                                    }
+
+                                                    expect(type, parse_expression(context));
+
+                                                    append(&parameters, {
+                                                        name,
+                                                        type
+                                                    });
+
+                                                    expect(token, next_token(*context));
+
+                                                    auto done = false;
+                                                    switch(token.type) {
+                                                        case TokenType::Comma: {
+                                                            context->next_token_index += 1;
+                                                        } break;
+
+                                                        case TokenType::CloseRoundBracket: {
+                                                            context->next_token_index += 1;
+
+                                                            done = true;
+                                                        } break;
+
+                                                        default: {
+                                                            error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
+                                                        } break;
+                                                    }
+
+                                                    if(done) {
+                                                        break;
+                                                    }
+                                                }
+                                            }
                                         }
 
                                         if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
@@ -2069,6 +2121,7 @@ static Result<Statement> parse_statement(Context *context) {
                                         statement.struct_definition = {
                                             identifier,
                                             is_union,
+                                            to_array(parameters),
                                             to_array(members)
                                         };
 
