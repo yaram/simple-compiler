@@ -194,11 +194,7 @@ struct Statement {
 
     bool is_top_level;
 
-    union {
-        const char *file_path;
-
-        Statement *parent;
-    };
+    Statement *parent;
 
     union {
         struct {

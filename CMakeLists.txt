@@ -30,9 +30,6 @@ add_executable(compiler
     src/parser.h
     src/parser.cpp
 
-    src/types.h
-    src/types.cpp
-
     src/ir.h
     src/ir.cpp
 
