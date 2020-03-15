@@ -1346,7 +1346,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                 }
             }
 
-            auto function_declaration = new FunctionDelcaration {
+            auto function_declaration = new FunctionDeclaration {
                 span_range(name.range, last_range),
                 name,
                 parameters,
@@ -1453,7 +1453,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                 return { false };
             }
 
-            auto function_declaration = new FunctionDelcaration {
+            auto function_declaration = new FunctionDeclaration {
                 span_range(name.range, last_range),
                 name,
                 parameters,
@@ -2262,7 +2262,7 @@ static Result<Statement*> parse_statement(Context *context) {
 }
 
 void set_statement_parents(Statement *statement) {
-    if(auto function_declaration = dynamic_cast<FunctionDelcaration*>(statement)) {
+    if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(statement)) {
         if(!function_declaration->is_external) {
             for(auto child : function_declaration->statements) {
                 child->parent = statement;

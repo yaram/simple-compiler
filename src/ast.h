@@ -264,7 +264,7 @@ struct Statement {
     virtual ~Statement() {}
 };
 
-struct FunctionDelcaration : Statement {
+struct FunctionDeclaration : Statement {
     Identifier name;
 
     Array<FunctionParameter> parameters;
@@ -277,7 +277,7 @@ struct FunctionDelcaration : Statement {
 
     Array<const char *> external_libraries;
 
-    FunctionDelcaration(
+    FunctionDeclaration(
         FileRange range,
         Identifier name,
         Array<FunctionParameter> parameters,
@@ -292,7 +292,7 @@ struct FunctionDelcaration : Statement {
         statements { statements }
     {}
 
-    FunctionDelcaration(
+    FunctionDeclaration(
         FileRange range,
         Identifier name,
         Array<FunctionParameter> parameters,
