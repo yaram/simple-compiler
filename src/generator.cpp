@@ -9,10 +9,16 @@
 #include "lexer.h"
 #include "parser.h"
 
-struct ConstantParameter;
+struct Type;
+
+struct ConstantParameter {
+    const char *name;
+
+    Type *type;
+};
 
 struct DeterminedDeclaration {
-    Statement declaration;
+    Statement *declaration;
 
     Array<ConstantParameter> constant_parameters;
 
@@ -21,175 +27,267 @@ struct DeterminedDeclaration {
 
         struct {
             const char *file_path;
-            Array<Statement> top_level_statements;
+            Array<Statement*> top_level_statements;
         };
     };
 };
 
-enum struct TypeCategory {
-    Function,
-    Integer,
-    Boolean,
-    Type,
-    Void,
-    Pointer,
-    Array,
-    StaticArray,
-    Struct,
-    FileModule
-};
-
-struct StructTypeMember;
-struct StructTypeParameter;
-
 struct Type {
-    TypeCategory category;
+    virtual ~Type() {}
+};
 
-    union {
-        struct {
-            bool is_polymorphic;
+struct FunctionType : Type {
+    Array<Type*> parameters;
 
-            size_t parameter_count;
+    Type *return_type;
 
-            Type *parameters;
+    FunctionType(
+        Array<Type*> parameters,
+        Type *return_type
+    ) :
+    parameters { parameters },
+    return_type { return_type }
+    {}
+};
 
-            Type *return_type;
-        } function;
+struct PolymorphicFunction : Type {};
 
-        struct {
-            RegisterSize size;
+struct Integer : Type {
+    RegisterSize size;
 
-            bool is_signed;
+    bool is_signed;
 
-            bool is_undetermined;
-        } integer;
+    Integer(
+        RegisterSize size,
+        bool is_signed
+    ) :
+    size { size },
+    is_signed { is_signed }
+    {}
+};
 
-        Type *pointer;
+struct UndeterminedInteger : Type {};
 
-        Type *array;
+struct Boolean : Type {};
 
-        struct {
-            size_t length;
+struct TypeType : Type {};
 
-            Type *type;
-        } static_array;
+struct Void : Type {};
 
-        struct {
-            bool is_polymorphic;
+struct Pointer : Type {
+    Type *type;
 
-            bool is_undetermined;
+    Pointer(
+        Type *type
+    ) :
+    type { type }
+    {}
+};
 
-            bool is_union;
+struct ArrayType : Type {
+    Type *element_type;
 
-            const char *name;
+    ArrayType(
+        Type *element_type
+    ) :
+    element_type { element_type }
+    {}
+};
 
-            union {
-                Array<StructTypeMember> concrete;
+struct StaticArray : Type {
+    size_t length;
 
-                struct {
-                    StructTypeParameter *parameters;
+    Type *element_type;
 
-                    Statement declaration;
+    StaticArray(
+        size_t length,
+        Type *element_type
+    ) :
+    length { length },
+    element_type { element_type }
+    {}
+};
 
-                    union {
-                        DeterminedDeclaration parent;
+struct StructType : Type {
+    struct Member {
+        const char *name;
 
-                        struct {
-                            const char *file_path;
-                            Array<Statement> top_level_statements;
-                        };
-                    };
-                } polymorphic;
-            };
-        } _struct;
+        Type *type;
     };
+
+    StructDefinition *definition;
+
+    Array<Member> members;
+
+    StructType(
+        StructDefinition *definition,
+        Array<Member> members
+    ) :
+    definition { definition },
+    members { members }
+    {}
 };
 
-struct StructTypeMember {
-    const char *name;
+struct PolymorphicStruct : Type {
+    struct Parameter {
+        const char *name;
 
-    Type type;
+        Type *type;
+    };
+
+    StructDefinition *definition;
+
+    DeterminedDeclaration parent;
+
+    const char *file_path;
+    Array<Statement*> top_level_statements;
+
+    PolymorphicStruct(
+        StructDefinition *definition,
+        DeterminedDeclaration parent
+    ) :
+    definition { definition },
+    parent { parent }
+    {}
+
+    PolymorphicStruct(
+        StructDefinition *definition,
+        const char *file_path,
+        Array<Statement*> top_level_statements
+    ) :
+    definition { definition },
+    file_path { file_path },
+    top_level_statements { top_level_statements }
+    {}
 };
 
-struct StructTypeParameter {
-    const char *name;
+struct UndeterminedStruct : Type {
+    struct Member {
+        const char *name;
 
-    Type type;
+        Type *type;
+    };
+
+    Array<Member> members;
+
+    UndeterminedStruct(
+        Array<Member> members
+    ) :
+    members { members }
+    {}
 };
 
-static bool types_equal(Type a, Type b) {
-    if(a.category != b.category) {
-        return false;
-    }
+struct FileModule : Type {};
 
-    switch(a.category) {
-        case TypeCategory::Function: {
-            if(a.function.is_polymorphic || b.function.is_polymorphic) {
+static bool types_equal(Type *a, Type *b) {
+    if(auto a_function_type = dynamic_cast<FunctionType*>(a)) {
+        if(auto b_function_type = dynamic_cast<FunctionType*>(b)) {
+            if(a_function_type->parameters.count != b_function_type->parameters.count) {
                 return false;
             }
 
-            if(a.function.parameter_count != b.function.parameter_count) {
-                return false;
-            }
-
-            for(size_t i = 0; i < a.function.parameter_count; i += 1) {
-                if(!types_equal(a.function.parameters[i], b.function.parameters[i])) {
+            for(size_t i = 0; i < a_function_type->parameters.count; i += 1) {
+                if(!types_equal(a_function_type->parameters[i], b_function_type->parameters[i])) {
                     return false;
                 }
             }
 
-            return types_equal(*a.function.return_type, *b.function.return_type);
-        } break;
-        
-        case TypeCategory::Integer: {
-            return a.integer.size == b.integer.size && (a.integer.is_signed == b.integer.is_signed);
-        } break;
-
-        case TypeCategory::Pointer: {
-            return types_equal(*a.pointer, *b.pointer);
-        } break;
-
-        case TypeCategory::Array: {
-            return types_equal(*a.array, *b.array);
-        } break;
-
-        case TypeCategory::StaticArray: {
-            return types_equal(*a.static_array.type, *b.static_array.type) && a.static_array.length == b.static_array.length;
-        } break;
-
-        case TypeCategory::Struct: {
-            if(strcmp(a._struct.name, b._struct.name) != 0) {
+            return types_equal(a_function_type->return_type, b_function_type->return_type);
+        } else {
+            return false;
+        }
+    } else if(dynamic_cast<PolymorphicFunction*>(a)) {
+        return false;
+    } else if(auto a_integer = dynamic_cast<Integer*>(a)) {
+        if(auto b_integer = dynamic_cast<Integer*>(b)) {
+            return a_integer->size == b_integer->size && a_integer->is_signed == b_integer->is_signed;
+        } else {
+            return false;
+        }
+    } else if(dynamic_cast<UndeterminedInteger*>(a)) {
+        return dynamic_cast<UndeterminedInteger*>(b);
+    } else if(dynamic_cast<Boolean*>(a)) {
+        return dynamic_cast<Boolean*>(b);
+    } else if(dynamic_cast<TypeType*>(a)) {
+        return dynamic_cast<TypeType*>(b);
+    } else if(dynamic_cast<Void*>(a)) {
+        return dynamic_cast<Void*>(b);
+    } else if(auto a_pointer = dynamic_cast<Pointer*>(a)) {
+        if(auto b_pointer = dynamic_cast<Pointer*>(b)) {
+            return types_equal(a_pointer->type, b_pointer->type);
+        } else {
+            return false;
+        }
+    } else if(auto a_array = dynamic_cast<ArrayType*>(a)) {
+        if(auto b_array = dynamic_cast<ArrayType*>(b)) {
+            return types_equal(a_array->element_type, b_array->element_type);
+        } else {
+            return false;
+        }
+    } else if(auto a_static_array = dynamic_cast<StaticArray*>(a)) {
+        if(auto b_static_array = dynamic_cast<StaticArray*>(b)) {
+            return types_equal(a_static_array->element_type, b_static_array->element_type) && a_static_array->length == b_static_array->length;
+        } else {
+            return false;
+        }
+    } else if(auto a_struct = dynamic_cast<StructType*>(a)) {
+        if(auto b_struct = dynamic_cast<StructType*>(b)) {
+            if(a_struct->definition != b_struct->definition) {
                 return false;
             }
 
-            if(a._struct.is_polymorphic && b._struct.is_polymorphic) {
-                return true;
-            } else if(a._struct.is_polymorphic) {
-                return false;
-            } else if(b._struct.is_polymorphic) {
+            if(a_struct->members.count != b_struct->members.count) {
                 return false;
             }
 
-            if(!a._struct.is_polymorphic) {
-                for(size_t i = 0; i < a._struct.concrete.count; i += 1) {
-                    if(!types_equal(a._struct.concrete[i].type, b._struct.concrete[i].type)) {
-                        return false;
-                    }
+            for(size_t i = 0; i < a_struct->members.count; i += 1) {
+                if(
+                    strcmp(a_struct->members[i].name, b_struct->members[i].name) != 0 ||
+                    !types_equal(a_struct->members[i].type, b_struct->members[i].type)
+                ) {
+                    return false;
                 }
             }
 
             return true;
-        } break;
+        } else {
+            return false;
+        }
+    } else if(auto a_polymorphic_struct = dynamic_cast<PolymorphicStruct*>(a)) {
+        if(auto b_polymorphic_struct = dynamic_cast<PolymorphicStruct*>(b)) {
+            return a_polymorphic_struct->definition != b_polymorphic_struct->definition;
+        } else {
+            return false;
+        }
+    } else if(auto a_undetermined_struct = dynamic_cast<UndeterminedStruct*>(a)) {
+        if(auto b_undetermined_struct = dynamic_cast<UndeterminedStruct*>(b)) {
+            if(a_undetermined_struct->members.count != b_undetermined_struct->members.count) {
+                return false;
+            }
 
-        default: {
+            for(size_t i = 0; i < a_undetermined_struct->members.count; i += 1) {
+                if(
+                    strcmp(a_undetermined_struct->members[i].name, b_undetermined_struct->members[i].name) != 0 ||
+                    !types_equal(a_undetermined_struct->members[i].type, b_undetermined_struct->members[i].type)
+                ) {
+                    return false;
+                }
+            }
+
             return true;
-        } break;
+        } else {
+            return false;
+        }
+    } else if(dynamic_cast<FileModule*>(a)) {
+        return dynamic_cast<FileModule*>(b);
+    } else {
+        abort();
     }
 }
 
-static const char *determined_integer_type_description(RegisterSize size, bool is_signed) {
-    if(is_signed) {
-        switch(size) {
+static const char *integer_type_description(Integer integer) {
+    if(integer.is_signed) {
+        switch(integer.size) {
             case RegisterSize::Size8: {
                 return "i8";
             } break;
@@ -211,7 +309,7 @@ static const char *determined_integer_type_description(RegisterSize size, bool i
             } break;
         }
     } else {
-        switch(size) {
+        switch(integer.size) {
             case RegisterSize::Size8: {
                 return "u8";
             } break;
@@ -235,126 +333,87 @@ static const char *determined_integer_type_description(RegisterSize size, bool i
     }
 }
 
-static const char *type_description(Type type) {
-    switch(type.category) {
-        case TypeCategory::Function: {
-            if(type.function.is_polymorphic) {
-                return "{polymorphic}";
-            } else {
-                char *buffer{};
+static const char *type_description(Type *type) {
+    if(auto function = dynamic_cast<FunctionType*>(type)) {
+        char *buffer{};
 
-                string_buffer_append(&buffer, "(");
+        string_buffer_append(&buffer, "(");
 
-                for(size_t i = 0; i < type.function.parameter_count; i += 1) {
-                    string_buffer_append(&buffer, type_description(type.function.parameters[i]));
+        for(size_t i = 0; i < function->parameters.count; i += 1) {
+            string_buffer_append(&buffer, type_description(function->parameters[i]));
 
-                    if(i != type.function.parameter_count - 1) {
-                        string_buffer_append(&buffer, ",");
-                    }
-                }
-
-                string_buffer_append(&buffer, ")");
-                
-                if(type.function.return_type != nullptr) {
-                    string_buffer_append(&buffer, " -> ");
-                    string_buffer_append(&buffer, type_description(*type.function.return_type));
-                }
-
-                return buffer;
+            if(i != function->parameters.count - 1) {
+                string_buffer_append(&buffer, ",");
             }
-        } break;
-        
-        case TypeCategory::Integer: {
-            if(type.integer.is_undetermined) {
-                return "{integer}";
-            } else {
-                return determined_integer_type_description(type.integer.size, type.integer.is_signed);
-            }
-        } break;
+        }
 
-        case TypeCategory::Boolean: {
-            return "bool";
-        } break;
+        string_buffer_append(&buffer, ")");
 
-        case TypeCategory::Type: {
-            return "{type}";
-        } break;
+        if(function->return_type != nullptr) {
+            string_buffer_append(&buffer, " -> ");
+            string_buffer_append(&buffer, type_description(function->return_type));
+        }
+        return buffer;
+    } else if(dynamic_cast<PolymorphicFunction*>(type)) {
+        return "{function}";
+    } else if(auto integer = dynamic_cast<Integer*>(type)) {
+        return integer_type_description(*integer);
+    } else if(dynamic_cast<UndeterminedInteger*>(type)) {
+        return "{integer}";
+    } else if(dynamic_cast<Boolean*>(type)) {
+        return "bool";
+    } else if(dynamic_cast<TypeType*>(type)) {
+        return "{type}";
+    } else if(dynamic_cast<Void*>(type)) {
+        return "void";
+    } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
+        char *buffer{};
 
-        case TypeCategory::Void: {
-            return "void";
-        } break;
+        string_buffer_append(&buffer, "*");
+        string_buffer_append(&buffer, type_description(pointer->type));
 
-        case TypeCategory::Pointer: {
-            char *buffer{};
+        return buffer;
+    } else if(auto array = dynamic_cast<ArrayType*>(type)) {
+        char *buffer{};
 
-            string_buffer_append(&buffer, "*");
-            string_buffer_append(&buffer, type_description(*type.pointer));
+        string_buffer_append(&buffer, "[]");
+        string_buffer_append(&buffer, type_description(array->element_type));
 
-            return buffer;
-        } break;
+        return buffer;
+    } else if(auto static_array = dynamic_cast<StaticArray*>(type)) {
+        char *buffer{};
 
-        case TypeCategory::Array: {
-            char *buffer{};
+        string_buffer_append(&buffer, "[");
+        string_buffer_append(&buffer, static_array->length);
+        string_buffer_append(&buffer, "]");
+        string_buffer_append(&buffer, type_description(static_array->element_type));
 
-            string_buffer_append(&buffer, "[]");
-            string_buffer_append(&buffer, type_description(*type.array));
-
-            return buffer;
-        } break;
-
-        case TypeCategory::StaticArray: {
-            char *buffer{};
-
-            string_buffer_append(&buffer, "[");
-
-            char length_buffer[32];
-            sprintf(length_buffer, "%z");
-            string_buffer_append(&buffer, length_buffer);
-
-            string_buffer_append(&buffer, "]");
-            string_buffer_append(&buffer, type_description(*type.static_array.type));
-
-            return buffer;
-        } break;
-
-        case TypeCategory::Struct: {
-            if(type._struct.is_undetermined) {
-                return "{struct}";
-            } else {
-                return type._struct.name;
-            }
-        } break;
-
-        case TypeCategory::FileModule: {
-            return "{module}";
-        } break;
-
-        default: {
-            abort();
-        } break;
+        return buffer;
+    } else if(auto struct_type = dynamic_cast<StructType*>(type)) {
+        return struct_type->definition->name.text;
+    } else if(auto polymorphic_struct = dynamic_cast<PolymorphicStruct*>(type)) {
+        return polymorphic_struct->definition->name.text;
+    } else if(dynamic_cast<UndeterminedStruct*>(type)) {
+        return "{struct}";
+    } else if(dynamic_cast<FileModule*>(type)) {
+        return "{module}";
+    } else {
+        abort();
     }
 }
 
-static bool is_runtime_type(Type type) {
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            return !type.integer.is_undetermined;
-        } break;
-
-        case TypeCategory::Boolean:
-        case TypeCategory::Pointer:
-        case TypeCategory::Array:
-        case TypeCategory::StaticArray: {
-            return true;
-        } break;
-
-        case TypeCategory::Struct: {
-            return !type._struct.is_polymorphic && !type._struct.is_undetermined;
-        } break;
-
-        default: {
-            return false;
-        } break;
+static bool is_runtime_type(Type *type) {
+    if(
+        dynamic_cast<Integer*>(type) ||
+        dynamic_cast<Boolean*>(type) ||
+        dynamic_cast<Pointer*>(type) ||
+        dynamic_cast<ArrayType*>(type) ||
+        dynamic_cast<StaticArray*>(type) ||
+        dynamic_cast<StructType*>(type)
+    ) {
+        return true;
+    } else {
+        return false;
     }
 }
 
