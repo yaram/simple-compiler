@@ -3,263 +3,280 @@
 #include <string.h>
 
 static const char *register_size_names[] = { "8", "16", "32", "64" };
-
-void print_instruction(Instruction instruction, bool has_return) {
-    switch(instruction.type) {
-        case InstructionType::ArithmeticOperation: {
-            switch(instruction.arithmetic_operation.type) {
-                case ArithmeticOperationType::Add: {
-                    printf("ADD ");
-                } break;
-
-                case ArithmeticOperationType::Subtract: {
-                    printf("SUB ");
-                } break;
-
-                case ArithmeticOperationType::SignedMultiply: {
-                    printf("MUL ");
-                } break;
-
-                case ArithmeticOperationType::UnsignedMultiply: {
-                    printf("UMUL ");
-                } break;
-
-                case ArithmeticOperationType::SignedDivide: {
-                    printf("DIV ");
-                } break;
-
-                case ArithmeticOperationType::UnsignedDivide: {
-                    printf("UDIV ");
-                } break;
-
-                case ArithmeticOperationType::SignedModulus: {
-                    printf("MOD ");
-                } break;
-
-                case ArithmeticOperationType::UnsignedModulus: {
-                    printf("UMOD ");
-                } break;
-
-                case ArithmeticOperationType::BitwiseAnd: {
-                    printf("AND ");
-                } break;
-
-                case ArithmeticOperationType::BitwiseOr: {
-                    printf("OR ");
-                } break;
-            }
-
-            printf(
-                " %s r%zu, r%zu, r%zu",
-                register_size_names[(int)instruction.arithmetic_operation.size],
-                instruction.arithmetic_operation.source_register_a,
-                instruction.arithmetic_operation.source_register_b,
-                instruction.arithmetic_operation.destination_register
-            );
+static const char *register_size_name(RegisterSize size) {
+    switch(size) {
+        case RegisterSize::Size8: {
+            return "8";
         } break;
 
-        case InstructionType::ComparisonOperation: {
-            switch(instruction.comparison_operation.type) {
-                case ComparisonOperationType::Equal: {
-                    printf("EQ ");
-                } break;
-
-                case ComparisonOperationType::SignedLessThan: {
-                    printf("SLT ");
-                } break;
-
-                case ComparisonOperationType::UnsignedLessThan: {
-                    printf("ULT ");
-                } break;
-
-                case ComparisonOperationType::SignedGreaterThan: {
-                    printf("SGT ");
-                } break;
-
-                case ComparisonOperationType::UnsignedGreaterThan: {
-                    printf("UGT ");
-                } break;
-            }
-
-            printf(
-                " %s r%zu, r%zu, r%zu",
-                register_size_names[(int)instruction.comparison_operation.size],
-                instruction.comparison_operation.source_register_a,
-                instruction.comparison_operation.source_register_b,
-                instruction.comparison_operation.destination_register
-            );
+        case RegisterSize::Size16: {
+            return "16";
         } break;
 
-        case InstructionType::IntegerUpcast: {
-            char postfix;
-            if(instruction.integer_upcast.is_signed) {
-                postfix = 'S';
-            } else {
-                postfix = 'U';
-            }
-
-            printf(
-                "CAST%c %s r%zu, %s r%zu",
-                postfix,
-                register_size_names[(int)instruction.integer_upcast.source_size],
-                instruction.integer_upcast.source_register,
-                register_size_names[(int)instruction.integer_upcast.destination_size],
-                instruction.integer_upcast.destination_register
-            );
+        case RegisterSize::Size32: {
+            return "32";
         } break;
 
-        case InstructionType::Constant: {
-            printf("CONST %s ", register_size_names[(int)instruction.constant.size]);
-
-            switch(instruction.constant.size) {
-                case RegisterSize::Size8: {
-                    printf("%hhu", (uint8_t)instruction.constant.value);
-                } break;
-
-                case RegisterSize::Size16: {
-                    printf("%hu", (uint16_t)instruction.constant.value);
-                } break;
-
-                case RegisterSize::Size32: {
-                    printf("%u", (uint32_t)instruction.constant.value);
-                } break;
-
-                case RegisterSize::Size64: {
-                    printf("%llu", (uint64_t)instruction.constant.value);
-                } break;
-            }
-
-            printf(", r%zu", instruction.constant.destination_register);
+        case RegisterSize::Size64: {
+            return "64";
         } break;
 
-        case InstructionType::Jump: {
-            printf("JMP %zu", instruction.jump.destination_instruction);
-        } break;
-
-        case InstructionType::Branch: {
-            printf(
-                "BR r%zu, %zu",
-                instruction.branch.condition_register,
-                instruction.branch.destination_instruction
-            );
-        } break;
-
-        case InstructionType::FunctionCall: {
-            printf("CALL %s (", instruction.function_call.function_name);
-
-            for(size_t i = 0; i < instruction.function_call.parameter_registers.count; i += 1) {
-                printf("r%zu", instruction.function_call.parameter_registers[i]);
-
-                if(i != instruction.function_call.parameter_registers.count - 1) {
-                    printf(", ");
-                }
-            }
-
-            printf(")");
-
-            if(instruction.function_call.has_return) {
-                printf(" r%zu", instruction.function_call.return_register);
-            }
-        } break;
-
-        case InstructionType::Return: {
-            printf("RET");
-
-            if(has_return) {
-                printf(" r%zu", instruction.return_.value_register);
-            }
-        } break;
-
-        case InstructionType::AllocateLocal: {
-            printf(
-                "LOCAL %zu(%zu), r%zu",
-                instruction.allocate_local.size,
-                instruction.allocate_local.alignment,
-                instruction.allocate_local.destination_register
-            );
-        } break;
-
-        case InstructionType::LoadInteger: {
-            printf(
-                "LOAD %s r%zu, r%zu",
-                register_size_names[(int)instruction.load_integer.size],
-                instruction.load_integer.address_register,
-                instruction.load_integer.destination_register
-            );
-        } break;
-
-        case InstructionType::StoreInteger: {
-            printf(
-                "STORE %s r%zu, r%zu",
-                register_size_names[(int)instruction.store_integer.size],
-                instruction.store_integer.source_register,
-                instruction.store_integer.address_register
-            );
-        } break;
-
-        case InstructionType::CopyMemory: {
-            printf(
-                "COPY r%zu, r%zu, r%zu",
-                instruction.copy_memory.length_register,
-                instruction.copy_memory.source_address_register,
-                instruction.copy_memory.destination_address_register
-            );
-        } break;
-
-        case InstructionType::ReferenceStatic: {
-            printf(
-                "STATIC %s r%zu",
-                instruction.reference_static.name,
-                instruction.reference_static.destination_register
-            );
+        default: {
+            abort();
         } break;
     }
 }
 
-void print_function(Function function) {
-    printf("%s (", function.name);
+void print_instruction(Instruction *instruction, bool has_return) {
+    if(auto arithmetic_operation = dynamic_cast<ArithmeticOperation*>(instruction)) {
+        switch(arithmetic_operation->operation) {
+            case ArithmeticOperation::Operation::Add: {
+                printf("ADD ");
+            } break;
 
-    for(size_t i = 0; i < function.parameter_sizes.count; i += 1) {
+            case ArithmeticOperation::Operation::Subtract: {
+                printf("SUB ");
+            } break;
+
+            case ArithmeticOperation::Operation::SignedMultiply: {
+                printf("MUL ");
+            } break;
+
+            case ArithmeticOperation::Operation::UnsignedMultiply: {
+                printf("UMUL ");
+            } break;
+
+            case ArithmeticOperation::Operation::SignedDivide: {
+                printf("DIV ");
+            } break;
+
+            case ArithmeticOperation::Operation::UnsignedDivide: {
+                printf("UDIV ");
+            } break;
+
+            case ArithmeticOperation::Operation::SignedModulus: {
+                printf("MOD ");
+            } break;
+
+            case ArithmeticOperation::Operation::UnsignedModulus: {
+                printf("UMOD ");
+            } break;
+
+            case ArithmeticOperation::Operation::BitwiseAnd: {
+                printf("AND ");
+            } break;
+
+            case ArithmeticOperation::Operation::BitwiseOr: {
+                printf("OR ");
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+
         printf(
-            "r%zu: %s",
-            i,
-            register_size_names[(int)function.parameter_sizes[i]]
+            " %s r%zu, r%zu, r%zu",
+            register_size_name(arithmetic_operation->size),
+            arithmetic_operation->source_register_a,
+            arithmetic_operation->source_register_b,
+            arithmetic_operation->destination_register
         );
+    } else if(auto comparison_operation = dynamic_cast<ComparisonOperation*>(instruction)) {
+        switch(comparison_operation->operation) {
+            case ComparisonOperation::Operation::Equal: {
+                printf("EQ ");
+            } break;
 
-        if(i != function.parameter_sizes.count - 1) {
-            printf(", ");
+            case ComparisonOperation::Operation::SignedLessThan: {
+                printf("SLT ");
+            } break;
+
+            case ComparisonOperation::Operation::UnsignedLessThan: {
+                printf("ULT ");
+            } break;
+
+            case ComparisonOperation::Operation::SignedGreaterThan: {
+                printf("SGT ");
+            } break;
+
+            case ComparisonOperation::Operation::UnsignedGreaterThan: {
+                printf("UGT ");
+            } break;
+
+            default: {
+                abort();
+            } break;
         }
-    }
 
-    printf(")");
+        printf(
+            " %s r%zu, r%zu, r%zu",
+            register_size_name(comparison_operation->size),
+            comparison_operation->source_register_a,
+            comparison_operation->source_register_b,
+            comparison_operation->destination_register
+        );
+    } else if(auto integer_upcast = dynamic_cast<IntegerUpcast*>(instruction)) {
+        if(integer_upcast->is_signed) {
+            printf("SCAST");
+        } else {
+            printf("CAST");
+        }
 
-    if(function.has_return) {
-        printf(" %s", register_size_names[(int)function.return_size]);
-    }
+        printf(
+            " %s r%zu, %s r%zu",
+            register_size_name(integer_upcast->source_size),
+            integer_upcast->source_register,
+            register_size_name(integer_upcast->destination_size),
+            integer_upcast->destination_register
+        );
+    } else if(auto constant = dynamic_cast<Constant*>(instruction)) {
+        printf("CONST %s ", register_size_name(constant->size));
 
-    if(function.is_external) {
-        printf(" extern");
+        switch(constant->size) {
+            case RegisterSize::Size8: {
+                printf("%hhx", (uint8_t)constant->value);
+            } break;
+
+            case RegisterSize::Size16: {
+                printf("%hx", (uint16_t)constant->value);
+            } break;
+
+            case RegisterSize::Size32: {
+                printf("%x", (uint32_t)constant->value);
+            } break;
+
+            case RegisterSize::Size64: {
+                printf("%llx", constant->value);
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+
+        printf(", r%zu", constant->destination_register);
+    } else if(auto jump = dynamic_cast<Jump*>(instruction)) {
+        printf("JMP %zu", jump->destination_instruction);
+    } else if(auto branch = dynamic_cast<Branch*>(instruction)) {
+        printf(
+            "BR r%zu, %zu",
+            branch->condition_register,
+            branch->destination_instruction
+        );
+    } else if(auto function_call = dynamic_cast<FunctionCallInstruction*>(instruction)) {
+        printf("CALL %s (", function_call->function_name);
+
+        for(size_t i = 0; i < function_call->parameter_registers.count; i += 1) {
+            printf("r%zu", function_call->parameter_registers[i]);
+
+            if(i != function_call->parameter_registers.count - 1) {
+                printf(", ");
+            }
+        }
+
+        printf(")");
+
+        if(function_call->has_return) {
+            printf(" r%zu", function_call->return_register);
+        }
+    } else if(auto return_instruction = dynamic_cast<ReturnInstruction*>(instruction)) {
+        printf("RET");
+
+        if(has_return) {
+            printf(" r%zu", return_instruction->value_register);
+        }
+    } else if(auto allocate_local = dynamic_cast<AllocateLocal*>(instruction)) {
+        printf(
+            "LOCAL %zu(%zu), r%zu",
+            allocate_local->size,
+            allocate_local->alignment,
+            allocate_local->destination_register
+        );
+    } else if(auto load_integer = dynamic_cast<LoadInteger*>(instruction)) {
+        printf(
+            "LOAD %s r%zu, r%zu",
+            register_size_name(load_integer->size),
+            load_integer->address_register,
+            load_integer->destination_register
+        );
+    } else if(auto store_integer = dynamic_cast<StoreInteger*>(instruction)) {
+        printf(
+            "STORE %s r%zu, r%zu",
+            register_size_name(store_integer->size),
+            store_integer->source_register,
+            store_integer->address_register
+        );
+    } else if(auto copy_memory = dynamic_cast<CopyMemory*>(instruction)) {
+        printf(
+            "COPY r%zu, r%zu, r%zu",
+            copy_memory->length_register,
+            copy_memory->source_address_register,
+            copy_memory->destination_address_register
+        );
+    } else if(auto reference_static = dynamic_cast<ReferenceStatic*>(instruction)) {
+        printf(
+            "STATIC %s r%zu",
+            reference_static->name,
+            reference_static->destination_register
+        );
     } else {
-        printf("\n");
+        abort();
+    }
+}
 
-        char buffer[20];
-        sprintf(buffer, "%zu", function.instructions.count - 1);
-        size_t max_index_digits = strlen(buffer);
+void print_static(RuntimeStatic *runtime_static) {
+    printf("%s", runtime_static->name);
 
-        for(size_t i = 0; i < function.instructions.count; i += 1) {
-            auto index_digits = printf("%zu", i);
+    if(auto function = dynamic_cast<Function*>(runtime_static)) {
+        printf(" (", function->name);
 
-            for(size_t j = 0; j < max_index_digits - index_digits; j += 1) {
-                printf(" ");
-            }
+        for(size_t i = 0; i < function->parameter_sizes.count; i += 1) {
+            printf(
+                "r%zu: %s",
+                i,
+                register_size_name(function->parameter_sizes[i])
+            );
 
-            printf(" : ");
-
-            print_instruction(function.instructions[i], function.has_return);
-
-            if(i != function.instructions.count - 1) {
-                printf("\n");
+            if(i != function->parameter_sizes.count - 1) {
+                printf(", ");
             }
         }
+
+        printf(")");
+
+        if(function->has_return) {
+            printf(" %s", register_size_name(function->return_size));
+        }
+
+        if(function->is_external) {
+            printf(" extern");
+        } else {
+            printf("\n");
+
+            char buffer[20];
+            sprintf(buffer, "%zu", function->instructions.count - 1);
+            size_t max_index_digits = strlen(buffer);
+
+            for(size_t i = 0; i < function->instructions.count; i += 1) {
+                auto index_digits = printf("%zu", i);
+
+                for(size_t j = 0; j < max_index_digits - index_digits; j += 1) {
+                    printf(" ");
+                }
+
+                printf(" : ");
+
+                print_instruction(function->instructions[i], function->has_return);
+
+                if(i != function->instructions.count - 1) {
+                    printf("\n");
+                }
+            }
+        }
+    } else if(auto constant = dynamic_cast<StaticConstant*>(runtime_static)) {
+        printf("%s %zu", constant->data.count);
+    } else {
+        abort();
     }
 }
