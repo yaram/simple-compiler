@@ -11,10 +11,23 @@
 
 struct Type;
 
+struct ConstantValue;
+
 struct ConstantParameter {
     const char *name;
 
     Type *type;
+
+    ConstantValue *value;
+};
+
+struct DeterminedDeclaration;
+
+struct DeclarationParent {
+    DeterminedDeclaration *parent;
+
+    const char *file_path;
+    Array<Statement*> top_level_statements;
 };
 
 struct DeterminedDeclaration {
@@ -22,26 +35,19 @@ struct DeterminedDeclaration {
 
     Array<ConstantParameter> constant_parameters;
 
-    union {
-        DeterminedDeclaration *parent;
-
-        struct {
-            const char *file_path;
-            Array<Statement*> top_level_statements;
-        };
-    };
+    DeclarationParent parent;
 };
 
 struct Type {
     virtual ~Type() {}
 };
 
-struct FunctionType : Type {
+struct FunctionTypeType : Type {
     Array<Type*> parameters;
 
     Type *return_type;
 
-    FunctionType(
+    FunctionTypeType(
         Array<Type*> parameters,
         Type *return_type
     ) :
@@ -84,10 +90,10 @@ struct Pointer : Type {
     {}
 };
 
-struct ArrayType : Type {
+struct ArrayTypeType : Type {
     Type *element_type;
 
-    ArrayType(
+    ArrayTypeType(
         Type *element_type
     ) :
     element_type { element_type }
@@ -129,35 +135,20 @@ struct StructType : Type {
 };
 
 struct PolymorphicStruct : Type {
-    struct Parameter {
-        const char *name;
-
-        Type *type;
-    };
-
     StructDefinition *definition;
 
-    DeterminedDeclaration parent;
+    Type **parameter_types;
 
-    const char *file_path;
-    Array<Statement*> top_level_statements;
+    DeclarationParent parent;
 
     PolymorphicStruct(
         StructDefinition *definition,
-        DeterminedDeclaration parent
+        Type **parameter_types,
+        DeclarationParent parent
     ) :
     definition { definition },
+    parameter_types { parameter_types },
     parent { parent }
-    {}
-
-    PolymorphicStruct(
-        StructDefinition *definition,
-        const char *file_path,
-        Array<Statement*> top_level_statements
-    ) :
-    definition { definition },
-    file_path { file_path },
-    top_level_statements { top_level_statements }
     {}
 };
 
@@ -180,8 +171,8 @@ struct UndeterminedStruct : Type {
 struct FileModule : Type {};
 
 static bool types_equal(Type *a, Type *b) {
-    if(auto a_function_type = dynamic_cast<FunctionType*>(a)) {
-        if(auto b_function_type = dynamic_cast<FunctionType*>(b)) {
+    if(auto a_function_type = dynamic_cast<FunctionTypeType*>(a)) {
+        if(auto b_function_type = dynamic_cast<FunctionTypeType*>(b)) {
             if(a_function_type->parameters.count != b_function_type->parameters.count) {
                 return false;
             }
@@ -218,8 +209,8 @@ static bool types_equal(Type *a, Type *b) {
         } else {
             return false;
         }
-    } else if(auto a_array = dynamic_cast<ArrayType*>(a)) {
-        if(auto b_array = dynamic_cast<ArrayType*>(b)) {
+    } else if(auto a_array = dynamic_cast<ArrayTypeType*>(a)) {
+        if(auto b_array = dynamic_cast<ArrayTypeType*>(b)) {
             return types_equal(a_array->element_type, b_array->element_type);
         } else {
             return false;
@@ -334,7 +325,7 @@ static const char *integer_type_description(Integer integer) {
 }
 
 static const char *type_description(Type *type) {
-    if(auto function = dynamic_cast<FunctionType*>(type)) {
+    if(auto function = dynamic_cast<FunctionTypeType*>(type)) {
         char *buffer{};
 
         string_buffer_append(&buffer, "(");
@@ -373,7 +364,7 @@ static const char *type_description(Type *type) {
         string_buffer_append(&buffer, type_description(pointer->type));
 
         return buffer;
-    } else if(auto array = dynamic_cast<ArrayType*>(type)) {
+    } else if(auto array = dynamic_cast<ArrayTypeType*>(type)) {
         char *buffer{};
 
         string_buffer_append(&buffer, "[]");
@@ -407,7 +398,7 @@ static bool is_runtime_type(Type *type) {
         dynamic_cast<Integer*>(type) ||
         dynamic_cast<Boolean*>(type) ||
         dynamic_cast<Pointer*>(type) ||
-        dynamic_cast<ArrayType*>(type) ||
+        dynamic_cast<ArrayTypeType*>(type) ||
         dynamic_cast<StaticArray*>(type) ||
         dynamic_cast<StructType*>(type)
     ) {
@@ -417,69 +408,160 @@ static bool is_runtime_type(Type *type) {
     }
 }
 
-union ConstantValue {
-    struct {
-        Statement declaration;
+struct ConstantValue {
+    virtual ~ConstantValue() {}
+};
 
-        union {
-            DeterminedDeclaration parent;
+struct FunctionConstant : ConstantValue {
+    const char *mangled_name;
 
-            struct {
-                const char *file_path;
-                Array<Statement> top_level_statements;
-            };
-        };
-    } function;
+    FunctionConstant() {}
 
-    uint64_t integer;
+    FunctionConstant(
+        const char *mangled_name
+    ) :
+    mangled_name { mangled_name }
+    {}
+};
 
-    bool boolean;
+struct PolymorphicFunctionConstant : ConstantValue {
+    FunctionDeclaration *declaration;
 
-    Type type;
+    DeclarationParent parent;
 
-    size_t pointer;
+    PolymorphicFunctionConstant() {}
 
-    struct {
-        size_t length;
+    PolymorphicFunctionConstant(
+        FunctionDeclaration *declaration,
+        DeclarationParent parent
+    ) :
+    declaration { declaration },
+    parent { parent }
+    {}
+};
 
-        size_t pointer;
-    } array;
+struct IntegerConstant : ConstantValue {
+    uint64_t value;
 
-    ConstantValue *static_array;
+    IntegerConstant() {}
 
-    ConstantValue *struct_;
+    IntegerConstant(
+        uint64_t value
+    ) :
+    value { value }
+    {}
+};
 
-    struct {
-        const char *path;
+struct BooleanConstant : ConstantValue {
+    bool value;
 
-        Array<Statement> statements;
-    } file_module;
+    BooleanConstant() {}
+
+    BooleanConstant(
+        bool value
+    ) :
+    value { value }
+    {}
+};
+
+struct TypeConstant : ConstantValue {
+    Type *type;
+
+    TypeConstant() {}
+
+    TypeConstant(
+        Type *type
+    ) :
+    type { type }
+    {}
+};
+
+struct PointerConstant : ConstantValue {
+    uint64_t value;
+
+    PointerConstant() {}
+
+    PointerConstant(
+        uint64_t value
+    ) :
+    value { value }
+    {}
+};
+
+struct ArrayConstant : ConstantValue {
+    uint64_t length;
+
+    uint64_t pointer;
+
+    ArrayConstant() {}
+
+    ArrayConstant(
+        uint64_t length,
+        uint64_t pointer
+    ) :
+    length { length },
+    pointer { pointer }
+    {}
+};
+
+struct StaticArrayConstant : ConstantValue {
+    ConstantValue **elements;
+
+    StaticArrayConstant() {}
+
+    StaticArrayConstant(
+        ConstantValue **elements
+    ) :
+    elements { elements }
+    {}
+};
+
+struct StructConstant : ConstantValue {
+    ConstantValue **members;
+
+    StructConstant() {}
+
+    StructConstant(
+        ConstantValue **members
+    ) :
+    members { members }
+    {}
+};
+
+struct FileModuleConstant : ConstantValue {
+    const char *path;
+
+    Array<Statement*> statements;
+
+    FileModuleConstant() {}
+
+    FileModuleConstant(
+        const char *path,
+        Array<Statement*> statements
+    ) :
+    path { path },
+    statements { statements }
+    {}
 };
 
 struct TypedConstantValue {
-    Type type;
+    Type *type;
 
-    ConstantValue value;
-};
-
-struct ConstantParameter {
-    const char *name;
-
-    TypedConstantValue value;
+    ConstantValue *value;
 };
 
 struct GlobalConstant {
     const char *name;
 
-    Type type;
+    Type *type;
 
-    ConstantValue value;
+    ConstantValue *value;
 };
 
 struct Variable {
     Identifier name;
 
-    Type type;
+    Type *type;
     FileRange type_range;
 
     size_t register_index;
@@ -488,7 +570,7 @@ struct Variable {
 struct RuntimeFunctionParameter {
     Identifier name;
 
-    Type type;
+    Type *type;
     FileRange type_range;
 };
 
@@ -497,7 +579,7 @@ struct RuntimeFunction {
 
     Array<RuntimeFunctionParameter> parameters;
 
-    Type return_type;
+    Type *return_type;
 
     DeterminedDeclaration declaration;
 };
@@ -505,7 +587,7 @@ struct RuntimeFunction {
 struct ParsedFile {
     const char *path;
 
-    Array<Statement> statements;
+    Array<Statement*> statements;
 };
 
 struct GenerationContext {
@@ -516,20 +598,12 @@ struct GenerationContext {
 
     bool is_top_level;
 
-    union {
-        DeterminedDeclaration determined_declaration;
-
-        struct {
-            const char *file_path;
-
-            Array<Statement> top_level_statements;
-        };
-    };
+    DeclarationParent parent;
 
     Array<ConstantParameter> constant_parameters;
 
     Array<Variable> parameters;
-    Type return_type;
+    Type *return_type;
     size_t return_parameter_register;
 
     List<const char*> global_names;
@@ -553,15 +627,15 @@ static void error(GenerationContext context, FileRange range, const char *format
 
     const char *file_path;
     if(context.is_top_level) {
-        file_path = context.file_path;
+        file_path = context.parent.file_path;
     } else {
-        auto current_declaration = context.determined_declaration;
+        auto current_declaration = context.parent.parent;
 
-        while(!current_declaration.declaration.is_top_level) {
-            current_declaration = *current_declaration.parent;
+        while(current_declaration->declaration->parent) {
+            current_declaration = current_declaration->parent.parent;
         }
 
-        file_path = current_declaration.file_path;
+        file_path = current_declaration->parent.file_path;
     }
 
     fprintf(stderr, "Error: %s(%u,%u): ", file_path, range.first_line, range.first_character);
@@ -664,63 +738,39 @@ static void error(GenerationContext context, FileRange range, const char *format
     va_end(arguments);
 }
 
-static bool match_public_declaration(Statement statement, const char *name) {
-    switch(statement.type) {
-        case StatementType::FunctionDeclaration: {
-            if(strcmp(statement.function_declaration.name.text, name) == 0) {
-                return true;
-            }
-        } break;
-
-        case StatementType::ConstantDefinition: {
-            if(strcmp(statement.constant_definition.name.text, name) == 0) {
-                return true;
-            }
-        } break;
-
-        case StatementType::StructDefinition: {
-            if(strcmp(statement.struct_definition.name.text, name) == 0) {
-                return true;
-            }
-        } break;
+static bool match_public_declaration(Statement *statement, const char *name) {
+    const char *declaration_name;
+    if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(statement)) {
+        declaration_name = function_declaration->name.text;
+    } else if(auto constant_definition = dynamic_cast<ConstantDefinition*>(statement)) {
+        declaration_name = constant_definition->name.text;
+    } else if(auto struct_definition = dynamic_cast<StructDefinition*>(statement)) {
+        declaration_name = struct_definition->name.text;
+    } else {
+        return false;
     }
 
-    return false;
+    return strcmp(declaration_name, name);
 }
 
-static bool match_declaration(Statement statement, const char *name) {
-    switch(statement.type) {
-        case StatementType::FunctionDeclaration: {
-            if(strcmp(statement.function_declaration.name.text, name) == 0) {
-                return true;
-            }
-        } break;
-
-        case StatementType::ConstantDefinition: {
-            if(strcmp(statement.constant_definition.name.text, name) == 0) {
-                return true;
-            }
-        } break;
-
-        case StatementType::StructDefinition: {
-            if(strcmp(statement.struct_definition.name.text, name) == 0) {
-                return true;
-            }
-        } break;
-
-        case StatementType::Import: {
-            auto import_name = path_get_file_component(statement.import);
-
-            if(strcmp(import_name, name) == 0) {
-                return true;
-            }
-        } break;
+static bool match_declaration(Statement *statement, const char *name) {
+    const char *declaration_name;
+    if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(statement)) {
+        declaration_name = function_declaration->name.text;
+    } else if(auto constant_definition = dynamic_cast<ConstantDefinition*>(statement)) {
+        declaration_name = constant_definition->name.text;
+    } else if(auto struct_definition = dynamic_cast<StructDefinition*>(statement)) {
+        declaration_name = struct_definition->name.text;
+    } else if(auto import = dynamic_cast<Import*>(statement)) {
+        declaration_name = path_get_file_component(import->path);
+    } else {
+        return false;
     }
 
-    return false;
+    return strcmp(declaration_name, name);
 }
 
-static size_t register_size_to_byte_size(RegisterSize size) {
+static uint64_t register_size_to_byte_size(RegisterSize size) {
     switch(size) {
         case RegisterSize::Size8: {
             return 1;
@@ -744,12 +794,12 @@ static size_t register_size_to_byte_size(RegisterSize size) {
     }
 }
 
-static size_t get_type_alignment(GenerationContext context, Type type);
+static uint64_t get_type_alignment(GenerationContext context, Type *type);
 
-static size_t get_struct_alignment(GenerationContext context, Type type) {
+static uint64_t get_struct_alignment(GenerationContext context, StructType type) {
     size_t current_alignment = 1;
 
-    for(auto member : type._struct.concrete) {
+    for(auto member : type.members) {
         auto alignment = get_type_alignment(context, member.type);
 
         if(alignment > current_alignment) {
@@ -760,45 +810,31 @@ static size_t get_struct_alignment(GenerationContext context, Type type) {
     return current_alignment;
 }
 
-static size_t get_type_alignment(GenerationContext context, Type type) {
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            return register_size_to_byte_size(type.integer.size);
-        } break;
-
-        case TypeCategory::Boolean: {
-            return register_size_to_byte_size(context.default_integer_size);
-        } break;
-
-        case TypeCategory::Pointer: {
-            return register_size_to_byte_size(context.address_integer_size);
-        } break;
-
-        case TypeCategory::Array: {
-            return register_size_to_byte_size(context.address_integer_size);
-        } break;
-
-        case TypeCategory::StaticArray: {
-            return get_type_alignment(context, *type.static_array.type);
-        } break;
-
-        case TypeCategory::Struct: {
-            return get_struct_alignment(context, type);
-        } break;
-
-        default: {
-            abort();
-        } break;
+static uint64_t get_type_alignment(GenerationContext context, Type *type) {
+    if(auto integer = dynamic_cast<Integer*>(type)) {
+        return register_size_to_byte_size(integer->size);
+    } else if(dynamic_cast<Boolean*>(type)) {
+        return register_size_to_byte_size(context.default_integer_size);
+    } else if(dynamic_cast<Pointer*>(type)) {
+        return register_size_to_byte_size(context.address_integer_size);
+    } else if(dynamic_cast<ArrayTypeType*>(type)) {
+        return register_size_to_byte_size(context.address_integer_size);
+    } else if(auto static_array = dynamic_cast<StaticArray*>(type)) {
+        return get_type_alignment(context, static_array->element_type);
+    } else if(auto struct_type = dynamic_cast<StructType*>(type)) {
+        return get_struct_alignment(context, *struct_type);
+    } else {
+        abort();
     }
 }
 
-static size_t get_type_size(GenerationContext context, Type type);
+static uint64_t get_type_size(GenerationContext context, Type *type);
 
-static size_t get_struct_size(GenerationContext context, Type type) {
-    size_t current_size = 0;
+static uint64_t get_struct_size(GenerationContext context, StructType type) {
+    uint64_t current_size = 0;
 
-    for(auto member : type._struct.concrete) {
-        if(type._struct.is_union) {
+    for(auto member : type.members) {
+        if(type.definition->is_union) {
             auto size = get_type_size(context, member.type);
 
             if(size > current_size) {
@@ -809,7 +845,7 @@ static size_t get_struct_size(GenerationContext context, Type type) {
 
             auto alignment_difference = current_size % alignment;
 
-            size_t offset;
+            uint64_t offset;
             if(alignment_difference != 0) {
                 offset = alignment - alignment_difference;
             } else {
@@ -825,69 +861,53 @@ static size_t get_struct_size(GenerationContext context, Type type) {
     return current_size;
 }
 
-static size_t get_type_size(GenerationContext context, Type type) {
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            return register_size_to_byte_size(type.integer.size);
-        } break;
-
-        case TypeCategory::Boolean: {
-            return register_size_to_byte_size(context.default_integer_size);
-        } break;
-
-        case TypeCategory::Pointer: {
-            return register_size_to_byte_size(context.address_integer_size);
-        } break;
-
-        case TypeCategory::Array: {
-            return 2 * register_size_to_byte_size(context.address_integer_size);
-        } break;
-
-        case TypeCategory::StaticArray: {
-            return type.static_array.length * get_type_size(context, *type.static_array.type);
-        } break;
-
-        case TypeCategory::Struct: {
-            return get_struct_size(context, type);
-        } break;
-
-        default: {
-            abort();
-        } break;
+static uint64_t get_type_size(GenerationContext context, Type *type) {
+    if(auto integer = dynamic_cast<Integer*>(type)) {
+        return register_size_to_byte_size(integer->size);
+    } else if(dynamic_cast<Boolean*>(type)) {
+        return register_size_to_byte_size(context.default_integer_size);
+    } else if(dynamic_cast<Pointer*>(type)) {
+        return register_size_to_byte_size(context.address_integer_size);
+    } else if(dynamic_cast<ArrayTypeType*>(type)) {
+        return 2 * register_size_to_byte_size(context.address_integer_size);
+    } else if(auto static_array = dynamic_cast<StaticArray*>(type)) {
+        return static_array->length * get_type_alignment(context, static_array->element_type);
+    } else if(auto struct_type = dynamic_cast<StructType*>(type)) {
+        return get_struct_size(context, *struct_type);
+    } else {
+        abort();
     }
 }
 
-static size_t get_struct_member_offset(GenerationContext context, Type type, size_t member_index) {
-    if(type._struct.is_union) {
+static uint64_t get_struct_member_offset(GenerationContext context, StructType type, size_t member_index) {
+    if(type.definition->is_union) {
         return 0;
     }
 
-    size_t current_offset = 0;
+    uint64_t current_offset = 0;
 
-    if(member_index != 0) {
-        for(auto i = 0; i < member_index; i += 1) {
-            auto alignment = get_type_alignment(context, type._struct.concrete[i].type);
+    for(auto i = 0; i < member_index; i += 1) {
+        auto alignment = get_type_alignment(context, type.members[i].type);
 
-            auto alignment_difference = current_offset % alignment;
+        auto alignment_difference = current_offset % alignment;
 
-            size_t offset;
-            if(alignment_difference != 0) {
-                offset = alignment - alignment_difference;
-            } else {
-                offset = 0;
-            }
-
-            auto size = get_type_size(context, type._struct.concrete[i].type);
-
-            current_offset += offset + size;
+        uint64_t offset;
+        if(alignment_difference != 0) {
+            offset = alignment - alignment_difference;
+        } else {
+            offset = 0;
         }
+
+        auto size = get_type_size(context, type.members[i].type);
+
+        current_offset += offset + size;
     }
     
-    auto alignment = get_type_alignment(context, type._struct.concrete[member_index].type);
+    auto alignment = get_type_alignment(context, type.members[member_index].type);
 
     auto alignment_difference = current_offset % alignment;
 
-    size_t offset;
+    uint64_t offset;
     if(alignment_difference != 0) {
         offset = alignment - alignment_difference;
     } else {
@@ -897,229 +917,167 @@ static size_t get_struct_member_offset(GenerationContext context, Type type, siz
     return current_offset + offset;
 }
 
-static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression expression);
+static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression *expression);
 
-static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Statement declaration);
+static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Statement *declaration);
 
 static Result<TypedConstantValue> resolve_constant_named_reference(GenerationContext *context, Identifier name) {
     auto old_is_top_level = context->is_top_level;
     auto old_constant_parameters = context->constant_parameters;
+    auto old_parent = context->parent;
 
-    DeterminedDeclaration old_determined_declaration;
-    Array<Statement> old_top_level_statements;
-    const char *old_file_path;
-    if(context->is_top_level) {
-        old_top_level_statements = context->top_level_statements;
-        old_file_path = context->file_path;
-    } else {
-        old_determined_declaration = context->determined_declaration;
-    }
+    while(!context->is_top_level) {
+        for(auto constant_parameter : context->constant_parameters) {
+            if(strcmp(constant_parameter.name, name.text) == 0) {
+                context->is_top_level = old_is_top_level;
+                context->constant_parameters = old_constant_parameters;
+                context->parent = old_parent;
 
-    if(!context->is_top_level) {
-        while(true) {
-            for(auto constant_parameter : context->constant_parameters) {
-                if(strcmp(constant_parameter.name, name.text) == 0) {
+                return {
+                    true,
+                    {
+                        constant_parameter.type,
+                        constant_parameter.value
+                    }
+                };
+            }
+        }
+
+        auto parent_declaration = context->parent.parent;
+
+        if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(parent_declaration->declaration)) {
+            for(auto statement : function_declaration->statements) {
+                if(match_declaration(statement, name.text)) {
+                    expect(value, resolve_declaration(context, statement));
+
                     context->is_top_level = old_is_top_level;
                     context->constant_parameters = old_constant_parameters;
-                    if(context->is_top_level) {
-                        context->top_level_statements = old_top_level_statements;
-                        context->file_path = old_file_path;
-                    } else {
-                        context->determined_declaration = old_determined_declaration;
-                    }
+                    context->parent = old_parent;
 
                     return {
                         true,
-                        constant_parameter.value
+                        value
                     };
-                }
-            }
+                } else if(auto using_statement = dynamic_cast<UsingStatement*>(statement)) {
+                    expect(expression_value, evaluate_constant_expression(context, using_statement->module));
 
-            switch(context->determined_declaration.declaration.type) {
-                case StatementType::FunctionDeclaration: {
-                    for(auto statement : context->determined_declaration.declaration.function_declaration.statements) {
-                        if(match_declaration(statement, name.text)) {
+                    if(dynamic_cast<FileModule*>(expression_value.type)) {
+                        error(*context, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
+
+                        return { false };
+                    }
+
+                    auto file_module = dynamic_cast<FileModuleConstant*>(expression_value.value);
+                    assert(file_module);
+
+                    auto sub_old_is_top_level = context->is_top_level;
+                    auto sub_old_constant_parameters = context->constant_parameters;
+                    auto sub_old_parent = context->parent;
+
+                    context->is_top_level = true;
+                    context->parent.top_level_statements = file_module->statements;
+                    context->parent.file_path = file_module->path;
+                    context->constant_parameters = {};
+
+                    for(auto statement : file_module->statements) {
+                        if(match_public_declaration(statement, name.text)) {
                             expect(value, resolve_declaration(context, statement));
 
                             context->is_top_level = old_is_top_level;
                             context->constant_parameters = old_constant_parameters;
-                            if(context->is_top_level) {
-                                context->top_level_statements = old_top_level_statements;
-                                context->file_path = old_file_path;
-                            } else {
-                                context->determined_declaration = old_determined_declaration;
-                            }
+                            context->parent = old_parent;
 
                             return {
                                 true,
                                 value
                             };
-                        } else if(statement.type == StatementType::Using) {
-                            expect(expression_value, evaluate_constant_expression(context, statement.using_));
-
-                            if(expression_value.type.category != TypeCategory::FileModule) {
-                                error(*context, statement.using_.range, "Expected a module, got '%s'", type_description(expression_value.type));
-
-                                return { false };
-                            }
-
-                            auto sub_old_is_top_level = context->is_top_level;
-                            auto sub_old_constant_parameters = context->constant_parameters;
-
-                            DeterminedDeclaration sub_old_determined_declaration;
-                            Array<Statement> sub_old_top_level_statements;
-                            const char *sub_old_file_path;
-                            if(context->is_top_level) {
-                                sub_old_top_level_statements = context->top_level_statements;
-                                sub_old_file_path = context->file_path;
-                            } else {
-                                sub_old_determined_declaration = context->determined_declaration;
-                            }
-
-                            context->is_top_level = true;
-                            context->top_level_statements = expression_value.value.file_module.statements;
-                            context->file_path = expression_value.value.file_module.path;
-                            context->constant_parameters = {};
-
-                            for(auto statement : expression_value.value.file_module.statements) {
-                                if(match_public_declaration(statement, name.text)) {
-                                    expect(value, resolve_declaration(context, statement));
-                                    
-                                    context->is_top_level = old_is_top_level;
-                                    context->constant_parameters = old_constant_parameters;
-                                    if(context->is_top_level) {
-                                        context->top_level_statements = old_top_level_statements;
-                                        context->file_path = old_file_path;
-                                    } else {
-                                        context->determined_declaration = old_determined_declaration;
-                                    }
-
-                                    return {
-                                        true,
-                                        value
-                                    };
-                                }
-                            }
-
-                            context->is_top_level = sub_old_is_top_level;
-                            context->constant_parameters = sub_old_constant_parameters;
-                            if(context->is_top_level) {
-                                context->top_level_statements = sub_old_top_level_statements;
-                                context->file_path = sub_old_file_path;
-                            } else {
-                                context->determined_declaration = sub_old_determined_declaration;
-                            }
                         }
                     }
-                } break;
-            }
 
-            for(auto constant_parameter : context->determined_declaration.constant_parameters) {
-                if(strcmp(constant_parameter.name, name.text) == 0) {
-                    context->is_top_level = old_is_top_level;
-                    context->constant_parameters = old_constant_parameters;
-                    if(context->is_top_level) {
-                        context->top_level_statements = old_top_level_statements;
-                        context->file_path = old_file_path;
-                    } else {
-                        context->determined_declaration = old_determined_declaration;
-                    }
-
-                    return {
-                        true,
-                        constant_parameter.value
-                    };
+                    context->is_top_level = sub_old_is_top_level;
+                    context->constant_parameters = sub_old_constant_parameters;
+                    context->parent = sub_old_parent;
                 }
             }
+        }
 
-            if(context->determined_declaration.declaration.is_top_level) {
-                context->is_top_level = true;
-                context->file_path = context->determined_declaration.file_path;
-                context->top_level_statements = context->determined_declaration.top_level_statements;
-                context->constant_parameters = {};
+        for(auto constant_parameter : parent_declaration->constant_parameters) {
+            if(strcmp(constant_parameter.name, name.text) == 0) {
+                context->is_top_level = old_is_top_level;
+                context->constant_parameters = old_constant_parameters;
+                context->parent = old_parent;
 
-                break;
-            } else {
-                context->determined_declaration = *context->determined_declaration.parent;
-                context->constant_parameters = {};
+                return {
+                    true,
+                    {
+                        constant_parameter.type,
+                        constant_parameter.value
+                    }
+                };
             }
         }
+
+        context->is_top_level = parent_declaration->declaration->parent == nullptr;
+        context->parent = parent_declaration->parent;
+        context->constant_parameters = {};
     }
 
     for(auto constant_parameter : context->constant_parameters) {
         if(strcmp(constant_parameter.name, name.text) == 0) {
             context->is_top_level = old_is_top_level;
             context->constant_parameters = old_constant_parameters;
-            if(context->is_top_level) {
-                context->top_level_statements = old_top_level_statements;
-                context->file_path = old_file_path;
-            } else {
-                context->determined_declaration = old_determined_declaration;
-            }
+            context->parent = old_parent;
 
             return {
                 true,
-                constant_parameter.value
+                {
+                    constant_parameter.type,
+                    constant_parameter.value
+                }
             };
         }
     }
 
-    for(auto statement : context->top_level_statements) {
+    for(auto statement : context->parent.top_level_statements) {
         if(match_declaration(statement, name.text)) {
             expect(value, resolve_declaration(context, statement));
 
             context->is_top_level = old_is_top_level;
             context->constant_parameters = old_constant_parameters;
-            if(context->is_top_level) {
-                context->top_level_statements = old_top_level_statements;
-                context->file_path = old_file_path;
-            } else {
-                context->determined_declaration = old_determined_declaration;
-            }
+            context->parent = old_parent;
 
             return {
                 true,
                 value
             };
-        } else if(statement.type == StatementType::Using) {
-            expect(expression_value, evaluate_constant_expression(context, statement.using_));
+        } else if(auto using_statement = dynamic_cast<UsingStatement*>(statement)) {
+            expect(expression_value, evaluate_constant_expression(context, using_statement->module));
 
-            if(expression_value.type.category != TypeCategory::FileModule) {
-                error(*context, statement.using_.range, "Expected a module, got '%s'", type_description(expression_value.type));
+            if(dynamic_cast<FileModule*>(expression_value.type)) {
+                error(*context, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
 
                 return { false };
             }
 
+            auto file_module = dynamic_cast<FileModuleConstant*>(expression_value.value);
+            assert(file_module != nullptr);
+
             auto sub_old_is_top_level = context->is_top_level;
             auto sub_old_constant_parameters = context->constant_parameters;
-
-            DeterminedDeclaration sub_old_determined_declaration;
-            Array<Statement> sub_old_top_level_statements;
-            const char *sub_old_file_path;
-            if(context->is_top_level) {
-                sub_old_top_level_statements = context->top_level_statements;
-                sub_old_file_path = context->file_path;
-            } else {
-                sub_old_determined_declaration = context->determined_declaration;
-            }
+            auto sub_old_parent = context->parent;
 
             context->is_top_level = true;
-            context->top_level_statements = expression_value.value.file_module.statements;
-            context->file_path = expression_value.value.file_module.path;
+            context->parent.top_level_statements = file_module->statements;
+            context->parent.file_path = file_module->path;
             context->constant_parameters = {};
 
-            for(auto statement : expression_value.value.file_module.statements) {
+            for(auto statement : file_module->statements) {
                 if(match_public_declaration(statement, name.text)) {
                     expect(value, resolve_declaration(context, statement));
 
                     context->is_top_level = old_is_top_level;
                     context->constant_parameters = old_constant_parameters;
-                    if(context->is_top_level) {
-                        context->top_level_statements = old_top_level_statements;
-                        context->file_path = old_file_path;
-                    } else {
-                        context->determined_declaration = old_determined_declaration;
-                    }
+                    context->parent = old_parent;
 
                     return {
                         true,
@@ -1130,23 +1088,13 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
 
             context->is_top_level = sub_old_is_top_level;
             context->constant_parameters = sub_old_constant_parameters;
-            if(context->is_top_level) {
-                context->top_level_statements = sub_old_top_level_statements;
-                context->file_path = sub_old_file_path;
-            } else {
-                context->determined_declaration = sub_old_determined_declaration;
-            }
+            context->parent = sub_old_parent;
         }
     }
 
     context->is_top_level = old_is_top_level;
     context->constant_parameters = old_constant_parameters;
-    if(context->is_top_level) {
-        context->top_level_statements = old_top_level_statements;
-        context->file_path = old_file_path;
-    } else {
-        context->determined_declaration = old_determined_declaration;
-    }
+    context->parent = old_parent;
 
     for(auto global_constant : context->global_constants) {
         if(strcmp(name.text, global_constant.name) == 0) {
@@ -1165,333 +1113,356 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
     return { false };
 }
 
-static Result<size_t> coerce_constant_to_integer_type(
+static Result<IntegerConstant*> coerce_constant_to_integer_type(
     GenerationContext context,
     FileRange range,
-    TypedConstantValue value,
-    RegisterSize size,
-    bool is_signed,
+    Type *type,
+    ConstantValue *value,
+    Integer target_type,
     bool probing
 ) {
-    switch(value.type.category) {
-        case TypeCategory::Integer: {
-            if(value.type.integer.is_undetermined) {
-                return {
-                    true,
-                    value.value.integer
-                };
-            } else {
-                if(value.type.integer.size != size || value.type.integer.is_signed != is_signed) {
-                    if(!probing) {
-                        error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), determined_integer_type_description(size, is_signed));
-                    }
-
-                    return { false };
-                }
-
-                return {
-                    true,
-                    value.value.integer
-                };
-            }
-        } break;
-
-        default: {
+    if(auto integer = dynamic_cast<Integer*>(type)) {
+        if(integer->size != target_type.size || integer->size != target_type.size) {
             if(!probing) {
-                error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), determined_integer_type_description(size, is_signed));
+                error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(integer), type_description(&target_type));
             }
 
             return { false };
-        } break;
-    }
-}
+        }
 
-static Result<size_t> coerce_constant_to_undetermined_integer(
-    GenerationContext context,
-    FileRange range,
-    TypedConstantValue value,
-    bool probing
-) {
-    switch(value.type.category) {
-        case TypeCategory::Integer: {
-            if(value.type.integer.is_undetermined) {
-                return {
-                    true,
-                    value.value.integer
-                };
-            } else {
-                switch(value.type.integer.size) {
-                    case RegisterSize::Size8: {
-                        return {
-                            true,
-                            (uint8_t)value.value.integer
-                        };
-                    } break;
+        auto integer_value = dynamic_cast<IntegerConstant*>(value);
+        assert(integer_value);
 
-                    case RegisterSize::Size16: {
-                        return {
-                            true,
-                            (uint16_t)value.value.integer
-                        };
-                    } break;
+        return {
+            true,
+            integer_value
+        };
+    } else if(dynamic_cast<UndeterminedInteger*>(type)) {
+        auto integer_value = dynamic_cast<IntegerConstant*>(value);
+        assert(integer_value);
 
-                    case RegisterSize::Size32: {
-                        return {
-                            true,
-                            (uint32_t)value.value.integer
-                        };
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        return {
-                            true,
-                            value.value.integer
-                        };
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
-            }
-        } break;
-
-        default: {
-            if(!probing) {
-                error(context, range, "Cannot implicitly convert '%s' to '{integer}'", type_description(value.type));
-            }
-
-            return { false };
-        } break;
-    }
-}
-
-static Result<ConstantValue> coerce_constant_to_type(
-    GenerationContext context,
-    FileRange range,
-    TypedConstantValue value,
-    Type type,
-    bool probing
-);
-
-static Result<ConstantValue> coerce_constant_to_struct_type(
-    GenerationContext context,
-    FileRange range,
-    TypedConstantValue value,
-    Type type,
-    bool probing
-) {
-    if(value.type.category != TypeCategory::Struct) {
+        return {
+            true,
+            integer_value
+        };
+    } else {
         if(!probing) {
-            error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), type._struct.name);
+            error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
         }
 
         return { false };
     }
+}
 
-    ConstantValue result_value;
-    if(value.type._struct.is_undetermined) {
-        if(type._struct.is_union) {
+static Result<IntegerConstant*> coerce_constant_to_undetermined_integer(
+    GenerationContext context,
+    FileRange range,
+    Type *type,
+    ConstantValue *value,
+    bool probing
+) {
+    if(auto integer = dynamic_cast<Integer*>(type)) {
+        auto integer_value = dynamic_cast<IntegerConstant*>(value);
+        assert(integer_value);
+
+        switch(integer->size) {
+            case RegisterSize::Size8: {
+                return {
+                    true,
+                    new IntegerConstant {
+                        (uint8_t)integer_value->value
+                    }
+                };
+            } break;
+
+            case RegisterSize::Size16: {
+                return {
+                    true,
+                    new IntegerConstant {
+                        (uint16_t)integer_value->value
+                    }
+                };
+            } break;
+
+            case RegisterSize::Size32: {
+                return {
+                    true,
+                    new IntegerConstant {
+                        (uint32_t)integer_value->value
+                    }
+                };
+            } break;
+
+            case RegisterSize::Size64: {
+                return {
+                    true,
+                    new IntegerConstant {
+                        integer_value->value
+                    }
+                };
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+    } else if(dynamic_cast<UndeterminedInteger*>(type)) {
+        auto integer_value = dynamic_cast<IntegerConstant*>(value);
+        assert(integer_value);
+
+        return {
+            true,
+            integer_value
+        };
+    } else {
+        if(!probing) {
+            error(context, range, "Cannot implicitly convert '%s' to '{integer}'", type_description(type));
+        }
+
+        return { false };
+    }
+}
+
+static Result<ConstantValue*> coerce_constant_to_type(
+    GenerationContext context,
+    FileRange range,
+    Type *type,
+    ConstantValue *value,
+    Type *target_type,
+    bool probing
+);
+
+static Result<StructConstant*> coerce_constant_to_struct_type(
+    GenerationContext context,
+    FileRange range,
+    Type *type,
+    ConstantValue *value,
+    StructType target_type,
+    bool probing
+) {
+    assert(!target_type.definition->is_union);
+
+    if(auto struct_type = dynamic_cast<StructType*>(type)) {
+        if(struct_type->definition != target_type.definition) {
             if(!probing) {
-                error(context, range, "Constants cannot be unions");
+                error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(struct_type), type_description(&target_type));
             }
 
             return { false };
-        } else {
-            if(value.type._struct.concrete.count != type._struct.concrete.count) {
+        }
+
+        auto struct_value = dynamic_cast<StructConstant*>(value);
+        assert(struct_value);
+
+        return {
+            true,
+            struct_value
+        };
+    } else if(auto undetermined_struct = dynamic_cast<UndeterminedStruct*>(type)) {
+        if(undetermined_struct->members.count != target_type.members.count) {
+            if(!probing) {
+                error(context, range, "Too many struct members. Expected %zu, got %zu", target_type.members.count, undetermined_struct->members.count);
+            }
+
+            return { false };
+        }
+
+        auto member_count = target_type.members.count;
+
+        auto struct_value = dynamic_cast<StructConstant*>(value);
+        assert(struct_value);
+
+        auto member_values = allocate<ConstantValue*>(member_count);
+
+        for(size_t i = 0; i < member_count; i += 1) {
+            auto member = struct_type->members[i];
+            auto target_member = target_type.members[i];
+
+            if(strcmp(member.name, target_member.name) != 0) {
                 if(!probing) {
-                    error(context, range, "Too many struct members. Expected %zu, got %zu", type._struct.concrete.count, value.type._struct.concrete.count);
+                    error(context, range, "Incorrect struct member name. Expected '%s', got '%s", target_member.name, member.name);
                 }
 
                 return { false };
             }
 
-            auto member_values = allocate<ConstantValue>(type._struct.concrete.count);
+            expect(coerced_member_value, coerce_constant_to_type(
+                context,
+                range,
+                member.type,
+                struct_value->members[i],
+                target_member.type,
+                probing
+            ));
 
-            for(size_t i = 0; i < type._struct.concrete.count; i += 1) {
-                if(strcmp(value.type._struct.concrete[i].name, type._struct.concrete[i].name) != 0) {
-                    if(!probing) {
-                        error(context, range, "Incorrect struct member name. Expected '%s', got '%s", type._struct.concrete[i].name, value.type._struct.concrete[i].name);
-                    }
-
-                    return { false };
-                }
-
-                expect(coerced_member_value, coerce_constant_to_type(
-                    context,
-                    range,
-                    { value.type._struct.concrete[i].type, value.value.struct_[i] },
-                    type._struct.concrete[i].type,
-                    probing
-                ));
-
-                member_values[i] = coerced_member_value;
-            }
-
-            result_value.struct_ = member_values;
+            member_values[i] = coerced_member_value;
         }
 
         return {
             true,
-            result_value
+            new StructConstant {
+                member_values
+            }
         };
     } else {
-        if(strcmp(value.type._struct.name, type._struct.name) != 0) {
-            if(!probing) {
-                error(context, range, "Cannot implicitly convert '%s' to '%s'", value.type._struct.name, type._struct.name);
-            }
-
-            return { false };
+        if(!probing) {
+            error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
         }
 
-        return {
-            true,
-            value.value
-        };
+        return { false };
     }
 }
 
-static Result<ConstantValue> coerce_constant_to_type(
+static Result<ConstantValue*> coerce_constant_to_type(
     GenerationContext context,
     FileRange range,
-    TypedConstantValue value,
-    Type type,
+    Type *type,
+    ConstantValue *value,
+    Type *target_type,
     bool probing
 ) {
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            uint64_t result_value;
-            if(type.integer.is_undetermined) {
-                expect(integer_value, coerce_constant_to_undetermined_integer(context, range, value, probing));
+    if(auto integer = dynamic_cast<Integer*>(target_type)) {
+        expect(integer_value, coerce_constant_to_integer_type(context, range, type, value, *integer, probing));
 
-                result_value = integer_value;
-            } else {
-                expect(integer_value, coerce_constant_to_integer_type(context, range, value, type.integer.size, type.integer.is_signed, probing));
+        return {
+            true,
+            integer_value
+        };
+    } else if(dynamic_cast<UndeterminedInteger*>(target_type)) {
+        expect(integer_value, coerce_constant_to_undetermined_integer(context, range, type, value, probing));
 
-                result_value = integer_value;
-            }
-
-            ConstantValue result;
-            result.integer = result_value;
+        return {
+            true,
+            integer_value
+        };
+    } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
+        if(dynamic_cast<UndeterminedInteger*>(type)) {
+            auto integer_value = dynamic_cast<IntegerConstant*>(value);
+            assert(integer_value);
 
             return {
                 true,
-                result
+                new PointerConstant {
+                    integer_value->value
+                }
             };
-        } break;
-
-        case TypeCategory::Pointer: {
-            switch(value.type.category) {
-                case TypeCategory::Integer: {
-                    if(value.type.integer.is_undetermined) {
-                        ConstantValue result;
-                        result.pointer = value.value.integer;
-
-                        return {
-                            true,
-                            result
-                        };
-                    }
-                } break;
-
-                case TypeCategory::Pointer: {
-                    if(types_equal(*type.pointer, *value.type.pointer)) {
-                        return {
-                            true,
-                            value.value
-                        };
-                    }
-                } break;
-            }
-        } break;
-
-        case TypeCategory::Struct: {
-            return coerce_constant_to_struct_type(context, range, value, type, probing);
-        } break;
-
-        default: {
-            if(types_equal(type, value.type)) {
+        } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
+            if(types_equal(pointer->type, target_pointer->type)) {
                 return {
                     true,
-                    value.value
+                    value
                 };
             }
-        } break;
+        }
+    } else if(types_equal(type, target_type)) {
+        return {
+            true,
+            value
+        };
     }
 
     if(!probing) {
-        error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(value.type), type_description(type));
+        error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(target_type));
     }
 
     return { false };
 }
 
-static Result<TypedConstantValue> evaluate_constant_index(GenerationContext context, Type type, ConstantValue value, FileRange range, Type index_type, ConstantValue index_value, FileRange index_range) {
-    if(index_type.category != TypeCategory::Integer) {
-        error(context, index_range, "Expected an integer, got %s", type_description(index_type));
-    }
+static Result<TypedConstantValue> evaluate_constant_index(
+    GenerationContext context,
+    Type *type,
+    ConstantValue *value,
+    FileRange range,
+    Type *index_type,
+    ConstantValue *index_value,
+    FileRange index_range
+) {
+    expect(index, coerce_constant_to_integer_type(
+        context,
+        index_range,
+        index_type,
+        index_value,
+        {
+            context.address_integer_size,
+            false
+        },
+        false
+    ));
 
-    expect(index, coerce_constant_to_integer_type(context, index_range, { index_type, index_value, }, context.address_integer_size, false, false));
-
-    switch(type.category) {
-        case TypeCategory::StaticArray: {
-            if(index >= type.static_array.length) {
-                error(context, index_range, "Array index %zu out of bounds", index);
-
-                return { false };
-            }
-
-            return {
-                true,
-                {
-                    *type.static_array.type,
-                    value.static_array[index]
-                }
-            };
-        } break;
-
-        default: {
-            error(context, range, "Cannot index %s", type_description(type));
+    if(auto static_array = dynamic_cast<StaticArray*>(type)) {
+        if(index->value >= static_array->length) {
+            error(context, index_range, "Array index %zu out of bounds", index);
 
             return { false };
-        } break;
+        }
+
+        auto static_array_value = dynamic_cast<StaticArrayConstant*>(value);
+        assert(static_array_value);
+
+        return {
+            true,
+            {
+                static_array->element_type,
+                static_array_value->elements[index->value]
+            }
+        };
+    } else {
+        error(context, range, "Cannot index %s", type_description(type));
+
+        return { false };
     }
 }
 
-static Result<Type> determine_binary_operation_type(GenerationContext context, FileRange range, Type left, Type right) {
-    if(left.category == TypeCategory::Integer && right.category == TypeCategory::Integer) {
-        Type type;
-        type.category = TypeCategory::Integer;
+static Result<Type*> determine_binary_operation_type(GenerationContext context, FileRange range, Type *left, Type *right) {
+    auto left_integer = dynamic_cast<Integer*>(left);
+    auto right_integer = dynamic_cast<Integer*>(right);
 
-        if(left.integer.is_undetermined && right.integer.is_undetermined) {
-            type.integer.is_undetermined = true;
-        } else if(left.integer.is_undetermined) {
-            type.integer = right.integer;
+    if(dynamic_cast<Boolean*>(left) || dynamic_cast<Boolean*>(right)) {
+        return {
+            true,
+            new Boolean
+        };
+    } else if(auto left_pointer = dynamic_cast<Pointer*>(left)) {
+        return {
+            true,
+            left_pointer
+        };
+    } else if(auto right_pointer = dynamic_cast<Pointer*>(right)) {
+        return {
+            true,
+            right_pointer
+        };
+    } else if(left_integer && right_integer) {
+        RegisterSize largest_size;
+        if(left_integer->size > right_integer->size) {
+            largest_size = left_integer->size;
         } else {
-            type.integer = left.integer;
+            largest_size = right_integer->size;
         }
 
-        return {
-            true,
-            type
-        };
-    } else if(left.category == TypeCategory::Boolean && right.category == TypeCategory::Boolean) {
-        Type type;
-        type.category = TypeCategory::Boolean;
+        auto is_either_signed = left_integer->is_signed || right_integer->is_signed;
 
         return {
             true,
-            type
+            new Integer {
+                largest_size,
+                is_either_signed
+            }
         };
-    } else if(left.category == TypeCategory::Pointer && right.category == TypeCategory::Integer && right.integer.is_undetermined) {
+    } else if(left_integer) {
         return {
             true,
-            left
+            left_integer
         };
-    } else if(right.category == TypeCategory::Pointer && left.category == TypeCategory::Integer && left.integer.is_undetermined) {
+    } else if(right_integer) {
         return {
             true,
-            right
+            right_integer
+        };
+    } else if(dynamic_cast<UndeterminedInteger*>(left) || dynamic_cast<UndeterminedInteger*>(right)) {
+        return {
+            true,
+            new UndeterminedInteger
         };
     } else {
         error(context, range, "Mismatched types '%s' and '%s'", type_description(left), type_description(right));
@@ -1503,316 +1474,466 @@ static Result<Type> determine_binary_operation_type(GenerationContext context, F
 static Result<TypedConstantValue> evaluate_constant_binary_operation(
     GenerationContext context,
     FileRange range,
-    BinaryOperator binary_operator,
+    BinaryOperation::Operator binary_operator,
     FileRange left_range,
-    Type left_type,
-    ConstantValue left_value,
+    Type *left_type,
+    ConstantValue *left_value,
     FileRange right_range,
-    Type right_type,
-    ConstantValue right_value
+    Type *right_type,
+    ConstantValue *right_value
 ) {
     expect(type, determine_binary_operation_type(context, range, left_type, right_type));
 
-    expect(coerced_left_value, coerce_constant_to_type(context, left_range, { left_type, left_value }, type, false));
+    expect(coerced_left_value, coerce_constant_to_type(context, left_range, left_type, left_value, type, false));
 
-    expect(coerced_right_value, coerce_constant_to_type(context, right_range, { right_type, right_value }, type, false));
+    expect(coerced_right_value, coerce_constant_to_type(context, right_range, right_type, right_value, type, false));
 
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            switch(binary_operator) {
-                case BinaryOperator::Addition: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Integer;
-                    if(type.integer.is_undetermined) {
-                        result.type.integer.is_undetermined = true;
-                    } else {
-                        result.type.integer.size = type.integer.size;
-                        result.type.integer.is_signed = type.integer.is_signed;
-                        result.type.integer.is_undetermined = true;
+    if(auto integer = dynamic_cast<Integer*>(type)) {
+        auto left = dynamic_cast<IntegerConstant*>(coerced_left_value);
+        assert(left);
+
+        auto right = dynamic_cast<IntegerConstant*>(coerced_right_value);
+        assert(right);
+
+        switch(binary_operator) {
+            case BinaryOperation::Operator::Addition: {
+                return {
+                    true,
+                    {
+                        integer,
+                        new IntegerConstant {
+                            left->value + right->value
+                        }
                     }
+                };
+            } break;
 
-                    result.value.integer = coerced_left_value.integer + coerced_right_value.integer;
-
-                    return {
-                        true,
-                        result
-                    };
-                } break;
-
-                case BinaryOperator::Subtraction: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Integer;
-                    if(type.integer.is_undetermined) {
-                        result.type.integer.is_undetermined = true;
-                    } else {
-                        result.type.integer.size = type.integer.size;
-                        result.type.integer.is_signed = type.integer.is_signed;
-                        result.type.integer.is_undetermined = true;
+            case BinaryOperation::Operator::Subtraction: {
+                return {
+                    true,
+                    {
+                        integer,
+                        new IntegerConstant {
+                            left->value - right->value
+                        }
                     }
+                };
+            } break;
 
-                    result.value.integer = coerced_left_value.integer - coerced_right_value.integer;
+            case BinaryOperation::Operator::Multiplication: {
+                uint64_t result;
+                if(integer->is_signed) {
+                    result = (int64_t)left->value * (int64_t)right->value;
+                } else {
+                    result = left->value * right->value;
+                }
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
-
-                case BinaryOperator::Multiplication: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Integer;
-                    if(type.integer.is_undetermined) {
-                        result.type.integer.is_undetermined = true;
-                    } else {
-                        result.type.integer.size = type.integer.size;
-                        result.type.integer.is_signed = type.integer.is_signed;
-                        result.type.integer.is_undetermined = true;
+                return {
+                    true,
+                    {
+                        integer,
+                        new IntegerConstant {
+                            result
+                        }
                     }
+                };
+            } break;
 
-                    if(type.integer.is_undetermined || type.integer.is_signed) {
-                        result.value.integer = (int64_t)coerced_left_value.integer * (int64_t)coerced_right_value.integer;
-                    } else {
-                        result.value.integer = coerced_left_value.integer * coerced_right_value.integer;
+            case BinaryOperation::Operator::Division: {
+                uint64_t result;
+                if(integer->is_signed) {
+                    result = (int64_t)left->value / (int64_t)right->value;
+                } else {
+                    result = left->value / right->value;
+                }
+
+                return {
+                    true,
+                    {
+                        integer,
+                        new IntegerConstant {
+                            result
+                        }
                     }
+                };
+            } break;
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+            case BinaryOperation::Operator::Modulo: {
+                uint64_t result;
+                if(integer->is_signed) {
+                    result = (int64_t)left->value % (int64_t)right->value;
+                } else {
+                    result = left->value % right->value;
+                }
 
-                case BinaryOperator::Division: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Integer;
-                    if(type.integer.is_undetermined) {
-                        result.type.integer.is_undetermined = true;
-                    } else {
-                        result.type.integer.size = type.integer.size;
-                        result.type.integer.is_signed = type.integer.is_signed;
-                        result.type.integer.is_undetermined = true;
+                return {
+                    true,
+                    {
+                        integer,
+                        new IntegerConstant {
+                            result
+                        }
                     }
+                };
+            } break;
 
-                    if(type.integer.is_undetermined || type.integer.is_signed) {
-                        result.value.integer = (int64_t)coerced_left_value.integer / (int64_t)coerced_right_value.integer;
-                    } else {
-                        result.value.integer = coerced_left_value.integer / coerced_right_value.integer;
+            case BinaryOperation::Operator::BitwiseAnd: {
+                return {
+                    true,
+                    {
+                        integer,
+                        new IntegerConstant {
+                            left->value & right->value
+                        }
                     }
+                };
+            } break;
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
-
-                case BinaryOperator::Modulo: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Integer;
-                    if(type.integer.is_undetermined) {
-                        result.type.integer.is_undetermined = true;
-                    } else {
-                        result.type.integer.size = type.integer.size;
-                        result.type.integer.is_signed = type.integer.is_signed;
-                        result.type.integer.is_undetermined = true;
+            case BinaryOperation::Operator::BitwiseOr: {
+                return {
+                    true,
+                    {
+                        integer,
+                        new IntegerConstant {
+                            left->value | right->value
+                        }
                     }
+                };
+            } break;
 
-                    if(type.integer.is_undetermined || type.integer.is_signed) {
-                        result.value.integer = (int64_t)coerced_left_value.integer % (int64_t)coerced_right_value.integer;
-                    } else {
-                        result.value.integer = coerced_left_value.integer % coerced_right_value.integer;
+            case BinaryOperation::Operator::Equal: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value == right->value
+                        }
                     }
+                };
+            } break;
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
-
-                case BinaryOperator::BitwiseAnd: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Integer;
-                    if(type.integer.is_undetermined) {
-                        result.type.integer.is_undetermined = true;
-                    } else {
-                        result.type.integer.size = type.integer.size;
-                        result.type.integer.is_signed = type.integer.is_signed;
-                        result.type.integer.is_undetermined = true;
+            case BinaryOperation::Operator::NotEqual: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value != right->value
+                        }
                     }
+                };
+            } break;
 
-                    result.value.integer = coerced_left_value.integer & coerced_right_value.integer;
+            case BinaryOperation::Operator::LessThan: {
+                bool result;
+                if(integer->is_signed) {
+                    result = (int64_t)left->value < (int64_t)right->value;
+                } else {
+                    result = left->value < right->value;
+                }
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
-
-                case BinaryOperator::BitwiseOr: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Integer;
-                    if(type.integer.is_undetermined) {
-                        result.type.integer.is_undetermined = true;
-                    } else {
-                        result.type.integer.size = type.integer.size;
-                        result.type.integer.is_signed = type.integer.is_signed;
-                        result.type.integer.is_undetermined = true;
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            result
+                        }
                     }
+                };
+            } break;
 
-                    result.value.integer = coerced_left_value.integer | coerced_right_value.integer;
+            case BinaryOperation::Operator::GreaterThan: {
+                bool result;
+                if(integer->is_signed) {
+                    result = (int64_t)left->value > (int64_t)right->value;
+                } else {
+                    result = left->value > right->value;
+                }
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            result
+                        }
+                    }
+                };
+            } break;
 
-                case BinaryOperator::Equal: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = coerced_left_value.integer == coerced_right_value.integer;
+            default: {
+                error(context, range, "Cannot perform that operation on integers");
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+                return { false };
+            } break;
+        }
+    } else if(dynamic_cast<UndeterminedInteger*>(type)) {
+        auto left = dynamic_cast<IntegerConstant*>(coerced_left_value);
+        assert(left);
 
-                case BinaryOperator::NotEqual: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = coerced_left_value.integer != coerced_right_value.integer;
+        auto right = dynamic_cast<IntegerConstant*>(coerced_right_value);
+        assert(right);
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+        switch(binary_operator) {
+            case BinaryOperation::Operator::Addition: {
+                return {
+                    true,
+                    {
+                        new UndeterminedInteger,
+                        new IntegerConstant {
+                            left->value + right->value
+                        }
+                    }
+                };
+            } break;
 
-                case BinaryOperator::LessThan: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = coerced_left_value.integer < coerced_right_value.integer;
+            case BinaryOperation::Operator::Subtraction: {
+                return {
+                    true,
+                    {
+                        new UndeterminedInteger,
+                        new IntegerConstant {
+                            left->value - right->value
+                        }
+                    }
+                };
+            } break;
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+            case BinaryOperation::Operator::Multiplication: {
+                return {
+                    true,
+                    {
+                        new UndeterminedInteger,
+                        new IntegerConstant {
+                            (int64_t)left->value * (int64_t)right->value
+                        }
+                    }
+                };
+            } break;
 
-                case BinaryOperator::GreaterThan: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = coerced_left_value.integer > coerced_right_value.integer;
+            case BinaryOperation::Operator::Division: {
+                return {
+                    true,
+                    {
+                        new UndeterminedInteger,
+                        new IntegerConstant {
+                            (int64_t)left->value / (int64_t)right->value
+                        }
+                    }
+                };
+            } break;
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+            case BinaryOperation::Operator::Modulo: {
+                return {
+                    true,
+                    {
+                        new UndeterminedInteger,
+                        new IntegerConstant {
+                            (int64_t)left->value % (int64_t)right->value
+                        }
+                    }
+                };
+            } break;
 
-                default: {
-                    abort();
-                } break;
-            }
-        } break;
+            case BinaryOperation::Operator::BitwiseAnd: {
+                return {
+                    true,
+                    {
+                        new UndeterminedInteger,
+                        new IntegerConstant {
+                            left->value & right->value
+                        }
+                    }
+                };
+            } break;
 
-        case TypeCategory::Boolean: {
-            switch(binary_operator) {
-                case BinaryOperator::BooleanAnd: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = coerced_left_value.boolean && coerced_right_value.boolean;
+            case BinaryOperation::Operator::BitwiseOr: {
+                return {
+                    true,
+                    {
+                        new UndeterminedInteger,
+                        new IntegerConstant {
+                            left->value | right->value
+                        }
+                    }
+                };
+            } break;
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+            case BinaryOperation::Operator::Equal: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value == right->value
+                        }
+                    }
+                };
+            } break;
 
-                case BinaryOperator::BooleanOr: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = coerced_left_value.boolean || coerced_right_value.boolean;
+            case BinaryOperation::Operator::NotEqual: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value != right->value
+                        }
+                    }
+                };
+            } break;
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+            case BinaryOperation::Operator::LessThan: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            (int64_t)left->value < (int64_t)right->value
+                        }
+                    }
+                };
+            } break;
 
-                case BinaryOperator::Equal: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = coerced_left_value.boolean == coerced_right_value.boolean;
+            case BinaryOperation::Operator::GreaterThan: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            (int64_t)left->value > (int64_t)right->value
+                        }
+                    }
+                };
+            } break;
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+            default: {
+                error(context, range, "Cannot perform that operation on integers");
 
-                case BinaryOperator::NotEqual: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = coerced_left_value.boolean != coerced_right_value.boolean;
+                return { false };
+            } break;
+        }
+    } else if(dynamic_cast<Boolean*>(type)) {
+        auto left = dynamic_cast<BooleanConstant*>(coerced_left_value);
+        assert(left);
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+        auto right = dynamic_cast<BooleanConstant*>(coerced_right_value);
+        assert(right);
 
-                default: {
-                    error(context, range, "Cannot perform that operation on booleans");
+        switch(binary_operator) {
+            case BinaryOperation::Operator::BooleanAnd: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value && right->value
+                        }
+                    }
+                };
+            } break;
 
-                    return { false };
-                } break;
-            }
-        } break;
+            case BinaryOperation::Operator::BooleanOr: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value || right->value
+                        }
+                    }
+                };
+            } break;
 
-        case TypeCategory::Pointer: {
-            switch(binary_operator) {
-                case BinaryOperator::Equal: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = coerced_left_value.pointer == coerced_right_value.pointer;
+            case BinaryOperation::Operator::Equal: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value == right->value
+                        }
+                    }
+                };
+            } break;
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+            case BinaryOperation::Operator::NotEqual: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value != right->value
+                        }
+                    }
+                };
+            } break;
 
-                case BinaryOperator::NotEqual: {
-                    TypedConstantValue result;
-                    result.type.category = TypeCategory::Boolean;
-                    result.value.boolean = coerced_left_value.pointer != coerced_right_value.pointer;
+            default: {
+                error(context, range, "Cannot perform that operation on booleans");
 
-                    return {
-                        true,
-                        result
-                    };
-                } break;
+                return { false };
+            } break;
+        }
+    } else if(dynamic_cast<Pointer*>(type)) {
+        auto left = dynamic_cast<PointerConstant*>(coerced_left_value);
+        assert(left);
 
-                default: {
-                    error(context, range, "Cannot perform that operation on pointers");
+        auto right = dynamic_cast<PointerConstant*>(coerced_right_value);
+        assert(right);
 
-                    return { false };
-                } break;
-            }
-        } break;
+        switch(binary_operator) {
+            case BinaryOperation::Operator::Equal: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value == right->value
+                        }
+                    }
+                };
+            } break;
 
-        default: {
-            abort();
-        } break;
+            case BinaryOperation::Operator::NotEqual: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value != right->value
+                        }
+                    }
+                };
+            } break;
+
+            default: {
+                error(context, range, "Cannot perform that operation on pointers");
+
+                return { false };
+            } break;
+        }
+    } else {
+        abort();
     }
 }
 
-static Result<ConstantValue> evaluate_constant_conversion(GenerationContext context, ConstantValue value, Type value_type, FileRange value_range, Type type, FileRange type_range) {
+static Result<ConstantValue*> evaluate_constant_cast(
+    GenerationContext context,
+    Type *type,
+    ConstantValue *value,
+    FileRange value_range,
+    Type *target_type,
+    FileRange target_range
+) {
     auto coerce_result = coerce_constant_to_type(
         context,
         value_range,
-        { value_type, value },
         type,
+        value,
+        target_type,
         true
     );
 
@@ -1823,116 +1944,116 @@ static Result<ConstantValue> evaluate_constant_conversion(GenerationContext cont
         };
     }
 
-    ConstantValue result;
+    if(auto target_integer = dynamic_cast<Integer*>(target_type)) {
+        uint64_t result;
 
-    switch(value_type.category) {
-        case TypeCategory::Integer: {
-            switch(type.category) {
-                case TypeCategory::Integer: {
-                    if(value_type.integer.is_undetermined) {
-                        result.integer = value.integer;
-                    } else if(value_type.integer.is_signed) {
-                        switch(value_type.integer.size) {
-                            case RegisterSize::Size8: {
-                                result.integer = (int8_t)value.integer;
-                            } break;
+        if(auto integer = dynamic_cast<Integer*>(type)) {
+            auto integer_value = dynamic_cast<IntegerConstant*>(value);
+            assert(integer_value);
 
-                            case RegisterSize::Size16: {
-                                result.integer = (int16_t)value.integer;
-                            } break;
+            if(integer->is_signed) {
+                switch(integer->size) {
+                    case RegisterSize::Size8: {
+                        result = (int8_t)integer_value->value;
+                    } break;
 
-                            case RegisterSize::Size32: {
-                                result.integer = (int32_t)value.integer;
-                            } break;
+                    case RegisterSize::Size16: {
+                        result = (int16_t)integer_value->value;
+                    } break;
 
-                            case RegisterSize::Size64: {
-                                result.integer = value.integer;
-                            } break;
+                    case RegisterSize::Size32: {
+                        result = (int32_t)integer_value->value;
+                    } break;
 
-                            default: {
-                                abort();
-                            } break;
-                        }
-                    } else {
-                        switch(value_type.integer.size) {
-                            case RegisterSize::Size8: {
-                                result.integer = (uint8_t)value.integer;
-                            } break;
+                    case RegisterSize::Size64: {
+                        result = integer_value->value;
+                    } break;
 
-                            case RegisterSize::Size16: {
-                                result.integer = (uint16_t)value.integer;
-                            } break;
+                    default: {
+                        abort();
+                    } break;
+                }
+            } else {
+                switch(integer->size) {
+                    case RegisterSize::Size8: {
+                        result = (uint8_t)integer_value->value;
+                    } break;
 
-                            case RegisterSize::Size32: {
-                                result.integer = (uint32_t)value.integer;
-                            } break;
+                    case RegisterSize::Size16: {
+                        result = (uint16_t)integer_value->value;
+                    } break;
 
-                            case RegisterSize::Size64: {
-                                result.integer = value.integer;
-                            } break;
+                    case RegisterSize::Size32: {
+                        result = (uint32_t)integer_value->value;
+                    } break;
 
-                            default: {
-                                abort();
-                            } break;
-                        }
-                    }
-                } break;
+                    case RegisterSize::Size64: {
+                        result = integer_value->value;
+                    } break;
 
-                case TypeCategory::Pointer: {
-                    if(value.type.integer.is_undetermined) {
-                        result.pointer = value.integer;
-                    } else if(value.type.integer.size == context.address_integer_size) {
-                        result.pointer = value.integer;
-                    } else {
-                        error(context, value_range, "Cannot cast from %s to pointer", type_description(value_type));
-
-                        return { false };
-                    }
-                } break;
-
-                default: {
-                    error(context, type_range, "Cannot cast integer to this type");
-
-                    return { false };
-                } break;
+                    default: {
+                        abort();
+                    } break;
+                }
             }
-        } break;
+        } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
+            if(target_integer->size == context.address_integer_size && !target_integer->is_signed) {
+                auto pointer_value = dynamic_cast<PointerConstant*>(value);
+                assert(pointer_value);
 
-        case TypeCategory::Pointer: {
-            switch(type.category) {
-                case TypeCategory::Integer: {
-                    if(type.integer.size == context.address_integer_size) {
-                        result.integer = value.pointer;
-                    } else {
-                        error(context, value_range, "Cannot cast from pointer to %s", type_description(type));
+                result = pointer_value->value;
+            } else {
+                error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(pointer), type_description(target_integer));
 
-                        return { false };
-                    }
-                } break;
-
-                case TypeCategory::Pointer: {
-                    result.pointer = value.pointer;
-                } break;
-
-                default: {
-                    error(context, type_range, "Cannot cast pointer to %s", type_description(type));
-
-                    return { false };
-                } break;
+                return { false };
             }
-        } break;
-
-        default: {
-            error(context, value_range, "Cannot cast from %s", type_description(value_type));
+        } else {
+            error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(type), type_description(target_integer));
 
             return { false };
-        } break;
-    }
+        }
 
-    return {
-        true,
-        result
-    };
+        return {
+            true,
+            new IntegerConstant {
+                result
+            }
+        };
+    } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
+        uint64_t result;
+
+        if(auto integer = dynamic_cast<Integer*>(type)) {
+            if(integer->size == context.address_integer_size && !integer->is_signed) {
+                auto integer_value = dynamic_cast<IntegerConstant*>(value);
+                assert(integer_value);
+
+                result = integer_value->value;
+            } else {
+                error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(integer), type_description(target_pointer));
+
+                return { false };
+            }
+        } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
+            auto pointer_value = dynamic_cast<PointerConstant*>(value);
+            assert(pointer_value);
+
+            result = pointer_value->value;
+        } else {
+            error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(type), type_description(target_pointer));
+
+            return { false };
+        }
+
+        return {
+            new PointerConstant {
+                result
+            }
+        };
+    } else {
+        error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(type), type_description(target_type));
+
+        return { false };
+    }
 }
 
 struct RegisterRepresentation {
@@ -1941,1198 +2062,965 @@ struct RegisterRepresentation {
     RegisterSize value_size;
 };
 
-static RegisterRepresentation get_type_representation(GenerationContext context, Type type) {
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            return {
-                true,
-                type.integer.size
-            };
-        } break;
-
-        case TypeCategory::Boolean: {
-            return {
-                true,
-                context.default_integer_size
-            };
-        } break;
-
-        case TypeCategory::Pointer: {
-            return {
-                true,
-                context.address_integer_size
-            };
-        } break;
-
-        case TypeCategory::Array:
-        case TypeCategory::StaticArray:
-        case TypeCategory::Struct: {
-            RegisterRepresentation representation;
-            representation.is_in_register = false;
-
-            return representation;
-        } break;
-
-        default: {
-            abort();
-        } break;
-    }
-}
-
-static Result<Type> coerce_to_default_type(GenerationContext context, FileRange range, Type type) {
-    switch(type.category) {
-        case TypeCategory::Integer: {
-            if(type.integer.is_undetermined) {
-                Type type;
-                type.category = TypeCategory::Integer;
-                type.integer = {
-                    context.default_integer_size,
-                    true,
-                    false
-                };
-
-                return {
-                    true,
-                    type
-                };
-            } else {
-                return {
-                    true,
-                    type
-                };
-            }
-        } break;
-
-        case TypeCategory::Struct: {
-            if(type._struct.is_undetermined) {
-                error(context, range, "Undetermined struct types cannot exist at runtime");
-
-                return { false };
-            }
-
-            return {
-                true,
-                type
-            };
-        } break;
-
-        default: {
-            return {
-                true,
-                type
-            };
-        } break;
-    }
-}
-
-static Result<Type> evaluate_type_expression(GenerationContext *context, Expression expression);
-
-static Result<TypedConstantValue> evaluate_function_declaration(GenerationContext *context, Statement declaration) {
-    Type type;
-    type.category = TypeCategory::Function;
-    type.function.parameter_count = declaration.function_declaration.parameters.count;
-
-    ConstantValue value;
-    value.function.declaration = declaration;
-
-    if(context->is_top_level) {
-        value.function.file_path = context->file_path;
-        value.function.top_level_statements = context->top_level_statements;
+static RegisterRepresentation get_type_representation(GenerationContext context, Type *type) {
+    if(auto integer = dynamic_cast<Integer*>(type)) {
+        return {
+            true,
+            integer->size
+        };
+    } else if(dynamic_cast<Boolean*>(type)) {
+        return {
+            true,
+            context.default_integer_size
+        };
+    } else if(dynamic_cast<Pointer*>(type)) {
+        return {
+            true,
+            context.address_integer_size
+        };
+    } else if(
+        dynamic_cast<ArrayTypeType*>(type) ||
+        dynamic_cast<StaticArray*>(type) ||
+        dynamic_cast<StructType*>(type)
+    ) {
+        return {
+            false
+        };
     } else {
-        value.function.parent = context->determined_declaration;
+        abort();
+    }
+}
+
+static Result<Type*> coerce_to_default_type(GenerationContext context, FileRange range, Type *type) {
+    if(dynamic_cast<UndeterminedInteger*>(type)) {
+        return {
+            true,
+            new Integer {
+                context.default_integer_size,
+                true
+            }
+        };
+    } else if(dynamic_cast<UndeterminedStruct*>(type)) {
+        error(context, range, "Undetermined struct types cannot exist at runtime");
+
+        return { false };
+    } else {
+        return {
+            true,
+            type
+        };
+    }
+}
+
+static const char* generate_function_mangled_name(GenerationContext context, FunctionDeclaration declaration) {
+    char *buffer{};
+
+    string_buffer_append(&buffer, declaration.name.text);
+
+    if(context.is_top_level) {
+        string_buffer_append(&buffer, "_");
+        string_buffer_append(&buffer, path_get_file_component(context.parent.file_path));
+    } else {
+        auto current = context.parent.parent;
+
+        while(current->declaration->parent) {
+            const char *name;
+            if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(current->declaration)) {
+                return function_declaration->name.text;
+            } else if(auto constant_definition = dynamic_cast<ConstantDefinition*>(current->declaration)) {
+                return constant_definition->name.text;
+            } else if(auto struct_definition = dynamic_cast<StructDefinition*>(current->declaration)) {
+                return struct_definition->name.text;
+            } else {
+                abort();
+            }
+
+            string_buffer_append(&buffer, "_");
+            string_buffer_append(&buffer, name);
+
+            current = current->parent.parent;
+        }
+
+        string_buffer_append(&buffer, "_");
+        string_buffer_append(&buffer, path_get_file_component(current->parent.file_path));
     }
 
-    auto parameterTypes = allocate<Type>(declaration.function_declaration.parameters.count);
+    return buffer;
+}
 
-    for(auto parameter : declaration.function_declaration.parameters) {
+static Result<Type*> evaluate_type_expression(GenerationContext *context, Expression *expression);
+
+static Result<TypedConstantValue> evaluate_function_declaration(GenerationContext *context, FunctionDeclaration *declaration) {
+    for(auto parameter : declaration->parameters) {
         if(parameter.is_polymorphic_determiner) {
-            type.function.is_polymorphic = true;
-
             return {
                 true,
                 {
-                    type,
-                    value
+                    new PolymorphicFunction,
+                    new PolymorphicFunctionConstant {
+                        declaration,
+                        context->parent
+                    }
                 }
             };
         }
     }
 
-    for(size_t i = 0; i < declaration.function_declaration.parameters.count; i += 1) {
-        expect(type, evaluate_type_expression(context, declaration.function_declaration.parameters[i].type));
+    auto parameter_count = declaration->parameters.count;
+
+    auto parameter_types = allocate<Type*>(parameter_count);
+    for(size_t i = 0; i < parameter_count; i += 1) {
+        expect(type, evaluate_type_expression(context, declaration->parameters[i].type));
 
         if(!is_runtime_type(type)) {
-            error(*context, declaration.function_declaration.parameters[i].type.range, "Function parameters cannot be of type '%s'", type_description(type));
+            error(*context, declaration->parameters[i].type->range, "Function parameters cannot be of type '%s'", type_description(type));
 
             return { false };
         }
 
-        parameterTypes[i] = type;
+        parameter_types[i] = type;
     }
 
-    Type return_type;
-    if(declaration.function_declaration.has_return_type) {
-        expect(return_type_value, evaluate_type_expression(context, declaration.function_declaration.return_type));
+    Type *return_type;
+    if(declaration->return_type) {
+        expect(return_type_value, evaluate_type_expression(context, declaration->return_type));
 
         if(!is_runtime_type(return_type_value)) {
-            error(*context, declaration.function_declaration.return_type.range, "Function parameters cannot be of type '%s'", type_description(return_type_value));
+            error(*context, declaration->return_type->range, "Function parameters cannot be of type '%s'", type_description(return_type_value));
 
             return { false };
         }
 
         return_type = return_type_value;
     } else {
-        return_type.category = TypeCategory::Void;
+        return_type = new Void;
     }
 
-    type.function = {
-        false,
-        declaration.function_declaration.parameters.count,
-        parameterTypes,
-        heapify(return_type)
-    };
+    auto mangled_name = generate_function_mangled_name(*context, *declaration);
 
     return {
         true,
         {
-            type,
-            value
+            new FunctionTypeType {
+                {
+                    parameter_count,
+                    parameter_types
+                },
+                return_type
+            },
+            new FunctionConstant {
+                mangled_name
+            }
         }
     };
 }
 
-static const char *get_declaration_name(Statement declaration){
-    switch(declaration.type) {
-        case StatementType::FunctionDeclaration: {
-            return declaration.function_declaration.name.text;
-        } break;
+static Result<TypedConstantValue> evaluate_struct_definition(GenerationContext *context, StructDefinition *definition) {
+    auto parameter_count = definition->parameters.count;
 
-        case StatementType::ConstantDefinition: {
-            return declaration.constant_definition.name.text;
-        } break;
+    if(parameter_count == 0) {
+        auto member_count = definition->members.count;
 
-        case StatementType::StructDefinition: {
-            return declaration.struct_definition.name.text;
-        } break;
+        auto members = allocate<StructType::Member>(member_count);
 
-        case StatementType::Import: {
-            return path_get_file_component(declaration.import);
-        } break;
-
-        default: {
-            abort();
-        }
-    }
-}
-
-static const char* generate_mangled_name(GenerationContext context, Statement declaration) {
-    char *buffer{};
-
-    string_buffer_append(&buffer, get_declaration_name(declaration));
-
-    if(context.is_top_level) {
-        string_buffer_append(&buffer, "_");
-        string_buffer_append(&buffer, path_get_file_component(context.file_path));
-    } else {
-        auto current = context.determined_declaration;
-
-        while(!current.declaration.is_top_level) {
-            string_buffer_append(&buffer, "_");
-            string_buffer_append(&buffer, get_declaration_name(current.declaration));
-
-            current = *current.parent;
-        }
-
-        string_buffer_append(&buffer, "_");
-        string_buffer_append(&buffer, path_get_file_component(current.file_path));
-    }
-
-    return buffer;
-}
-
-static Result<TypedConstantValue> evaluate_struct_definition(GenerationContext *context, Statement definition) {
-    auto mangled_name = generate_mangled_name(*context, definition);
-
-    Type type;
-    type.category = TypeCategory::Type;
-
-    ConstantValue value;
-    value.type.category = TypeCategory::Struct;
-    value.type._struct.is_undetermined = false;
-    value.type._struct.is_union = definition.struct_definition.is_union;
-    value.type._struct.name = mangled_name;
-
-    if(definition.struct_definition.parameters.count != 0) {
-        auto parameters = allocate<StructTypeParameter>(definition.struct_definition.parameters.count);
-
-        for(size_t i = 0; i < definition.struct_definition.parameters.count; i += 1) {
-            expect(type, evaluate_type_expression(context, definition.struct_definition.parameters[i].type));
-
-            parameters[i] = {
-                definition.struct_definition.parameters[i].name.text,
-                type
-            };
-        }
-
-        value.type._struct.is_polymorphic = true;
-        value.type._struct.polymorphic.declaration = definition;
-        value.type._struct.polymorphic.parameters = parameters;
-
-        if(definition.is_top_level) {
-            value.type._struct.polymorphic.file_path = context->file_path;
-            value.type._struct.polymorphic.top_level_statements = context->top_level_statements;
-        } else {
-            value.type._struct.polymorphic.parent = context->determined_declaration;
-        }
-    } else {
-        value.type._struct.is_polymorphic = false;
-
-        auto members = allocate<StructTypeMember>(definition.struct_definition.members.count);
-
-        for(size_t i = 0; i < definition.struct_definition.members.count; i += 1) {
-            for(size_t j = 0; j < definition.struct_definition.members.count; j += 1) {
-                if(j != i && strcmp(definition.struct_definition.members[i].name.text, definition.struct_definition.members[j].name.text) == 0) {
-                    error(*context, definition.struct_definition.members[i].name.range, "Duplicate struct member name %s", definition.struct_definition.members[i].name.text);
+        for(size_t i = 0; i < member_count; i += 1) {
+            for(size_t j = 0; j < member_count; j += 1) {
+                if(j != i && strcmp(definition->members[i].name.text, definition->members[j].name.text) == 0) {
+                    error(*context, definition->members[i].name.range, "Duplicate struct member name %s", definition->members[i].name.text);
 
                     return { false };
                 }
             }
 
-            expect(type, evaluate_type_expression(context, definition.struct_definition.members[i].type));
+            expect(type, evaluate_type_expression(context, definition->members[i].type));
 
             if(!is_runtime_type(type)) {
-                error(*context, definition.struct_definition.members[i].type.range, "Struct members cannot be of type '%s'", type_description(type));
+                error(*context, definition->members[i].type->range, "Struct members cannot be of type '%s'", type_description(type));
 
                 return { false };
             }
 
             members[i] = {
-                definition.struct_definition.members[i].name.text,
+                definition->members[i].name.text,
                 type
             };
         }
 
-        value.type._struct.concrete = {
-            definition.struct_definition.members.count,
-            members
+        return {
+            true,
+            {
+                new TypeType,
+                new TypeConstant {
+                    new StructType {
+                        definition,
+                        {
+                            member_count,
+                            members
+                        }
+                    }
+                }
+            }
+        };
+    } else {
+        auto parameter_types = allocate<Type*>(parameter_count);
+
+        for(size_t i = 0; i < parameter_count; i += 1) {
+            expect(type, evaluate_type_expression(context, definition->parameters[i].type));
+
+            parameter_types[i] = type;
+        }
+
+        return {
+            true,
+            {
+                new TypeType,
+                new TypeConstant {
+                    new PolymorphicStruct {
+                        definition,
+                        parameter_types,
+                        context->parent
+                    }
+                }
+            }
         };
     }
-
-    return {
-        true,
-        {
-            type,
-            value
-        }
-    };
 }
 
-static Result<Type> evaluate_type_expression(GenerationContext *context, Expression expression);
+static Result<Type*> evaluate_type_expression(GenerationContext *context, Expression *expression);
 
-static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression expression) {
-    switch(expression.type) {
-        case ExpressionType::NamedReference: {
-            return resolve_constant_named_reference(context, expression.named_reference);
-        } break;
+static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext *context, Expression *expression) {
+    if(auto named_reference = dynamic_cast<NamedReference*>(expression)) {
+        return resolve_constant_named_reference(context, named_reference->name);
+    } else if(auto member_reference = dynamic_cast<MemberReference*>(expression)) {
+        expect(expression_value, evaluate_constant_expression(context, member_reference->expression));
 
-        case ExpressionType::MemberReference: {
-            expect(expression_value, evaluate_constant_expression(context, *expression.member_reference.expression));
+        if(auto array_type = dynamic_cast<ArrayTypeType*>(expression_value.type)) {
+            auto array_value = dynamic_cast<ArrayConstant*>(expression_value.value);
+            assert(array_value);
 
-            switch(expression_value.type.category) {
-                case TypeCategory::Array: {
-                    if(strcmp(expression.member_reference.name.text, "length") == 0) {
-                        Type type;
-                        type.category = TypeCategory::Integer;
-                        type.integer = {
-                            context->address_integer_size,
-                            false
-                        };
-
-                        ConstantValue value;
-                        value.integer = expression_value.value.array.length;
-
-                        return {
-                            true,
-                            {
-                                type,
-                                value
-                            }
-                        };
-                    } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
-                        Type type;
-                        type.category = TypeCategory::Pointer;
-                        type.pointer = expression_value.type.array;
-
-                        ConstantValue value;
-                        value.pointer = expression_value.value.array.length;
-
-                        return {
-                            true,
-                            {
-                                type,
-                                value
-                            }
-                        };
-                    } else {
-                        error(*context, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
-
-                        return { false };
+            if(strcmp(member_reference->name.text, "length") == 0) {
+                return {
+                    true,
+                    new Integer {
+                        context->address_integer_size,
+                        false
+                    },
+                    new IntegerConstant {
+                        array_value->length
                     }
-                } break;
-
-                case TypeCategory::StaticArray: {
-                    if(strcmp(expression.member_reference.name.text, "length") == 0) {
-                        Type type;
-                        type.category = TypeCategory::Integer;
-                        type.integer = {
-                            context->address_integer_size,
-                            false
-                        };
-
-                        ConstantValue value;
-                        value.integer = expression_value.type.static_array.length;
-
-                        return {
-                            true,
-                            {
-                                type,
-                                value
-                            }
-                        };
-                    } else if(strcmp(expression.member_reference.name.text, "pointer") == 0) {
-                        error(*context, expression.member_reference.name.range, "Cannot access the 'pointer' member in a constant context");
-
-                        return { false };
-                    } else {
-                        error(*context, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
-
-                        return { false };
-                    }
-                } break;
-
-                case TypeCategory::Struct: {
-                    if(expression_value.type._struct.is_undetermined) {
-                        for(size_t i = 0; i < expression_value.type._struct.concrete.count; i += 1) {
-                            if(strcmp(expression_value.type._struct.concrete[i].name, expression.member_reference.name.text) == 0) {
-                                return {
-                                    true,
-                                    {
-                                        expression_value.type._struct.concrete[i].type,
-                                        expression_value.value.struct_[i]
-                                    }
-                                };
-                            }
-                        }
-                    } else if(expression_value.type._struct.is_polymorphic) {
-                        error(*context, expression.member_reference.expression->range, "Cannot access polymorphic struct members");
-
-                        return { false };
-                    } else {
-                        if(expression_value.type._struct.is_union) {
-                            error(*context, expression.member_reference.expression->range, "Cannot access constant union members");
-
-                            return { false };
-                        }
-
-                        for(size_t i = 0; i < expression_value.type._struct.concrete.count; i += 1) {
-                            if(strcmp(expression_value.type._struct.concrete[i].name, expression.member_reference.name.text) == 0) {
-                                return {
-                                    true,
-                                    {
-                                        expression_value.type._struct.concrete[i].type,
-                                        expression_value.value.struct_[i]
-                                    }
-                                };
-                            }
-                        }
-                    }
-
-                    error(*context, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
-
-                    return { false };
-                } break;
-
-                case TypeCategory::FileModule: {
-                    for(auto statement : expression_value.value.file_module.statements) {
-                        Statement declaration;
-
-                        if(match_declaration(statement, expression.member_reference.name.text)) {
-                            declaration = statement;
-                        } else if(statement.type == StatementType::Using) {
-                            expect(expression_value, evaluate_constant_expression(context, statement.using_));
-
-                            if(expression_value.type.category != TypeCategory::FileModule) {
-                                error(*context, statement.using_.range, "Expected a module, got '%s'", type_description(expression_value.type));
-
-                                return { false };
-                            }
-
-                            auto found = false;
-                            for(auto statement : expression_value.value.file_module.statements) {
-                                if(match_declaration(statement, expression.member_reference.name.text)) {
-                                    declaration = statement;
-
-                                    found = true;
-                                }
-                            }
-
-                            if(!found) {
-                                continue;
-                            }
-                        } else {
-                            continue;
-                        }
-
-                        auto old_is_top_level = context->is_top_level;
-                        auto old_constant_parameters = context->constant_parameters;
-
-                        DeterminedDeclaration old_determined_declaration;
-                        Array<Statement> old_top_level_statements;
-                        const char *old_file_path;
-                        if(context->is_top_level) {
-                            old_top_level_statements = context->top_level_statements;
-                            old_file_path = context->file_path;
-                        } else {
-                            old_determined_declaration = context->determined_declaration;
-                        }
-
-                        context->is_top_level = true;
-                        context->top_level_statements = expression_value.value.file_module.statements;
-                        context->file_path = expression_value.value.file_module.path;
-                        context->constant_parameters = {};
-
-                        TypedConstantValue value;
-                        switch(declaration.type) {
-                            case StatementType::FunctionDeclaration: {
-                                expect(function_value, evaluate_function_declaration(context, declaration));
-
-                                value = function_value;
-                            } break;
-
-                            case StatementType::ConstantDefinition: {
-                                expect(expression_value, evaluate_constant_expression(context, declaration.constant_definition.expression));
-
-                                value = expression_value;
-                            } break;
-
-                            case StatementType::Import: {
-                                error(*context, expression.member_reference.expression->range, "Cannot access module member '%s'. Imports are private", expression.member_reference.name.text);
-
-                                return { false };
-                            } break;
-
-                            case StatementType::StructDefinition: {
-                                expect(struct_value, evaluate_struct_definition(context, declaration));
-
-                                value = struct_value;
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
-
-                        context->is_top_level = old_is_top_level;
-                        context->constant_parameters = old_constant_parameters;
-                        if(context->is_top_level) {
-                            context->top_level_statements = old_top_level_statements;
-                            context->file_path = old_file_path;
-                        } else {
-                            context->determined_declaration = old_determined_declaration;
-                        }
-
-                        return {
-                            true,
-                            value
-                        };
-                    }
-
-                    error(*context, expression.member_reference.name.range, "No member with name %s", expression.member_reference.name.text);
-
-                    return { false };
-                } break;
-
-                default: {
-                    error(*context, expression.member_reference.expression->range, "%s has no members", type_description(expression_value.type));
-
-                    return { false };
-                } break;
-            }
-        } break;
-
-        case ExpressionType::IndexReference: {
-            expect(expression_value, evaluate_constant_expression(context, *expression.index_reference.expression));
-
-            expect(index, evaluate_constant_expression(context, *expression.index_reference.index));
-
-            return evaluate_constant_index(
-                *context,
-                expression_value.type,
-                expression_value.value,
-                expression.index_reference.expression->range,
-                index.type,
-                index.value,
-                expression.index_reference.index->range
-            );
-        } break;
-
-        case ExpressionType::IntegerLiteral: {
-            Type type;
-            type.category = TypeCategory::Integer;
-            type.integer.is_undetermined = true;
-
-            ConstantValue value;
-            value.integer = expression.integer_literal;
-
-            return {
-                true,
-                {
-                    type,
-                    value
-                }
-            };
-        } break;
-
-        case ExpressionType::StringLiteral: {
-            Type array_type;
-            array_type.category = TypeCategory::Integer;
-            array_type.integer = {
-                RegisterSize::Size8,
-                false,
-                false
-            };
-
-            Type type;
-            type.category = TypeCategory::StaticArray;
-            type.static_array = {
-                expression.string_literal.count,
-                heapify(array_type)
-            };
-
-            auto characters = allocate<ConstantValue>(expression.string_literal.count);
-
-            for(size_t i = 0; i < expression.string_literal.count; i += 1) {
-                characters[i].integer = expression.string_literal[i];
-            }
-
-            ConstantValue value;
-            value.static_array = characters;
-
-            return {
-                true,
-                {
-                    type,
-                    value
-                }
-            };
-        } break;
-
-        case ExpressionType::ArrayLiteral: {
-            if(expression.array_literal.count == 0) {
-                error(*context, expression.range, "Empty array literal");
-
-                return { false };
-            }
-
-            auto elements = allocate<TypedConstantValue>(expression.array_literal.count);
-
-            expect(first_element, evaluate_constant_expression(context, expression.array_literal[0]));
-            elements[0] = first_element;
-
-            for(size_t i = 1; i < expression.array_literal.count; i += 1) {
-                expect(element, evaluate_constant_expression(context, expression.array_literal[i]));
-
-                elements[i] = element;
-            }
-
-            expect(determined_element_type, coerce_to_default_type(*context, expression.range, first_element.type));
-
-            if(!is_runtime_type(determined_element_type)) {
-                error(*context, expression.range, "Arrays cannot be of type '%s'", type_description(determined_element_type));
-
-                return { false };
-            }
-
-            auto element_values = allocate<ConstantValue>(expression.array_literal.count);
-
-            for(size_t i = 0; i < expression.array_literal.count; i += 1) {
-                expect(element_value, coerce_constant_to_type(
-                    *context,
-                    expression.array_literal.elements[i].range,
-                    elements[i],
-                    determined_element_type,
-                    false
-                ));
-
-                element_values[i] = element_value;
-            }
-
-            TypedConstantValue value;
-            value.type.category = TypeCategory::StaticArray;
-            value.type.static_array = {
-                expression.array_literal.count,
-                heapify(determined_element_type)
-            };
-            value.value.static_array = element_values;
-
-            return {
-                true,
-                value
-            };
-        } break;
-
-        case ExpressionType::StructLiteral: {
-            if(expression.struct_literal.count == 0) {
-                error(*context, expression.range, "Empty struct literal");
-
-                return { false };
-            }
-
-            auto type_members = allocate<StructTypeMember>(expression.struct_literal.count);
-            auto member_values = allocate<ConstantValue>(expression.struct_literal.count);
-
-            for(size_t i = 0; i < expression.struct_literal.count; i += 1) {
-                for(size_t j = 0; j < i; j += 1) {
-                    if(strcmp(expression.struct_literal[i].name.text, type_members[j].name) == 0) {
-                        error(*context, expression.struct_literal[i].name.range, "Duplicate struct member %s", expression.struct_literal[i].name.text);
-
-                        return { false };
-                    }
-                }
-
-                expect(member, evaluate_constant_expression(context, expression.struct_literal[i].value));
-
-                if(!is_runtime_type(member.type)) {
-                    error(*context, expression.struct_literal[i].value.range, "Struct members cannot be of type '%s'", type_description(member.type));
-
-                    return { false };
-                }
-
-                type_members[i] = {
-                    expression.struct_literal[i].name.text,
-                    member.type
                 };
+            } else if(strcmp(member_reference->name.text, "pointer") == 0) {
+                return {
+                    true,
+                    new Pointer {
+                        array_type->element_type
+                    },
+                    new PointerConstant {
+                        array_value->pointer
+                    }
+                };
+            } else {
+                error(*context, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
 
-                member_values[i] = member.value;
+                return { false };
+            }
+        } else if(auto static_array = dynamic_cast<StaticArray*>(expression_value.type)) {
+            if(strcmp(member_reference->name.text, "length") == 0) {
+                return {
+                    true,
+                    new Integer {
+                        context->address_integer_size,
+                        false
+                    },
+                    new IntegerConstant {
+                        static_array->length
+                    }
+                };
+            } else if(strcmp(member_reference->name.text, "pointer") == 0) {
+                error(*context, member_reference->name.range, "Cannot take pointer to static array in constant context", member_reference->name.text);
+
+                return { false };
+            } else {
+                error(*context, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
+
+                return { false };
+            }
+        } else if(auto struct_type = dynamic_cast<StructType*>(expression_value.type)) {
+            auto struct_value = dynamic_cast<StructConstant*>(expression_value.value);
+            assert(struct_value);
+
+            for(size_t i = 0; i < struct_type->members.count; i += 1) {
+                if(strcmp(member_reference->name.text, struct_type->members[i].name) == 0) {
+                    return {
+                        true,
+                        {
+                            struct_type->members[i].type,
+                            struct_value->members[i]
+                        }
+                    };
+                }
             }
 
-            Type type;
-            type.category = TypeCategory::Struct;
-            type._struct.is_undetermined = true;
-            type._struct.concrete = {
-                expression.struct_literal.count,
-                type_members
-            };
+            error(*context, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
 
-            ConstantValue value;
-            value.struct_ = member_values;
+            return { false };
+        } else if(auto undetermined_struct = dynamic_cast<UndeterminedStruct*>(expression_value.type)) {
+            auto undetermined_struct_value = dynamic_cast<StructConstant*>(expression_value.value);
+            assert(undetermined_struct_value);
 
-            return {
-                true,
-                {
-                    type,
-                    value
+            for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
+                if(strcmp(member_reference->name.text, undetermined_struct->members[i].name) == 0) {
+                    return {
+                        true,
+                        {
+                            undetermined_struct->members[i].type,
+                            undetermined_struct_value->members[i]
+                        }
+                    };
                 }
-            };
-        } break;
+            }
 
-        case ExpressionType::FunctionCall: {
-            expect(expression_value, evaluate_constant_expression(context, *expression.function_call.expression));
+            error(*context, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
 
-            switch(expression_value.type.category) {
-                case TypeCategory::Function: {
-                    error(*context, expression.range, "Function calls not allowed in global context");
+            return { false };
+        } else if(auto file_module = dynamic_cast<FileModule*>(expression_value.type)) {
+            auto file_module_value = dynamic_cast<FileModuleConstant*>(expression_value.value);
+            assert(file_module_value);
 
-                    return { false };
-                } break;
-
-                case TypeCategory::Type: {
-                    auto type = expression_value.value.type;
-
-                    if(type.category != TypeCategory::Struct) {
-                        error(*context, expression.function_call.expression->range, "Type '%s' is not polymorphic", type_description(type));
-
-                        return { false };
-                    }
-
-                    if(!type._struct.is_polymorphic) {
-                        error(*context, expression.function_call.expression->range, "Struct is not polymorphic");
-
-                        return { false };
-                    }
-
-                    auto parameter_count = type._struct.polymorphic.declaration.struct_definition.parameters.count;
-
-                    if(expression.function_call.parameters.count != parameter_count) {
-                        error(*context, expression.range, "Incorrect struct parameter count: expected %zu, got %zu", parameter_count, expression.function_call.parameters.count);
-
-                        return { false };
-                    }
-
-                    auto parameters = allocate<ConstantParameter>(parameter_count);
-
-                    for(size_t i = 0; i < parameter_count; i += 1) {
-                        expect(parameter, evaluate_constant_expression(context, expression.function_call.parameters[i]));
-
-                        expect(parameter_value, coerce_constant_to_type(
-                            *context,
-                            expression.function_call.parameters[i].range,
-                            parameter,
-                            type._struct.polymorphic.parameters[i].type,
-                            false
-                        ));
-
-                        parameters[i] = {
-                            type._struct.polymorphic.parameters[i].name,
-                            {
-                                type._struct.polymorphic.parameters[i].type,
-                                parameter_value
-                            }
-                        };
-                    }
-
+            for(auto statement : file_module_value->statements) {
+                if(match_public_declaration(statement, member_reference->name.text)) {
                     auto old_is_top_level = context->is_top_level;
+                    auto old_parent = context->parent;
                     auto old_constant_parameters = context->constant_parameters;
 
-                    DeterminedDeclaration old_determined_declaration;
-                    Array<Statement> old_top_level_statements;
-                    const char *old_file_path;
-                    if(context->is_top_level) {
-                        old_top_level_statements = context->top_level_statements;
-                        old_file_path = context->file_path;
-                    } else {
-                        old_determined_declaration = context->determined_declaration;
-                    }
+                    context->is_top_level = true;
+                    context->parent.file_path = file_module_value->path;
+                    context->parent.top_level_statements = file_module_value->statements;
+                    context->constant_parameters = {};
 
-                    context->is_top_level = false;
-                    context->determined_declaration.declaration = type._struct.polymorphic.declaration;
-                    if(type._struct.polymorphic.declaration.is_top_level) {
-                        context->determined_declaration.file_path = type._struct.polymorphic.file_path;
-                        context->determined_declaration.top_level_statements = type._struct.polymorphic.top_level_statements;
-                    } else {
-                        context->determined_declaration.parent = heapify(type._struct.polymorphic.parent);
-                    }
-                    context->determined_declaration.constant_parameters = {
-                        parameter_count,
-                        parameters
-                    };
-
-                    auto members = allocate<StructTypeMember>(type._struct.polymorphic.declaration.struct_definition.members.count);
-
-                    for(size_t i = 0; i < type._struct.polymorphic.declaration.struct_definition.members.count; i += 1) {
-                        expect(member_type, evaluate_type_expression(context, type._struct.polymorphic.declaration.struct_definition.members[i].type));
-
-                        expect(determined_type, coerce_to_default_type(
-                            *context,
-                            type._struct.polymorphic.declaration.struct_definition.members[i].type.range,
-                            member_type
-                        ));
-
-                        if(!is_runtime_type(determined_type)) {
-                            error(*context, type._struct.polymorphic.declaration.struct_definition.members[i].type.range, "Struct members cannot be of type '%s'", type_description(determined_type));
-
-                            return { false };
-                        }
-
-                        members[i] = {
-                            type._struct.polymorphic.declaration.struct_definition.members[i].name.text,
-                            determined_type
-                        };
-                    }
-
-                    auto mangled_name = generate_mangled_name(*context, type._struct.polymorphic.declaration);
+                    expect(value, resolve_declaration(context, statement));
 
                     context->is_top_level = old_is_top_level;
+                    context->parent = old_parent;
                     context->constant_parameters = old_constant_parameters;
-                    if(context->is_top_level) {
-                        context->top_level_statements = old_top_level_statements;
-                        context->file_path = old_file_path;
-                    } else {
-                        context->determined_declaration = old_determined_declaration;
-                    }
-
-                    TypedConstantValue value;
-                    value.type.category = TypeCategory::Type;
-                    value.value.type.category = TypeCategory::Struct;
-                    value.value.type._struct.is_polymorphic = false;
-                    value.value.type._struct.is_undetermined = false;
-                    value.value.type._struct.name = mangled_name;
-                    value.value.type._struct.is_union = type._struct.polymorphic.declaration.struct_definition.is_union;
-                    value.value.type._struct.concrete = {
-                        type._struct.polymorphic.declaration.struct_definition.members.count,
-                        members
-                    };
 
                     return {
                         true,
                         value
                     };
-                } break;
-
-                default: {
-                    error(*context, expression.function_call.expression->range, "Cannot call non-function '%s'", type_description(expression_value.type));
-
-                    return { false };
-                } break;
+                }
             }
-        } break;
 
-        case ExpressionType::BinaryOperation: {
-            expect(left, evaluate_constant_expression(context, *expression.binary_operation.left));
+            error(*context, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
 
-            expect(right, evaluate_constant_expression(context, *expression.binary_operation.right));
+            return { false };
+        } else {
+            error(*context, member_reference->expression->range, "Type '%s' has no members", type_description(expression_value.type));
 
-            expect(value, evaluate_constant_binary_operation(
+            return { false };
+        }
+    } else if(auto index_reference = dynamic_cast<IndexReference*>(expression)) {
+        expect(expression_value, evaluate_constant_expression(context, index_reference->expression));
+
+        expect(index, evaluate_constant_expression(context, index_reference->index));
+
+        return evaluate_constant_index(
+            *context,
+            expression_value.type,
+            expression_value.value,
+            index_reference->expression->range,
+            index.type,
+            index.value,
+            index_reference->index->range
+        );
+    } else if(auto integer_literal = dynamic_cast<IntegerLiteral*>(expression)) {
+        return {
+            true,
+            {
+                new UndeterminedInteger,
+                new IntegerConstant {
+                    integer_literal->value
+                }
+            }
+        };
+    } else if(auto string_literal = dynamic_cast<StringLiteral*>(expression)) {
+        auto character_count = string_literal->characters.count;
+
+        auto characters = allocate<ConstantValue*>(character_count);
+
+        for(size_t i = 0; i < character_count; i += 1) {
+            characters[i] = new IntegerConstant {
+                string_literal->characters[i]
+            };
+        }
+
+        return {
+            true,
+            {
+                new StaticArray {
+                    character_count,
+                    new Integer {
+                        RegisterSize::Size8,
+                        false
+                    }
+                },
+                new StaticArrayConstant {
+                    characters
+                }
+            }
+        };
+    } else if(auto array_literal = dynamic_cast<ArrayLiteral*>(expression)) {
+        auto element_count = array_literal->elements.count;
+
+        if(element_count == 0) {
+            error(*context, array_literal->range, "Empty array literal");
+
+            return { false };
+        }
+
+        expect(first_element, evaluate_constant_expression(context, array_literal->elements[0]));
+
+        expect(determined_element_type, coerce_to_default_type(*context, array_literal->elements[0]->range, first_element.type));
+
+        if(!is_runtime_type(determined_element_type)) {
+            error(*context, array_literal->range, "Arrays cannot be of type '%s'", type_description(determined_element_type));
+
+            return { false };
+        }
+
+        auto elements = allocate<ConstantValue*>(element_count);
+        elements[0] = first_element.value;
+
+        for(size_t i = 1; i < element_count; i += 1) {
+            expect(element, evaluate_constant_expression(context, array_literal->elements[i]));
+
+            expect(element_value, coerce_constant_to_type(
                 *context,
-                expression.range,
-                expression.binary_operation.binary_operator,
-                expression.binary_operation.left->range,
-                left.type,
-                left.value,
-                expression.binary_operation.right->range,
-                right.type,
-                right.value
+                array_literal->elements[i]->range,
+                element.type,
+                element.value,
+                determined_element_type,
+                false
             ));
 
-            return {
-                true,
-                value
+            elements[i] = element_value;
+        }
+
+        return {
+            true,
+            {
+                new StaticArray {
+                    element_count,
+                    determined_element_type
+                },
+                new StaticArrayConstant {
+                    elements
+                }
+            }
+        };
+    } else if(auto struct_literal = dynamic_cast<StructLiteral*>(expression)) {
+        auto member_count = struct_literal->members.count;
+
+        if(member_count == 0) {
+            error(*context, struct_literal->range, "Empty struct literal");
+
+            return { false };
+        }
+
+        auto members = allocate<UndeterminedStruct::Member>(member_count);
+        auto member_values = allocate<ConstantValue*>(member_count);
+
+        for(size_t i = 0; i < member_count; i += 1) {
+            auto member_name = struct_literal->members[i].name;
+
+            for(size_t j = 0; j < member_count; j += 1) {
+                if(j != i && strcmp(member_name.text, struct_literal->members[j].name.text) == 0) {
+                    error(*context, member_name.range, "Duplicate struct member %s", member_name.text);
+
+                    return { false };
+                }
+            }
+
+            expect(member, evaluate_constant_expression(context, struct_literal->members[i].value));
+
+            members[i] = {
+                member_name.text,
+                member.type
             };
-        } break;
 
-        case ExpressionType::UnaryOperation: {
-            expect(expression_value, evaluate_constant_expression(context, *expression.unary_operation.expression));
+            member_values[i] = member.value;
+        }
 
-            switch(expression.unary_operation.unary_operator) {
-                case UnaryOperator::Pointer: {
-                    if(expression_value.type.category != TypeCategory::Type) {
-                        error(*context, expression.range, "Cannot take pointers at constant time");
+        return {
+            true,
+            {
+                new UndeterminedStruct {
+                    {
+                        member_count,
+                        members
+                    }
+                },
+                new StructConstant {
+                    member_values
+                }
+            }
+        };
+    } else if(auto function_call = dynamic_cast<FunctionCall*>(expression)) {
+        expect(expression_value, evaluate_constant_expression(context, function_call->expression));
+
+        if(auto function = dynamic_cast<FunctionTypeType*>(expression_value.type)) {
+            error(*context, function_call->range, "Function calls not allowed in global context");
+
+            return { false };
+        } else if(dynamic_cast<TypeType*>(expression_value.type)) {
+            auto type_value = dynamic_cast<TypeConstant*>(expression_value.value);
+            assert(type_value);
+
+            if(auto polymorphic_struct = dynamic_cast<PolymorphicStruct*>(type_value->type)) {
+                auto definition = polymorphic_struct->definition;
+
+                auto parameter_count = definition->parameters.count;
+
+                if(function_call->parameters.count != parameter_count) {
+                    error(*context, function_call->range, "Incorrect struct parameter count: expected %zu, got %zu", parameter_count, function_call->parameters.count);
+
+                    return { false };
+                }
+
+                auto parameters = allocate<ConstantParameter>(parameter_count);
+
+                for(size_t i = 0; i < parameter_count; i += 1) {
+                    expect(parameter, evaluate_constant_expression(context, function_call->parameters[i]));
+
+                    expect(parameter_value, coerce_constant_to_type(
+                        *context,
+                        function_call->parameters[i]->range,
+                        parameter.type,
+                        parameter.value,
+                        polymorphic_struct->parameter_types[i],
+                        false
+                    ));
+
+                    parameters[i] = {
+                        definition->parameters[i].name.text,
+                        polymorphic_struct->parameter_types[i],
+                        parameter_value
+                    };
+                }
+
+                auto old_is_top_level = context->is_top_level;
+                auto old_parent = context->parent;
+                auto old_constant_parameters = context->constant_parameters;
+
+                context->is_top_level = false;
+                context->parent = polymorphic_struct->parent;
+                context->constant_parameters = {
+                    parameter_count,
+                    parameters
+                };
+
+                auto member_count = definition->members.count;
+
+                auto members = allocate<StructType::Member>(member_count);
+
+                for(size_t i = 0; i < member_count; i += 1) {
+                    for(size_t j = 0; j < member_count; j += 1) {
+                        if(j != i && strcmp(definition->members[i].name.text, definition->members[j].name.text) == 0) {
+                            error(*context, definition->members[i].name.range, "Duplicate struct member name %s", definition->members[i].name.text);
+
+                            return { false };
+                        }
+                    }
+
+                    expect(type, evaluate_type_expression(context, definition->members[i].type));
+
+                    if(!is_runtime_type(type)) {
+                        error(*context, definition->members[i].type->range, "Struct members cannot be of type '%s'", type_description(type));
 
                         return { false };
                     }
+
+                    members[i] = {
+                        definition->members[i].name.text,
+                        type
+                    };
+                }
+
+                context->is_top_level = old_is_top_level;
+                context->parent = old_parent;
+                context->constant_parameters = old_constant_parameters;
+
+                return {
+                    true,
+                    {
+                        new TypeType,
+                        new TypeConstant {
+                            new StructType {
+                                definition,
+                                {
+                                    member_count,
+                                    members
+                                }
+                            }
+                        }
+                    }
+                };
+            } else {
+                error(*context, function_call->expression->range, "Type '%s' is not polymorphic", type_description(type_value->type));
+
+                return { false };
+            }
+        } else {
+            error(*context, function_call->expression->range, "Cannot call non-function '%s'", type_description(expression_value.type));
+
+            return { false };
+        }
+    } else if(auto binary_operation = dynamic_cast<BinaryOperation*>(expression)) {
+        expect(left, evaluate_constant_expression(context, binary_operation->left));
+
+        expect(right, evaluate_constant_expression(context, binary_operation->right));
+
+        expect(value, evaluate_constant_binary_operation(
+            *context,
+            binary_operation->range,
+            binary_operation->binary_operator,
+            binary_operation->left->range,
+            left.type,
+            left.value,
+            binary_operation->right->range,
+            right.type,
+            right.value
+        ));
+
+        return {
+            true,
+            value
+        };
+    } else if(auto unary_operation = dynamic_cast<UnaryOperation*>(expression)) {
+        expect(expression_value, evaluate_constant_expression(context, unary_operation->expression));
+
+        switch(unary_operation->unary_operator) {
+            case UnaryOperation::Operator::Pointer: {
+                if(dynamic_cast<TypeType*>(expression_value.type)) {
+                    auto type_value = dynamic_cast<TypeConstant*>(expression_value.value);
+                    assert(type_value);
 
                     if(
-                        !is_runtime_type(expression_value.value.type) &&
-                        expression_value.value.type.category != TypeCategory::Void &&
-                        !(
-                            expression_value.value.type.category == TypeCategory::Function &&
-                            !expression_value.value.type.function.is_polymorphic
-                        )
+                        !is_runtime_type(type_value->type) &&
+                        !dynamic_cast<Void*>(type_value->type) &&
+                        !dynamic_cast<Function*>(type_value->type)
                     ) {
-                        error(*context, expression.unary_operation.expression->range, "Cannot create pointers to type '%s'", type_description(expression_value.value.type));
+                        error(*context, unary_operation->expression->range, "Cannot create pointers to type '%s'", type_description(type_value->type));
 
                         return { false };
                     }
 
-                    Type type;
-                    type.category = TypeCategory::Type;
+                    return {
+                        true,
+                        {
+                            new TypeType,
+                            new TypeConstant {
+                                new Pointer {
+                                    type_value->type
+                                }
+                            }
+                        }
+                    };
+                } else {
+                    error(*context, unary_operation->range, "Cannot take pointers at constant time");
 
-                    ConstantValue value;
-                    value.type.category = TypeCategory::Pointer;
-                    value.type.pointer = heapify(expression_value.value.type);
+                    return { false };
+                }
+            } break;
+
+            case UnaryOperation::Operator::BooleanInvert: {
+                if(dynamic_cast<Boolean*>(expression_value.type)) {
+                    auto boolean_value = dynamic_cast<BooleanConstant*>(expression_value.value);
+                    assert(boolean_value);
 
                     return {
                         true,
                         {
-                            type,
-                            value
+                            new Boolean,
+                            new BooleanConstant {
+                                !boolean_value->value
+                            }
                         }
                     };
-                } break;
+                } else {
+                    error(*context, unary_operation->expression->range, "Expected a boolean, got '%s'", type_description(expression_value.type));
 
-                case UnaryOperator::BooleanInvert: {
-                    if(expression_value.type.category != TypeCategory::Boolean) {
-                        error(*context, expression.unary_operation.expression->range, "Expected a boolean, got %s", type_description(expression_value.type));
+                    return { false };
+                }
+            } break;
 
-                        return { false };
-                    }
-
-                    ConstantValue value;
-                    value.boolean = !expression_value.value.boolean;
+            case UnaryOperation::Operator::Negation: {
+                if(auto integer = dynamic_cast<Integer*>(expression_value.type)) {
+                    auto integer_value = dynamic_cast<IntegerConstant*>(expression_value.value);
+                    assert(integer_value);
 
                     return {
                         true,
                         {
-                            expression_value.type,
-                            value
+                            integer,
+                            new IntegerConstant {
+                                -integer_value->value
+                            }
                         }
                     };
-                } break;
-
-                case UnaryOperator::Negation: {
-                    if(expression_value.type.category != TypeCategory::Integer) {
-                        error(*context, expression.unary_operation.expression->range, "Expected an integer, got %s", type_description(expression_value.type));
-
-                        return { false };
-                    }
-
-                    ConstantValue value;
-                    value.integer = -expression_value.value.integer;
+                } else if(dynamic_cast<UndeterminedInteger*>(expression_value.type)) {
+                    auto integer_value = dynamic_cast<IntegerConstant*>(expression_value.value);
+                    assert(integer_value);
 
                     return {
                         true,
                         {
-                            expression_value.type,
-                            value
+                            new UndeterminedInteger,
+                            new IntegerConstant {
+                                -integer_value->value
+                            }
                         }
                     };
-                } break;
+                } else {
+                    error(*context, unary_operation->expression->range, "Expected an integer, got '%s'", type_description(expression_value.type));
 
-                default: {
-                    abort();
-                } break;
-            }
-        } break;
+                    return { false };
+                }
+            } break;
 
-        case ExpressionType::Cast: {
-            expect(expression_value, evaluate_constant_expression(context, *expression.cast.expression));
+            default: {
+                abort();
+            } break;
+        }
+    } else if(auto cast = dynamic_cast<Cast*>(expression)) {
+        expect(expression_value, evaluate_constant_expression(context, cast->expression));
 
-            expect(type, evaluate_type_expression(context, *expression.cast.type));
+        expect(type, evaluate_type_expression(context, cast->type));
 
-            expect(value, evaluate_constant_conversion(
-                *context,
-                expression_value.value,
-                expression_value.type,
-                expression.cast.expression->range,
+        expect(value, evaluate_constant_cast(
+            *context,
+            expression_value.type,
+            expression_value.value,
+            cast->expression->range,
+            type,
+            cast->type->range
+        ));
+
+        return {
+            true,
+            {
                 type,
-                expression.cast.type->range
+                value
+            }
+        };
+    } else if(auto array_type = dynamic_cast<ArrayType*>(expression)) {
+        expect(type, evaluate_type_expression(context, array_type->expression));
+
+        if(!is_runtime_type(type)) {
+            error(*context, array_type->expression->range, "Cannot have arrays of type '%s'", type_description(type));
+
+            return { false };
+        }
+
+        if(array_type->index != nullptr) {
+            expect(index_value, evaluate_constant_expression(context, array_type->index));
+
+            expect(length, coerce_constant_to_integer_type(
+                *context,
+                array_type->index->range,
+                index_value.type,
+                index_value.value,
+                {
+                    context->address_integer_size,
+                    false
+                },
+                false
             ));
 
             return {
                 true,
                 {
-                    type,
-                    value
+                    new TypeType,
+                    new TypeConstant {
+                        new StaticArray {
+                            length->value,
+                            type
+                        }
+                    }
                 }
             };
-        } break;
+        } else {
+            return {
+                true,
+                {
+                    new TypeType,
+                    new TypeConstant {
+                        new ArrayTypeType {
+                            type
+                        }
+                    }
+                }
+            };
+        }
+    } else if(auto function_type = dynamic_cast<FunctionType*>(expression)) {
+        auto parameter_count = function_type->parameters.count;
 
-        case ExpressionType::ArrayType: {
-            expect(type, evaluate_type_expression(context, *expression.array_type.expression));
+        auto parameters = allocate<Type*>(parameter_count);
 
-            if(!is_runtime_type(type)) {
-                error(*context, expression.array_type.expression->range, "Cannot have arrays of type '%s'", type_description(type));
+        for(size_t i = 0; i < parameter_count; i += 1) {
+            auto parameter = function_type->parameters[i];
+
+            if(parameter.is_polymorphic_determiner) {
+                error(*context, parameter.polymorphic_determiner.range, "Function types cannot be polymorphic");
 
                 return { false };
             }
 
-            TypedConstantValue value;
-            value.type.category = TypeCategory::Type;
+            expect(type, evaluate_type_expression(context, parameter.type));
 
-            if(expression.array_type.index != nullptr) {
-                expect(index_value, evaluate_constant_expression(context, *expression.array_type.index));
+            if(!is_runtime_type(type)) {
+                error(*context, parameter.type->range, "Function parameters cannot be of type '%s'", type_description(type));
 
-                expect(length, coerce_constant_to_integer_type(
-                    *context,
-                    expression.array_type.index->range,
-                    index_value,
-                    context->address_integer_size,
-                    false,
-                    false
-                ));
-
-                value.value.type.category = TypeCategory::StaticArray;
-                value.value.type.static_array = {
-                    length,
-                    heapify(type)
-                };
-            } else {
-                value.value.type.category = TypeCategory::Array;
-                value.value.type.array = heapify(type);
+                return { false };
             }
 
-            return {
-                true,
-                value
-            };
-        } break;
+            parameters[i] = type;
+        }
 
-        case ExpressionType::FunctionType: {
-            auto parameters = allocate<Type>(expression.function_type.parameters.count);
+        Type *return_type;
+        if(function_type->return_type == nullptr) {
+            return_type = new Void;
+        } else {
+            expect(return_type_value, evaluate_type_expression(context, function_type->return_type));
 
-            for(size_t i = 0; i < expression.function_type.parameters.count; i += 1) {
-                auto parameter = expression.function_type.parameters[i];
+            if(!is_runtime_type(return_type_value)) {
+                error(*context, function_type->return_type->range, "Function returns cannot be of type '%s'", type_description(return_type_value));
 
-                if(parameter.is_polymorphic_determiner) {
-                    error(*context, parameter.polymorphic_determiner.range, "Function types cannot be polymorphic");
-
-                    return { false };
-                }
-
-                expect(type, evaluate_type_expression(context, parameter.type));
-
-                if(!is_runtime_type(type)) {
-                    error(*context, expression.function_type.parameters[i].type.range, "Function parameters cannot be of type '%s'", type_description(type));
-
-                    return { false };
-                }
-
-                parameters[i] = type;
+                return { false };
             }
 
-            Type return_type;
-            if(expression.function_type.return_type == nullptr) {
-                return_type.category = TypeCategory::Void;
-            } else {
-                expect(return_type_value, evaluate_type_expression(context, *expression.function_type.return_type));
+            return_type = return_type_value;
+        }
 
-                if(!is_runtime_type(return_type_value)) {
-                    error(*context, expression.function_type.return_type->range, "Function returns cannot be of type '%s'", type_description(return_type_value));
-
-                    return { false };
+        return {
+            true,
+            {
+                new TypeType,
+                new TypeConstant {
+                    new FunctionTypeType {
+                        {
+                            parameter_count,
+                            parameters
+                        },
+                        return_type
+                    }
                 }
-
-                return_type = return_type_value;
             }
-
-            TypedConstantValue value;
-            value.type.category = TypeCategory::Type;
-            value.value.type.category = TypeCategory::Function;
-            value.value.type.function = {
-                false,
-                expression.function_type.parameters.count,
-                parameters,
-                heapify(return_type)
-            };
-
-            return {
-                true,
-                value
-            };
-        } break;
-
-        default: {
-            abort();
-        } break;
+        };
+    } else {
+        abort();
     }
 }
 
-static Result<Type> evaluate_type_expression(GenerationContext *context, Expression expression) {
+static Result<Type*> evaluate_type_expression(GenerationContext *context, Expression *expression) {
     expect(expression_value, evaluate_constant_expression(context, expression));
 
-    if(expression_value.type.category != TypeCategory::Type) {
-        error(*context, expression.range, "Expected a type, got %s", type_description(expression_value.type));
+    if(dynamic_cast<TypeType*>(expression_value.type)) {
+        auto type_value = dynamic_cast<TypeConstant*>(expression_value.value);
+        assert(type_value);
+
+        return {
+            true,
+            type_value->type
+        }
+    } else {
+        error(*context, expression->range, "Expected a type, got %s", type_description(expression_value.type));
 
         return { false };
     }
-
-    return {
-        true,
-        expression_value.value.type
-    };
 }
 
-static bool register_global_name(GenerationContext *context, const char *name, FileRange name_range) {
-    for(auto global_name : context->global_names) {
-        if(strcmp(global_name, name) == 0) {
-            error(*context, name_range, "Duplicate global name %s", name);
+static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Statement *declaration) {
+    if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(declaration)) {
+        expect(value, evaluate_function_declaration(context, function_declaration));
 
-            return false;
+        return {
+            true,
+            value
+        };
+    } else if(auto constant_definition = dynamic_cast<ConstantDefinition*>(declaration)) {
+        expect(value, evaluate_constant_expression(context, constant_definition->expression));
+
+        return {
+            true,
+            value
+        };
+    } else if(auto struct_definition = dynamic_cast<StructDefinition*>(declaration)) {
+        expect(value, evaluate_struct_definition(context, struct_definition));
+
+        return {
+            true,
+            value
+        };
+    } else if(auto import = dynamic_cast<Import*>(declaration)) {
+        const char *file_path;
+        if(context->is_top_level) {
+            file_path = context->parent.file_path;
+        } else {
+            auto current_declaration = context->parent.parent;
+
+            while(!current_declaration->declaration->parent) {
+                current_declaration = current_declaration->parent.parent;
+            }
+
+            file_path = current_declaration->parent.file_path;
         }
-    }
 
-    append(&(context->global_names), name);
+        auto source_file_directory = path_get_directory_component(file_path);
 
-    return true;
-}
+        char *import_file_path{};
 
-static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Statement declaration) {
-    switch(declaration.type) {
-        case StatementType::FunctionDeclaration: {
-            expect(value, evaluate_function_declaration(context, declaration));
+        string_buffer_append(&import_file_path, source_file_directory);
+        string_buffer_append(&import_file_path, import->path);
 
-            return {
-                true,
-                value
-            };
-        } break;
+        expect(import_file_path_absolute, path_relative_to_absolute(import_file_path));
 
-        case StatementType::ConstantDefinition: {
-            expect(expression_value, evaluate_constant_expression(context, declaration.constant_definition.expression));
+        auto already_parsed = false;
+        Array<Statement*> statements;
+        for(auto file : context->parsed_files) {
+            if(strcmp(file.path, import_file_path_absolute) == 0) {
+                already_parsed = true;
+                statements = file.statements;
 
-            return {
-                true,
-                expression_value
-            };
-        } break;
-
-        case StatementType::Import: {
-            const char *file_path;
-            if(context->is_top_level) {
-                file_path = context->file_path;
-            } else {
-                auto current_declaration = context->determined_declaration;
-
-                while(!current_declaration.declaration.is_top_level) {
-                    current_declaration = *current_declaration.parent;
-                }
-
-                file_path = current_declaration.file_path;
+                break;
             }
+        }
 
-            auto source_file_directory = path_get_directory_component(file_path);
+        if(!already_parsed) {
+            expect(tokens, tokenize_source(import_file_path_absolute));
 
-            char *import_file_path{};
+            expect(new_statements, parse_tokens(import_file_path_absolute, tokens));
 
-            string_buffer_append(&import_file_path, source_file_directory);
-            string_buffer_append(&import_file_path, declaration.import);
-
-            expect(import_file_path_absolute, path_relative_to_absolute(import_file_path));
-
-            auto already_parsed = false;
-            Array<Statement> statements;
-            for(auto file : context->parsed_files) {
-                if(strcmp(file.path, import_file_path_absolute) == 0) {
-                    already_parsed = true;
-                    statements = file.statements;
-
-                    break;
-                }
-            }
-
-            if(!already_parsed) {
-                expect(tokens, tokenize_source(import_file_path_absolute));
-
-                expect(new_statements, parse_tokens(import_file_path_absolute, tokens));
-
-                append(&context->parsed_files, {
-                    import_file_path_absolute,
-                    new_statements
-                });
-
-                statements = new_statements;
-            }
-
-            Type type;
-            type.category = TypeCategory::FileModule;
-
-            ConstantValue value;
-            value.file_module = {
+            append(&context->parsed_files, {
                 import_file_path_absolute,
-                statements
-            };
+                new_statements
+            });
 
-            return {
-                true,
-                {
-                    type,
-                    value
+            statements = new_statements;
+        }
+
+        return {
+            true,
+            {
+                new FileModule,
+                new FileModuleConstant {
+                    import_file_path,
+                    statements
                 }
-            };
-        } break;
-
-        case StatementType::StructDefinition: {
-            expect(value, evaluate_struct_definition(context, declaration));
-
-            return {
-                true,
-                value
-            };
-        } break;
-
-        default: {
-            abort();
-        } break;
+            }
+        };
+    } else {
+        abort();
     }
 }
 
