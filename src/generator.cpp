@@ -3650,7 +3650,8 @@ static Result<size_t> coerce_to_integer_register_value(
     FileRange range,
     Type *type,
     Value *value,
-    Integer target_type
+    Integer target_type,
+    bool probing
 ) {
     if(auto integer = dynamic_cast<Integer*>(type)) {
         if(integer->size == target_type.size && integer->is_signed == target_type.is_signed) {
@@ -3673,7 +3674,221 @@ static Result<size_t> coerce_to_integer_register_value(
         };
     }
 
-    error(*context, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
+    if(!probing) {
+        error(*context, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
+    }
+
+    return { false };
+}
+
+static Result<size_t> coerce_to_type_register(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    FileRange range,
+    Type *type,
+    Value *value,
+    Type *target_type,
+    bool probing
+) {
+    if(auto integer = dynamic_cast<Integer*>(target_type)) {
+        expect(register_index, coerce_to_integer_register_value(
+            context,
+            instructions,
+            range,
+            type,
+            value,
+            *integer,
+            probing
+        ));
+
+        return {
+            true,
+            register_index
+        };
+    } else if(dynamic_cast<Boolean*>(target_type)) {
+        if(dynamic_cast<Boolean*>(type)) {
+            auto register_index = generate_in_register_boolean_value(context, instructions, range, value);
+
+            return {
+                true,
+                register_index
+            };
+        }
+    } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
+        if(auto pointer = dynamic_cast<Pointer*>(type)) {
+            if(types_equal(pointer->type, target_pointer->type)) {
+                auto register_index = generate_in_register_pointer_value(context, instructions, range, value);
+
+                return {
+                    true,
+                    register_index
+                };
+            }
+        }
+    } else if(auto target_array = dynamic_cast<ArrayTypeType*>(target_type)) {
+        if(auto array_type = dynamic_cast<ArrayTypeType*>(type)) {
+            if(types_equal(target_array->element_type, array_type->element_type)) {
+                size_t register_index;
+                if(auto register_value = dynamic_cast<RegisterValue*>(value)) {
+                    register_index = register_value->register_index;
+                } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
+                    register_index = address_value->address_register;
+                } else {
+                    abort();
+                }
+
+                return {
+                    true,
+                    register_index
+                };
+            }
+        }
+    } else if(auto target_static_array = dynamic_cast<StaticArray*>(target_type)) {
+        if(auto static_array = dynamic_cast<StaticArray*>(type)) {
+            if(types_equal(target_static_array->element_type, static_array->element_type) && target_static_array->length == static_array->length) {
+                size_t register_index;
+                if(auto register_value = dynamic_cast<RegisterValue*>(value)) {
+                    register_index = register_value->register_index;
+                } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
+                    register_index = address_value->address_register;
+                } else {
+                    abort();
+                }
+
+                return {
+                    true,
+                    register_index
+                };
+            }
+        }
+    } else if(auto target_struct_type = dynamic_cast<StructType*>(target_type)) {
+        if(auto struct_type = dynamic_cast<StructType*>(type)) {
+            if(target_struct_type->definition == struct_type->definition && target_struct_type->members.count == struct_type->members.count) {
+                auto same_members = true;
+                for(size_t i = 0; i < struct_type->members.count; i += 1) {
+                    if(
+                        strcmp(target_struct_type->members[i].name, struct_type->members[i].name) != 0 ||
+                        !types_equal(target_struct_type->members[i].type, struct_type->members[i].type)
+                    ) {
+                        same_members = false;
+
+                        break;
+                    }
+                }
+
+                if(same_members) {
+                    size_t register_index;
+                    if(auto register_value = dynamic_cast<RegisterValue*>(value)) {
+                        register_index = register_value->register_index;
+                    } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
+                        register_index = address_value->address_register;
+                    } else {
+                        abort();
+                    }
+
+                    return {
+                        true,
+                        register_index
+                    };
+                }
+            }
+        } else if(auto undetermined_struct = dynamic_cast<UndeterminedStruct*>(type)) {
+            auto undetermined_struct_value = dynamic_cast<UndeterminedStructValue*>(value);
+            assert(undetermined_struct_value);
+
+            if(target_struct_type->definition->is_union) {
+                if(undetermined_struct->members.count == 1) {
+                    for(size_t i = 0; i < target_struct_type->members.count; i += 1) {
+                        if(strcmp(target_struct_type->members[i].name, undetermined_struct->members[0].name) == 0) {
+                            auto address_register = append_allocate_local(
+                                context,
+                                instructions,
+                                range.first_line,
+                                get_struct_size(*context, *target_struct_type),
+                                get_struct_alignment(*context, *target_struct_type)
+                            );
+
+                            if(coerce_to_type_write(
+                                context,
+                                instructions,
+                                range,
+                                undetermined_struct->members[0].type,
+                                undetermined_struct_value->members[0],
+                                target_struct_type->members[i].type,
+                                address_register
+                            )) {
+                                return {
+                                    true,
+                                    address_register
+                                };
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else {
+                if(target_struct_type->members.count == undetermined_struct->members.count) {
+                    auto same_members = true;
+                    for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
+                        if(strcmp(target_struct_type->members[i].name, undetermined_struct->members[i].name) != 0) {
+                            same_members = false;
+
+                            break;
+                        }
+                    }
+
+                    if(same_members) {
+                        auto address_register = append_allocate_local(
+                            context,
+                            instructions,
+                            range.first_line,
+                            get_struct_size(*context, *target_struct_type),
+                            get_struct_alignment(*context, *target_struct_type)
+                        );
+
+                        auto success = true;
+                        for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
+                            auto member_address_register = generate_address_offset(
+                                context,
+                                instructions,
+                                range,
+                                address_register,
+                                get_struct_member_offset(*context, *struct_type, i)
+                            );
+
+                            if(!coerce_to_type_write(
+                                context,
+                                instructions,
+                                range,
+                                undetermined_struct->members[i].type,
+                                undetermined_struct_value->members[i],
+                                target_struct_type->members[i].type,
+                                member_address_register
+                            )) {
+                                success = false;
+
+                                break;
+                            }
+                        }
+
+                        if(success) {
+                            return {
+                                true,
+                                address_register
+                            };
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        abort();
+    }
+
+    if(!probing) {
+        error(*context, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(target_type));
+    }
 
     return { false };
 }
@@ -3688,7 +3903,7 @@ static bool coerce_to_type_write(
     size_t address_register
 ) {
     if(auto integer_type = dynamic_cast<Integer*>(target_type)) {
-        expect(register_index, coerce_to_integer_register_value(context, instructions, range, type, value, *integer_type));
+        expect(register_index, coerce_to_integer_register_value(context, instructions, range, type, value, *integer_type, false));
 
         append_store_integer(context, instructions, range.first_line, integer_type->size, register_index, address_register);
 
@@ -4012,7 +4227,8 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             {
                 context->address_integer_size,
                 false
-            }
+            },
+            false
         ));
 
         size_t base_address_register;
@@ -4659,25 +4875,17 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             for(size_t i = 0; i < parameter_count; i += 1) {
                 expect(parameter_value, generate_expression(context, instructions, function_call->parameters[i]));
 
-                auto address_register = append_allocate_local(
-                    context,
-                    instructions,
-                    function_call->parameters[i]->range.first_line,
-                    get_type_size(*context, function->parameters[i]),
-                    get_type_alignment(*context, function->parameters[i])
-                );
-
-                if(!coerce_to_type_write(
+                expect(parameter_register, coerce_to_type_register(
                     context,
                     instructions,
                     function_call->parameters[i]->range,
                     parameter_value.type,
                     parameter_value.value,
                     function->parameters[i],
-                    address_register
-                )) {
-                    return { false };
-                }
+                    false
+                ));
+
+                parameter_registers[i] = parameter_register;
             }
 
             if(has_return && !return_type_representation.is_in_register) {
@@ -5085,7 +5293,8 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 binary_operation->left->range,
                 left.type,
                 left.value,
-                *integer
+                *integer,
+                false
             ));
 
             expect(right_register, coerce_to_integer_register_value(
@@ -5094,7 +5303,8 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 binary_operation->right->range,
                 right.type,
                 right.value,
-                *integer
+                *integer,
+                false
             ));
 
             auto is_arithmetic = true;
@@ -5612,9 +5822,22 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             };
         }
 
+        auto coercion_result = coerce_to_type_register(
+            context,
+            instructions,
+            cast->range,
+            expression_value.type,
+            expression_value.value,
+            target_type,
+            true
+        );
+
         auto has_cast = false;
         size_t register_index;
-        if(auto target_integer = dynamic_cast<Integer*>(target_type)) {
+        if(coercion_result.status) {
+            has_cast = true;
+            register_index = coercion_result.value;
+        } else if(auto target_integer = dynamic_cast<Integer*>(target_type)) {
             if(auto integer = dynamic_cast<Integer*>(expression_value.type)) {
                 size_t value_register;
                 if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
@@ -5642,24 +5865,6 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     value_register
                 );
             }
-        } else if(dynamic_cast<Boolean*>(target_type)) {
-            if(dynamic_cast<Boolean*>(expression_value.type)) {
-                has_cast = true;
-
-                if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
-                    register_index = register_value->register_index;
-                } else if(auto address_value = dynamic_cast<AddressValue*>(expression_value.value)) {
-                    register_index = append_load_integer(
-                        context,
-                        instructions,
-                        unary_operation->expression->range.first_line,
-                        context->default_integer_size,
-                        address_value->address_register
-                    );
-                } else {
-                    abort();
-                }
-            }
         } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
             if(auto pointer = dynamic_cast<Pointer*>(expression_value.type)) {
                 has_cast = true;
@@ -5674,148 +5879,6 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         context->address_integer_size,
                         address_value->address_register
                     );
-                }
-            }
-        } else if(auto target_array = dynamic_cast<ArrayTypeType*>(target_type)) {
-            if(auto array_type = dynamic_cast<ArrayTypeType*>(expression_value.type)) {
-                if(types_equal(target_array->element_type, array_type->element_type)) {
-                    has_cast = true;
-
-                    if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
-                        register_index = register_value->register_index;
-                    } else if(auto address_value = dynamic_cast<AddressValue*>(expression_value.value)) {
-                        register_index = address_value->address_register;
-                    } else {
-                        abort();
-                    }
-                }
-            }
-        } else if(auto target_static_array = dynamic_cast<StaticArray*>(target_type)) {
-            if(auto static_array = dynamic_cast<StaticArray*>(expression_value.type)) {
-                if(types_equal(target_static_array->element_type, static_array->element_type) && target_static_array->length == static_array->length) {
-                    has_cast = true;
-
-                    size_t source_address_register;
-                    if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
-                        register_index = register_value->register_index;
-                    } else if(auto address_value = dynamic_cast<AddressValue*>(expression_value.value)) {
-                        register_index = address_value->address_register;
-                    } else {
-                        abort();
-                    }
-                }
-            }
-        } else if(auto target_struct_type = dynamic_cast<StructType*>(target_type)) {
-            if(auto struct_type = dynamic_cast<StructType*>(expression_value.type)) {
-                if(target_struct_type->definition == struct_type->definition && target_struct_type->members.count == struct_type->members.count) {
-                    auto same_members = true;
-                    for(size_t i = 0; i < struct_type->members.count; i += 1) {
-                        if(
-                            strcmp(target_struct_type->members[i].name, struct_type->members[i].name) != 0 ||
-                            !types_equal(target_struct_type->members[i].type, struct_type->members[i].type)
-                        ) {
-                            same_members = false;
-
-                            break;
-                        }
-                    }
-
-                    if(same_members) {
-                        has_cast = true;
-
-                        if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
-                            register_index = register_value->register_index;
-                        } else if(auto address_value = dynamic_cast<AddressValue*>(expression_value.value)) {
-                            register_index = address_value->address_register;
-                        } else {
-                            abort();
-                        }
-                    }
-                }
-            } else if(auto undetermined_struct = dynamic_cast<UndeterminedStruct*>(expression_value.type)) {
-                auto undetermined_struct_value = dynamic_cast<UndeterminedStructValue*>(expression_value.value);
-                assert(undetermined_struct_value);
-
-                if(target_struct_type->definition->is_union) {
-                    if(undetermined_struct->members.count == 1) {
-                        for(size_t i = 0; i < target_struct_type->members.count; i += 1) {
-                            if(strcmp(target_struct_type->members[i].name, undetermined_struct->members[0].name) == 0) {
-                                auto address_register = append_allocate_local(
-                                    context,
-                                    instructions,
-                                    cast->range.first_line,
-                                    get_struct_size(*context, *target_struct_type),
-                                    get_struct_alignment(*context, *target_struct_type)
-                                );
-
-                                if(coerce_to_type_write(
-                                    context,
-                                    instructions,
-                                    cast->range,
-                                    undetermined_struct->members[0].type,
-                                    undetermined_struct_value->members[0],
-                                    target_struct_type->members[i].type,
-                                    address_register
-                                )) {
-                                    has_cast = true;
-                                    register_index = address_register;
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    if(target_struct_type->members.count == undetermined_struct->members.count) {
-                        auto same_members = true;
-                        for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
-                            if(strcmp(target_struct_type->members[i].name, undetermined_struct->members[i].name) != 0) {
-                                same_members = false;
-
-                                break;
-                            }
-                        }
-
-                        if(same_members) {
-                            auto address_register = append_allocate_local(
-                                context,
-                                instructions,
-                                cast->range.first_line,
-                                get_struct_size(*context, *target_struct_type),
-                                get_struct_alignment(*context, *target_struct_type)
-                            );
-
-                            auto success = true;
-                            for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
-                                auto member_address_register = generate_address_offset(
-                                    context,
-                                    instructions,
-                                    cast->range,
-                                    address_register,
-                                    get_struct_member_offset(*context, *struct_type, i)
-                                );
-
-                                if(!coerce_to_type_write(
-                                    context,
-                                    instructions,
-                                    cast->range,
-                                    undetermined_struct->members[i].type,
-                                    undetermined_struct_value->members[i],
-                                    target_struct_type->members[i].type,
-                                    member_address_register
-                                )) {
-                                    success = false;
-
-                                    break;
-                                }
-                            }
-
-                            if(success) {
-                                has_cast = true;
-                                register_index = address_register;
-                            }
-                        }
-                    }
                 }
             }
         } else {
