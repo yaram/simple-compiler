@@ -38,7 +38,13 @@ struct DeterminedDeclaration {
     DeclarationParent parent;
 };
 
-struct ConstantValue;
+struct Value {
+    virtual ~Value() {}
+};
+
+struct ConstantValue : Value {
+    virtual ~ConstantValue() {}
+};
 
 struct Type : ConstantValue {
     virtual ~Type() {}
@@ -409,14 +415,6 @@ static bool is_runtime_type(Type *type) {
         return false;
     }
 }
-
-struct Value {
-    virtual ~Value() {}
-};
-
-struct ConstantValue : Value {
-    virtual ~ConstantValue() {}
-};
 
 struct FunctionConstant : ConstantValue {
     const char *mangled_name;
@@ -1710,7 +1708,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(
                     {
                         new UndeterminedInteger,
                         new IntegerConstant {
-                            (int64_t)left->value * (int64_t)right->value
+                            (uint64_t)((int64_t)left->value * (int64_t)right->value)
                         }
                     }
                 };
@@ -1722,7 +1720,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(
                     {
                         new UndeterminedInteger,
                         new IntegerConstant {
-                            (int64_t)left->value / (int64_t)right->value
+                            (uint64_t)((int64_t)left->value / (int64_t)right->value)
                         }
                     }
                 };
@@ -1734,7 +1732,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(
                     {
                         new UndeterminedInteger,
                         new IntegerConstant {
-                            (int64_t)left->value % (int64_t)right->value
+                            (uint64_t)((int64_t)left->value % (int64_t)right->value)
                         }
                     }
                 };
@@ -2048,6 +2046,7 @@ static Result<ConstantValue*> evaluate_constant_cast(
         }
 
         return {
+            true,
             new PointerConstant {
                 result
             }
@@ -2451,7 +2450,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 
         for(size_t i = 0; i < character_count; i += 1) {
             characters[i] = new IntegerConstant {
-                string_literal->characters[i]
+                (uint64_t)string_literal->characters[i]
             };
         }
 
@@ -3680,6 +3679,16 @@ static Result<size_t> coerce_to_integer_register_value(
     return { false };
 }
 
+static bool coerce_to_type_write(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    FileRange range,
+    Type *type,
+    Value *value,
+    Type *target_type,
+    size_t address_register
+);
+
 static Result<size_t> coerce_to_type_register(
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -4624,7 +4633,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
         for(size_t i = 0; i < character_count; i += 1) {
             characters[i] = new IntegerConstant {
-                string_literal->characters[i]
+                (uint64_t)string_literal->characters[i]
             };
         }
 
@@ -5014,7 +5023,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                 expect(return_type_value, evaluate_type_expression(context, polymorphic_function_value->declaration->return_type));
 
-                return_type_representation = get_type_representation(*context, return_type);
+                return_type_representation = get_type_representation(*context, return_type_value);
 
                 return_type = return_type_value;
             } else {
@@ -5985,6 +5994,8 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
             )) {
                 return false;
             }
+
+            return true;
         } else if(variable_declaration->type != nullptr) {
             expect(type_value, evaluate_type_expression(context, variable_declaration->type));
             
@@ -6006,6 +6017,8 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
                 get_type_size(*context, type),
                 get_type_alignment(*context, type)
             );
+
+            return true;
         } else if(variable_declaration->initializer != nullptr) {
             expect(initializer_value, generate_expression(context, instructions, variable_declaration->initializer));
 
@@ -6052,6 +6065,8 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
         )) {
             return false;
         }
+
+        return true;
     } else if(auto assignment = dynamic_cast<Assignment*>(statement)) {
         expect(target, generate_expression(context, instructions, assignment->target));
 
@@ -6077,6 +6092,8 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
         )) {
             return false;
         }
+
+        return true;
     } else if(auto if_statement = dynamic_cast<IfStatement*>(statement)) {
         auto end_jump_count = 1 + if_statement->else_ifs.count;
         auto end_jumps = allocate<Jump*>(end_jump_count);
