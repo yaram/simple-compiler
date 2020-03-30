@@ -608,7 +608,6 @@ struct GenerationContext {
 
     Array<ConstantParameter> constant_parameters;
 
-    Array<Variable> parameters;
     Type *return_type;
     size_t return_parameter_register;
 
@@ -4167,20 +4166,6 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             }
         }
 
-        for(auto parameter : context->parameters) {
-            if(strcmp(parameter.name.text, named_reference->name.text) == 0) {
-                return {
-                    true,
-                    {
-                        parameter.type,
-                        new RegisterValue {
-                            parameter.address_register
-                        }
-                    }
-                };
-            }
-        }
-
         expect(constant, resolve_constant_named_reference(context, named_reference->name));
 
         return {
@@ -6288,32 +6273,18 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
     }
 }
 
-inline GlobalConstant create_base_type(const char *name, Type type) {
-    Type value_type;
-    value_type.category = TypeCategory::Type;
-
-    ConstantValue value;
-    value.type = type;
-
+inline GlobalConstant create_base_integer_type(const char *name, RegisterSize size, bool is_signed) {
     return {
         name,
-        value_type,
-        value
+        new TypeType,
+        new Integer {
+            size,
+            is_signed
+        }
     };
 }
 
-inline GlobalConstant create_base_integer_type(const char *name, RegisterSize size, bool is_signed) {
-    Type type;
-    type.category = TypeCategory::Integer;
-    type.integer = {
-        size,
-        is_signed
-    };
-
-    return create_base_type(name, type);
-}
-
-Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_statements, RegisterSize address_size, RegisterSize default_size) {
+Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_statements, RegisterSize address_size, RegisterSize default_size) {
     List<GlobalConstant> global_constants{};
 
     append(&global_constants, create_base_integer_type("u8", RegisterSize::Size8, false));
@@ -6329,38 +6300,33 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
     append(&global_constants, create_base_integer_type("usize", address_size, false));
     append(&global_constants, create_base_integer_type("isize", address_size, true));
 
-    Type base_boolean_type;
-    base_boolean_type.category = TypeCategory::Boolean;
+    append(&global_constants, {
+        "bool",
+        new TypeType,
+        new Boolean
+    });
 
-    append(&global_constants, create_base_type("bool", base_boolean_type));
-
-    Type base_void_type;
-    base_void_type.category = TypeCategory::Void;
-
-    append(&global_constants, create_base_type("void", base_void_type));
-
-    ConstantValue boolean_true_value;
-    boolean_true_value.boolean = true;
+    append(&global_constants, {
+        "void",
+        new TypeType,
+        new Void
+    });
 
     append(&global_constants, GlobalConstant {
         "true",
-        base_boolean_type,
-        boolean_true_value
+        new Boolean,
+        new BooleanConstant { true }
     });
-
-    ConstantValue boolean_false_value;
-    boolean_false_value.boolean = false;
 
     append(&global_constants, GlobalConstant {
-        "false",
-        base_boolean_type,
-        boolean_false_value
+        "true",
+        new Boolean,
+        new BooleanConstant { false }
     });
 
-    Type type_type;
-    type_type.category = TypeCategory::Type;
-
-    append(&global_constants, create_base_type("type", type_type));
+    append(&global_constants, {
+        "type", new TypeType, new TypeType
+    });
 
     GenerationContext context {
         address_size,
@@ -6374,83 +6340,80 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
     });
 
     context.is_top_level = true;
-    context.file_path = main_file_path;
-    context.top_level_statements = main_file_statements;
+    context.parent.file_path = main_file_path;
+    context.parent.top_level_statements = main_file_statements;
     context.constant_parameters = {};
 
     auto main_found = false;
     for(auto statement : main_file_statements) {
         if(match_declaration(statement, "main")) {
-            if(statement.type != StatementType::FunctionDeclaration) {
-                error(context, statement.range, "'main' must be a function");
-
-                return { false };
-            }
-
-            if(statement.function_declaration.is_external) {
-                error(context, statement.range, "'main' must not be external");
-
-                return { false };
-            }
-
             expect(value, resolve_declaration(&context, statement));
 
-            if(value.type.function.is_polymorphic) {
-                error(context, statement.range, "'main' cannot be polymorphic");
+            if(auto function = dynamic_cast<FunctionTypeType*>(value.type)) {
+                auto function_value = dynamic_cast<FunctionConstant*>(value.type);
+                assert(function_value);
 
-                return { false };
-            }
+                auto parameter_count = function->parameters.count;
 
-            auto runtimeParameters = allocate<RuntimeFunctionParameter>(statement.function_declaration.parameters.count);
+                auto runtime_parameters = allocate<RuntimeFunctionParameter>(parameter_count);
 
-            for(size_t i = 0; i < statement.function_declaration.parameters.count; i += 1) {
-                runtimeParameters[i] = {
-                    statement.function_declaration.parameters[i].name,
-                    value.type.function.parameters[i]
+                for(size_t i = 0; i < parameter_count; i += 1) {
+                    runtime_parameters[i] = {
+                        function_value->declaration->parameters[i].name,
+                        function->parameters[i]
+                    };
+                }
+
+                auto mangled_name = "main";
+
+                RuntimeFunction runtime_function;
+                runtime_function.mangled_name = mangled_name;
+                runtime_function.parameters = {
+                    parameter_count,
+                    runtime_parameters
                 };
-            }
+                runtime_function.return_type = function->return_type;
+                runtime_function.declaration.declaration = function_value->declaration;
+                runtime_function.declaration.constant_parameters = {};
+                runtime_function.declaration.parent.file_path = main_file_path;
+                runtime_function.declaration.parent.top_level_statements = main_file_statements;
 
-            auto mangled_name = "main";
+                if(does_runtime_static_exist(context, mangled_name)) {
+                    error(context, function_value->declaration->name.range, "Duplicate global name '%s'", mangled_name);
 
-            RuntimeFunction function;
-            function.mangled_name = mangled_name;
-            function.parameters = {
-                statement.function_declaration.parameters.count,
-                runtimeParameters
-            };
-            function.return_type = *value.type.function.return_type;
-            function.declaration.declaration = statement;
-            function.declaration.file_path = main_file_path;
-            function.declaration.top_level_statements = main_file_statements;
-            function.declaration.constant_parameters = {};
+                    return { false };
+                }
 
-            append(&context.runtime_functions, function);
+                append(&context.runtime_functions, runtime_function);
 
-            if(!register_global_name(&context, mangled_name, statement.function_declaration.name.range)) {
+                main_found = true;
+
+                break;
+            } else if(dynamic_cast<PolymorphicFunction*>(value.type)) {
+                error(context, statement->range, "'main' cannot be polymorphic");
+
+                return { false };
+            } else {
+                error(context, statement->range, "'main' must be a function");
+
                 return { false };
             }
-
-            main_found = true;
-
-            break;
         }
     }
 
     if(!main_found) {
-        fprintf(stderr, "'main' function not found\n");
+        fprintf(stderr, "Error: 'main' function not found\n");
 
         return { false };
     }
-
-    List<Function> functions{};
 
     while(true) {
         auto done = true;
         RuntimeFunction function;
         for(auto runtime_function : context.runtime_functions) {
             auto generated = false;
-            for(auto generated_function : functions) {
-                if(strcmp(generated_function.name, runtime_function.mangled_name) == 0) {
+            for(auto runtime_static : context.statics) {
+                if(strcmp(runtime_static->name, runtime_function.mangled_name) == 0) {
                     generated = true;
 
                     break;
@@ -6470,13 +6433,22 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
             break;
         } else {
             context.is_top_level = false;
-            context.determined_declaration = function.declaration;
+            context.parent.parent = heapify(function.declaration);
+
+            auto function_declaration = dynamic_cast<FunctionDeclaration*>(function.declaration.declaration);
+            assert(function_declaration);
+
+            if(does_runtime_static_exist(context, function.mangled_name)) {
+                error(context, function_declaration->name.range, "Duplicate runtime name '%s'", function.mangled_name);
+
+                return { false };
+            }
 
             auto total_parameter_count = function.parameters.count;
 
             bool has_return;
             RegisterRepresentation return_representation;                
-            if(function.return_type.category == TypeCategory::Void) {
+            if(dynamic_cast<Void*>(function.return_type)) {
                 has_return = false;
             } else {
                 has_return = true;
@@ -6506,32 +6478,34 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
 
             const char *file_path;
             {
-                auto current_declaration = context.determined_declaration;
+                auto current_declaration = function.declaration;
 
-                while(!current_declaration.declaration.is_top_level) {
-                    current_declaration = *current_declaration.parent;
+                while(current_declaration.declaration->parent != nullptr) {
+                    current_declaration = *current_declaration.parent.parent;
                 }
 
-                file_path = current_declaration.file_path;
+                file_path = current_declaration.parent.file_path;
             }
 
-            Function ir_function;
-            ir_function.name = function.mangled_name;
-            ir_function.is_external = function.declaration.declaration.function_declaration.is_external;
-            ir_function.parameter_sizes = {
+            auto ir_function = new Function;
+            ir_function->name = function.mangled_name;
+            ir_function->is_external = function_declaration->is_external;
+            ir_function->parameter_sizes = {
                 total_parameter_count,
                 parameter_sizes
             };
-            ir_function.has_return = has_return && return_representation.is_in_register;
-            ir_function.file = file_path;
-            ir_function.line = function.declaration.declaration.range.first_line;
+            ir_function->has_return = has_return && return_representation.is_in_register;
+            ir_function->file = file_path;
+            ir_function->line = function_declaration->range.first_line;
 
             if(has_return && return_representation.is_in_register) {
-                ir_function.return_size = return_representation.value_size;
+                ir_function->return_size = return_representation.value_size;
             }
 
-            if(!function.declaration.declaration.function_declaration.is_external) {
+            if(!function_declaration->is_external) {
                 append(&context.variable_context_stack, List<Variable>{});
+
+                List<Instruction*> instructions{};
 
                 auto parameters = allocate<Variable>(function.parameters.count);
 
@@ -6544,12 +6518,64 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
                         parameter.type_range,
                         i
                     };
+
+                    auto size = get_type_size(context, parameter.type);
+
+                    auto address_register = append_allocate_local(
+                        &context,
+                        &instructions,
+                        function.declaration.declaration->range.first_line,
+                        size,
+                        get_type_alignment(context, parameter.type)
+                    );
+
+                    auto representation = get_type_representation(context, parameter.type);
+
+                    if(representation.is_in_register) {
+                        auto register_index = append_load_integer(
+                            &context,
+                            &instructions,
+                            function.declaration.declaration->range.first_line,
+                            representation.value_size,
+                            i
+                        );
+
+                        append_store_integer(
+                            &context,
+                            &instructions,
+                            function.declaration.declaration->range.first_line,
+                            representation.value_size,
+                            register_index,
+                            address_register
+                        );
+                    } else {
+                        auto size_register = append_constant(
+                            &context,
+                            &instructions,
+                            function.declaration.declaration->range.first_line,
+                            address_size,
+                            size
+                        );
+
+                        append_copy_memory(
+                            &context,
+                            &instructions,
+                            function.declaration.declaration->range.first_line,
+                            size_register,
+                            i,
+                            address_register
+                        );
+                    }
+
+                    add_new_variable(
+                        &context,
+                        parameter.name,
+                        address_register,
+                        parameter.type,
+                        parameter.type_range
+                    );
                 }
 
-                context.parameters = {
-                    function.parameters.count,
-                    parameters
-                };
                 context.return_type = function.return_type;
                 context.next_register = total_parameter_count;
 
@@ -6557,65 +6583,55 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement> main_file_st
                     context.return_parameter_register = total_parameter_count - 1;
                 }
 
-                List<Instruction> instructions{};
-
-                for(auto statement : function.declaration.declaration.function_declaration.statements) {
-                    switch(statement.type) {
-                        case StatementType::Expression:
-                        case StatementType::VariableDeclaration:
-                        case StatementType::Assignment:
-                        case StatementType::If:
-                        case StatementType::WhileLoop:
-                        case StatementType::Return: {
-                            if(!generate_statement(&context, &instructions, statement)) {
-                                return { false };
-                            }
-                        } break;
-
-                        case StatementType::Import: {
-                            error(context, statement.range, "Import directive only allowed in global scope");
-
+                for(auto statement : function_declaration->statements) {
+                    if(
+                        dynamic_cast<ExpressionStatement*>(statement) ||
+                        dynamic_cast<VariableDeclaration*>(statement) ||
+                        dynamic_cast<Assignment*>(statement) ||
+                        dynamic_cast<IfStatement*>(statement) ||
+                        dynamic_cast<WhileLoop*>(statement) ||
+                        dynamic_cast<ReturnStatement*>(statement)
+                    ) {
+                        if(!generate_statement(&context, &instructions, statement)) {
                             return { false };
-                        } break;
+                        }
                     }
                 }
 
-                auto has_return_at_end = false;
-                if(function.declaration.declaration.function_declaration.statements.count > 0) {
-                    has_return_at_end = function.declaration.declaration.function_declaration.statements[
-                        function.declaration.declaration.function_declaration.statements.count - 1
-                    ].type == StatementType::Return;
+                bool has_return_at_end;
+                if(function_declaration->statements.count > 0) {
+                    has_return_at_end = dynamic_cast<ReturnStatement*>(function_declaration->statements[function_declaration->statements.count - 1]);
+                } else {
+                    has_return_at_end = false;
                 }
 
                 if(!has_return_at_end) {
                     if(has_return) {
-                        error(context, function.declaration.declaration.range, "Function '%s' must end with a return", function.declaration.declaration.function_declaration.name.text);
+                        error(context, function_declaration->range, "Function '%s' must end with a return", function_declaration->name.text);
 
                         return { false };
                     } else {
-                        Instruction return_;
-                        return_.type = InstructionType::Return;
+                        auto return_instruction = new ReturnInstruction;
 
-                        append(&instructions, return_);
+                        append(&instructions, (Instruction*)return_instruction);
                     }
                 }
 
                 context.variable_context_stack.count -= 1;
                 context.next_register = 0;
 
-                ir_function.instructions = to_array(instructions);
+                ir_function->instructions = to_array(instructions);
             }
 
-            append(&functions, ir_function);
+            append(&context.statics, (RuntimeStatic*)ir_function);
         }
     }
 
     return {
         true,
         {
-            to_array(functions),
-            to_array(context.libraries),
-            to_array(context.static_constants)
+            to_array(context.statics),
+            to_array(context.libraries)
         }
     };
 }
