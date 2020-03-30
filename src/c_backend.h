@@ -4,8 +4,7 @@
 #include "result.h"
 
 bool generate_c_object(
-    Array<Function> functions,
-    Array<StaticConstant> constants,
+    Array<RuntimeStatic*> statics,
     const char *architecture,
     const char *os,
     const char *config,

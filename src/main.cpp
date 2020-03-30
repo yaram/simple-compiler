@@ -137,8 +137,8 @@ bool cli_entry(Array<const char*> arguments) {
     expect(ir, generate_ir(absolute_source_file_path, source_file_statements, register_sizes.address_size, register_sizes.default_size));
 
     if(print_ir) {
-        for(auto function : ir.functions) {
-            print_function(function);
+        for(auto runtime_static : ir.statics) {
+            print_static(runtime_static);
             printf("\n");
         }
     }
@@ -169,7 +169,7 @@ bool cli_entry(Array<const char*> arguments) {
 
     auto output_file_directory = path_get_directory_component(output_file_path);
 
-    generate_c_object(ir.functions, ir.constants, architecture, os, config, output_file_directory, output_file_name);
+    generate_c_object(ir.statics, architecture, os, config, output_file_directory, output_file_name);
 
     {
         char *buffer{};
