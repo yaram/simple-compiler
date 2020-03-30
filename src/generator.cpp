@@ -5955,518 +5955,179 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
     }
 }
 
-static bool generate_statement(GenerationContext *context, List<Instruction> *instructions, Statement statement) {
-    switch(statement.type) {
-        case StatementType::Expression: {
-            if(!generate_expression(context, instructions, statement.expression).status) {
-                return false;
-            }
+static bool generate_statement(GenerationContext *context, List<Instruction*> *instructions, Statement *statement) {
+    if(auto expression_statement = dynamic_cast<ExpressionStatement*>(statement)) {
+        if(!generate_expression(context, instructions, expression_statement->expression).status) {
+            return false;
+        }
 
-            return true;
-        } break;
+        return true;
+    } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+        Type *type;
+        FileRange type_range;
+        size_t address_register;
 
-        case StatementType::VariableDeclaration: {
-            switch(statement.variable_declaration.type) {
-                case VariableDeclarationType::Uninitialized: {
-                    expect(type, evaluate_type_expression(context, statement.variable_declaration.uninitialized));
-
-                    if(!is_runtime_type(type)) {
-                        error(*context, statement.variable_declaration.uninitialized.range, "Cannot create variables of type '%s'", type_description(type));
-
-                        return false;
-                    }
-
-                    auto address_register = append_allocate_local(
-                        context,
-                        instructions,
-                        statement.range.first_line,
-                        get_type_size(*context, type),
-                        get_type_alignment(*context, type)
-                    );
-
-                    if(!add_new_variable(
-                        context,
-                        statement.variable_declaration.name,
-                        address_register,
-                        type,
-                        statement.variable_declaration.uninitialized.range
-                    )) {
-                        return false;
-                    }
-
-                    return true;
-                } break;
-
-                case VariableDeclarationType::TypeElided: {
-                    auto address_register = allocate_register(context);
-
-                    Instruction allocate;
-                    allocate.type = InstructionType::AllocateLocal;
-                    allocate.line = statement.range.first_line;
-                    allocate.allocate_local.destination_register = address_register;
-
-                    auto allocate_index = append(instructions, allocate);
-
-                    expect(initializer_value, generate_expression(context, instructions, statement.variable_declaration.type_elided));
-
-                    expect(coerced_type, coerce_to_default_type(*context, statement.variable_declaration.type_elided.range, initializer_value.type));
-
-                    if(!is_runtime_type(coerced_type)) {
-                        error(*context, statement.variable_declaration.type_elided.range, "Cannot create variables of type '%s'", type_description(coerced_type));
-
-                        return false;
-                    }
-
-                    auto representation = get_type_representation(*context, coerced_type);
-
-                    switch(initializer_value.value.category) {
-                        case ValueCategory::Constant: {
-                            generate_constant_value_write(
-                                context,
-                                instructions,
-                                statement.range,
-                                coerced_type,
-                                initializer_value.value.constant,
-                                address_register
-                            );
-                        } break;
-
-                        case ValueCategory::Anonymous: {
-                            if(representation.is_in_register) {
-                                append_store_integer(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    representation.value_size,
-                                    initializer_value.value.anonymous.register_,
-                                    address_register
-                                );
-                            } else {
-                                auto length_register = append_constant(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    context->address_integer_size,
-                                    get_type_size(*context, coerced_type)
-                                );
-
-                                append_copy_memory(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    length_register,
-                                    initializer_value.value.anonymous.register_,
-                                    address_register
-                                );
-                            }
-                        } break;
-
-                        case ValueCategory::Address: {
-                            if(representation.is_in_register) {
-                                auto value_register = append_load_integer(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    representation.value_size,
-                                    initializer_value.value.address
-                                );
-
-                                append_store_integer(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    representation.value_size,
-                                    value_register,
-                                    address_register
-                                );
-                            } else {
-                                auto length_register = append_constant(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    context->address_integer_size,
-                                    get_type_size(*context, coerced_type)
-                                );
-
-                                append_copy_memory(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    length_register,
-                                    initializer_value.value.address,
-                                    address_register
-                                );
-                            }
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-
-                    (*instructions)[allocate_index].allocate_local.size = get_type_size(*context, coerced_type);
-                    (*instructions)[allocate_index].allocate_local.alignment = get_type_alignment(*context, coerced_type);
-
-                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, coerced_type, statement.variable_declaration.type_elided.range)) {
-                        return false;
-                    }
-
-                    return true;
-                } break;
-
-
-                case VariableDeclarationType::FullySpecified: {
-                    expect(type, evaluate_type_expression(context, statement.variable_declaration.fully_specified.type));
-
-                    if(!is_runtime_type(type)) {
-                        error(*context, statement.variable_declaration.fully_specified.type.range, "Cannot create variables of type '%s'", type_description(type));
-
-                        return false;
-                    }
-
-                    auto address_register = append_allocate_local(
-                        context,
-                        instructions,
-                        statement.range.first_line,
-                        get_type_size(*context, type),
-                        get_type_alignment(*context, type)
-                    );
-
-                    expect(initializer_value, generate_expression(context, instructions, statement.variable_declaration.fully_specified.initializer));
-
-                    expect(coerced_initializer_value, coerce_to_type(
-                        context,
-                        instructions,
-                        statement.variable_declaration.fully_specified.initializer.range,
-                        initializer_value,
-                        type,
-                        false
-                    ));
-
-                    auto representation = get_type_representation(*context, type);
-
-                    switch(coerced_initializer_value.category) {
-                        case ValueCategory::Constant: {
-                            generate_constant_value_write(
-                                context,
-                                instructions,
-                                statement.range,
-                                type,
-                                coerced_initializer_value.constant,
-                                address_register
-                            );
-                        } break;
-
-                        case ValueCategory::Anonymous: {
-                            if(representation.is_in_register) {
-                                append_store_integer(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    representation.value_size,
-                                    coerced_initializer_value.anonymous.register_,
-                                    address_register
-                                );
-                            } else {
-                                auto length_register = append_constant(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    context->address_integer_size,
-                                    get_type_size(*context, type)
-                                );
-
-                                append_copy_memory(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    length_register,
-                                    coerced_initializer_value.anonymous.register_,
-                                    address_register
-                                );
-                            }
-                        } break;
-
-                        case ValueCategory::Address: {
-                            if(representation.is_in_register) {
-                                auto value_register = append_load_integer(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    representation.value_size,
-                                    coerced_initializer_value.address
-                                );
-
-                                append_store_integer(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    representation.value_size,
-                                    value_register,
-                                    address_register
-                                );
-                            } else {
-                                auto length_register = append_constant(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    context->address_integer_size,
-                                    get_type_size(*context, type)
-                                );
-
-                                append_copy_memory(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    length_register,
-                                    coerced_initializer_value.address,
-                                    address_register
-                                );
-                            }
-                        } break;
-
-                        default: {
-                            abort();
-                        } break;
-                    }
-
-                    if(!add_new_variable(context, statement.variable_declaration.name, address_register, type, statement.variable_declaration.fully_specified.type.range)) {
-                        return false;
-                    }
-
-                    return true;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-        } break;
-
-        case StatementType::Assignment: {
-            expect(target, generate_expression(context, instructions, statement.assignment.target));
-
-            if(target.value.category != ValueCategory::Address) {
-                error(*context, statement.assignment.target.range, "Value is not assignable");
+        if(variable_declaration->type != nullptr && variable_declaration->initializer != nullptr) {
+            expect(type_value, evaluate_type_expression(context, variable_declaration->type));
+            
+            if(!is_runtime_type(type_value)) {
+                error(*context, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type_value));
 
                 return false;
             }
 
-            expect(value, generate_expression(context, instructions, statement.assignment.value));
+            type = type_value;
+            type_range = variable_declaration->type->range;
 
-            expect(coerced_value, coerce_to_type(
+            expect(initializer_value, generate_expression(context, instructions, variable_declaration->initializer));
+
+            address_register = append_allocate_local(
                 context,
                 instructions,
-                statement.assignment.value.range,
-                value,
-                target.type,
-                false
-            ));
+                variable_declaration->range.first_line,
+                get_type_size(*context, type),
+                get_type_alignment(*context, type)
+            );
 
-            auto representation = get_type_representation(*context, target.type);
-
-            switch(coerced_value.category) {
-                case ValueCategory::Constant: {
-                    generate_constant_value_write(
-                        context,
-                        instructions,
-                        statement.range,
-                        target.type,
-                        coerced_value.constant,
-                        target.value.address
-                    );
-                } break;
-
-                case ValueCategory::Anonymous: {
-                    if(representation.is_in_register) {
-                        append_store_integer(
-                            context,
-                            instructions,
-                            statement.range.first_line,
-                            representation.value_size,
-                            coerced_value.anonymous.register_,
-                            target.value.address
-                        );
-                    } else {
-                        auto length_register = append_constant(
-                            context,
-                            instructions,
-                            statement.range.first_line,
-                            context->address_integer_size,
-                            get_type_size(*context, target.type)
-                        );
-
-                        append_copy_memory(
-                            context,
-                            instructions,
-                            statement.range.first_line,
-                            length_register,
-                            coerced_value.anonymous.register_,
-                            target.value.address
-                        );
-                    }
-                } break;
-
-                case ValueCategory::Address: {
-                    if(representation.is_in_register) {
-                        auto value_register = append_load_integer(
-                            context,
-                            instructions,
-                            statement.range.first_line,
-                            representation.value_size,
-                            coerced_value.address
-                        );
-
-                        append_store_integer(
-                            context,
-                            instructions,
-                            statement.range.first_line,
-                            representation.value_size,
-                            value_register,
-                            target.value.address
-                        );
-                    } else {
-                        auto length_register = append_constant(
-                            context,
-                            instructions,
-                            statement.range.first_line,
-                            context->address_integer_size,
-                            get_type_size(*context, target.type)
-                        );
-
-                        append_copy_memory(
-                            context,
-                            instructions,
-                            statement.range.first_line,
-                            length_register,
-                            coerced_value.address,
-                            target.value.address
-                        );
-                    }
-                } break;
-
-                default: {
-                    abort();
-                } break;
+            if(!coerce_to_type_write(
+                context,
+                instructions,
+                variable_declaration->range,
+                initializer_value.type,
+                initializer_value.value,
+                type,
+                address_register
+            )) {
+                return false;
             }
-
-            return true;
-        } break;
-
-        case StatementType::If: {
-            auto end_jump_count = 1 + statement.if_.else_ifs.count;
-            auto end_jump_indices = allocate<size_t>(end_jump_count);
-
-            expect(condition, generate_expression(context, instructions, statement.if_.condition));
-
-            if(condition.type.category != TypeCategory::Boolean) {
-                error(*context, statement.if_.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
+        } else if(variable_declaration->type != nullptr) {
+            expect(type_value, evaluate_type_expression(context, variable_declaration->type));
+            
+            if(!is_runtime_type(type_value)) {
+                error(*context, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type_value));
 
                 return false;
             }
 
-            auto condition_register = generate_in_register_boolean_value(context, instructions, statement.if_.condition.range, condition.value);
+            type = type_value;
+            type_range = variable_declaration->type->range;
 
-            append_branch(context, instructions, statement.if_.condition.range.first_line, condition_register, instructions->count + 2);
+            expect(initializer_value, generate_expression(context, instructions, variable_declaration->initializer));
 
-            Instruction jump;
-            jump.type = InstructionType::Jump;
-            jump.line = statement.if_.condition.range.first_line;
+            address_register = append_allocate_local(
+                context,
+                instructions,
+                variable_declaration->range.first_line,
+                get_type_size(*context, type),
+                get_type_alignment(*context, type)
+            );
+        } else if(variable_declaration->initializer != nullptr) {
+            expect(initializer_value, generate_expression(context, instructions, variable_declaration->initializer));
 
-            auto jump_index = append(instructions, jump);
+            expect(actual_type, coerce_to_default_type(*context, variable_declaration->initializer->range, initializer_value.type));
+            
+            if(!is_runtime_type(actual_type)) {
+                error(*context, variable_declaration->initializer->range, "Cannot create variables of type '%s'", type_description(actual_type));
 
-            append(&context->variable_context_stack, List<Variable>{});
-
-            for(auto child_statement : statement.if_.statements) {
-                if(!generate_statement(context, instructions, child_statement)) {
-                    return false;
-                }
+                return false;
             }
 
-            context->variable_context_stack.count -= 1;
+            type = actual_type;
+            type_range = variable_declaration->initializer->range;
 
-            Instruction end_jump;
-            end_jump.type = InstructionType::Jump;
-            end_jump.line = statement.range.first_line;
+            address_register = append_allocate_local(
+                context,
+                instructions,
+                variable_declaration->range.first_line,
+                get_type_size(*context, type),
+                get_type_alignment(*context, type)
+            );
 
-            end_jump_indices[0] = append(instructions, end_jump);
-
-            (*instructions)[jump_index].jump.destination_instruction = instructions->count;
-
-            for(size_t i = 0; i < statement.if_.else_ifs.count; i += 1) {
-                expect(condition, generate_expression(context, instructions, statement.if_.else_ifs[i].condition));
-
-                if(condition.type.category != TypeCategory::Boolean) {
-                    error(*context, statement.if_.else_ifs[i].condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
-
-                    return false;
-                }
-
-                auto condition_register = generate_in_register_boolean_value(
-                    context,
-                    instructions,
-                    statement.if_.else_ifs[i].condition.range,
-                    condition.value
-                );
-
-                append_branch(
-                    context,
-                    instructions,
-                    statement.if_.else_ifs[i].condition.range.first_line,
-                    condition_register,
-                    instructions->count + 2
-                );
-
-                Instruction jump;
-                jump.type = InstructionType::Jump;
-                jump.line = statement.if_.else_ifs[i].condition.range.first_line;
-
-                auto jump_index = append(instructions, jump);
-
-                append(&context->variable_context_stack, List<Variable>{});
-
-                for(auto child_statement : statement.if_.else_ifs[i].statements) {
-                    if(!generate_statement(context, instructions, child_statement)) {
-                        return false;
-                    }
-                }
-
-                context->variable_context_stack.count -= 1;
-
-                Instruction end_jump;
-                end_jump.type = InstructionType::Jump;
-                end_jump.line = statement.range.first_line;
-
-                end_jump_indices[i + 1] = append(instructions, end_jump);
-
-                (*instructions)[jump_index].jump.destination_instruction = instructions->count;
+            if(!coerce_to_type_write(
+                context,
+                instructions,
+                variable_declaration->range,
+                initializer_value.type,
+                initializer_value.value,
+                type,
+                address_register
+            )) {
+                return false;
             }
+        } else {
+            abort();
+        }
 
-            if(statement.if_.has_else) {
-                append(&context->variable_context_stack, List<Variable>{});
+        if(!add_new_variable(
+            context,
+            variable_declaration->name,
+            address_register,
+            type,
+            type_range
+        )) {
+            return false;
+        }
+    } else if(auto assignment = dynamic_cast<Assignment*>(statement)) {
+        expect(target, generate_expression(context, instructions, assignment->target));
 
-                for(auto child_statement : statement.if_.else_statements) {
-                    if(!generate_statement(context, instructions, child_statement)) {
-                        return false;
-                    }
-                }
-                context->variable_context_stack.count -= 1;
+        size_t address_register;
+        if(auto address_value = dynamic_cast<AddressValue*>(target.value)){
+            address_register = address_value->address_register;
+        } else {
+            error(*context, assignment->target->range, "Value is not assignable");
+
+            return false;
+        }
+
+        expect(value, generate_expression(context, instructions, assignment->value));
+
+        if(!coerce_to_type_write(
+            context,
+            instructions,
+            assignment->range,
+            value.type,
+            value.value,
+            target.type,
+            address_register
+        )) {
+            return false;
+        }
+    } else if(auto if_statement = dynamic_cast<IfStatement*>(statement)) {
+        auto end_jump_count = 1 + if_statement->else_ifs.count;
+        auto end_jumps = allocate<Jump*>(end_jump_count);
+
+        expect(condition, generate_expression(context, instructions, if_statement->condition));
+
+        if(!dynamic_cast<Boolean*>(condition.type)) {
+            error(*context, if_statement->condition->range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
+
+            return false;
+        }
+
+        auto condition_register = generate_in_register_boolean_value(context, instructions, if_statement->condition->range, condition.value);
+
+        append_branch(context, instructions, if_statement->condition->range.first_line, condition_register, instructions->count + 2);
+
+        append(&context->variable_context_stack, List<Variable>{});
+
+        for(auto child_statement : if_statement->statements) {
+            if(!generate_statement(context, instructions, child_statement)) {
+                return false;
             }
+        }
 
-            for(size_t i = 0; i < end_jump_count; i += 1) {
-                (*instructions)[end_jump_indices[i]].jump.destination_instruction = instructions->count;
-            }
+        context->variable_context_stack.count -= 1;
 
-            return true;
-        } break;
+        auto end_jump = new Jump;
+        end_jump->line = if_statement->range.first_line;
 
-        case StatementType::WhileLoop: {
-            auto condition_index = instructions->count;
+        end_jumps[0] = end_jump;
 
-            expect(condition, generate_expression(context, instructions, statement.while_loop.condition));
+        for(size_t i = 0; i < if_statement->else_ifs.count; i += 1) {
+            expect(condition, generate_expression(context, instructions, if_statement->else_ifs[i].condition));
 
-            if(condition.type.category != TypeCategory::Boolean) {
-                error(*context, statement.while_loop.condition.range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
+            if(!dynamic_cast<Boolean*>(condition.type)) {
+                error(*context, if_statement->else_ifs[i].condition->range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
 
                 return false;
             }
@@ -6474,27 +6135,24 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
             auto condition_register = generate_in_register_boolean_value(
                 context,
                 instructions,
-                statement.while_loop.condition.range,
+                if_statement->else_ifs[i].condition->range,
                 condition.value
             );
 
             append_branch(
                 context,
                 instructions,
-                statement.while_loop.condition.range.first_line,
+                if_statement->else_ifs[i].condition->range.first_line,
                 condition_register,
                 instructions->count + 2
             );
 
-            Instruction jump_out;
-            jump_out.type = InstructionType::Jump;
-            jump_out.line = statement.while_loop.condition.range.first_line;
-
-            auto jump_out_index = append(instructions, jump_out);
+            auto jump = new Jump;
+            jump->line = if_statement->else_ifs[i].condition->range.first_line;
 
             append(&context->variable_context_stack, List<Variable>{});
 
-            for(auto child_statement : statement.while_loop.statements) {
+            for(auto child_statement : if_statement->else_ifs[i].statements) {
                 if(!generate_statement(context, instructions, child_statement)) {
                     return false;
                 }
@@ -6502,135 +6160,131 @@ static bool generate_statement(GenerationContext *context, List<Instruction> *in
 
             context->variable_context_stack.count -= 1;
 
-            append_jump(
-                context,
-                instructions,
-                statement.range.first_line,
-                condition_index
-            );
+            auto end_jump = new Jump;
+            end_jump->line = if_statement->range.first_line;
 
-            (*instructions)[jump_out_index].jump.destination_instruction = instructions->count;
+            end_jumps[i + 1] = end_jump;
 
-            return true;
-        } break;
+            jump->destination_instruction = instructions->count;
+        }
 
-        case StatementType::Return: {
-            Instruction return_;
-            return_.type = InstructionType::Return;
-            return_.line = statement.range.first_line;
+        append(&context->variable_context_stack, List<Variable>{});
 
-            if(statement._return.has_value) {
-                expect(value, generate_expression(context, instructions, statement._return.value));
+        for(auto child_statement : if_statement->else_statements) {
+            if(!generate_statement(context, instructions, child_statement)) {
+                return false;
+            }
+        }
 
-                expect(coerced_value, coerce_to_type(
-                    context,
-                    instructions,
-                    statement._return.value.range,
-                    value,
-                    context->return_type,
-                    false
-                ));
+        context->variable_context_stack.count -= 1;
 
-                if(context->return_type.category != TypeCategory::Void) {
-                    auto representation = get_type_representation(*context, context->return_type);
+        for(size_t i = 0; i < end_jump_count; i += 1) {
+            end_jumps[i]->destination_instruction = instructions->count;
+        }
 
-                    switch(coerced_value.category) {
-                        case ValueCategory::Constant: {
-                            if(representation.is_in_register) {
-                                auto value_register = generate_in_register_constant_value(
-                                    context,
-                                    instructions,
-                                    statement.range,
-                                    context->return_type,
-                                    coerced_value.constant
-                                );
+        return true;
+    } else if(auto while_loop = dynamic_cast<WhileLoop*>(statement)) {
+        auto condition_index = instructions->count;
 
-                                return_.return_.value_register = value_register;
-                            } else {
-                                generate_not_in_register_constant_write(
-                                    context,
-                                    instructions,
-                                    statement.range,
-                                    context->return_type,
-                                    coerced_value.constant,
-                                    context->return_parameter_register
-                                );
-                            }
-                        } break;
+        expect(condition, generate_expression(context, instructions, while_loop->condition));
 
-                        case ValueCategory::Anonymous: {
-                            if(representation.is_in_register) {
-                                return_.return_.value_register = coerced_value.anonymous.register_;
-                            } else {
-                                auto length_register = append_constant(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    context->address_integer_size,
-                                    get_type_size(*context, context->return_type)
-                                );
+        if(!dynamic_cast<Boolean*>(condition.type)) {
+            error(*context, while_loop->condition->range, "Non-boolean while loop condition. Got %s", type_description(condition.type));
 
-                                append_copy_memory(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    length_register,
-                                    coerced_value.anonymous.register_,
-                                    context->return_parameter_register
-                                );
-                            }
-                        } break;
+            return false;
+        }
 
-                        case ValueCategory::Address: {
-                            if(representation.is_in_register) {
-                                auto value_register = append_load_integer(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    representation.value_size,
-                                    coerced_value.address
-                                );
+        auto condition_register = generate_in_register_boolean_value(
+            context,
+            instructions,
+            while_loop->condition->range,
+            condition.value
+        );
 
-                                return_.return_.value_register = value_register;
-                            } else {
-                                auto length_register = append_constant(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    context->address_integer_size,
-                                    get_type_size(*context, context->return_type)
-                                );
+        append_branch(
+            context,
+            instructions,
+            while_loop->condition->range.first_line,
+            condition_register,
+            instructions->count + 2
+        );
 
-                                append_copy_memory(
-                                    context,
-                                    instructions,
-                                    statement.range.first_line,
-                                    length_register,
-                                    coerced_value.address,
-                                    context->return_parameter_register
-                                );
-                            }
-                        } break;
+        auto jump_out = new Jump;
+        jump_out->line = while_loop->condition->range.first_line;
 
-                        default: {
-                            abort();
-                        } break;
-                    }
-                }
-            } else if(context->return_type.category != TypeCategory::Void) {
-                error(*context, statement.range, "Missing return value");
+        append(instructions, (Instruction*)jump_out);
+
+        append(&context->variable_context_stack, List<Variable>{});
+
+        for(auto child_statement : while_loop->statements) {
+            if(!generate_statement(context, instructions, child_statement)) {
+                return false;
+            }
+        }
+
+        context->variable_context_stack.count -= 1;
+
+        append_jump(
+            context,
+            instructions,
+            while_loop->range.first_line,
+            condition_index
+        );
+
+        jump_out->destination_instruction = instructions->count;
+
+        return true;
+    } else if(auto return_statement = dynamic_cast<ReturnStatement*>(statement)) {
+        auto return_instruction = new ReturnInstruction;
+        return_instruction->line = return_statement->range.first_line;
+
+        if(return_statement->value != nullptr) {
+            if(dynamic_cast<Void*>(context->return_type)) {
+                error(*context, return_statement->range, "Erroneous return value");
 
                 return { false };
+            } else {
+                expect(value, generate_expression(context, instructions, return_statement->value));
+
+                auto representation = get_type_representation(*context, context->return_type);
+
+                if(representation.is_in_register) {
+                    expect(register_index, coerce_to_type_register(
+                        context,
+                        instructions,
+                        return_statement->value->range,
+                        value.type,
+                        value.value,
+                        context->return_type,
+                        false
+                    ));
+
+                    return_instruction->value_register = register_index;
+                } else {
+                    if(!coerce_to_type_write(
+                        context,
+                        instructions,
+                        return_statement->value->range,
+                        value.type,
+                        value.value,
+                        context->return_type,
+                        context->return_parameter_register
+                    )) {
+                        return false;
+                    }
+                }
             }
+        } else if(!dynamic_cast<Void*>(context->return_type)) {
+            error(*context, return_statement->range, "Missing return value");
 
-            append(instructions, return_);
+            return { false };
+        }
 
-            return true;
-        } break;
+        append(instructions, (Instruction*)return_instruction);
 
-        default: {
-            abort();
-        } break;
+        return true;
+    } else {
+        abort();
     }
 }
 
