@@ -34,6 +34,8 @@ struct ArithmeticOperation : Instruction {
     size_t source_register_b;
 
     size_t destination_register;
+
+    ArithmeticOperation() {}
 };
 
 struct ComparisonOperation : Instruction {
@@ -53,6 +55,8 @@ struct ComparisonOperation : Instruction {
     size_t source_register_b;
 
     size_t destination_register;
+
+    ComparisonOperation() {}
 };
 
 struct IntegerUpcast : Instruction {
@@ -63,6 +67,8 @@ struct IntegerUpcast : Instruction {
 
     RegisterSize destination_size;
     size_t destination_register;
+
+    IntegerUpcast() {}
 };
 
 struct Constant : Instruction {
@@ -71,16 +77,22 @@ struct Constant : Instruction {
     size_t destination_register;
 
     uint64_t value;
+
+    Constant() {}
 };
 
 struct Jump : Instruction {
     size_t destination_instruction;
+
+    Jump() {}
 };
 
 struct Branch : Instruction {
     size_t condition_register;
 
     size_t destination_instruction;
+
+    Branch() {}
 };
 
 struct FunctionCallInstruction : Instruction {
@@ -90,10 +102,14 @@ struct FunctionCallInstruction : Instruction {
 
     bool has_return;
     size_t return_register;
+
+    FunctionCallInstruction() {}
 };
 
 struct ReturnInstruction : Instruction {
     size_t value_register;
+
+    ReturnInstruction() {}
 };
 
 struct AllocateLocal : Instruction {
@@ -102,6 +118,8 @@ struct AllocateLocal : Instruction {
     size_t alignment;
 
     size_t destination_register;
+
+    AllocateLocal() {}
 };
 
 struct LoadInteger : Instruction {
@@ -110,6 +128,8 @@ struct LoadInteger : Instruction {
     size_t address_register;
 
     size_t destination_register;
+
+    LoadInteger() {}
 };
 
 struct StoreInteger : Instruction {
@@ -118,6 +138,8 @@ struct StoreInteger : Instruction {
     size_t source_register;
 
     size_t address_register;
+
+    StoreInteger() {}
 };
 
 struct CopyMemory : Instruction {
@@ -126,12 +148,16 @@ struct CopyMemory : Instruction {
     size_t source_address_register;
 
     size_t destination_address_register;
+
+    CopyMemory() {}
 };
 
 struct ReferenceStatic : Instruction {
     const char *name;
 
     size_t destination_register;
+
+    ReferenceStatic() {}
 };
 
 void print_instruction(Instruction *instruction, bool has_return);
@@ -154,12 +180,16 @@ struct Function : RuntimeStatic {
 
     const char *file;
     unsigned int line;
+
+    Function() {}
 };
 
 struct StaticConstant : RuntimeStatic {
     size_t alignment;
 
     Array<uint8_t> data;
+
+    StaticConstant() {}
 };
 
 void print_static(RuntimeStatic *runtime_static);
