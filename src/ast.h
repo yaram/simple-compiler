@@ -1,5 +1,8 @@
 #pragma once
 
+#include <stdint.h>
+#include "array.h"
+
 struct FileRange {
     unsigned int first_line;
     unsigned int first_character;
@@ -385,6 +388,7 @@ struct VariableDeclaration : Statement {
         Expression *initializer
     ) :
         Statement { range },
+        name { name },
         type { type },
         initializer { initializer}
     {}

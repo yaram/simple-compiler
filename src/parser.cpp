@@ -2314,6 +2314,8 @@ Result<Array<Statement*>> parse_tokens(const char *path, Array<Token> tokens) {
     }
 
     for(auto statement : statements) {
+        statement->parent = nullptr;
+
         set_statement_parents(statement);
     }
 

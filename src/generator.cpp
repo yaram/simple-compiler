@@ -615,8 +615,6 @@ struct GenerationContext {
 
     List<RuntimeFunction> runtime_functions;
 
-    List<const char*> libraries;
-
     List<RuntimeStatic*> statics;
 
     List<ParsedFile> parsed_files;
@@ -751,7 +749,7 @@ static bool match_public_declaration(Statement *statement, const char *name) {
         return false;
     }
 
-    return strcmp(declaration_name, name);
+    return strcmp(declaration_name, name) == 0;
 }
 
 static bool match_declaration(Statement *statement, const char *name) {
@@ -768,7 +766,7 @@ static bool match_declaration(Statement *statement, const char *name) {
         return false;
     }
 
-    return strcmp(declaration_name, name);
+    return strcmp(declaration_name, name) == 0;
 }
 
 static uint64_t register_size_to_byte_size(RegisterSize size) {
@@ -923,27 +921,23 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
 static Result<TypedConstantValue> resolve_declaration(GenerationContext *context, Statement *declaration);
 
 static Result<TypedConstantValue> resolve_constant_named_reference(GenerationContext *context, Identifier name) {
+    for (auto constant_parameter : context->constant_parameters) {
+        if (strcmp(constant_parameter.name, name.text) == 0) {
+            return {
+                true,
+                {
+                    constant_parameter.type,
+                    constant_parameter.value
+                }
+            };
+        }
+    }
+
     auto old_is_top_level = context->is_top_level;
     auto old_constant_parameters = context->constant_parameters;
     auto old_parent = context->parent;
 
     while(!context->is_top_level) {
-        for(auto constant_parameter : context->constant_parameters) {
-            if(strcmp(constant_parameter.name, name.text) == 0) {
-                context->is_top_level = old_is_top_level;
-                context->constant_parameters = old_constant_parameters;
-                context->parent = old_parent;
-
-                return {
-                    true,
-                    {
-                        constant_parameter.type,
-                        constant_parameter.value
-                    }
-                };
-            }
-        }
-
         auto parent_declaration = context->parent.parent;
 
         if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(parent_declaration->declaration)) {
@@ -962,7 +956,7 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
                 } else if(auto using_statement = dynamic_cast<UsingStatement*>(statement)) {
                     expect(expression_value, evaluate_constant_expression(context, using_statement->module));
 
-                    if(dynamic_cast<FileModule*>(expression_value.type)) {
+                    if(!dynamic_cast<FileModule*>(expression_value.type)) {
                         error(*context, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
 
                         return { false };
@@ -1023,22 +1017,6 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
         context->constant_parameters = {};
     }
 
-    for(auto constant_parameter : context->constant_parameters) {
-        if(strcmp(constant_parameter.name, name.text) == 0) {
-            context->is_top_level = old_is_top_level;
-            context->constant_parameters = old_constant_parameters;
-            context->parent = old_parent;
-
-            return {
-                true,
-                {
-                    constant_parameter.type,
-                    constant_parameter.value
-                }
-            };
-        }
-    }
-
     for(auto statement : context->parent.top_level_statements) {
         if(match_declaration(statement, name.text)) {
             expect(value, resolve_declaration(context, statement));
@@ -1054,7 +1032,7 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
         } else if(auto using_statement = dynamic_cast<UsingStatement*>(statement)) {
             expect(expression_value, evaluate_constant_expression(context, using_statement->module));
 
-            if(dynamic_cast<FileModule*>(expression_value.type)) {
+            if(!dynamic_cast<FileModule*>(expression_value.type)) {
                 error(*context, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
 
                 return { false };
@@ -2115,39 +2093,43 @@ static Result<Type*> coerce_to_default_type(GenerationContext context, FileRange
 }
 
 static const char* generate_function_mangled_name(GenerationContext context, FunctionDeclaration declaration) {
-    char *buffer{};
-
-    string_buffer_append(&buffer, declaration.name.text);
-
-    if(context.is_top_level) {
-        string_buffer_append(&buffer, "_");
-        string_buffer_append(&buffer, path_get_file_component(context.parent.file_path));
+    if(declaration.is_external) {
+        return declaration.name.text;
     } else {
-        auto current = context.parent.parent;
+        char *buffer{};
 
-        while(current->declaration->parent) {
-            const char *name;
-            if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(current->declaration)) {
-                return function_declaration->name.text;
-            } else if(auto constant_definition = dynamic_cast<ConstantDefinition*>(current->declaration)) {
-                return constant_definition->name.text;
-            } else if(auto struct_definition = dynamic_cast<StructDefinition*>(current->declaration)) {
-                return struct_definition->name.text;
-            } else {
-                abort();
+        string_buffer_append(&buffer, declaration.name.text);
+
+        if(context.is_top_level) {
+            string_buffer_append(&buffer, "_");
+            string_buffer_append(&buffer, path_get_file_component(context.parent.file_path));
+        } else {
+            auto current = context.parent.parent;
+
+            while(current->declaration->parent) {
+                const char *name;
+                if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(current->declaration)) {
+                    return function_declaration->name.text;
+                } else if(auto constant_definition = dynamic_cast<ConstantDefinition*>(current->declaration)) {
+                    return constant_definition->name.text;
+                } else if(auto struct_definition = dynamic_cast<StructDefinition*>(current->declaration)) {
+                    return struct_definition->name.text;
+                } else {
+                    abort();
+                }
+
+                string_buffer_append(&buffer, "_");
+                string_buffer_append(&buffer, name);
+
+                current = current->parent.parent;
             }
 
             string_buffer_append(&buffer, "_");
-            string_buffer_append(&buffer, name);
-
-            current = current->parent.parent;
+            string_buffer_append(&buffer, path_get_file_component(current->parent.file_path));
         }
 
-        string_buffer_append(&buffer, "_");
-        string_buffer_append(&buffer, path_get_file_component(current->parent.file_path));
+        return buffer;
     }
-
-    return buffer;
 }
 
 static Result<Type*> evaluate_type_expression(GenerationContext *context, Expression *expression);
@@ -2706,7 +2688,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                     if(
                         !is_runtime_type(type) &&
                         !dynamic_cast<Void*>(type) &&
-                        !dynamic_cast<Function*>(type)
+                        !dynamic_cast<FunctionTypeType*>(type)
                     ) {
                         error(*context, unary_operation->expression->range, "Cannot create pointers to type '%s'", type_description(type));
 
@@ -3398,6 +3380,19 @@ static void append_copy_memory(
     append(instructions, (Instruction*)copy_memory);
 }
 
+static void generate_constant_size_copy(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    FileRange range,
+    size_t length,
+    size_t source_address_register,
+    size_t destination_address_register
+) {
+    auto length_register = append_constant(context, instructions, range.first_line, context->address_integer_size, length);
+
+    append_copy_memory(context, instructions, range.first_line, length_register, source_address_register, destination_address_register);
+}
+
 static size_t append_load_integer(
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -3546,15 +3541,14 @@ static void generate_not_in_register_constant_write(
 
         auto constant_address_register = append_reference_static(context, instructions, range.first_line, constant_name);
 
-        auto length_register = append_constant(
+        generate_constant_size_copy(
             context,
             instructions,
-            range.first_line,
-            context->address_integer_size,
-            static_array->length * get_type_size(*context, static_array->element_type)
+            range,
+            static_array->length * get_type_size(*context, static_array->element_type),
+            constant_address_register,
+            address_register
         );
-
-        append_copy_memory(context, instructions, range.first_line, length_register, constant_address_register, address_register);
     } else if(auto struct_type = dynamic_cast<StructType*>(type)) {
         auto struct_value = dynamic_cast<StructConstant*>(value);
         assert(struct_value);
@@ -3567,15 +3561,14 @@ static void generate_not_in_register_constant_write(
 
         auto constant_address_register = append_reference_static(context, instructions, range.first_line, constant_name);
 
-        auto length_register = append_constant(
+        generate_constant_size_copy(
             context,
             instructions,
-            range.first_line,
-            context->address_integer_size,
-            get_struct_size(*context, *struct_type)
+            range,
+            get_struct_size(*context, *struct_type),
+            constant_address_register,
+            address_register
         );
-
-        append_copy_memory(context, instructions, range.first_line, length_register, constant_address_register, address_register);
     } else {
         abort();
     }
@@ -3723,7 +3716,23 @@ static Result<size_t> coerce_to_type_register(
             };
         }
     } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
-        if(auto pointer = dynamic_cast<Pointer*>(type)) {
+        if(dynamic_cast<UndeterminedInteger*>(type)) {
+            auto integer_value = dynamic_cast<IntegerConstant*>(value);
+            assert(integer_value);
+
+            auto register_index = append_constant(
+                context,
+                instructions,
+                range.first_line,
+                context->address_integer_size,
+                integer_value->value
+            );
+
+            return {
+                true,
+                register_index
+            };
+        } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
             if(types_equal(pointer->type, target_pointer->type)) {
                 auto register_index = generate_in_register_pointer_value(context, instructions, range, value);
 
@@ -3925,7 +3934,29 @@ static bool coerce_to_type_write(
             return true;
         }
     } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
-        if(auto pointer = dynamic_cast<Pointer*>(type)) {
+        if(dynamic_cast<UndeterminedInteger*>(type)) {
+            auto integer_value = dynamic_cast<IntegerConstant*>(value);
+            assert(integer_value);
+
+            auto register_index = append_constant(
+                context,
+                instructions,
+                range.first_line,
+                context->address_integer_size,
+                integer_value->value
+            );
+
+            append_store_integer(
+                context,
+                instructions,
+                range.first_line,
+                context->address_integer_size,
+                register_index,
+                address_register
+            );
+
+            return true;
+        } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
             if(types_equal(target_pointer->type, pointer->type)) {
                 size_t register_index = generate_in_register_pointer_value(context, instructions, range, value);
 
@@ -3976,10 +4007,10 @@ static bool coerce_to_type_write(
                     abort();
                 }
 
-                append_copy_memory(
+                generate_constant_size_copy(
                     context,
                     instructions,
-                    range.first_line,
+                    range,
                     2 * get_type_size(*context, array_type->element_type),
                     source_address_register,
                     address_register
@@ -4008,10 +4039,10 @@ static bool coerce_to_type_write(
                     abort();
                 }
 
-                append_copy_memory(
+                generate_constant_size_copy(
                     context,
                     instructions,
-                    range.first_line,
+                    range,
                     static_array->length * get_type_size(*context, static_array->element_type),
                     source_address_register,
                     address_register
@@ -4053,10 +4084,10 @@ static bool coerce_to_type_write(
                         abort();
                     }
 
-                    append_copy_memory(
+                    generate_constant_size_copy(
                         context,
                         instructions,
-                        range.first_line,
+                        range,
                         get_struct_size(*context, *struct_type),
                         source_address_register,
                         address_register
@@ -4123,7 +4154,7 @@ static bool coerce_to_type_write(
                                 instructions,
                                 range,
                                 address_register,
-                                get_struct_member_offset(*context, *struct_type, i)
+                                get_struct_member_offset(*context, *target_struct_type, i)
                             );
 
                             if(!coerce_to_type_write(
@@ -4389,8 +4420,9 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 return {
                     true,
                     {
-                        new Pointer {
-                            array_type->element_type
+                        new Integer {
+                            context->address_integer_size,
+                            false
                         },
                         value
                     }
@@ -4928,6 +4960,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             }
 
             auto function_call_instruction = new FunctionCallInstruction;
+            function_call_instruction->line = function_call->range.first_line;
             function_call_instruction->function_name = function_value->mangled_name;
             function_call_instruction->parameter_registers = { parameter_count, parameter_registers };
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
@@ -4950,6 +4983,8 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             } else {
                 value = new VoidConstant;
             }
+
+            append(instructions, (Instruction*)function_call_instruction);
 
             return {
                 true,
@@ -4992,7 +5027,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     parameters[i] = determined_type;
 
                     append(&polymorphic_determiners, {
-                        polymorphic_function_value->declaration->parameters[i].name.text,
+                        polymorphic_function_value->declaration->parameters[i].polymorphic_determiner.text,
                         new TypeType,
                         determined_type
                     });
@@ -5046,25 +5081,17 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             for(size_t i = 0; i < parameter_count; i += 1) {
                 expect(parameter_value, generate_expression(context, instructions, function_call->parameters[i]));
 
-                auto address_register = append_allocate_local(
-                    context,
-                    instructions,
-                    function_call->parameters[i]->range.first_line,
-                    get_type_size(*context, parameters[i]),
-                    get_type_alignment(*context, parameters[i])
-                );
-
-                if(!coerce_to_type_write(
+                expect(parameter_register, coerce_to_type_register(
                     context,
                     instructions,
                     function_call->parameters[i]->range,
                     parameter_value.type,
                     parameter_value.value,
                     parameters[i],
-                    address_register
-                )) {
-                    return { false };
-                }
+                    false
+                ));
+
+                parameter_registers[i] = parameter_register;
             }
 
             if(has_return && !return_type_representation.is_in_register) {
@@ -5080,19 +5107,6 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             const char *mangled_name;
             if(polymorphic_function_value->declaration->is_external) {
                 mangled_name = polymorphic_function_value->declaration->name.text;
-
-                for(auto library : polymorphic_function_value->declaration->external_libraries) {
-                    auto has_library = false;
-                    for(auto library : context->libraries) {
-                        if(strcmp(library, library) == 0) {
-                            has_library = true;
-
-                            break;
-                        }
-                    }
-
-                    append(&context->libraries, library);
-                }
             } else {
                 char *mangled_name_buffer{};
 
@@ -5108,10 +5122,19 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             auto runtime_parameters = allocate<RuntimeFunctionParameter>(parameter_count);
 
             for(size_t i = 0; i < parameter_count; i += 1) {
+                auto declaration_parameter = polymorphic_function_value->declaration->parameters[i];
+
+                FileRange type_range;
+                if(declaration_parameter.is_polymorphic_determiner) {
+                    type_range = declaration_parameter.polymorphic_determiner.range;
+                } else {
+                    type_range = declaration_parameter.name.range;
+                }
+
                 runtime_parameters[i] = {
-                    polymorphic_function_value->declaration->parameters[i].name,
+                    declaration_parameter.name,
                     parameters[i],
-                    polymorphic_function_value->declaration->parameters[i].type->range
+                    type_range
                 };
             }
 
@@ -5121,7 +5144,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 return_type,
                 {
                     polymorphic_function_value->declaration,
-                    {},
+                    to_array(polymorphic_determiners),
                     polymorphic_function_value->parent
                 }
             });
@@ -5149,6 +5172,8 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             } else {
                 value = new VoidConstant;
             }
+
+            append(instructions, (Instruction*)function_call_instruction);
 
             return {
                 true,
@@ -5465,7 +5490,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     instructions,
                     binary_operation->range.first_line,
                     arithmetic_operation,
-                    integer->size,
+                    context->default_integer_size,
                     left_register,
                     right_register
                 );
@@ -5494,7 +5519,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     instructions,
                     binary_operation->range.first_line,
                     comparison_operation,
-                    integer->size,
+                    context->default_integer_size,
                     left_register,
                     right_register
                 );
@@ -5635,7 +5660,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         if(
                             !is_runtime_type(type) &&
                             !dynamic_cast<Void*>(type) &&
-                            !dynamic_cast<Function*>(type)
+                            !dynamic_cast<FunctionTypeType*>(type)
                         ) {
                             error(*context, unary_operation->expression->range, "Cannot create pointers to type '%s'", type_description(type));
 
@@ -5811,7 +5836,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 true,
                 {
                     target_type,
-                    constant_value
+                    result_value
                 }
             };
         }
@@ -5840,7 +5865,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     value_register = append_load_integer(
                         context,
                         instructions,
-                        unary_operation->expression->range.first_line,
+                        cast->expression->range.first_line,
                         integer->size,
                         address_value->address_register
                     );
@@ -5858,9 +5883,41 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     target_integer->size,
                     value_register
                 );
+            } else if(auto pointer = dynamic_cast<Pointer*>(expression_value.type)) {
+                if(target_integer->size == context->address_integer_size && !target_integer->is_signed) {
+                    has_cast = true;
+
+                    if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
+                        register_index = register_value->register_index;
+                    } else if(auto address_value = dynamic_cast<AddressValue*>(expression_value.value)) {
+                        register_index = append_load_integer(
+                            context,
+                            instructions,
+                            cast->expression->range.first_line,
+                            context->address_integer_size,
+                            address_value->address_register
+                        );
+                    }
+                }
             }
         } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
-            if(auto pointer = dynamic_cast<Pointer*>(expression_value.type)) {
+            if(auto integer = dynamic_cast<Integer*>(expression_value.type)) {
+                if(integer->size == context->address_integer_size && !integer->is_signed) {
+                    has_cast = true;
+
+                    if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
+                        register_index = register_value->register_index;
+                    } else if(auto address_value = dynamic_cast<AddressValue*>(expression_value.value)) {
+                        register_index = append_load_integer(
+                            context,
+                            instructions,
+                            cast->expression->range.first_line,
+                            context->address_integer_size,
+                            address_value->address_register
+                        );
+                    }
+                }
+            } else if(auto pointer = dynamic_cast<Pointer*>(expression_value.type)) {
                 has_cast = true;
 
                 if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
@@ -5869,7 +5926,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     register_index = append_load_integer(
                         context,
                         instructions,
-                        unary_operation->expression->range.first_line,
+                        cast->expression->range.first_line,
                         context->address_integer_size,
                         address_value->address_register
                     );
@@ -5890,7 +5947,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 }
             };
         } else {
-            error(*context, cast->range, "Cannot implicitly convert '%s' to '%s'", type_description(expression_value.type), type_description(target_type));
+            error(*context, cast->range, "Cannot cast from '%s' to '%s'", type_description(expression_value.type), type_description(target_type));
 
             return { false };
         }
@@ -5994,8 +6051,6 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
             )) {
                 return false;
             }
-
-            return true;
         } else if(variable_declaration->type != nullptr) {
             expect(type_value, evaluate_type_expression(context, variable_declaration->type));
             
@@ -6008,8 +6063,6 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
             type = type_value;
             type_range = variable_declaration->type->range;
 
-            expect(initializer_value, generate_expression(context, instructions, variable_declaration->initializer));
-
             address_register = append_allocate_local(
                 context,
                 instructions,
@@ -6017,8 +6070,6 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
                 get_type_size(*context, type),
                 get_type_alignment(*context, type)
             );
-
-            return true;
         } else if(variable_declaration->initializer != nullptr) {
             expect(initializer_value, generate_expression(context, instructions, variable_declaration->initializer));
 
@@ -6110,6 +6161,11 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
 
         append_branch(context, instructions, if_statement->condition->range.first_line, condition_register, instructions->count + 2);
 
+        auto first_jump = new Jump;
+        first_jump->line = if_statement->range.first_line;
+
+        append(instructions, (Instruction*)first_jump);
+
         append(&context->variable_context_stack, List<Variable>{});
 
         for(auto child_statement : if_statement->statements) {
@@ -6120,10 +6176,14 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
 
         context->variable_context_stack.count -= 1;
 
-        auto end_jump = new Jump;
-        end_jump->line = if_statement->range.first_line;
+        auto first_end_jump = new Jump;
+        first_end_jump->line = if_statement->range.first_line;
 
-        end_jumps[0] = end_jump;
+        append(instructions, (Instruction*)first_end_jump);
+
+        end_jumps[0] = first_end_jump;
+
+        first_jump->destination_instruction = instructions->count;
 
         for(size_t i = 0; i < if_statement->else_ifs.count; i += 1) {
             expect(condition, generate_expression(context, instructions, if_statement->else_ifs[i].condition));
@@ -6152,6 +6212,8 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
             auto jump = new Jump;
             jump->line = if_statement->else_ifs[i].condition->range.first_line;
 
+            append(instructions, (Instruction*)jump);
+
             append(&context->variable_context_stack, List<Variable>{});
 
             for(auto child_statement : if_statement->else_ifs[i].statements) {
@@ -6164,6 +6226,8 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
 
             auto end_jump = new Jump;
             end_jump->line = if_statement->range.first_line;
+
+            append(instructions, (Instruction*)end_jump);
 
             end_jumps[i + 1] = end_jump;
 
@@ -6336,7 +6400,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
     });
 
     append(&global_constants, GlobalConstant {
-        "true",
+        "false",
         new Boolean,
         new BooleanConstant { false }
     });
@@ -6367,7 +6431,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
             expect(value, resolve_declaration(&context, statement));
 
             if(auto function = dynamic_cast<FunctionTypeType*>(value.type)) {
-                auto function_value = dynamic_cast<FunctionConstant*>(value.type);
+                auto function_value = dynamic_cast<FunctionConstant*>(value.value);
                 assert(function_value);
 
                 auto parameter_count = function->parameters.count;
@@ -6424,6 +6488,8 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
         return { false };
     }
 
+    List<const char*> libraries {};
+
     while(true) {
         auto done = true;
         RuntimeFunction function;
@@ -6451,6 +6517,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
         } else {
             context.is_top_level = false;
             context.parent.parent = heapify(function.declaration);
+            context.constant_parameters = {};
 
             auto function_declaration = dynamic_cast<FunctionDeclaration*>(function.declaration.declaration);
             assert(function_declaration);
@@ -6519,7 +6586,26 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                 ir_function->return_size = return_representation.value_size;
             }
 
-            if(!function_declaration->is_external) {
+            context.next_register = total_parameter_count;
+
+            if(function_declaration->is_external) {
+                if(function_declaration->is_external) {
+                    for(auto library : function_declaration->external_libraries) {
+                        auto has_library = false;
+                        for(auto existing_library : libraries) {
+                            if(strcmp(existing_library, library) == 0) {
+                                has_library = true;
+
+                                break;
+                            }
+                        }
+
+                        if(!has_library) {
+                            append(&libraries, library);
+                        }
+                    }
+                }
+            } else {
                 append(&context.variable_context_stack, List<Variable>{});
 
                 List<Instruction*> instructions{};
@@ -6549,36 +6635,20 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                     auto representation = get_type_representation(context, parameter.type);
 
                     if(representation.is_in_register) {
-                        auto register_index = append_load_integer(
-                            &context,
-                            &instructions,
-                            function.declaration.declaration->range.first_line,
-                            representation.value_size,
-                            i
-                        );
-
                         append_store_integer(
                             &context,
                             &instructions,
                             function.declaration.declaration->range.first_line,
                             representation.value_size,
-                            register_index,
+                            i,
                             address_register
                         );
                     } else {
-                        auto size_register = append_constant(
+                        generate_constant_size_copy(
                             &context,
                             &instructions,
-                            function.declaration.declaration->range.first_line,
-                            address_size,
-                            size
-                        );
-
-                        append_copy_memory(
-                            &context,
-                            &instructions,
-                            function.declaration.declaration->range.first_line,
-                            size_register,
+                            function.declaration.declaration->range,
+                            size,
                             i,
                             address_register
                         );
@@ -6594,7 +6664,6 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                 }
 
                 context.return_type = function.return_type;
-                context.next_register = total_parameter_count;
 
                 if(has_return && !return_representation.is_in_register) {
                     context.return_parameter_register = total_parameter_count - 1;
@@ -6648,7 +6717,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
         true,
         {
             to_array(context.statics),
-            to_array(context.libraries)
+            to_array(libraries)
         }
     };
 }
