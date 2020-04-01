@@ -1905,7 +1905,8 @@ static Result<ConstantValue*> evaluate_constant_cast(
     ConstantValue *value,
     FileRange value_range,
     Type *target_type,
-    FileRange target_range
+    FileRange target_range,
+    bool probing
 ) {
     auto coerce_result = coerce_constant_to_type(
         context,
@@ -1982,12 +1983,16 @@ static Result<ConstantValue*> evaluate_constant_cast(
 
                 result = pointer_value->value;
             } else {
-                error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(pointer), type_description(target_integer));
+                if(!probing) {
+                    error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(pointer), type_description(target_integer));
+                }
 
                 return { false };
             }
         } else {
-            error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(type), type_description(target_integer));
+            if(!probing) {
+                error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(type), type_description(target_integer));
+            }
 
             return { false };
         }
@@ -2008,7 +2013,9 @@ static Result<ConstantValue*> evaluate_constant_cast(
 
                 result = integer_value->value;
             } else {
-                error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(integer), type_description(target_pointer));
+                if(!probing) {
+                    error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(integer), type_description(target_pointer));
+                }
 
                 return { false };
             }
@@ -2018,7 +2025,9 @@ static Result<ConstantValue*> evaluate_constant_cast(
 
             result = pointer_value->value;
         } else {
-            error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(type), type_description(target_pointer));
+            if(!probing) {
+                error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(type), type_description(target_pointer));
+            }
 
             return { false };
         }
@@ -2030,7 +2039,9 @@ static Result<ConstantValue*> evaluate_constant_cast(
             }
         };
     } else {
-        error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(type), type_description(target_type));
+        if(!probing) {
+            error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(type), type_description(target_type));
+        }
 
         return { false };
     }
@@ -2781,7 +2792,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             expression_value.value,
             cast->expression->range,
             type,
-            cast->type->range
+            cast->type->range,
+            false
         ));
 
         return {
@@ -3790,6 +3802,52 @@ static Result<size_t> coerce_to_type_register(
                     register_index
                 };
             }
+        } else if(auto static_array = dynamic_cast<StaticArray*>(type)) {
+            if(types_equal(target_array->element_type, static_array->element_type)) {
+                size_t pointer_register;
+                if(auto constant_value = dynamic_cast<StaticArrayConstant*>(value)) {
+                    auto constant_name = register_static_array_constant(
+                        context,
+                        static_array->element_type,
+                        { static_array->length, constant_value->elements }
+                    );
+
+                    pointer_register = append_reference_static(context, instructions, range.first_line, constant_name);
+                } else if(auto register_value = dynamic_cast<RegisterValue*>(value)) {
+                    pointer_register = register_value->register_index;
+                } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
+                    pointer_register = address_value->address_register;
+                } else {
+                    abort();
+                }
+
+                auto address_register = append_allocate_local(
+                    context,
+                    instructions,
+                    range.first_line,
+                    2 * register_size_to_byte_size(context->address_integer_size),
+                    register_size_to_byte_size(context->address_integer_size)
+                );
+
+                append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_register, address_register);
+
+                auto length_address_register = generate_address_offset(
+                    context,
+                    instructions,
+                    range,
+                    address_register,
+                    register_size_to_byte_size(context->address_integer_size)
+                );
+
+                auto length_register = append_constant(context, instructions, range.first_line, context->address_integer_size, static_array->length);
+
+                append_store_integer(context, instructions, range.first_line, context->address_integer_size, length_register, length_address_register);
+
+                return {
+                    true,
+                    address_register
+                };
+            }
         }
     } else if(auto target_static_array = dynamic_cast<StaticArray*>(target_type)) {
         if(auto static_array = dynamic_cast<StaticArray*>(type)) {
@@ -4046,6 +4104,41 @@ static bool coerce_to_type_write(
                     source_address_register,
                     address_register
                 );
+
+                return true;
+            }
+        } else if(auto static_array = dynamic_cast<StaticArray*>(type)) {
+            if(types_equal(target_array->element_type, static_array->element_type)) {
+                size_t pointer_register;
+                if(auto constant_value = dynamic_cast<StaticArrayConstant*>(value)) {
+                    auto constant_name = register_static_array_constant(
+                        context,
+                        static_array->element_type,
+                        { static_array->length, constant_value->elements }
+                    );
+
+                    pointer_register = append_reference_static(context, instructions, range.first_line, constant_name);
+                } else if(auto register_value = dynamic_cast<RegisterValue*>(value)) {
+                    pointer_register = register_value->register_index;
+                } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
+                    pointer_register = address_value->address_register;
+                } else {
+                    abort();
+                }
+
+                append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_register, address_register);
+
+                auto length_address_register = generate_address_offset(
+                    context,
+                    instructions,
+                    range,
+                    address_register,
+                    register_size_to_byte_size(context->address_integer_size)
+                );
+
+                auto length_register = append_constant(context, instructions, range.first_line, context->address_integer_size, static_array->length);
+
+                append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_register, length_address_register);
 
                 return true;
             }
@@ -5878,22 +5971,25 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
         expect(target_type, evaluate_type_expression(context, cast->type));
 
         if(auto constant_value = dynamic_cast<ConstantValue*>(expression_value.value)) {
-            expect(result_value, evaluate_constant_cast(
+            auto constant_cast_result = evaluate_constant_cast(
                 *context,
                 expression_value.type,
                 constant_value,
                 cast->expression->range,
                 target_type,
-                cast->type->range
-            ));
+                cast->type->range,
+                true
+            );
 
-            return {
+            if(constant_cast_result.status) {
+                return {
                 true,
-                {
-                    target_type,
-                    result_value
-                }
-            };
+                    {
+                        target_type,
+                        constant_cast_result.value
+                    }
+                };
+            }
         }
 
         auto coercion_result = coerce_to_type_register(
