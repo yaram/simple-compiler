@@ -22,6 +22,8 @@ struct Expression;
 struct FunctionParameter {
     Identifier name;
 
+    bool is_constant;
+
     bool is_polymorphic_determiner;
 
     Expression *type;

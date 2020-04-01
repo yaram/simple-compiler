@@ -464,13 +464,14 @@ static void apply_operation(List<Expression*> *expression_stack, Operation opera
 
 static Result<Expression*> parse_expression(Context *context);
 
-static Result<FunctionParameter> parse_function_parameter_second_half(Context *context, Identifier identifier) {
+static Result<FunctionParameter> parse_function_parameter_second_half(Context *context, Identifier name, bool is_constant) {
     if(!expect_basic_token(context, TokenType::Colon)) {
         return { false };
     }
 
     FunctionParameter parameter;
-    parameter.name = identifier;
+    parameter.name = name;
+    parameter.is_constant = is_constant;
 
     expect(token, next_token(*context));
 
@@ -579,6 +580,105 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
                     expect(token, next_token(*context));
 
                     switch(token.type) {
+                        case TokenType::Dollar: {
+                            context->next_token_index += 1;
+
+                            List<FunctionParameter> parameters{};
+
+                            expect(name, expect_identifier(context));
+
+                            expect(parameter, parse_function_parameter_second_half(context, name, true));
+
+                            append(&parameters, parameter);
+
+                            expect(token, next_token(*context));
+
+                            FileRange last_range;
+                            switch(token.type) {
+                                case TokenType::Comma: {
+                                    context->next_token_index += 1;
+
+                                    while(true) {
+                                        expect(pre_token, next_token(*context));
+
+                                        bool is_constant;
+                                        if(pre_token.type == TokenType::Dollar) {
+                                            context->next_token_index += 1;
+
+                                            is_constant = true;
+                                        } else {
+                                            is_constant = false;
+                                        }
+
+                                        expect(identifier, expect_identifier(context));
+
+                                        expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
+
+                                        append(&parameters, parameter);
+
+                                        expect(token, next_token(*context));
+
+                                        auto done = false;
+                                        switch(token.type) {
+                                            case TokenType::Comma: {
+                                                context->next_token_index += 1;
+                                            } break;
+
+                                            case TokenType::CloseRoundBracket: {
+                                                context->next_token_index += 1;
+
+                                                done = true;
+                                            } break;
+
+                                            default: {
+                                                error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+
+                                                return { false };
+                                            } break;
+                                        }
+
+                                        if(done) {
+                                            last_range = token_range(*context, token);
+
+                                            break;
+                                        }
+                                    }
+                                } break;
+
+                                case TokenType::CloseRoundBracket: {
+                                    context->next_token_index += 1;
+
+                                    last_range = token_range(*context, token);
+                                } break;
+
+                                default: {
+                                    error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+
+                                    return { false };
+                                } break;
+                            }
+
+                            expect(post_token, next_token(*context));
+
+                            Expression *return_type;
+                            if(post_token.type == TokenType::Arrow) {
+                                context->next_token_index += 1;
+
+                                expect(expression, parse_expression(context));
+
+                                return_type = expression;
+                                last_range = expression->range;
+                            } else {
+                                return_type = nullptr;
+                            }
+
+                            append(expression_stack, (Expression*)new FunctionType {
+                                span_range(first_range, last_range),
+                                to_array(parameters),
+                                return_type
+                            });
+                        } break;
+
                         case TokenType::CloseRoundBracket: {
                             context->next_token_index += 1;
 
@@ -615,7 +715,7 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
                             if(token.type == TokenType::Colon) {
                                 List<FunctionParameter> parameters{};
 
-                                expect(parameter, parse_function_parameter_second_half(context, identifier));
+                                expect(parameter, parse_function_parameter_second_half(context, identifier, false));
 
                                 append(&parameters, parameter);
 
@@ -627,9 +727,20 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
                                         context->next_token_index += 1;
 
                                         while(true) {
+                                            expect(pre_token, next_token(*context));
+
+                                            bool is_constant;
+                                            if(pre_token.type == TokenType::Dollar) {
+                                                context->next_token_index += 1;
+
+                                                is_constant = true;
+                                            } else {
+                                                is_constant = false;
+                                            }
+
                                             expect(identifier, expect_identifier(context));
 
-                                            expect(parameter, parse_function_parameter_second_half(context, identifier));
+                                            expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
 
                                             append(&parameters, parameter);
 
@@ -1751,7 +1862,96 @@ static Result<Statement*> parse_statement(Context *context) {
 
                                     expect(token, next_token(*context));
 
-                                    if(token.type == TokenType::CloseRoundBracket) {
+                                    if(token.type == TokenType::Dollar) {
+                                        context->next_token_index += 1;
+
+                                        expect(name, expect_identifier(context));
+
+                                        List<FunctionParameter> parameters{};
+
+                                        expect(parameter, parse_function_parameter_second_half(context, name, true));
+
+                                        append(&parameters, parameter);
+
+                                        expect(token, next_token(*context));
+
+                                        FileRange last_range;
+                                        switch(token.type) {
+                                            case TokenType::Comma: {
+                                                context->next_token_index += 1;
+
+                                                while(true) {
+                                                    expect(pre_token, next_token(*context));
+
+                                                    bool is_constant;
+                                                    if(pre_token.type == TokenType::Dollar) {
+                                                        context->next_token_index += 1;
+
+                                                        is_constant = true;
+                                                    } else {
+                                                        is_constant = false;
+                                                    }
+
+                                                    expect(identifier, expect_identifier(context));
+
+                                                    expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
+
+                                                    append(&parameters, parameter);
+
+                                                    expect(token, next_token(*context));
+
+                                                    auto done = false;
+                                                    switch(token.type) {
+                                                        case TokenType::Comma: {
+                                                            context->next_token_index += 1;
+                                                        } break;
+
+                                                        case TokenType::CloseRoundBracket: {
+                                                            context->next_token_index += 1;
+
+                                                            done = true;
+                                                        } break;
+
+                                                        default: {
+                                                            error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
+
+                                                            return { false };
+                                                        } break;
+                                                    }
+
+                                                    if(done) {
+                                                        last_range = token_range(*context, token);
+
+                                                        break;
+                                                    }
+                                                }
+                                            } break;
+
+                                            case TokenType::CloseRoundBracket: {
+                                                context->next_token_index += 1;
+
+                                                last_range = token_range(*context, token);
+                                            } break;
+
+                                            default: {
+                                                error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
+
+                                                return { false };
+                                            } break;
+                                        }
+
+                                        expect(statement, continue_parsing_function_declaration_or_function_type_constant(
+                                            context,
+                                            identifier,
+                                            to_array(parameters),
+                                            span_range(parameters_first_range, last_range)
+                                        ));
+
+                                        return {
+                                            true,
+                                            statement
+                                        };
+                                    } else if(token.type == TokenType::CloseRoundBracket) {
                                         context->next_token_index += 1;
 
                                         expect(statement, continue_parsing_function_declaration_or_function_type_constant(
@@ -1775,7 +1975,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                         if(token.type == TokenType::Colon) {
                                             List<FunctionParameter> parameters{};
 
-                                            expect(parameter, parse_function_parameter_second_half(context, first_identifier));
+                                            expect(parameter, parse_function_parameter_second_half(context, first_identifier, false));
 
                                             append(&parameters, parameter);
 
@@ -1787,9 +1987,20 @@ static Result<Statement*> parse_statement(Context *context) {
                                                     context->next_token_index += 1;
 
                                                     while(true) {
+                                                        expect(pre_token, next_token(*context));
+
+                                                        bool is_constant;
+                                                        if(pre_token.type == TokenType::Dollar) {
+                                                            context->next_token_index += 1;
+
+                                                            is_constant = true;
+                                                        } else {
+                                                            is_constant = false;
+                                                        }
+
                                                         expect(identifier, expect_identifier(context));
 
-                                                        expect(parameter, parse_function_parameter_second_half(context, identifier));
+                                                        expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
 
                                                         append(&parameters, parameter);
 
