@@ -3205,7 +3205,7 @@ static void write_value(GenerationContext context, uint8_t *data, size_t offset,
         assert(pointer_value);
 
         write_integer(data, offset, context.address_integer_size, pointer_value->value);
-    } else if(auto array_type = dynamic_cast<ArrayType*>(type)) {
+    } else if(dynamic_cast<ArrayTypeType*>(type)) {
         auto array_value = dynamic_cast<ArrayConstant*>(value);
         assert(array_value);
 
@@ -3590,7 +3590,7 @@ static void generate_not_in_register_constant_write(
     ConstantValue *value,
     size_t address_register
 ) {
-    if(auto array_type = dynamic_cast<ArrayType*>(type)) {
+    if(dynamic_cast<ArrayTypeType*>(type)) {
         auto array_value = dynamic_cast<ArrayConstant*>(value);
         assert(array_value);
 
@@ -4510,6 +4510,26 @@ static bool coerce_to_type_write(
     error(*context, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(target_type));
 
     return { false };
+}
+
+static Result<TypedValue> generate_expression(GenerationContext *context, List<Instruction*> *instructions, Expression *expression);
+
+static Result<Type*> evaluate_type_expression_runtime(GenerationContext *context, List<Instruction*> *instructions, Expression *expression) {
+    expect(expression_value, generate_expression(context, instructions, expression));
+
+    if(dynamic_cast<TypeType*>(expression_value.type)) {
+        auto type = dynamic_cast<Type*>(expression_value.value);
+        assert(type);
+
+        return {
+            true,
+            type
+        };
+    } else {
+        error(*context, expression->range, "Expected a type, got %s", type_description(expression_value.type));
+
+        return { false };
+    }
 }
 
 static Result<TypedValue> generate_expression(GenerationContext *context, List<Instruction*> *instructions, Expression *expression) {
@@ -6334,7 +6354,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
     } else if(auto cast = dynamic_cast<Cast*>(expression)) {
         expect(expression_value, generate_expression(context, instructions, cast->expression));
 
-        expect(target_type, evaluate_type_expression(context, cast->type));
+        expect(target_type, evaluate_type_expression_runtime(context, instructions, cast->type));
 
         if(auto constant_value = dynamic_cast<ConstantValue*>(expression_value.value)) {
             auto constant_cast_result = evaluate_constant_cast(
@@ -6474,6 +6494,51 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
             return { false };
         }
+    } else if(auto array_type = dynamic_cast<ArrayType*>(expression)) {
+        expect(type, evaluate_type_expression_runtime(context, instructions, array_type->expression));
+
+        if(!is_runtime_type(type)) {
+            error(*context, array_type->expression->range, "Cannot have arrays of type '%s'", type_description(type));
+
+            return { false };
+        }
+
+        if(array_type->index != nullptr) {
+            expect(index_value, evaluate_constant_expression(context, array_type->index));
+
+            expect(length, coerce_constant_to_integer_type(
+                *context,
+                array_type->index->range,
+                index_value.type,
+                index_value.value,
+                {
+                    context->address_integer_size,
+                    false
+                },
+                false
+            ));
+
+            return {
+                true,
+                {
+                    new TypeType,
+                    new StaticArray {
+                        length->value,
+                        type
+                    }
+                }
+            };
+        } else {
+            return {
+                true,
+                {
+                    new TypeType,
+                    new ArrayTypeType {
+                        type
+                    }
+                }
+            };
+        }
     } else if(auto function_type = dynamic_cast<FunctionType*>(expression)) {
         auto parameter_count = function_type->parameters.count;
 
@@ -6488,7 +6553,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 return { false };
             }
 
-            expect(type, evaluate_type_expression(context, parameter.type));
+            expect(type, evaluate_type_expression_runtime(context, instructions, parameter.type));
 
             if(!is_runtime_type(type)) {
                 error(*context, function_type->parameters[i].type->range, "Function parameters cannot be of type '%s'", type_description(type));
@@ -6503,7 +6568,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
         if(function_type->return_type == nullptr) {
             return_type = new Void;
         } else {
-            expect(return_type_value, evaluate_type_expression(context, function_type->return_type));
+            expect(return_type_value, evaluate_type_expression_runtime(context, instructions, function_type->return_type));
 
             if(!is_runtime_type(return_type_value)) {
                 error(*context, function_type->return_type->range, "Function returns cannot be of type '%s'", type_description(return_type_value));
@@ -6542,7 +6607,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
         size_t address_register;
 
         if(variable_declaration->type != nullptr && variable_declaration->initializer != nullptr) {
-            expect(type_value, evaluate_type_expression(context, variable_declaration->type));
+            expect(type_value, evaluate_type_expression_runtime(context, instructions, variable_declaration->type));
             
             if(!is_runtime_type(type_value)) {
                 error(*context, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type_value));
@@ -6575,7 +6640,7 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
                 return false;
             }
         } else if(variable_declaration->type != nullptr) {
-            expect(type_value, evaluate_type_expression(context, variable_declaration->type));
+            expect(type_value, evaluate_type_expression_runtime(context, instructions, variable_declaration->type));
             
             if(!is_runtime_type(type_value)) {
                 error(*context, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type_value));
