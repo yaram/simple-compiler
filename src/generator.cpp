@@ -2158,7 +2158,7 @@ static Result<Type*> evaluate_type_expression(GenerationContext *context, Expres
 
 static Result<TypedConstantValue> evaluate_function_declaration(GenerationContext *context, FunctionDeclaration *declaration) {
     for(auto parameter : declaration->parameters) {
-        if(parameter.is_polymorphic_determiner) {
+        if(parameter.is_polymorphic_determiner || parameter.is_constant) {
             return {
                 true,
                 {
@@ -5341,34 +5341,38 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             auto polymorphic_function_value = dynamic_cast<PolymorphicFunctionConstant*>(expression_value.value);
             assert(polymorphic_function_value);
 
-            auto parameter_count = polymorphic_function_value->declaration->parameters.count;
+            auto original_parameter_count = polymorphic_function_value->declaration->parameters.count;
 
-            if(function_call->parameters.count != parameter_count) {
+            if(function_call->parameters.count != original_parameter_count) {
                 error(
                     *context,
                     function_call->range,
                     "Incorrect number of parameters. Expected %zu, got %zu",
-                    parameter_count,
+                    original_parameter_count,
                     function_call->parameters.count
                 );
 
                 return { false };
             }
 
-            auto parameters = allocate<Type*>(parameter_count);
-            auto call_parameters = allocate<TypedValue>(parameter_count);
+            auto parameter_types = allocate<Type*>(original_parameter_count);
+            List<TypedValue> polymorphic_runtime_parameter_values {};
 
             List<ConstantParameter> polymorphic_determiners {};
 
-            for(size_t i = 0; i < parameter_count; i += 1) {
-                if(polymorphic_function_value->declaration->parameters[i].is_polymorphic_determiner) {
-                    expect(parameter_value, generate_expression(context, instructions, function_call->parameters[i]));
+            for(size_t i = 0; i < original_parameter_count; i += 1) {
+                auto declaration_parameter = polymorphic_function_value->declaration->parameters[i];
 
-                    call_parameters[i] = parameter_value;
+                if(declaration_parameter.is_polymorphic_determiner) {
+                    expect(parameter_value, generate_expression(context, instructions, function_call->parameters[i]));
 
                     expect(determined_type, coerce_to_default_type(*context, function_call->parameters[i]->range, parameter_value.type));
 
-                    parameters[i] = determined_type;
+                    if(!declaration_parameter.is_constant) {
+                        append(&polymorphic_runtime_parameter_values, parameter_value);
+                    }
+
+                    parameter_types[i] = determined_type;
 
                     append(&polymorphic_determiners, {
                         polymorphic_function_value->declaration->parameters[i].polymorphic_determiner.text,
@@ -5386,11 +5390,70 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             context->parent = polymorphic_function_value->parent;
             context->constant_parameters = to_array(polymorphic_determiners);
 
-            for(size_t i = 0; i < parameter_count; i += 1) {
-                if(!polymorphic_function_value->declaration->parameters[i].is_polymorphic_determiner) {
-                    expect(parameter_type, evaluate_type_expression(context, polymorphic_function_value->declaration->parameters[i].type));
+            List<ConstantParameter> constant_parameters {};
 
-                    parameters[i] = parameter_type;
+            for(size_t i = 0; i < polymorphic_determiners.count; i += 1) {
+                append(&constant_parameters, polymorphic_determiners[i]);
+            }
+
+            for(size_t i = 0; i < original_parameter_count; i += 1) {
+                auto declaration_parameter = polymorphic_function_value->declaration->parameters[i];
+                auto call_parameter = function_call->parameters[i];
+
+                if(declaration_parameter.is_constant) {
+                    if(!declaration_parameter.is_polymorphic_determiner) {
+                        expect(parameter_type, evaluate_type_expression(context, declaration_parameter.type));
+
+                        parameter_types[i] = parameter_type;
+                    }
+
+                    expect(parameter_value, generate_expression(context, instructions, call_parameter));
+
+                    auto constant_value = dynamic_cast<ConstantValue*>(parameter_value.value);
+                    if(!constant_value) {
+                        error(*context, call_parameter->range, "Expected a constant value");
+
+                        return { false };
+                    }
+
+                    expect(coerced_constant_value, coerce_constant_to_type(
+                        *context,
+                        call_parameter->range,
+                        parameter_value.type,
+                        constant_value,
+                        parameter_types[i],
+                        false
+                    ));
+
+                    append(&constant_parameters, {
+                        declaration_parameter.name.text,
+                        parameter_types[i],
+                        coerced_constant_value
+                    });
+                }
+            }
+
+            context->constant_parameters = to_array(constant_parameters);
+
+            size_t runtime_parameter_count = 0;
+            for(size_t i = 0; i < original_parameter_count; i += 1) {
+                auto declaration_parameter = polymorphic_function_value->declaration->parameters[i];
+                auto call_parameter = function_call->parameters[i];
+
+                if(!declaration_parameter.is_constant) {
+                    if(!declaration_parameter.is_polymorphic_determiner) {
+                        expect(parameter_type, evaluate_type_expression(context, declaration_parameter.type));
+
+                        if(!is_runtime_type(parameter_type)) {
+                            error(*context, call_parameter->range, "Non-constant function parameters cannot be of type '%s'", type_description(parameter_type));
+
+                            return { false };
+                        }
+
+                        parameter_types[i] = parameter_type;
+                    }
+
+                    runtime_parameter_count += 1;
                 }
             }
 
@@ -5401,6 +5464,17 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 has_return = true;
 
                 expect(return_type_value, evaluate_type_expression(context, polymorphic_function_value->declaration->return_type));
+
+                if(!is_runtime_type(return_type_value)) {
+                    error(
+                        *context,
+                        polymorphic_function_value->declaration->return_type->range,
+                        "Function returns cannot be of type '%s'",
+                        type_description(return_type_value)
+                    );
+
+                    return { false };
+                }
 
                 return_type_representation = get_type_representation(*context, return_type_value);
 
@@ -5415,31 +5489,55 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             context->parent = old_parent;
             context->constant_parameters = old_constant_parameters;
 
-            auto runtime_parameter_count = parameter_count;
+            auto parameter_register_count = runtime_parameter_count;
             if(has_return && !return_type_representation.is_in_register) {
-                runtime_parameter_count += 1;
+                parameter_register_count += 1;
             }
 
-            auto parameter_registers = allocate<size_t>(runtime_parameter_count);
+            auto parameter_registers = allocate<size_t>(parameter_register_count);
 
-            for(size_t i = 0; i < parameter_count; i += 1) {
-                expect(parameter_value, generate_expression(context, instructions, function_call->parameters[i]));
+            {
+                size_t runtime_parameter_index = 0;
+                size_t polymorphic_parameter_index = 0;
 
-                expect(parameter_register, coerce_to_type_register(
-                    context,
-                    instructions,
-                    function_call->parameters[i]->range,
-                    parameter_value.type,
-                    parameter_value.value,
-                    parameters[i],
-                    false
-                ));
+                for(size_t i = 0; i < original_parameter_count; i += 1) {
+                    auto declaration_parameter = polymorphic_function_value->declaration->parameters[i];
 
-                parameter_registers[i] = parameter_register;
+                    if(!declaration_parameter.is_constant) {
+                        Type *type;
+                        Value *value;
+                        if(declaration_parameter.is_polymorphic_determiner) {
+                            type = polymorphic_runtime_parameter_values[polymorphic_parameter_index].type;
+                            value = polymorphic_runtime_parameter_values[polymorphic_parameter_index].value;
+
+                            polymorphic_parameter_index += 1;
+                        } else {
+                            expect(parameter_value, generate_expression(context, instructions, function_call->parameters[i]));
+
+                            type = parameter_value.type;
+                            value = parameter_value.value;
+                        }
+
+                        expect(parameter_register, coerce_to_type_register(
+                            context,
+                            instructions,
+                            function_call->parameters[i]->range,
+                            type,
+                            value,
+                            parameter_types[i],
+                            false
+                        ));
+
+                        parameter_registers[runtime_parameter_index] = parameter_register;
+
+                        runtime_parameter_index += 1;
+                    }
+                    
+                }
             }
 
             if(has_return && !return_type_representation.is_in_register) {
-                parameter_registers[runtime_parameter_count - 1] = append_allocate_local(
+                parameter_registers[parameter_register_count - 1] = append_allocate_local(
                     context,
                     instructions,
                     function_call->range.first_line,
@@ -5463,39 +5561,47 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 mangled_name = mangled_name_buffer;
             }
 
-            auto runtime_parameters = allocate<RuntimeFunctionParameter>(parameter_count);
+            auto runtime_parameters = allocate<RuntimeFunctionParameter>(runtime_parameter_count);
 
-            for(size_t i = 0; i < parameter_count; i += 1) {
-                auto declaration_parameter = polymorphic_function_value->declaration->parameters[i];
+            {
+                size_t runtime_parameter_index = 0;
 
-                FileRange type_range;
-                if(declaration_parameter.is_polymorphic_determiner) {
-                    type_range = declaration_parameter.polymorphic_determiner.range;
-                } else {
-                    type_range = declaration_parameter.name.range;
+                for(size_t i = 0; i < original_parameter_count; i += 1) {
+                    auto declaration_parameter = polymorphic_function_value->declaration->parameters[i];
+
+                    if(!declaration_parameter.is_constant) {
+                        FileRange type_range;
+                        if(declaration_parameter.is_polymorphic_determiner) {
+                            type_range = declaration_parameter.polymorphic_determiner.range;
+                        } else {
+                            type_range = declaration_parameter.name.range;
+                        }
+
+                        runtime_parameters[runtime_parameter_index] = {
+                            declaration_parameter.name,
+                            parameter_types[i],
+                            type_range
+                        };
+
+                        runtime_parameter_index += 1;
+                    }
                 }
-
-                runtime_parameters[i] = {
-                    declaration_parameter.name,
-                    parameters[i],
-                    type_range
-                };
             }
 
             append(&context->runtime_functions, {
                 mangled_name,
-                { parameter_count, runtime_parameters },
+                { runtime_parameter_count, runtime_parameters },
                 return_type,
                 {
                     polymorphic_function_value->declaration,
-                    to_array(polymorphic_determiners),
+                    to_array(constant_parameters),
                     polymorphic_function_value->parent
                 }
             });
 
             auto function_call_instruction = new FunctionCallInstruction;
             function_call_instruction->function_name = mangled_name;
-            function_call_instruction->parameter_registers = { parameter_count, parameter_registers };
+            function_call_instruction->parameter_registers = { parameter_register_count, parameter_registers };
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
 
             Value *value;
@@ -5510,7 +5616,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     };
                 } else {
                     value = new RegisterValue {
-                        parameter_registers[runtime_parameter_count - 1]
+                        parameter_registers[parameter_register_count - 1]
                     };
                 }
             } else {
