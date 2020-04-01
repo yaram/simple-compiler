@@ -1211,85 +1211,41 @@ static Result<ConstantValue*> coerce_constant_to_type(
     bool probing
 );
 
-static Result<StructConstant*> coerce_constant_to_struct_type(
+static Result<PointerConstant*> coerce_constant_to_pointer_type(
     GenerationContext context,
     FileRange range,
     Type *type,
     ConstantValue *value,
-    StructType target_type,
+    Pointer target_type,
     bool probing
 ) {
-    assert(!target_type.definition->is_union);
-
-    if(auto struct_type = dynamic_cast<StructType*>(type)) {
-        if(struct_type->definition != target_type.definition) {
-            if(!probing) {
-                error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(struct_type), type_description(&target_type));
-            }
-
-            return { false };
-        }
-
-        auto struct_value = dynamic_cast<StructConstant*>(value);
-        assert(struct_value);
+    if(dynamic_cast<UndeterminedInteger*>(type)) {
+        auto integer_value = dynamic_cast<IntegerConstant*>(value);
+        assert(integer_value);
 
         return {
             true,
-            struct_value
-        };
-    } else if(auto undetermined_struct = dynamic_cast<UndeterminedStruct*>(type)) {
-        if(undetermined_struct->members.count != target_type.members.count) {
-            if(!probing) {
-                error(context, range, "Too many struct members. Expected %zu, got %zu", target_type.members.count, undetermined_struct->members.count);
-            }
-
-            return { false };
-        }
-
-        auto member_count = target_type.members.count;
-
-        auto struct_value = dynamic_cast<StructConstant*>(value);
-        assert(struct_value);
-
-        auto member_values = allocate<ConstantValue*>(member_count);
-
-        for(size_t i = 0; i < member_count; i += 1) {
-            auto member = struct_type->members[i];
-            auto target_member = target_type.members[i];
-
-            if(strcmp(member.name, target_member.name) != 0) {
-                if(!probing) {
-                    error(context, range, "Incorrect struct member name. Expected '%s', got '%s", target_member.name, member.name);
-                }
-
-                return { false };
-            }
-
-            expect(coerced_member_value, coerce_constant_to_type(
-                context,
-                range,
-                member.type,
-                struct_value->members[i],
-                target_member.type,
-                probing
-            ));
-
-            member_values[i] = coerced_member_value;
-        }
-
-        return {
-            true,
-            new StructConstant {
-                member_values
+            new PointerConstant {
+                integer_value->value
             }
         };
-    } else {
-        if(!probing) {
-            error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
-        }
+    } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
+        if(types_equal(pointer->type, target_type.type)) {
+            auto pointer_value = dynamic_cast<PointerConstant*>(value);
+            assert(pointer_value);
 
-        return { false };
+            return {
+                true,
+                pointer_value
+            };
+        }
     }
+
+    if(!probing) {
+        error(context, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
+    }
+
+    return { false };
 }
 
 static Result<ConstantValue*> coerce_constant_to_type(
@@ -1315,22 +1271,63 @@ static Result<ConstantValue*> coerce_constant_to_type(
             integer_value
         };
     } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
-        if(dynamic_cast<UndeterminedInteger*>(type)) {
-            auto integer_value = dynamic_cast<IntegerConstant*>(value);
-            assert(integer_value);
+        expect(pointer_value, coerce_constant_to_pointer_type(context, range, type, value, *target_pointer, probing));
 
-            return {
-                true,
-                new PointerConstant {
-                    integer_value->value
-                }
-            };
-        } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
-            if(types_equal(pointer->type, target_pointer->type)) {
+        return {
+            true,
+            pointer_value
+        };
+    } else if(auto target_array_type = dynamic_cast<ArrayTypeType*>(target_type)) {
+        if(auto array_type = dynamic_cast<ArrayTypeType*>(type)) {
+            if(types_equal(target_array_type->element_type, array_type->element_type)) {
                 return {
                     true,
                     value
                 };
+            }
+        } else if(auto undetermined_struct = dynamic_cast<UndeterminedStruct*>(type)) {
+            if(
+                undetermined_struct->members.count == 2 &&
+                strcmp(undetermined_struct->members[0].name, "pointer") == 0 &&
+                strcmp(undetermined_struct->members[1].name, "length") == 0
+            ) {
+                auto undetermined_struct_value = dynamic_cast<StructConstant*>(value);
+                assert(undetermined_struct_value);
+
+                auto pointer_result = coerce_constant_to_pointer_type(
+                    context,
+                    range,
+                    undetermined_struct->members[0].type,
+                    undetermined_struct_value->members[0],
+                    {
+                        target_array_type->element_type
+                    },
+                    true
+                );
+
+                if(pointer_result.status) {
+                    auto length_result = coerce_constant_to_integer_type(
+                        context,
+                        range,
+                        undetermined_struct->members[1].type,
+                        undetermined_struct_value->members[1],
+                        {
+                            context.address_integer_size,
+                            false
+                        },
+                        true
+                    );
+
+                    if(length_result.status) {
+                        return {
+                            true,
+                            new ArrayConstant {
+                                pointer_result.value->value,
+                                length_result.value->value,
+                            }
+                        };
+                    }
+                }
             }
         }
     } else if(types_equal(type, target_type)) {
@@ -3848,6 +3845,76 @@ static Result<size_t> coerce_to_type_register(
                     address_register
                 };
             }
+        } else if(auto undetermined_struct = dynamic_cast<UndeterminedStruct*>(type)) {
+            if(
+                undetermined_struct->members.count == 2 &&
+                strcmp(undetermined_struct->members[0].name, "pointer") == 0 &&
+                strcmp(undetermined_struct->members[1].name, "length") == 0
+            ) {
+                auto undetermined_struct_value = dynamic_cast<UndeterminedStructValue*>(value);
+                assert(undetermined_struct_value);
+
+                auto pointer_result = coerce_to_pointer_register_value(
+                    context,
+                    instructions,
+                    range,
+                    undetermined_struct->members[0].type,
+                    undetermined_struct_value->members[0],
+                    {
+                        target_array->element_type
+                    },
+                    true
+                );
+
+                if(pointer_result.status) {
+                    auto length_result = coerce_to_integer_register_value(
+                        context,
+                        instructions,
+                        range,
+                        undetermined_struct->members[1].type,
+                        undetermined_struct_value->members[1],
+                        {
+                            context->address_integer_size,
+                            false
+                        },
+                        true
+                    );
+
+                    if(length_result.status) {
+                        auto address_register = append_allocate_local(
+                            context,
+                            instructions,
+                            range.first_line,
+                            2 * register_size_to_byte_size(context->address_integer_size),
+                            register_size_to_byte_size(context->address_integer_size)
+                        );
+
+                        append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_result.value, address_register);
+
+                        auto length_address_register = generate_address_offset(
+                            context,
+                            instructions,
+                            range,
+                            address_register,
+                            register_size_to_byte_size(context->address_integer_size)
+                        );
+
+                        append_store_integer(
+                            context,
+                            instructions,
+                            range.first_line,
+                            context->address_integer_size,
+                            length_result.value,
+                            length_address_register
+                        );
+
+                        return {
+                            true,
+                            address_register
+                        };
+                    }
+                }
+            }
         }
     } else if(auto target_static_array = dynamic_cast<StaticArray*>(target_type)) {
         if(auto static_array = dynamic_cast<StaticArray*>(type)) {
@@ -4141,6 +4208,65 @@ static bool coerce_to_type_write(
                 append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_register, length_address_register);
 
                 return true;
+            }
+        } else if(auto undetermined_struct = dynamic_cast<UndeterminedStruct*>(type)) {
+            if(
+                undetermined_struct->members.count == 2 &&
+                strcmp(undetermined_struct->members[0].name, "pointer") == 0 &&
+                strcmp(undetermined_struct->members[1].name, "length") == 0
+            ) {
+                auto undetermined_struct_value = dynamic_cast<UndeterminedStructValue*>(value);
+                assert(undetermined_struct_value);
+
+                auto pointer_result = coerce_to_pointer_register_value(
+                    context,
+                    instructions,
+                    range,
+                    undetermined_struct->members[0].type,
+                    undetermined_struct_value->members[0],
+                    {
+                        target_array->element_type
+                    },
+                    true
+                );
+
+                if(pointer_result.status) {
+                    auto length_result = coerce_to_integer_register_value(
+                        context,
+                        instructions,
+                        range,
+                        undetermined_struct->members[1].type,
+                        undetermined_struct_value->members[1],
+                        {
+                            context->address_integer_size,
+                            false
+                        },
+                        true
+                    );
+
+                    if(length_result.status) {
+                        append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_result.value, address_register);
+
+                        auto length_address_register = generate_address_offset(
+                            context,
+                            instructions,
+                            range,
+                            address_register,
+                            register_size_to_byte_size(context->address_integer_size)
+                        );
+
+                        append_store_integer(
+                            context,
+                            instructions,
+                            range.first_line,
+                            context->address_integer_size,
+                            length_result.value,
+                            length_address_register
+                        );
+
+                        return true;
+                    }
+                }
             }
         }
     } else if(auto target_static_array = dynamic_cast<StaticArray*>(target_type)) {
