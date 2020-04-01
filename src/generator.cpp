@@ -66,6 +66,8 @@ struct FunctionTypeType : Type {
 
 struct PolymorphicFunction : Type {};
 
+struct BuiltinFunction : Type {};
+
 struct Integer : Type {
     RegisterSize size;
 
@@ -197,6 +199,8 @@ static bool types_equal(Type *a, Type *b) {
         }
     } else if(dynamic_cast<PolymorphicFunction*>(a)) {
         return false;
+    } else if(dynamic_cast<BuiltinFunction*>(a)) {
+        return false;
     } else if(auto a_integer = dynamic_cast<Integer*>(a)) {
         if(auto b_integer = dynamic_cast<Integer*>(b)) {
             return a_integer->size == b_integer->size && a_integer->is_signed == b_integer->is_signed;
@@ -284,54 +288,6 @@ static bool types_equal(Type *a, Type *b) {
     }
 }
 
-static const char *integer_type_description(Integer integer) {
-    if(integer.is_signed) {
-        switch(integer.size) {
-            case RegisterSize::Size8: {
-                return "i8";
-            } break;
-
-            case RegisterSize::Size16: {
-                return "i16";
-            } break;
-
-            case RegisterSize::Size32: {
-                return "i32";
-            } break;
-
-            case RegisterSize::Size64: {
-                return "i64";
-            } break;
-
-            default: {
-                abort();
-            } break;
-        }
-    } else {
-        switch(integer.size) {
-            case RegisterSize::Size8: {
-                return "u8";
-            } break;
-
-            case RegisterSize::Size16: {
-                return "u16";
-            } break;
-
-            case RegisterSize::Size32: {
-                return "u32";
-            } break;
-
-            case RegisterSize::Size64: {
-                return "u64";
-            } break;
-
-            default: {
-                abort();
-            } break;
-        }
-    }
-}
-
 static const char *type_description(Type *type) {
     if(auto function = dynamic_cast<FunctionTypeType*>(type)) {
         char *buffer{};
@@ -355,8 +311,54 @@ static const char *type_description(Type *type) {
         return buffer;
     } else if(dynamic_cast<PolymorphicFunction*>(type)) {
         return "{function}";
+    } else if(dynamic_cast<BuiltinFunction*>(type)) {
+        return "{builtin}";
     } else if(auto integer = dynamic_cast<Integer*>(type)) {
-        return integer_type_description(*integer);
+            if(integer->is_signed) {
+            switch(integer->size) {
+                case RegisterSize::Size8: {
+                    return "i8";
+                } break;
+
+                case RegisterSize::Size16: {
+                    return "i16";
+                } break;
+
+                case RegisterSize::Size32: {
+                    return "i32";
+                } break;
+
+                case RegisterSize::Size64: {
+                    return "i64";
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } else {
+            switch(integer->size) {
+                case RegisterSize::Size8: {
+                    return "u8";
+                } break;
+
+                case RegisterSize::Size16: {
+                    return "u16";
+                } break;
+
+                case RegisterSize::Size32: {
+                    return "u32";
+                } break;
+
+                case RegisterSize::Size64: {
+                    return "u64";
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        }
     } else if(dynamic_cast<UndeterminedInteger*>(type)) {
         return "{integer}";
     } else if(dynamic_cast<Boolean*>(type)) {
@@ -433,6 +435,18 @@ struct FunctionConstant : ConstantValue {
     mangled_name { mangled_name },
     declaration { declaration },
     parent { parent }
+    {}
+};
+
+struct BuiltinFunctionConstant : ConstantValue {
+    const char *name;
+
+    BuiltinFunctionConstant() {}
+
+    BuiltinFunctionConstant(
+        const char *name
+    ) :
+    name { name }
     {}
 };
 
@@ -2562,6 +2576,66 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             error(*context, function_call->range, "Function calls not allowed in global context");
 
             return { false };
+        } else if(dynamic_cast<BuiltinFunction*>(expression_value.type)) {
+            auto builtin_function_value = dynamic_cast<BuiltinFunctionConstant*>(expression_value.value);
+            assert(builtin_function_value);
+
+            if(strcmp(builtin_function_value->name, "size_of") == 0) {
+                if(function_call->parameters.count != 1) {
+                    error(*context, function_call->range, "Incorrect parameter count. Expected '%zu' got '%zu'", 1, function_call->parameters.count);
+
+                    return { false };
+                }
+
+                expect(parameter_value, evaluate_constant_expression(context, function_call->parameters[0]));
+
+                Type *type;
+                if(dynamic_cast<TypeType*>(parameter_value.type)) {
+                    type = dynamic_cast<Type*>(parameter_value.value);
+                    assert(type);
+                } else {
+                    type = parameter_value.type;
+                }
+
+                if(!is_runtime_type(type)) {
+                    error(*context, function_call->parameters[0]->range, "'%s'' has no size", type_description(parameter_value.type));
+
+                    return { false };
+                }
+
+                auto size = get_type_size(*context, type);
+
+                return {
+                    true,
+                    {
+                        new Integer {
+                            context->address_integer_size,
+                            false
+                        },
+                        new IntegerConstant {
+                            size
+                        }
+                    }
+                };
+            } else if(strcmp(builtin_function_value->name, "type_of") == 0) {
+                if(function_call->parameters.count != 1) {
+                    error(*context, function_call->range, "Incorrect parameter count. Expected '%zu' got '%zu'", 1, function_call->parameters.count);
+
+                    return { false };
+                }
+
+                expect(parameter_value, evaluate_constant_expression(context, function_call->parameters[0]));
+
+                return {
+                    true,
+                    {
+                        new TypeType,
+                        parameter_value.type
+                    }
+                };
+            } else {
+                abort();
+            }
         } else if(dynamic_cast<TypeType*>(expression_value.type)) {
             auto type = dynamic_cast<Type*>(expression_value.value);
             assert(type);
@@ -5452,6 +5526,66 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     value
                 }
             };
+        } else if(dynamic_cast<BuiltinFunction*>(expression_value.type)) {
+            auto builtin_function_value = dynamic_cast<BuiltinFunctionConstant*>(expression_value.value);
+            assert(builtin_function_value);
+
+            if(strcmp(builtin_function_value->name, "size_of") == 0) {
+                if(function_call->parameters.count != 1) {
+                    error(*context, function_call->range, "Incorrect parameter count. Expected '%zu' got '%zu'", 1, function_call->parameters.count);
+
+                    return { false };
+                }
+
+                expect(parameter_value, generate_expression(context, instructions, function_call->parameters[0]));
+
+                Type *type;
+                if(dynamic_cast<TypeType*>(parameter_value.type)) {
+                    type = dynamic_cast<Type*>(parameter_value.value);
+                    assert(type);
+                } else {
+                    type = parameter_value.type;
+                }
+
+                if(!is_runtime_type(type)) {
+                    error(*context, function_call->parameters[0]->range, "'%s'' has no size", type_description(parameter_value.type));
+
+                    return { false };
+                }
+
+                auto size = get_type_size(*context, type);
+
+                return {
+                    true,
+                    {
+                        new Integer {
+                            context->address_integer_size,
+                            false
+                        },
+                        new IntegerConstant {
+                            size
+                        }
+                    }
+                };
+            } else if(strcmp(builtin_function_value->name, "type_of") == 0) {
+                if(function_call->parameters.count != 1) {
+                    error(*context, function_call->range, "Incorrect parameter count. Expected '%zu' got '%zu'", 1, function_call->parameters.count);
+
+                    return { false };
+                }
+
+                expect(parameter_value, generate_expression(context, instructions, function_call->parameters[0]));
+
+                return {
+                    true,
+                    {
+                        new TypeType,
+                        parameter_value.type
+                    }
+                };
+            } else {
+                abort();
+            }
         } else if(dynamic_cast<TypeType*>(expression_value.type)) {
             auto type = dynamic_cast<Type*>(expression_value.value);
             assert(type);
@@ -6637,32 +6771,42 @@ static bool generate_statement(GenerationContext *context, List<Instruction*> *i
     }
 }
 
-inline GlobalConstant create_base_integer_type(const char *name, RegisterSize size, bool is_signed) {
-    return {
+inline void append_base_integer_type(List<GlobalConstant> *global_constants, const char *name, RegisterSize size, bool is_signed) {
+    append(global_constants, {
         name,
         new TypeType,
         new Integer {
             size,
             is_signed
         }
-    };
+    });
+}
+
+inline void append_builtin(List<GlobalConstant> *global_constants, const char *name) {
+    append(global_constants, {
+        name,
+        new BuiltinFunction,
+        new BuiltinFunctionConstant {
+            name
+        }
+    });
 }
 
 Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_statements, RegisterSize address_size, RegisterSize default_size) {
     List<GlobalConstant> global_constants{};
 
-    append(&global_constants, create_base_integer_type("u8", RegisterSize::Size8, false));
-    append(&global_constants, create_base_integer_type("u16", RegisterSize::Size16, false));
-    append(&global_constants, create_base_integer_type("u32", RegisterSize::Size32, false));
-    append(&global_constants, create_base_integer_type("u64", RegisterSize::Size64, false));
+    append_base_integer_type(&global_constants, "u8", RegisterSize::Size8, false);
+    append_base_integer_type(&global_constants, "u16", RegisterSize::Size16, false);
+    append_base_integer_type(&global_constants, "u32", RegisterSize::Size32, false);
+    append_base_integer_type(&global_constants, "u64", RegisterSize::Size64, false);
 
-    append(&global_constants, create_base_integer_type("i8", RegisterSize::Size8, true));
-    append(&global_constants, create_base_integer_type("i16", RegisterSize::Size16, true));
-    append(&global_constants, create_base_integer_type("i32", RegisterSize::Size32, true));
-    append(&global_constants, create_base_integer_type("i64", RegisterSize::Size64, true));
+    append_base_integer_type(&global_constants, "i8", RegisterSize::Size8, true);
+    append_base_integer_type(&global_constants, "i16", RegisterSize::Size16, true);
+    append_base_integer_type(&global_constants, "i32", RegisterSize::Size32, true);
+    append_base_integer_type(&global_constants, "i64", RegisterSize::Size64, true);
 
-    append(&global_constants, create_base_integer_type("usize", address_size, false));
-    append(&global_constants, create_base_integer_type("isize", address_size, true));
+    append_base_integer_type(&global_constants, "usize", address_size, false);
+    append_base_integer_type(&global_constants, "isize", address_size, true);
 
     append(&global_constants, {
         "bool",
@@ -6691,6 +6835,9 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
     append(&global_constants, {
         "type", new TypeType, new TypeType
     });
+
+    append_builtin(&global_constants, "size_of");
+    append_builtin(&global_constants, "type_of");
 
     GenerationContext context {
         address_size,
