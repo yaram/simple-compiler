@@ -462,11 +462,11 @@ Result<Array<Token>> tokenize_source(const char *path) {
                         append(&buffer, '"');
                     } else if(source[index] == '0') {
                         append(&buffer, '\0');
-                    } else if(source[index] == '\r') {
+                    } else if(source[index] == 'r') {
                         append(&buffer, '\r');
-                    } else if(source[index] == '\n') {
+                    } else if(source[index] == 'n') {
                         append(&buffer, '\n');
-                    } else if(source[index] == '\r' || source[index] == '\n') {
+                    } else if(source[index] == 'r' || source[index] == '\n') {
                         error(path, line, character, "Unexpected newline");
 
                         return { false };

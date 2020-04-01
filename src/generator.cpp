@@ -3672,6 +3672,49 @@ static Result<size_t> coerce_to_integer_register_value(
     return { false };
 }
 
+static Result<size_t> coerce_to_pointer_register_value(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    FileRange range,
+    Type *type,
+    Value *value,
+    Pointer target_type,
+    bool probing
+) {
+    if(dynamic_cast<UndeterminedInteger*>(type)) {
+        auto integer_value = dynamic_cast<IntegerConstant*>(value);
+        assert(integer_value);
+
+        auto register_index = append_constant(
+            context,
+            instructions,
+            range.first_line,
+            context->address_integer_size,
+            integer_value->value
+        );
+
+        return {
+            true,
+            register_index
+        };
+    } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
+        if(types_equal(pointer->type, target_type.type)) {
+            auto register_index = generate_in_register_pointer_value(context, instructions, range, value);
+
+            return {
+                true,
+                register_index
+            };
+        }
+    }
+
+    if (!probing) {
+        error(*context, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
+    }
+
+    return { false };
+}
+
 static bool coerce_to_type_write(
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -3715,33 +3758,21 @@ static Result<size_t> coerce_to_type_register(
                 register_index
             };
         }
-    } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
-        if(dynamic_cast<UndeterminedInteger*>(type)) {
-            auto integer_value = dynamic_cast<IntegerConstant*>(value);
-            assert(integer_value);
+    } else if(auto pointer = dynamic_cast<Pointer*>(target_type)) {
+        expect(register_index, coerce_to_pointer_register_value(
+            context,
+            instructions,
+            range,
+            type,
+            value,
+            *pointer,
+            probing
+        ));
 
-            auto register_index = append_constant(
-                context,
-                instructions,
-                range.first_line,
-                context->address_integer_size,
-                integer_value->value
-            );
-
-            return {
-                true,
-                register_index
-            };
-        } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
-            if(types_equal(pointer->type, target_pointer->type)) {
-                auto register_index = generate_in_register_pointer_value(context, instructions, range, value);
-
-                return {
-                    true,
-                    register_index
-                };
-            }
-        }
+        return {
+            true,
+            register_index
+        };
     } else if(auto target_array = dynamic_cast<ArrayTypeType*>(target_type)) {
         if(auto array_type = dynamic_cast<ArrayTypeType*>(type)) {
             if(types_equal(target_array->element_type, array_type->element_type)) {
@@ -4313,12 +4344,32 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             }
         }
 
-        auto address_register = generate_address_offset(
+        auto element_size_register = append_constant(
             context,
             instructions,
-            index_reference->range,
-            base_address_register,
+            index_reference->range.first_line,
+            context->address_integer_size,
             get_type_size(*context, element_type)
+        );
+
+        auto offset = append_arithmetic_operation(
+            context,
+            instructions,
+            index_reference->range.first_line,
+            ArithmeticOperation::Operation::UnsignedMultiply,
+            context->address_integer_size,
+            element_size_register,
+            index_register
+        );
+
+        auto address_register = append_arithmetic_operation(
+            context,
+            instructions,
+            index_reference->range.first_line,
+            ArithmeticOperation::Operation::Add,
+            context->address_integer_size,
+            base_address_register,
+            offset
         );
 
         return {
@@ -5539,21 +5590,25 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 }
             };
         } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
-            if(!dynamic_cast<Pointer*>(left.type)) {
-                error(*context, binary_operation->left->range, "Expected '%s', got '%s'", type_description(pointer), type_description(left.type));
+            expect(left_register, coerce_to_pointer_register_value(
+                context,
+                instructions,
+                binary_operation->left->range,
+                left.type,
+                left.value,
+                *pointer,
+                false
+            ));
 
-                return { false };
-            }
-
-            auto left_register = generate_in_register_pointer_value(context, instructions, binary_operation->left->range, left.value);
-
-            if(!dynamic_cast<Boolean*>(right.type)) {
-                error(*context, binary_operation->right->range, "Expected '%s', got '%s'", type_description(pointer), type_description(right.type));
-
-                return { false };
-            }
-
-            auto right_register = generate_in_register_pointer_value(context, instructions, binary_operation->right->range, right.value);
+            expect(right_register, coerce_to_pointer_register_value(
+                context,
+                instructions,
+                binary_operation->right->range,
+                right.type,
+                right.value,
+                *pointer,
+                false
+            ));
 
             ComparisonOperation::Operation comparison_operation;
             auto invert = false;
@@ -5579,7 +5634,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 instructions,
                 binary_operation->range.first_line,
                 comparison_operation,
-                integer->size,
+                context->address_integer_size,
                 left_register,
                 right_register
             );
@@ -5897,6 +5952,8 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             context->address_integer_size,
                             address_value->address_register
                         );
+                    } else {
+                        abort();
                     }
                 }
             }
@@ -5915,6 +5972,8 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             context->address_integer_size,
                             address_value->address_register
                         );
+                    } else {
+                        abort();
                     }
                 }
             } else if(auto pointer = dynamic_cast<Pointer*>(expression_value.type)) {
@@ -5930,6 +5989,8 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         context->address_integer_size,
                         address_value->address_register
                     );
+                } else {
+                    abort();
                 }
             }
         } else {
