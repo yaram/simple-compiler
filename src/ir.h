@@ -71,14 +71,24 @@ struct IntegerUpcast : Instruction {
     IntegerUpcast() {}
 };
 
-struct Constant : Instruction {
+struct IntegerConstantInstruction : Instruction {
     RegisterSize size;
 
     size_t destination_register;
 
     uint64_t value;
 
-    Constant() {}
+    IntegerConstantInstruction() {}
+};
+
+struct FloatConstantInstruction : Instruction {
+    RegisterSize size;
+
+    size_t destination_register;
+
+    double value;
+
+    FloatConstantInstruction() {}
 };
 
 struct Jump : Instruction {
@@ -142,6 +152,26 @@ struct StoreInteger : Instruction {
     StoreInteger() {}
 };
 
+struct LoadFloat : Instruction {
+    RegisterSize size;
+
+    size_t address_register;
+
+    size_t destination_register;
+
+    LoadFloat() {}
+};
+
+struct StoreFloat : Instruction {
+    RegisterSize size;
+
+    size_t source_register;
+
+    size_t address_register;
+
+    StoreFloat() {}
+};
+
 struct CopyMemory : Instruction {
     size_t length_register;
 
@@ -169,10 +199,17 @@ struct RuntimeStatic {
 };
 
 struct Function : RuntimeStatic {
-    Array<RegisterSize> parameter_sizes;
+    struct Parameter {
+        RegisterSize size;
+
+        bool is_float;
+    };
+
+    Array<Parameter> parameters;
 
     bool has_return;
     RegisterSize return_size;
+    bool is_return_float;
 
     bool is_external;
 

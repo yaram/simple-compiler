@@ -86,6 +86,18 @@ struct UndeterminedInteger : Type {};
 
 struct Boolean : Type {};
 
+struct FloatType : Type {
+    RegisterSize size;
+
+    FloatType(
+        RegisterSize size
+    ) :
+    size { size }
+    {}
+};
+
+struct UndeterminedFloat : Type {};
+
 struct TypeType : Type {};
 
 struct Void : Type {};
@@ -211,6 +223,14 @@ static bool types_equal(Type *a, Type *b) {
         return dynamic_cast<UndeterminedInteger*>(b);
     } else if(dynamic_cast<Boolean*>(a)) {
         return dynamic_cast<Boolean*>(b);
+    } else if(auto a_float_type = dynamic_cast<FloatType*>(a)) {
+        if(auto b_float_type = dynamic_cast<FloatType*>(b)) {
+            return a_float_type->size == b_float_type->size;
+        } else {
+            return false;
+        }
+    } else if(dynamic_cast<UndeterminedFloat*>(a)) {
+        return dynamic_cast<UndeterminedFloat*>(b);
     } else if(dynamic_cast<TypeType*>(a)) {
         return dynamic_cast<TypeType*>(b);
     } else if(dynamic_cast<Void*>(a)) {
@@ -363,6 +383,22 @@ static const char *type_description(Type *type) {
         return "{integer}";
     } else if(dynamic_cast<Boolean*>(type)) {
         return "bool";
+    } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+        switch(float_type->size) {
+            case RegisterSize::Size32: {
+                return "f32";
+            } break;
+
+            case RegisterSize::Size64: {
+                return "f64";
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+    } else if(dynamic_cast<UndeterminedFloat*>(type)) {
+        return "{float}";
     } else if(dynamic_cast<TypeType*>(type)) {
         return "{type}";
     } else if(dynamic_cast<Void*>(type)) {
@@ -407,6 +443,7 @@ static bool is_runtime_type(Type *type) {
     if(
         dynamic_cast<Integer*>(type) ||
         dynamic_cast<Boolean*>(type) ||
+        dynamic_cast<FloatType*>(type) ||
         dynamic_cast<Pointer*>(type) ||
         dynamic_cast<ArrayTypeType*>(type) ||
         dynamic_cast<StaticArray*>(type) ||
@@ -473,6 +510,18 @@ struct IntegerConstant : ConstantValue {
 
     IntegerConstant(
         uint64_t value
+    ) :
+    value { value }
+    {}
+};
+
+struct FloatConstant : ConstantValue {
+    double value;
+
+    FloatConstant() {}
+
+    FloatConstant(
+        double value
     ) :
     value { value }
     {}
@@ -828,6 +877,8 @@ static uint64_t get_type_alignment(GenerationContext context, Type *type) {
         return register_size_to_byte_size(integer->size);
     } else if(dynamic_cast<Boolean*>(type)) {
         return register_size_to_byte_size(context.default_integer_size);
+    } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+        return register_size_to_byte_size(float_type->size);
     } else if(dynamic_cast<Pointer*>(type)) {
         return register_size_to_byte_size(context.address_integer_size);
     } else if(dynamic_cast<ArrayTypeType*>(type)) {
@@ -879,6 +930,8 @@ static uint64_t get_type_size(GenerationContext context, Type *type) {
         return register_size_to_byte_size(integer->size);
     } else if(dynamic_cast<Boolean*>(type)) {
         return register_size_to_byte_size(context.default_integer_size);
+    } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+        return register_size_to_byte_size(float_type->size);
     } else if(dynamic_cast<Pointer*>(type)) {
         return register_size_to_byte_size(context.address_integer_size);
     } else if(dynamic_cast<ArrayTypeType*>(type)) {
@@ -1284,6 +1337,62 @@ static Result<ConstantValue*> coerce_constant_to_type(
             true,
             integer_value
         };
+    } else if(auto target_float_type = dynamic_cast<FloatType*>(target_type)) {
+        if(dynamic_cast<UndeterminedInteger*>(type)) {
+            auto integer_value = dynamic_cast<IntegerConstant*>(value);
+            assert(integer_value);
+
+            return {
+                true,
+                new FloatConstant {
+                    (double)integer_value->value
+                }
+            };
+        } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+            if(target_float_type->size == float_type->size) {
+                return {
+                    true,
+                    value
+                };
+            }
+        } else if(dynamic_cast<UndeterminedFloat*>(type)) {
+            return {
+                true,
+                value
+            };
+        }
+    } else if(dynamic_cast<UndeterminedFloat*>(target_type)) {
+        if(auto float_type = dynamic_cast<FloatType*>(type)) {
+            auto float_value = dynamic_cast<FloatConstant*>(value);
+            assert(float_value);
+
+            double value;
+            switch(float_type->size) {
+                case RegisterSize::Size32: {
+                    value = (double)(float)float_value->value;
+                } break;
+
+                case RegisterSize::Size64: {
+                    value = float_value->value;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+
+            return {
+                true,
+                new FloatConstant {
+                    value
+                }
+            };
+        } else if(dynamic_cast<UndeterminedFloat*>(type)) {
+            return {
+                true,
+                value
+            };
+        }
     } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
         expect(pointer_value, coerce_constant_to_pointer_type(context, range, type, value, *target_pointer, probing));
 
@@ -2062,23 +2171,33 @@ struct RegisterRepresentation {
     bool is_in_register;
 
     RegisterSize value_size;
+    bool is_float;
 };
 
 static RegisterRepresentation get_type_representation(GenerationContext context, Type *type) {
     if(auto integer = dynamic_cast<Integer*>(type)) {
         return {
             true,
-            integer->size
+            integer->size,
+            false
         };
     } else if(dynamic_cast<Boolean*>(type)) {
         return {
             true,
-            context.default_integer_size
+            context.default_integer_size,
+            false
+        };
+    } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+        return {
+            true,
+            float_type->size,
+            true
         };
     } else if(dynamic_cast<Pointer*>(type)) {
         return {
             true,
-            context.address_integer_size
+            context.address_integer_size,
+            false
         };
     } else if(
         dynamic_cast<ArrayTypeType*>(type) ||
@@ -2100,6 +2219,13 @@ static Result<Type*> coerce_to_default_type(GenerationContext context, FileRange
             new Integer {
                 context.default_integer_size,
                 true
+            }
+        };
+    } else if(dynamic_cast<UndeterminedFloat*>(type)) {
+        return {
+            true,
+            new FloatType {
+                context.default_integer_size
             }
         };
     } else if(dynamic_cast<UndeterminedStruct*>(type)) {
@@ -2444,6 +2570,16 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
                 new UndeterminedInteger,
                 new IntegerConstant {
                     integer_literal->value
+                }
+            }
+        };
+    } else if(auto float_literal = dynamic_cast<FloatLiteral*>(expression)) {
+        return {
+            true,
+            {
+                new UndeterminedFloat,
+                new FloatConstant {
+                    float_literal->value
                 }
             }
         };
@@ -3200,6 +3336,28 @@ static void write_value(GenerationContext context, uint8_t *data, size_t offset,
         assert(boolean_value);
 
         write_integer(data, offset, context.default_integer_size, boolean_value->value);
+    } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+        auto float_value = dynamic_cast<FloatConstant*>(value);
+        assert(float_value);
+
+        uint64_t integer_value;
+        switch(float_type->size) {
+            case RegisterSize::Size32: {
+                auto value = (float)float_value->value;
+
+                integer_value = (uint64_t)*(uint32_t*)&value;
+            } break;
+
+            case RegisterSize::Size64: {
+                integer_value = (uint64_t)*(uint64_t*)&float_value->value;
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+
+        write_integer(data, offset, float_type->size, integer_value);
     } else if(dynamic_cast<Pointer*>(type)) {
         auto pointer_value = dynamic_cast<PointerConstant*>(value);
         assert(pointer_value);
@@ -3358,10 +3516,24 @@ static size_t append_comparison_operation(
     return destination_register;
 }
 
-static size_t append_constant(GenerationContext *context, List<Instruction*> *instructions, unsigned int line, RegisterSize size, uint64_t value) {
+static size_t append_integer_constant(GenerationContext *context, List<Instruction*> *instructions, unsigned int line, RegisterSize size, uint64_t value) {
     auto destination_register = allocate_register(context);
 
-    auto constant = new Constant;
+    auto constant = new IntegerConstantInstruction;
+    constant->line = line;
+    constant->size = size;
+    constant->destination_register = destination_register;
+    constant->value = value;
+
+    append(instructions, (Instruction*)constant);
+
+    return destination_register;
+}
+
+static size_t append_float_constant(GenerationContext *context, List<Instruction*> *instructions, unsigned int line, RegisterSize size, double value) {
+    auto destination_register = allocate_register(context);
+
+    auto constant = new FloatConstantInstruction;
     constant->line = line;
     constant->size = size;
     constant->destination_register = destination_register;
@@ -3471,7 +3643,7 @@ static void generate_constant_size_copy(
     size_t source_address_register,
     size_t destination_address_register
 ) {
-    auto length_register = append_constant(context, instructions, range.first_line, context->address_integer_size, length);
+    auto length_register = append_integer_constant(context, instructions, range.first_line, context->address_integer_size, length);
 
     append_copy_memory(context, instructions, range.first_line, length_register, source_address_register, destination_address_register);
 }
@@ -3513,8 +3685,45 @@ static void append_store_integer(
     append(instructions, (Instruction*)store_integer);
 }
 
+static size_t append_load_float(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    unsigned int line,
+    RegisterSize size,
+    size_t address_register
+) {
+    auto destination_register = allocate_register(context);
+
+    auto load_integer = new LoadFloat;
+    load_integer->line = line;
+    load_integer->size = size;
+    load_integer->address_register = address_register;
+    load_integer->destination_register = destination_register;
+
+    append(instructions, (Instruction*)load_integer);
+
+    return destination_register;
+}
+
+static void append_store_float(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    unsigned int line,
+    RegisterSize size,
+    size_t source_register,
+    size_t address_register
+) {
+    auto store_integer = new StoreFloat;
+    store_integer->line = line;
+    store_integer->size = size;
+    store_integer->source_register = source_register;
+    store_integer->address_register = address_register;
+
+    append(instructions, (Instruction*)store_integer);
+}
+
 static size_t generate_address_offset(GenerationContext *context, List<Instruction*> *instructions, FileRange range, size_t address_register, size_t offset) {
-    auto offset_register = append_constant(
+    auto offset_register = append_integer_constant(
         context,
         instructions,
         range.first_line,
@@ -3546,134 +3755,19 @@ static size_t generate_boolean_invert(GenerationContext *context, List<Instructi
 
     append_branch(context, instructions, range.first_line, value_register, instructions->count + 4);
 
-    auto true_register = append_constant(context, instructions, range.first_line, context->default_integer_size, 1);
+    auto true_register = append_integer_constant(context, instructions, range.first_line, context->default_integer_size, 1);
 
     append_store_integer(context, instructions, range.first_line, context->default_integer_size, true_register, local_register);
 
     append_jump(context, instructions, range.first_line, instructions->count + 3);
 
-    auto false_register = append_constant(context, instructions, range.first_line, context->default_integer_size, 0);
+    auto false_register = append_integer_constant(context, instructions, range.first_line, context->default_integer_size, 0);
 
     append_store_integer(context, instructions, range.first_line, context->default_integer_size, false_register, local_register);
 
     auto result_register = append_load_integer(context, instructions, range.first_line, context->default_integer_size, local_register);
 
     return result_register;
-}
-
-static size_t generate_in_register_constant_value(GenerationContext *context, List<Instruction*> *instructions, FileRange range, Type *type, ConstantValue *value) {
-    if(auto integer = dynamic_cast<Integer*>(type)) {
-        auto integer_value = dynamic_cast<IntegerConstant*>(value);
-        assert(integer_value);
-
-        return append_constant(context, instructions, range.first_line, integer->size, integer_value->value);
-    } else if(dynamic_cast<Boolean*>(type)) {
-        auto boolean_value = dynamic_cast<BooleanConstant*>(value);
-        assert(boolean_value);
-
-        return append_constant(context, instructions, range.first_line, context->default_integer_size, boolean_value->value);
-    } else if(dynamic_cast<Pointer*>(type)) {
-        auto pointer_value = dynamic_cast<PointerConstant*>(value);
-        assert(pointer_value);
-
-        return append_constant(context, instructions, range.first_line, context->address_integer_size, pointer_value->value);
-    } else {
-        abort();
-    }
-}
-
-static void generate_not_in_register_constant_write(
-    GenerationContext *context,
-    List<Instruction*> *instructions,
-    FileRange range,
-    Type *type,
-    ConstantValue *value,
-    size_t address_register
-) {
-    if(dynamic_cast<ArrayTypeType*>(type)) {
-        auto array_value = dynamic_cast<ArrayConstant*>(value);
-        assert(array_value);
-
-        auto pointer_register = append_constant(context, instructions, range.first_line, context->address_integer_size, array_value->pointer);
-
-        append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_register, address_register);
-
-        auto length_register = append_constant(context, instructions, range.first_line, context->address_integer_size, array_value->length);
-
-        auto length_address_register = generate_address_offset(
-            context,
-            instructions,
-            range,
-            address_register,
-            register_size_to_byte_size(context->address_integer_size)
-        );
-
-        append_store_integer(context, instructions, range.first_line, context->address_integer_size, length_register, length_address_register);
-    } else if(auto static_array = dynamic_cast<StaticArray*>(type)) {
-        auto static_array_value = dynamic_cast<StaticArrayConstant*>(value);
-        assert(static_array_value);
-
-        auto constant_name = register_static_array_constant(
-            context,
-            static_array->element_type,
-            {
-                static_array->length,
-                static_array_value->elements
-            }
-        );
-
-        auto constant_address_register = append_reference_static(context, instructions, range.first_line, constant_name);
-
-        generate_constant_size_copy(
-            context,
-            instructions,
-            range,
-            static_array->length * get_type_size(*context, static_array->element_type),
-            constant_address_register,
-            address_register
-        );
-    } else if(auto struct_type = dynamic_cast<StructType*>(type)) {
-        auto struct_value = dynamic_cast<StructConstant*>(value);
-        assert(struct_value);
-
-        auto constant_name = register_struct_constant(
-            context,
-            *struct_type,
-            struct_value->members
-        );
-
-        auto constant_address_register = append_reference_static(context, instructions, range.first_line, constant_name);
-
-        generate_constant_size_copy(
-            context,
-            instructions,
-            range,
-            get_struct_size(*context, *struct_type),
-            constant_address_register,
-            address_register
-        );
-    } else {
-        abort();
-    }
-}
-
-static void generate_constant_value_write(
-    GenerationContext *context,
-    List<Instruction*> *instructions,
-    FileRange range,
-    Type *type,
-    ConstantValue *value,
-    size_t address_register
-) {
-    auto representation = get_type_representation(*context, type);
-
-    if(representation.is_in_register) {
-        auto value_register = generate_in_register_constant_value(context, instructions, range, type, value);
-
-        append_store_integer(context, instructions, range.first_line, representation.value_size, value_register, address_register);
-    } else {
-        generate_not_in_register_constant_write(context, instructions, range, type, value, address_register);
-    }
 }
 
 static size_t generate_in_register_integer_value(
@@ -3684,7 +3778,7 @@ static size_t generate_in_register_integer_value(
     Value *value
 ) {
     if(auto integer_value = dynamic_cast<IntegerConstant*>(value)) {
-        return append_constant(context, instructions, range.first_line, type.size, integer_value->value);
+        return append_integer_constant(context, instructions, range.first_line, type.size, integer_value->value);
     } else if(auto regsiter_value = dynamic_cast<RegisterValue*>(value)) {
         return regsiter_value->register_index;
     } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
@@ -3696,7 +3790,7 @@ static size_t generate_in_register_integer_value(
 
 static size_t generate_in_register_boolean_value(GenerationContext *context, List<Instruction*> *instructions, FileRange range, Value *value) {
     if(auto boolean_value = dynamic_cast<BooleanConstant*>(value)) {
-        return append_constant(context, instructions, range.first_line, context->default_integer_size, boolean_value->value);
+        return append_integer_constant(context, instructions, range.first_line, context->default_integer_size, boolean_value->value);
     } else if(auto regsiter_value = dynamic_cast<RegisterValue*>(value)) {
         return regsiter_value->register_index;
     } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
@@ -3708,7 +3802,7 @@ static size_t generate_in_register_boolean_value(GenerationContext *context, Lis
 
 static size_t generate_in_register_pointer_value(GenerationContext *context, List<Instruction*> *instructions, FileRange range, Value *value) {
     if(auto pointer_value = dynamic_cast<PointerConstant*>(value)) {
-        return append_constant(context, instructions, range.first_line, context->address_integer_size, pointer_value->value);
+        return append_integer_constant(context, instructions, range.first_line, context->address_integer_size, pointer_value->value);
     } else if(auto regsiter_value = dynamic_cast<RegisterValue*>(value)) {
         return regsiter_value->register_index;
     } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
@@ -3740,7 +3834,7 @@ static Result<size_t> coerce_to_integer_register_value(
         auto constant_value = dynamic_cast<IntegerConstant*>(value);
         assert(constant_value);
 
-        auto regsiter_index = append_constant(context, instructions, range.first_line, target_type.size, constant_value->value);
+        auto regsiter_index = append_integer_constant(context, instructions, range.first_line, target_type.size, constant_value->value);
 
         return {
             true,
@@ -3768,7 +3862,7 @@ static Result<size_t> coerce_to_pointer_register_value(
         auto integer_value = dynamic_cast<IntegerConstant*>(value);
         assert(integer_value);
 
-        auto register_index = append_constant(
+        auto register_index = append_integer_constant(
             context,
             instructions,
             range.first_line,
@@ -3835,6 +3929,46 @@ static Result<size_t> coerce_to_type_register(
     } else if(dynamic_cast<Boolean*>(target_type)) {
         if(dynamic_cast<Boolean*>(type)) {
             auto register_index = generate_in_register_boolean_value(context, instructions, range, value);
+
+            return {
+                true,
+                register_index
+            };
+        }
+    } else if(auto target_float_type = dynamic_cast<FloatType*>(target_type)) {
+        if(dynamic_cast<UndeterminedInteger*>(type)) {
+            auto integer_value = dynamic_cast<IntegerConstant*>(value);
+            assert(integer_value);
+
+            auto register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, (double)integer_value->value);
+
+            return {
+                true,
+                register_index
+            };
+        } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+            if(target_float_type->size == float_type->size) {
+                size_t register_index;
+                if(auto float_value = dynamic_cast<FloatConstant*>(value)) {
+                    register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, float_value->value);
+                } else if(auto regsiter_value = dynamic_cast<RegisterValue*>(value)) {
+                    register_index = regsiter_value->register_index;
+                } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
+                    register_index = append_load_float(context, instructions, range.first_line, float_type->size, address_value->address_register);
+                } else {
+                    abort();
+                }
+
+                return {
+                    true,
+                    register_index
+                };
+            }
+        } else if(dynamic_cast<UndeterminedFloat*>(type)) {
+            auto float_value = dynamic_cast<FloatConstant*>(value);
+            assert(float_value);
+
+            auto register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, float_value->value);
 
             return {
                 true,
@@ -3910,7 +4044,7 @@ static Result<size_t> coerce_to_type_register(
                     register_size_to_byte_size(context->address_integer_size)
                 );
 
-                auto length_register = append_constant(context, instructions, range.first_line, context->address_integer_size, static_array->length);
+                auto length_register = append_integer_constant(context, instructions, range.first_line, context->address_integer_size, static_array->length);
 
                 append_store_integer(context, instructions, range.first_line, context->address_integer_size, length_register, length_address_register);
 
@@ -4163,12 +4297,49 @@ static bool coerce_to_type_write(
 
             return true;
         }
+    } else if(auto target_float_type = dynamic_cast<FloatType*>(target_type)) {
+        if(dynamic_cast<UndeterminedInteger*>(type)) {
+            auto integer_value = dynamic_cast<IntegerConstant*>(value);
+            assert(integer_value);
+
+            auto register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, (double)integer_value->value);
+
+            append_store_float(context, instructions, range.first_line, target_float_type->size, register_index, address_register);
+
+            return true;
+        } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+            if(target_float_type->size == float_type->size) {
+                size_t register_index;
+                if(auto float_value = dynamic_cast<FloatConstant*>(value)) {
+                    register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, float_value->value);
+                } else if(auto regsiter_value = dynamic_cast<RegisterValue*>(value)) {
+                    register_index = regsiter_value->register_index;
+                } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
+                    register_index = append_load_float(context, instructions, range.first_line, float_type->size, address_value->address_register);
+                } else {
+                    abort();
+                }
+
+                append_store_float(context, instructions, range.first_line, target_float_type->size, register_index, address_register);
+
+                return true;
+            }
+        } else if(dynamic_cast<UndeterminedFloat*>(type)) {
+            auto float_value = dynamic_cast<FloatConstant*>(value);
+            assert(float_value);
+
+            auto register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, float_value->value);
+
+            append_store_float(context, instructions, range.first_line, target_float_type->size, register_index, address_register);
+
+            return true;
+        }
     } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
         if(dynamic_cast<UndeterminedInteger*>(type)) {
             auto integer_value = dynamic_cast<IntegerConstant*>(value);
             assert(integer_value);
 
-            auto register_index = append_constant(
+            auto register_index = append_integer_constant(
                 context,
                 instructions,
                 range.first_line,
@@ -4200,7 +4371,7 @@ static bool coerce_to_type_write(
             if(types_equal(target_array->element_type, array_type->element_type)) {
                 size_t source_address_register;
                 if(auto constant_value = dynamic_cast<ArrayConstant*>(value)) {
-                    auto pointer_register = append_constant(
+                    auto pointer_register = append_integer_constant(
                         context,
                         instructions,
                         range.first_line,
@@ -4210,7 +4381,7 @@ static bool coerce_to_type_write(
 
                     append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_register, address_register);
 
-                    auto length_register = append_constant(
+                    auto length_register = append_integer_constant(
                         context,
                         instructions,
                         range.first_line,
@@ -4277,7 +4448,7 @@ static bool coerce_to_type_write(
                     register_size_to_byte_size(context->address_integer_size)
                 );
 
-                auto length_register = append_constant(context, instructions, range.first_line, context->address_integer_size, static_array->length);
+                auto length_register = append_integer_constant(context, instructions, range.first_line, context->address_integer_size, static_array->length);
 
                 append_store_integer(context, instructions, range.first_line, context->address_integer_size, pointer_register, length_address_register);
 
@@ -4606,7 +4777,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             element_type = array_type->element_type;
 
             if(auto constant_value = dynamic_cast<ArrayConstant*>(expression_value.value)) {
-                base_address_register = append_constant(
+                base_address_register = append_integer_constant(
                     context,
                     instructions,
                     index_reference->expression->range.first_line,
@@ -4657,7 +4828,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             }
         }
 
-        auto element_size_register = append_constant(
+        auto element_size_register = append_integer_constant(
             context,
             instructions,
             index_reference->range.first_line,
@@ -4704,7 +4875,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
             size_t address_register;
             if(auto constant_value = dynamic_cast<PointerConstant*>(expression_value.value)) {
-                address_register = append_constant(
+                address_register = append_integer_constant(
                     context,
                     instructions,
                     member_reference->expression->range.first_line,
@@ -4907,13 +5078,23 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                         size_t register_index;
                         if(member_representation.is_in_register) {
-                            register_index = append_load_integer(
-                                context,
-                                instructions,
-                                member_reference->range.first_line,
-                                member_representation.value_size,
-                                address_register
-                            );
+                            if(member_representation.is_float) {
+                                register_index = append_load_float(
+                                    context,
+                                    instructions,
+                                    member_reference->range.first_line,
+                                    member_representation.value_size,
+                                    address_register
+                                );
+                            } else {
+                                register_index = append_load_integer(
+                                    context,
+                                    instructions,
+                                    member_reference->range.first_line,
+                                    member_representation.value_size,
+                                    address_register
+                                );
+                            }
                         } else {
                             register_index = address_register;
                         }
@@ -5022,6 +5203,16 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 }
             }
         };
+    } else if(auto float_literal = dynamic_cast<FloatLiteral*>(expression)) {
+        return {
+            true,
+            {
+                new UndeterminedFloat,
+                new FloatConstant {
+                    float_literal->value
+                }
+            }
+        };
     } else if(auto string_literal = dynamic_cast<StringLiteral*>(expression)) {
         auto character_count = string_literal->characters.count;
 
@@ -5112,7 +5303,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 get_type_alignment(*context, determined_element_type)
             );
 
-            auto element_size_register = append_constant(
+            auto element_size_register = append_integer_constant(
                 context,
                 instructions,
                 array_literal->range.first_line,
@@ -6319,7 +6510,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         );
                     }
 
-                    auto zero_register = append_constant(context, instructions, unary_operation->range.first_line, integer->size, 0);
+                    auto zero_register = append_integer_constant(context, instructions, unary_operation->range.first_line, integer->size, 0);
 
                     auto result_register = append_arithmetic_operation(
                         context,
@@ -6991,6 +7182,22 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
         new Void
     });
 
+    append(&global_constants, {
+        "f32",
+        new TypeType,
+        new FloatType {
+            RegisterSize::Size32
+        }
+    });
+
+    append(&global_constants, {
+        "f64",
+        new TypeType,
+        new FloatType {
+            RegisterSize::Size64
+        }
+    });
+
     append(&global_constants, GlobalConstant {
         "true",
         new Boolean,
@@ -7145,20 +7352,29 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                 }
             }
 
-            auto parameter_sizes = allocate<RegisterSize>(total_parameter_count);
+            auto ir_parameters = allocate<Function::Parameter>(total_parameter_count);
 
             for(size_t i = 0; i < function.parameters.count; i += 1) {
                 auto representation = get_type_representation(context, function.parameters[i].type);
 
                 if(representation.is_in_register) {
-                    parameter_sizes[i] = representation.value_size;
+                    ir_parameters[i] = {
+                        representation.value_size,
+                        representation.is_float
+                    };
                 } else {
-                    parameter_sizes[i] = address_size;
+                    ir_parameters[i] = {
+                        address_size,
+                        false
+                    };
                 }
             }
 
             if(has_return && !return_representation.is_in_register) {
-                parameter_sizes[total_parameter_count - 1] = address_size;
+                ir_parameters[total_parameter_count - 1] = {
+                    address_size,
+                    false
+                };
             }
 
             const char *file_path;
@@ -7175,9 +7391,9 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
             auto ir_function = new Function;
             ir_function->name = function.mangled_name;
             ir_function->is_external = function_declaration->is_external;
-            ir_function->parameter_sizes = {
+            ir_function->parameters = {
                 total_parameter_count,
-                parameter_sizes
+                ir_parameters
             };
             ir_function->has_return = has_return && return_representation.is_in_register;
             ir_function->file = file_path;
@@ -7185,6 +7401,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
 
             if(has_return && return_representation.is_in_register) {
                 ir_function->return_size = return_representation.value_size;
+                ir_function->is_return_float = return_representation.is_float;
             }
 
             context.next_register = total_parameter_count;
@@ -7236,14 +7453,25 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                     auto representation = get_type_representation(context, parameter.type);
 
                     if(representation.is_in_register) {
-                        append_store_integer(
-                            &context,
-                            &instructions,
-                            function.declaration.declaration->range.first_line,
-                            representation.value_size,
-                            i,
-                            address_register
-                        );
+                        if(representation.is_float) {
+                            append_store_float(
+                                &context,
+                                &instructions,
+                                function.declaration.declaration->range.first_line,
+                                representation.value_size,
+                                i,
+                                address_register
+                            );
+                        } else {
+                            append_store_integer(
+                                &context,
+                                &instructions,
+                                function.declaration.declaration->range.first_line,
+                                representation.value_size,
+                                i,
+                                address_register
+                            );
+                        }
                     } else {
                         generate_constant_size_copy(
                             &context,

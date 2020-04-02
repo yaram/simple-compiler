@@ -130,24 +130,24 @@ void print_instruction(Instruction *instruction, bool has_return) {
             register_size_name(integer_upcast->destination_size),
             integer_upcast->destination_register
         );
-    } else if(auto constant = dynamic_cast<Constant*>(instruction)) {
-        printf("CONST %s ", register_size_name(constant->size));
+    } else if(auto integer_constant = dynamic_cast<IntegerConstantInstruction*>(instruction)) {
+        printf("CONST %s ", register_size_name(integer_constant->size));
 
-        switch(constant->size) {
+        switch(integer_constant->size) {
             case RegisterSize::Size8: {
-                printf("%hhx", (uint8_t)constant->value);
+                printf("%hhx", (uint8_t)integer_constant->value);
             } break;
 
             case RegisterSize::Size16: {
-                printf("%hx", (uint16_t)constant->value);
+                printf("%hx", (uint16_t)integer_constant->value);
             } break;
 
             case RegisterSize::Size32: {
-                printf("%x", (uint32_t)constant->value);
+                printf("%x", (uint32_t)integer_constant->value);
             } break;
 
             case RegisterSize::Size64: {
-                printf("%llx", constant->value);
+                printf("%llx", integer_constant->value);
             } break;
 
             default: {
@@ -155,7 +155,25 @@ void print_instruction(Instruction *instruction, bool has_return) {
             } break;
         }
 
-        printf(", r%zu", constant->destination_register);
+        printf(", r%zu", integer_constant->destination_register);
+    } else if(auto float_constant = dynamic_cast<FloatConstantInstruction*>(instruction)) {
+        printf("FCONST %s ", register_size_name(float_constant->size));
+
+        switch(float_constant->size) {
+            case RegisterSize::Size32: {
+                printf("%f", (double)(float)float_constant->value);
+            } break;
+
+            case RegisterSize::Size64: {
+                printf("%f", float_constant->value);
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+
+        printf(", r%zu", float_constant->destination_register);
     } else if(auto jump = dynamic_cast<Jump*>(instruction)) {
         printf("JMP %zu", jump->destination_instruction);
     } else if(auto branch = dynamic_cast<Branch*>(instruction)) {
@@ -207,6 +225,20 @@ void print_instruction(Instruction *instruction, bool has_return) {
             store_integer->source_register,
             store_integer->address_register
         );
+    } else if(auto load_float = dynamic_cast<LoadFloat*>(instruction)) {
+        printf(
+            "FLOAD %s r%zu, r%zu",
+            register_size_name(load_float->size),
+            load_float->address_register,
+            load_float->destination_register
+        );
+    } else if(auto store_float = dynamic_cast<StoreFloat*>(instruction)) {
+        printf(
+            "FSTORE %s r%zu, r%zu",
+            register_size_name(store_float->size),
+            store_float->source_register,
+            store_float->address_register
+        );
     } else if(auto copy_memory = dynamic_cast<CopyMemory*>(instruction)) {
         printf(
             "COPY r%zu, r%zu, r%zu",
@@ -231,14 +263,19 @@ void print_static(RuntimeStatic *runtime_static) {
     if(auto function = dynamic_cast<Function*>(runtime_static)) {
         printf(" (", function->name);
 
-        for(size_t i = 0; i < function->parameter_sizes.count; i += 1) {
+        for(size_t i = 0; i < function->parameters.count; i += 1) {
             printf(
-                "r%zu: %s",
-                i,
-                register_size_name(function->parameter_sizes[i])
+                "r%zu: ",
+                i
             );
 
-            if(i != function->parameter_sizes.count - 1) {
+            if(function->parameters[i].is_float) {
+                printf("f");
+            }
+
+            printf("%s", register_size_name(function->parameters[i].size));
+
+            if(i != function->parameters.count - 1) {
                 printf(", ");
             }
         }
@@ -246,7 +283,12 @@ void print_static(RuntimeStatic *runtime_static) {
         printf(")");
 
         if(function->has_return) {
-            printf(" %s", register_size_name(function->return_size));
+            printf(" ");
+
+            if(function->is_return_float) {
+                printf("f");
+            }
+            printf("%s", register_size_name(function->return_size));
         }
 
         if(function->is_external) {
