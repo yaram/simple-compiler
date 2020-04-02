@@ -537,23 +537,36 @@ Result<Array<Token>> tokenize_source(const char *path) {
             token.identifier = buffer.elements;
 
             append(&tokens, token);
-        } else if(source[index] >= '0' && source[index] <= '9') {     
+        } else if((source[index] >= '0' && source[index] <= '9') || source[index] == '.') {
             size_t radix = 10;
 
-            if(source[index] == '0' && index + 1 < length) {
+            auto definitely_integer = false;
+            auto definitely_float = false;
+            auto seen_dot = false;
+            auto seen_e = false;
+
+            if(source[index] == '.') {
+                definitely_float = true;
+            } else if(source[index] == '0' && index + 1 < length) {
                 if(source[index + 1] == 'b' || source[index + 1] == 'B') {
+                    definitely_integer = true;
+
                     index += 2;
 
                     character += 2;
 
                     radix = 2;
                 } else if(source[index + 1] == 'o' || source[index + 1] == 'O') {
+                    definitely_integer = true;
+
                     index += 2;
 
                     character += 2;
 
                     radix = 8;
                 } else if(source[index + 1] == 'x' || source[index + 1] == 'X') {
+                    definitely_integer = true;
+
                     index += 2;
 
                     character += 2;
@@ -569,55 +582,94 @@ Result<Array<Token>> tokenize_source(const char *path) {
 
             character += 1;
 
-            while(
-                index < length &&
-                (
-                    (source[index] >= '0' && source[index] <= '7') ||
-                    (source[index] >= '8' && source[index] <= '9' && radix >= 10) ||
-                    (source[index] >= 'a' && source[index] <= 'f' && radix == 16) ||
-                    (source[index] >= 'A' && source[index] <= 'F' && radix == 16)
-                )
-            ) {
-                index += 1;
+            while(index < length) {
+                if(source[index] == '.' && (!definitely_integer && !seen_dot && !seen_e)) {
+                    definitely_float = true;
+                    seen_dot = true;
 
-                character += 1;
+                    index += 1;
+
+                    character += 1;
+                } else if(source[index] >= '0' && source[index] <= '7') {
+                    index += 1;
+
+                    character += 1;
+                } else if(source[index] >= '8' && source[index] <= '9' && radix >= 10) {
+                    index += 1;
+
+                    character += 1;
+                } else if((source[index] == 'e' || source[index] == 'E') && (!definitely_integer && !seen_e)) {
+                    definitely_float = true;
+
+                    seen_e = true;
+
+                    index += 1;
+
+                    character += 1;
+                } else if(
+                    (
+                        (source[index] >= 'a' && source[index] <= 'f' && radix == 16) ||
+                        (source[index] >= 'A' && source[index] <= 'F' && radix == 16)
+                    ) &&
+                    definitely_integer
+                ) {
+                    index += 1;
+
+                    character += 1;
+                } else {
+                    break;
+                }
             }
 
             auto count = index - first_index;
 
-            uint64_t value = 0;
-
-            uint64_t place_offset = 1;
-
-            for(size_t i = 0; i < count; i += 1) {
-                auto offset = count - 1 - i;
-                auto digit = source[first_index + offset];
-
-                uint64_t digit_value;
-                if((digit >= '0' && digit <= '7') || (digit >= '8' && digit <= '9' && radix >= 10)) {
-                    digit_value = digit - '0';
-                } else if(digit >= 'a' && digit <= 'f' && radix == 16) {
-                    digit_value = digit - 'a' + 10;
-                } else if(digit >= 'A' && digit <= 'F' && radix == 16) {
-                    digit_value = digit - 'A' + 10;
-                } else {
-                    error(path, line, first_character + (unsigned int)offset, "Expected digit, got '%c'", digit);
-
-                    return { false };
-                }
-
-                value += place_offset * digit_value;
-                place_offset *= radix;
-            }
-
             Token token;
-            token.type = TokenType::Integer;
             token.line = line;
             token.first_character = first_character;
             token.last_character = character - 1;
-            token.integer = value;
 
-            append(&tokens, token);
+            if(definitely_integer || !definitely_float) {
+                uint64_t value = 0;
+
+                uint64_t place_offset = 1;
+
+                for(size_t i = 0; i < count; i += 1) {
+                    auto offset = count - 1 - i;
+                    auto digit = source[first_index + offset];
+
+                    uint64_t digit_value;
+                    if((digit >= '0' && digit <= '7') || (digit >= '8' && digit <= '9' && radix >= 10)) {
+                        digit_value = digit - '0';
+                    } else if(digit >= 'a' && digit <= 'f' && radix == 16) {
+                        digit_value = digit - 'a' + 10;
+                    } else if(digit >= 'A' && digit <= 'F' && radix == 16) {
+                        digit_value = digit - 'A' + 10;
+                    } else {
+                        abort();
+                    }
+
+                    value += place_offset * digit_value;
+                    place_offset *= radix;
+                }
+
+                token.type = TokenType::Integer;
+                token.integer = value;
+
+                append(&tokens, token);
+            } else {
+                auto buffer = allocate<char>(count + 1);
+
+                for(size_t i = 0; i < count; i += 1) {
+                    buffer[i] = source[first_index + i];
+                }
+
+                buffer[count] = '\0';
+
+                token.type = TokenType::FloatingPoint;
+                token.floating_point = atof(buffer);
+
+                append(&tokens, token);
+            }
         } else {
             error(path, line, character, "Unexpected character '%c'", source[index]);
 

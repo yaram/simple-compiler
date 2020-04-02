@@ -130,6 +130,10 @@ void print_token(Token token) {
         case TokenType::Integer: {
             printf("Integer(%lld)", token.integer);
         } break;
+
+        case TokenType::FloatingPoint: {
+            printf("FloatingPoint(%f)", token.floating_point);
+        } break;
     }
 }
 
@@ -263,9 +267,21 @@ const char *get_token_text(Token token) {
         } break;
 
         case TokenType::Integer: {
-            auto buffer = allocate<char>(32);
+            const size_t buffer_size = 32;
 
-            sprintf(buffer, "%lld", token.integer);
+            auto buffer = allocate<char>(buffer_size);
+
+            snprintf(buffer, buffer_size, "%lld", token.integer);
+
+            return buffer;
+        } break;
+
+        case TokenType::FloatingPoint: {
+            const size_t buffer_size = 32;
+
+            auto buffer = allocate<char>(buffer_size);
+
+            snprintf(buffer, buffer_size, "%f", token.floating_point);
 
             return buffer;
         } break;

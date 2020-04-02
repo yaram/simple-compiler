@@ -34,7 +34,8 @@ enum struct TokenType {
     CloseSquareBracket,
     Identifier,
     String,
-    Integer
+    Integer,
+    FloatingPoint
 };
 
 struct Token {
@@ -50,6 +51,8 @@ struct Token {
         Array<char> string;
 
         uint64_t integer;
+
+        double floating_point;
     };
 };
 

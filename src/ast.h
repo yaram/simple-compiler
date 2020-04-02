@@ -95,6 +95,18 @@ struct IntegerLiteral : Expression {
     {}
 };
 
+struct FloatLiteral : Expression {
+    double value;
+
+    FloatLiteral(
+        FileRange range,
+        double value
+    ) :
+        Expression { range },
+        value { value }
+    {}
+};
+
 struct StringLiteral : Expression {
     Array<char> characters;
 

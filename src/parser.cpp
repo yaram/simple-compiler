@@ -527,6 +527,15 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
                     });
                 } break;
 
+                case TokenType::FloatingPoint: {
+                    context->next_token_index += 1;
+
+                    append(expression_stack, (Expression*)new FloatLiteral {
+                        token_range(*context, token),
+                        token.floating_point
+                    });
+                } break;
+
                 case TokenType::Asterisk: {
                     context->next_token_index += 1;
 
