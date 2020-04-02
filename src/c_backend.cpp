@@ -6,7 +6,7 @@
 #include "path.h"
 #include "util.h"
 
-static void generate_type(char **source, RegisterSize size, bool is_signed) {
+static void generate_integer_type(char **source, RegisterSize size, bool is_signed) {
     if(is_signed) {
         string_buffer_append(source, "signed ");
     } else {
@@ -36,9 +36,29 @@ static void generate_type(char **source, RegisterSize size, bool is_signed) {
     }
 }
 
+static void generate_float_type(char **source, RegisterSize size) {
+    switch(size) {
+        case RegisterSize::Size32: {
+            string_buffer_append(source, "float");
+        } break;
+
+        case RegisterSize::Size64: {
+            string_buffer_append(source, "double");
+        } break;
+
+        default: {
+            abort();
+        } break;
+    }
+}
+
 static bool generate_function_signature(char **source, Function function) {
     if(function.has_return) {
-        generate_type(source, function.return_size, false);
+        if(function.is_return_float) {
+            generate_float_type(source, function.return_size);
+        } else {
+            generate_integer_type(source, function.return_size, false);
+        }
     } else {
         string_buffer_append(source, "void");
     }
@@ -49,13 +69,19 @@ static bool generate_function_signature(char **source, Function function) {
 
     string_buffer_append(source, "(");
     
-    for(size_t i = 0; i < function.parameter_sizes.count; i += 1) {
-        generate_type(source, function.parameter_sizes[i], false);
+    for(size_t i = 0; i < function.parameters.count; i += 1) {
+        auto parameter = function.parameters[i];
+
+        if(parameter.is_float) {
+            generate_float_type(source, parameter.size);
+        } else {
+            generate_integer_type(source, parameter.size, false);
+        }
 
         string_buffer_append(source, " reg_");
         string_buffer_append(source, i);
 
-        if(i != function.parameter_sizes.count - 1) {
+        if(i != function.parameters.count - 1) {
             string_buffer_append(source, ",");
         }
     }
@@ -115,7 +141,7 @@ bool generate_c_object(
                     string_buffer_append(&implementation_source, ":;");
 
                     if(auto arithmetic_operation = dynamic_cast<ArithmeticOperation*>(instruction)) {
-                        generate_type(&implementation_source, arithmetic_operation->size, false);
+                        generate_integer_type(&implementation_source, arithmetic_operation->size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, arithmetic_operation->destination_register);
 
@@ -181,7 +207,7 @@ bool generate_c_object(
                         }
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, arithmetic_operation->size, is_signed);
+                        generate_integer_type(&implementation_source, arithmetic_operation->size, is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
@@ -190,7 +216,7 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, operator_);
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, arithmetic_operation->size, is_signed);
+                        generate_integer_type(&implementation_source, arithmetic_operation->size, is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
@@ -198,7 +224,7 @@ bool generate_c_object(
 
                         string_buffer_append(&implementation_source, ";");
                     } else if(auto comparison_operation = dynamic_cast<ComparisonOperation*>(instruction)) {
-                        generate_type(&implementation_source, register_sizes.default_size, false);
+                        generate_integer_type(&implementation_source, register_sizes.default_size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, comparison_operation->destination_register);
 
@@ -239,7 +265,7 @@ bool generate_c_object(
                         }
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, comparison_operation->size, is_signed);
+                        generate_integer_type(&implementation_source, comparison_operation->size, is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
@@ -248,7 +274,7 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, operator_);
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, comparison_operation->size, is_signed);
+                        generate_integer_type(&implementation_source, comparison_operation->size, is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
@@ -256,28 +282,56 @@ bool generate_c_object(
 
                         string_buffer_append(&implementation_source, ";");
                     } else if(auto integer_upcast = dynamic_cast<IntegerUpcast*>(instruction)) {
-                        generate_type(&implementation_source, integer_upcast->destination_size, false);
+                        generate_integer_type(&implementation_source, integer_upcast->destination_size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, integer_upcast->destination_register);
                         string_buffer_append(&implementation_source, "=");
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, integer_upcast->destination_size, integer_upcast->is_signed);
+                        generate_integer_type(&implementation_source, integer_upcast->destination_size, integer_upcast->is_signed);
                         string_buffer_append(&implementation_source, ")(");
-                        generate_type(&implementation_source, integer_upcast->source_size, integer_upcast->is_signed);
+                        generate_integer_type(&implementation_source, integer_upcast->source_size, integer_upcast->is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
                         string_buffer_append(&implementation_source, integer_upcast->source_register);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto constant = dynamic_cast<Constant*>(instruction)) {
-                        generate_type(&implementation_source, constant->size, false);
+                    } else if(auto integer_constant = dynamic_cast<IntegerConstantInstruction*>(instruction)) {
+                        generate_integer_type(&implementation_source, integer_constant->size, false);
                         string_buffer_append(&implementation_source, " reg_");
-                        string_buffer_append(&implementation_source, constant->destination_register);
+                        string_buffer_append(&implementation_source, integer_constant->destination_register);
                         string_buffer_append(&implementation_source, "=");
 
-                        string_buffer_append(&implementation_source, constant->value);
+                        string_buffer_append(&implementation_source, integer_constant->value);
+
+                        string_buffer_append(&implementation_source, ";");
+                    } else if(auto float_constant = dynamic_cast<FloatConstantInstruction*>(instruction)) {
+                        generate_float_type(&implementation_source, float_constant->size);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, float_constant->destination_register);
+                        string_buffer_append(&implementation_source, "=");
+
+                        double value;
+                        switch(float_constant->size) {
+                            case RegisterSize::Size32: {
+                                value = (float)float_constant->value;
+                            } break;
+
+                            case RegisterSize::Size64: {
+                                value = float_constant->value;
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+
+                        const size_t buffer_size = 128;
+                        char buffer[buffer_size];
+                        snprintf(buffer, buffer_size, "%f", value);
+
+                        string_buffer_append(&implementation_source, buffer);
 
                         string_buffer_append(&implementation_source, ";");
                     } else if(auto jump = dynamic_cast<Jump*>(instruction)) {
@@ -291,7 +345,7 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, "if(");
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, register_sizes.default_size, false);
+                        generate_integer_type(&implementation_source, register_sizes.default_size, false);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
@@ -322,7 +376,7 @@ bool generate_c_object(
                         }
 
                         if(function_call->has_return) {
-                            generate_type(&implementation_source, callee.return_size, false);
+                            generate_integer_type(&implementation_source, callee.return_size, false);
                             string_buffer_append(&implementation_source, " reg_");
                             string_buffer_append(&implementation_source, function_call->return_register);
                             string_buffer_append(&implementation_source, "=");
@@ -346,7 +400,7 @@ bool generate_c_object(
 
                         if(function->has_return) {
                             string_buffer_append(&implementation_source, "(");
-                            generate_type(&implementation_source, function->return_size, false);
+                            generate_integer_type(&implementation_source, function->return_size, false);
                             string_buffer_append(&implementation_source, ")");
 
                             string_buffer_append(&implementation_source, "reg_");
@@ -363,13 +417,13 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, allocate_local->size);
                         string_buffer_append(&implementation_source, "];");
 
-                        generate_type(&implementation_source, register_sizes.address_size, false);
+                        generate_integer_type(&implementation_source, register_sizes.address_size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, allocate_local->destination_register);
                         string_buffer_append(&implementation_source, "=");
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, register_sizes.address_size, false);
+                        generate_integer_type(&implementation_source, register_sizes.address_size, false);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "&local_");
@@ -377,7 +431,7 @@ bool generate_c_object(
 
                         string_buffer_append(&implementation_source, ";");
                     } else if(auto load_integer = dynamic_cast<LoadInteger*>(instruction)) {
-                        generate_type(&implementation_source, load_integer->size, false);
+                        generate_integer_type(&implementation_source, load_integer->size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, load_integer->destination_register);
                         string_buffer_append(&implementation_source, "=");
@@ -385,7 +439,7 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, "*");
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, load_integer->size, false);
+                        generate_integer_type(&implementation_source, load_integer->size, false);
                         string_buffer_append(&implementation_source, "*)");
 
                         string_buffer_append(&implementation_source, "reg_");
@@ -394,20 +448,50 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, ";");
                     } else if(auto store_integer = dynamic_cast<StoreInteger*>(instruction)) {
                         string_buffer_append(&implementation_source, "*(");
-                        generate_type(&implementation_source, store_integer->size, false);
+                        generate_integer_type(&implementation_source, store_integer->size, false);
                         string_buffer_append(&implementation_source, "*)reg_");
                         string_buffer_append(&implementation_source, store_integer->address_register);
                         string_buffer_append(&implementation_source, "=");
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_type(&implementation_source, store_integer->size, false);
+                        generate_integer_type(&implementation_source, store_integer->size, false);
                         string_buffer_append(&implementation_source, ")");
                         string_buffer_append(&implementation_source, "reg_");
                         string_buffer_append(&implementation_source, store_integer->source_register);
 
                         string_buffer_append(&implementation_source, ";");
+                    } else if(auto load_float = dynamic_cast<LoadFloat*>(instruction)) {
+                        generate_float_type(&implementation_source, load_float->size);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, load_float->destination_register);
+                        string_buffer_append(&implementation_source, "=");
+
+                        string_buffer_append(&implementation_source, "*");
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_float_type(&implementation_source, load_float->size);
+                        string_buffer_append(&implementation_source, "*)");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, load_float->address_register);
+
+                        string_buffer_append(&implementation_source, ";");
+                    } else if(auto store_float = dynamic_cast<StoreFloat*>(instruction)) {
+                        string_buffer_append(&implementation_source, "*(");
+                        generate_float_type(&implementation_source, store_float->size);
+                        string_buffer_append(&implementation_source, "*)reg_");
+                        string_buffer_append(&implementation_source, store_float->address_register);
+                        string_buffer_append(&implementation_source, "=");
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_float_type(&implementation_source, store_float->size);
+                        string_buffer_append(&implementation_source, ")");
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, store_float->source_register);
+
+                        string_buffer_append(&implementation_source, ";");
                     } else if(auto reference_static = dynamic_cast<ReferenceStatic*>(instruction)) {
-                        generate_type(&implementation_source, register_sizes.address_size, false);
+                        generate_integer_type(&implementation_source, register_sizes.address_size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, reference_static->destination_register);
                         string_buffer_append(&implementation_source, "=");
@@ -418,7 +502,7 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, ";");
                     } else if(auto copy_memory = dynamic_cast<CopyMemory*>(instruction)) {
                         string_buffer_append(&implementation_source, "for(");
-                        generate_type(&implementation_source, register_sizes.address_size, false);
+                        generate_integer_type(&implementation_source, register_sizes.address_size, false);
                         string_buffer_append(&implementation_source, " i=0;i<reg_");
                         string_buffer_append(&implementation_source, copy_memory->length_register);
                         string_buffer_append(&implementation_source, ";i++)");
@@ -448,7 +532,7 @@ bool generate_c_object(
                 string_buffer_append(&implementation_source, "}\n");
             }
         } else if(auto constant = dynamic_cast<StaticConstant*>(runtime_static)) {
-            generate_type(&forward_declaration_source, RegisterSize::Size8, false);
+            generate_integer_type(&forward_declaration_source, RegisterSize::Size8, false);
             string_buffer_append(&forward_declaration_source, " __attribute__((aligned(");
             string_buffer_append(&forward_declaration_source, constant->alignment);
             string_buffer_append(&forward_declaration_source, ")))");
@@ -479,7 +563,12 @@ bool generate_c_object(
     string_buffer_append(&source, implementation_source);
 
     if(source == nullptr) {
-        return false;
+        string_buffer_append(&source, "");
+    }
+
+    if(strcmp(os, "windows") == 0) {
+        string_buffer_append(&source, "int _fltused;");
+        string_buffer_append(&source, "int __fltused;");
     }
 
     char *source_file_path_buffer{};

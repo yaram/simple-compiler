@@ -31,8 +31,9 @@ void string_buffer_append(char **string_buffer, const char *string) {
 }
 
 void string_buffer_append(char **string_buffer, size_t number) {
-    char buffer[32];
-    sprintf(buffer, "%zu", number);
+    const size_t buffer_size = 32;
+    char buffer[buffer_size];
+    snprintf(buffer, buffer_size, "%zu", number);
 
     string_buffer_append(string_buffer, (const char*)buffer);
 }
