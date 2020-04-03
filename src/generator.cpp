@@ -1516,6 +1516,9 @@ static Result<Type*> determine_binary_operation_type(GenerationContext context, 
     auto left_integer = dynamic_cast<Integer*>(left);
     auto right_integer = dynamic_cast<Integer*>(right);
 
+    auto left_float = dynamic_cast<FloatType*>(left);
+    auto right_float = dynamic_cast<FloatType*>(right);
+
     if(dynamic_cast<Boolean*>(left) || dynamic_cast<Boolean*>(right)) {
         return {
             true,
@@ -1547,6 +1550,35 @@ static Result<Type*> determine_binary_operation_type(GenerationContext context, 
                 largest_size,
                 is_either_signed
             }
+        };
+    } else if(left_float && right_float) {
+        RegisterSize largest_size;
+        if(left_float->size > right_float->size) {
+            largest_size = left_float->size;
+        } else {
+            largest_size = right_float->size;
+        }
+
+        return {
+            true,
+            new FloatType {
+                largest_size
+            }
+        };
+    } else if(left_float) {
+        return {
+            true,
+            left_float
+        };
+    } else if(right_float) {
+        return {
+            true,
+            right_float
+        };
+    } else if(dynamic_cast<UndeterminedFloat*>(left) || dynamic_cast<UndeterminedFloat*>(right)) {
+        return {
+            true,
+            new UndeterminedFloat
         };
     } else if(left_integer) {
         return {
@@ -1972,6 +2004,92 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(
 
             default: {
                 error(context, range, "Cannot perform that operation on booleans");
+
+                return { false };
+            } break;
+        }
+    } else if(dynamic_cast<FloatType*>(type) || dynamic_cast<UndeterminedFloat*>(type)) {
+        auto left = dynamic_cast<FloatConstant*>(coerced_left_value);
+        assert(left);
+
+        auto right = dynamic_cast<FloatConstant*>(coerced_right_value);
+        assert(right);
+
+        switch(binary_operator) {
+            case BinaryOperation::Operator::Addition: {
+                return {
+                    true,
+                    {
+                        type,
+                        new FloatConstant {
+                            left->value + right->value
+                        }
+                    }
+                };
+            } break;
+
+            case BinaryOperation::Operator::Subtraction: {
+                return {
+                    true,
+                    {
+                        type,
+                        new FloatConstant {
+                            left->value - right->value
+                        }
+                    }
+                };
+            } break;
+
+            case BinaryOperation::Operator::Multiplication: {
+                return {
+                    true,
+                    {
+                        type,
+                        new FloatConstant {
+                            left->value * right->value
+                        }
+                    }
+                };
+            } break;
+
+            case BinaryOperation::Operator::Division: {
+                return {
+                    true,
+                    {
+                        type,
+                        new FloatConstant {
+                            left->value / right->value
+                        }
+                    }
+                };
+            } break;
+
+            case BinaryOperation::Operator::Equal: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value == right->value
+                        }
+                    }
+                };
+            } break;
+
+            case BinaryOperation::Operator::NotEqual: {
+                return {
+                    true,
+                    {
+                        new Boolean,
+                        new BooleanConstant {
+                            left->value != right->value
+                        }
+                    }
+                };
+            } break;
+
+            default: {
+                error(context, range, "Cannot perform that operation on pointers");
 
                 return { false };
             } break;
@@ -2951,34 +3069,34 @@ static Result<TypedConstantValue> evaluate_constant_expression(GenerationContext
             } break;
 
             case UnaryOperation::Operator::Negation: {
-                if(auto integer = dynamic_cast<Integer*>(expression_value.type)) {
+                if(dynamic_cast<Integer*>(expression_value.type) || dynamic_cast<UndeterminedInteger*>(expression_value.type)) {
                     auto integer_value = dynamic_cast<IntegerConstant*>(expression_value.value);
                     assert(integer_value);
 
                     return {
                         true,
                         {
-                            integer,
+                            expression_value.type,
                             new IntegerConstant {
                                 -integer_value->value
                             }
                         }
                     };
-                } else if(dynamic_cast<UndeterminedInteger*>(expression_value.type)) {
-                    auto integer_value = dynamic_cast<IntegerConstant*>(expression_value.value);
-                    assert(integer_value);
+                } else if(dynamic_cast<FloatType*>(expression_value.type) || dynamic_cast<UndeterminedFloat*>(expression_value.type)) {
+                    auto float_value = dynamic_cast<FloatConstant*>(expression_value.value);
+                    assert(float_value);
 
                     return {
                         true,
                         {
-                            new UndeterminedInteger,
-                            new IntegerConstant {
-                                -integer_value->value
+                            expression_value.type,
+                            new FloatConstant {
+                                -float_value->value
                             }
                         }
                     };
                 } else {
-                    error(*context, unary_operation->expression->range, "Expected an integer, got '%s'", type_description(expression_value.type));
+                    error(*context, unary_operation->expression->range, "Cannot negate '%s'", type_description(expression_value.type));
 
                     return { false };
                 }
@@ -3468,78 +3586,50 @@ static const char *register_struct_constant(GenerationContext *context, StructTy
     return name_buffer;
 }
 
-static size_t append_arithmetic_operation(
+static size_t append_integer_arithmetic_operation(
     GenerationContext *context,
     List<Instruction*> *instructions,
     unsigned int line,
-    ArithmeticOperation::Operation operation,
+    IntegerArithmeticOperation::Operation operation,
     RegisterSize size,
     size_t source_register_a,
     size_t source_register_b
 ) {
     auto destination_register = allocate_register(context);
 
-    auto arithmetic_operation = new ArithmeticOperation;
-    arithmetic_operation->line = line;
-    arithmetic_operation->operation = operation;
-    arithmetic_operation->size = size;
-    arithmetic_operation->source_register_a = source_register_a;
-    arithmetic_operation->source_register_b = source_register_b;
-    arithmetic_operation->destination_register = destination_register;
+    auto integer_arithmetic_operation = new IntegerArithmeticOperation;
+    integer_arithmetic_operation->line = line;
+    integer_arithmetic_operation->operation = operation;
+    integer_arithmetic_operation->size = size;
+    integer_arithmetic_operation->source_register_a = source_register_a;
+    integer_arithmetic_operation->source_register_b = source_register_b;
+    integer_arithmetic_operation->destination_register = destination_register;
 
-    append(instructions, (Instruction*)arithmetic_operation);
+    append(instructions, (Instruction*)integer_arithmetic_operation);
 
     return destination_register;
 }
 
-static size_t append_comparison_operation(
+static size_t append_integer_comparison_operation(
     GenerationContext *context,
     List<Instruction*> *instructions,
     unsigned int line,
-    ComparisonOperation::Operation operation,
+    IntegerComparisonOperation::Operation operation,
     RegisterSize size,
     size_t source_register_a,
     size_t source_register_b
 ) {
     auto destination_register = allocate_register(context);
 
-    auto arithmetic_operation = new ComparisonOperation;
-    arithmetic_operation->line = line;
-    arithmetic_operation->operation = operation;
-    arithmetic_operation->size = size;
-    arithmetic_operation->source_register_a = source_register_a;
-    arithmetic_operation->source_register_b = source_register_b;
-    arithmetic_operation->destination_register = destination_register;
+    auto integer_comparison_operation = new IntegerComparisonOperation;
+    integer_comparison_operation->line = line;
+    integer_comparison_operation->operation = operation;
+    integer_comparison_operation->size = size;
+    integer_comparison_operation->source_register_a = source_register_a;
+    integer_comparison_operation->source_register_b = source_register_b;
+    integer_comparison_operation->destination_register = destination_register;
 
-    append(instructions, (Instruction*)arithmetic_operation);
-
-    return destination_register;
-}
-
-static size_t append_integer_constant(GenerationContext *context, List<Instruction*> *instructions, unsigned int line, RegisterSize size, uint64_t value) {
-    auto destination_register = allocate_register(context);
-
-    auto constant = new IntegerConstantInstruction;
-    constant->line = line;
-    constant->size = size;
-    constant->destination_register = destination_register;
-    constant->value = value;
-
-    append(instructions, (Instruction*)constant);
-
-    return destination_register;
-}
-
-static size_t append_float_constant(GenerationContext *context, List<Instruction*> *instructions, unsigned int line, RegisterSize size, double value) {
-    auto destination_register = allocate_register(context);
-
-    auto constant = new FloatConstantInstruction;
-    constant->line = line;
-    constant->size = size;
-    constant->destination_register = destination_register;
-    constant->value = value;
-
-    append(instructions, (Instruction*)constant);
+    append(instructions, (Instruction*)integer_comparison_operation);
 
     return destination_register;
 }
@@ -3564,6 +3654,82 @@ static size_t append_integer_upcast(
     integer_upcast->destination_register = destination_register;
 
     append(instructions, (Instruction*)integer_upcast);
+
+    return destination_register;
+}
+
+static size_t append_integer_constant(GenerationContext *context, List<Instruction*> *instructions, unsigned int line, RegisterSize size, uint64_t value) {
+    auto destination_register = allocate_register(context);
+
+    auto constant = new IntegerConstantInstruction;
+    constant->line = line;
+    constant->size = size;
+    constant->destination_register = destination_register;
+    constant->value = value;
+
+    append(instructions, (Instruction*)constant);
+
+    return destination_register;
+}
+
+static size_t append_float_arithmetic_operation(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    unsigned int line,
+    FloatArithmeticOperation::Operation operation,
+    RegisterSize size,
+    size_t source_register_a,
+    size_t source_register_b
+) {
+    auto destination_register = allocate_register(context);
+
+    auto float_arithmetic_operation = new FloatArithmeticOperation;
+    float_arithmetic_operation->line = line;
+    float_arithmetic_operation->operation = operation;
+    float_arithmetic_operation->size = size;
+    float_arithmetic_operation->source_register_a = source_register_a;
+    float_arithmetic_operation->source_register_b = source_register_b;
+    float_arithmetic_operation->destination_register = destination_register;
+
+    append(instructions, (Instruction*)float_arithmetic_operation);
+
+    return destination_register;
+}
+
+static size_t append_float_comparison_operation(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    unsigned int line,
+    FloatComparisonOperation::Operation operation,
+    RegisterSize size,
+    size_t source_register_a,
+    size_t source_register_b
+) {
+    auto destination_register = allocate_register(context);
+
+    auto float_comparison_operation = new FloatComparisonOperation;
+    float_comparison_operation->line = line;
+    float_comparison_operation->operation = operation;
+    float_comparison_operation->size = size;
+    float_comparison_operation->source_register_a = source_register_a;
+    float_comparison_operation->source_register_b = source_register_b;
+    float_comparison_operation->destination_register = destination_register;
+
+    append(instructions, (Instruction*)float_comparison_operation);
+
+    return destination_register;
+}
+
+static size_t append_float_constant(GenerationContext *context, List<Instruction*> *instructions, unsigned int line, RegisterSize size, double value) {
+    auto destination_register = allocate_register(context);
+
+    auto constant = new FloatConstantInstruction;
+    constant->line = line;
+    constant->size = size;
+    constant->destination_register = destination_register;
+    constant->value = value;
+
+    append(instructions, (Instruction*)constant);
 
     return destination_register;
 }
@@ -3731,11 +3897,11 @@ static size_t generate_address_offset(GenerationContext *context, List<Instructi
         offset
     );
 
-    auto final_address_register = append_arithmetic_operation(
+    auto final_address_register = append_integer_arithmetic_operation(
         context,
         instructions,
         range.first_line,
-        ArithmeticOperation::Operation::Add,
+        IntegerArithmeticOperation::Operation::Add,
         context->address_integer_size,
         address_register,
         offset_register
@@ -3849,6 +4015,62 @@ static Result<size_t> coerce_to_integer_register_value(
     return { false };
 }
 
+static Result<size_t> coerce_to_float_register_value(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    FileRange range,
+    Type *type,
+    Value *value,
+    FloatType target_type,
+    bool probing
+) {
+    if(dynamic_cast<UndeterminedInteger*>(type)) {
+        auto integer_value = dynamic_cast<IntegerConstant*>(value);
+        assert(integer_value);
+
+        auto register_index = append_float_constant(context, instructions, range.first_line, target_type.size, (double)integer_value->value);
+
+        return {
+            true,
+            register_index
+        };
+    } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+        if(target_type.size == float_type->size) {
+            size_t register_index;
+            if(auto float_value = dynamic_cast<FloatConstant*>(value)) {
+                register_index = append_float_constant(context, instructions, range.first_line, target_type.size, float_value->value);
+            } else if(auto regsiter_value = dynamic_cast<RegisterValue*>(value)) {
+                register_index = regsiter_value->register_index;
+            } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
+                register_index = append_load_float(context, instructions, range.first_line, float_type->size, address_value->address_register);
+            } else {
+                abort();
+            }
+
+            return {
+                true,
+                register_index
+            };
+        }
+    } else if(dynamic_cast<UndeterminedFloat*>(type)) {
+        auto float_value = dynamic_cast<FloatConstant*>(value);
+        assert(float_value);
+
+        auto register_index = append_float_constant(context, instructions, range.first_line, target_type.size, float_value->value);
+
+        return {
+            true,
+            register_index
+        };
+    }
+
+    if(!probing) {
+        error(*context, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
+    }
+
+    return { false };
+}
+
 static Result<size_t> coerce_to_pointer_register_value(
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -3935,46 +4157,21 @@ static Result<size_t> coerce_to_type_register(
                 register_index
             };
         }
-    } else if(auto target_float_type = dynamic_cast<FloatType*>(target_type)) {
-        if(dynamic_cast<UndeterminedInteger*>(type)) {
-            auto integer_value = dynamic_cast<IntegerConstant*>(value);
-            assert(integer_value);
+    } else if(auto float_type = dynamic_cast<FloatType*>(target_type)) {
+        expect(register_index, coerce_to_float_register_value(
+            context,
+            instructions,
+            range,
+            type,
+            value,
+            *float_type,
+            probing
+        ));
 
-            auto register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, (double)integer_value->value);
-
-            return {
-                true,
-                register_index
-            };
-        } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
-            if(target_float_type->size == float_type->size) {
-                size_t register_index;
-                if(auto float_value = dynamic_cast<FloatConstant*>(value)) {
-                    register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, float_value->value);
-                } else if(auto regsiter_value = dynamic_cast<RegisterValue*>(value)) {
-                    register_index = regsiter_value->register_index;
-                } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
-                    register_index = append_load_float(context, instructions, range.first_line, float_type->size, address_value->address_register);
-                } else {
-                    abort();
-                }
-
-                return {
-                    true,
-                    register_index
-                };
-            }
-        } else if(dynamic_cast<UndeterminedFloat*>(type)) {
-            auto float_value = dynamic_cast<FloatConstant*>(value);
-            assert(float_value);
-
-            auto register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, float_value->value);
-
-            return {
-                true,
-                register_index
-            };
-        }
+        return {
+            true,
+            register_index
+        };
     } else if(auto pointer = dynamic_cast<Pointer*>(target_type)) {
         expect(register_index, coerce_to_pointer_register_value(
             context,
@@ -4297,43 +4494,20 @@ static bool coerce_to_type_write(
 
             return true;
         }
-    } else if(auto target_float_type = dynamic_cast<FloatType*>(target_type)) {
-        if(dynamic_cast<UndeterminedInteger*>(type)) {
-            auto integer_value = dynamic_cast<IntegerConstant*>(value);
-            assert(integer_value);
+    } else if(auto float_type = dynamic_cast<FloatType*>(target_type)) {
+        expect(register_index, coerce_to_float_register_value(
+            context,
+            instructions,
+            range,
+            type,
+            value,
+            *float_type,
+            false
+        ));
 
-            auto register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, (double)integer_value->value);
+        append_store_float(context, instructions, range.first_line, float_type->size, register_index, address_register);
 
-            append_store_float(context, instructions, range.first_line, target_float_type->size, register_index, address_register);
-
-            return true;
-        } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
-            if(target_float_type->size == float_type->size) {
-                size_t register_index;
-                if(auto float_value = dynamic_cast<FloatConstant*>(value)) {
-                    register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, float_value->value);
-                } else if(auto regsiter_value = dynamic_cast<RegisterValue*>(value)) {
-                    register_index = regsiter_value->register_index;
-                } else if(auto address_value = dynamic_cast<AddressValue*>(value)) {
-                    register_index = append_load_float(context, instructions, range.first_line, float_type->size, address_value->address_register);
-                } else {
-                    abort();
-                }
-
-                append_store_float(context, instructions, range.first_line, target_float_type->size, register_index, address_register);
-
-                return true;
-            }
-        } else if(dynamic_cast<UndeterminedFloat*>(type)) {
-            auto float_value = dynamic_cast<FloatConstant*>(value);
-            assert(float_value);
-
-            auto register_index = append_float_constant(context, instructions, range.first_line, target_float_type->size, float_value->value);
-
-            append_store_float(context, instructions, range.first_line, target_float_type->size, register_index, address_register);
-
-            return true;
-        }
+        return true;
     } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
         if(dynamic_cast<UndeterminedInteger*>(type)) {
             auto integer_value = dynamic_cast<IntegerConstant*>(value);
@@ -4836,21 +5010,21 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             get_type_size(*context, element_type)
         );
 
-        auto offset = append_arithmetic_operation(
+        auto offset = append_integer_arithmetic_operation(
             context,
             instructions,
             index_reference->range.first_line,
-            ArithmeticOperation::Operation::UnsignedMultiply,
+            IntegerArithmeticOperation::Operation::UnsignedMultiply,
             context->address_integer_size,
             element_size_register,
             index_register
         );
 
-        auto address_register = append_arithmetic_operation(
+        auto address_register = append_integer_arithmetic_operation(
             context,
             instructions,
             index_reference->range.first_line,
-            ArithmeticOperation::Operation::Add,
+            IntegerArithmeticOperation::Operation::Add,
             context->address_integer_size,
             base_address_register,
             offset
@@ -5326,11 +5500,11 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 }
 
                 if(i != element_count - 1) {
-                    element_address_register = append_arithmetic_operation(
+                    element_address_register = append_integer_arithmetic_operation(
                         context,
                         instructions,
                         array_literal->elements[i]->range.first_line,
-                        ArithmeticOperation::Operation::Add,
+                        IntegerArithmeticOperation::Operation::Add,
                         context->address_integer_size,
                         element_address_register,
                         element_size_register
@@ -6048,46 +6222,46 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             ));
 
             auto is_arithmetic = true;
-            ArithmeticOperation::Operation arithmetic_operation;
+            IntegerArithmeticOperation::Operation arithmetic_operation;
             switch(binary_operation->binary_operator) {
                 case BinaryOperation::Operator::Addition: {
-                    arithmetic_operation = ArithmeticOperation::Operation::Add;
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::Add;
                 } break;
 
                 case BinaryOperation::Operator::Subtraction: {
-                    arithmetic_operation = ArithmeticOperation::Operation::Subtract;
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::Subtract;
                 } break;
 
                 case BinaryOperation::Operator::Multiplication: {
                     if(integer->is_signed) {
-                        arithmetic_operation = ArithmeticOperation::Operation::SignedMultiply;
+                        arithmetic_operation = IntegerArithmeticOperation::Operation::SignedMultiply;
                     } else {
-                        arithmetic_operation = ArithmeticOperation::Operation::UnsignedMultiply;
+                        arithmetic_operation = IntegerArithmeticOperation::Operation::UnsignedMultiply;
                     }
                 } break;
 
                 case BinaryOperation::Operator::Division: {
                     if(integer->is_signed) {
-                        arithmetic_operation = ArithmeticOperation::Operation::SignedDivide;
+                        arithmetic_operation = IntegerArithmeticOperation::Operation::SignedDivide;
                     } else {
-                        arithmetic_operation = ArithmeticOperation::Operation::UnsignedDivide;
+                        arithmetic_operation = IntegerArithmeticOperation::Operation::UnsignedDivide;
                     }
                 } break;
 
                 case BinaryOperation::Operator::Modulo: {
                     if(integer->is_signed) {
-                        arithmetic_operation = ArithmeticOperation::Operation::SignedModulus;
+                        arithmetic_operation = IntegerArithmeticOperation::Operation::SignedModulus;
                     } else {
-                        arithmetic_operation = ArithmeticOperation::Operation::UnsignedModulus;
+                        arithmetic_operation = IntegerArithmeticOperation::Operation::UnsignedModulus;
                     }
                 } break;
 
                 case BinaryOperation::Operator::BitwiseAnd: {
-                    arithmetic_operation = ArithmeticOperation::Operation::BitwiseAnd;
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseAnd;
                 } break;
 
                 case BinaryOperation::Operator::BitwiseOr: {
-                    arithmetic_operation = ArithmeticOperation::Operation::BitwiseOr;
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseOr;
                 } break;
 
                 default: {
@@ -6098,7 +6272,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             size_t result_register;
             Type *result_type;
             if(is_arithmetic) {
-                result_register = append_arithmetic_operation(
+                result_register = append_integer_arithmetic_operation(
                     context,
                     instructions,
                     binary_operation->range.first_line,
@@ -6110,31 +6284,31 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                 result_type = integer;
             } else {
-                ComparisonOperation::Operation comparison_operation;
+                IntegerComparisonOperation::Operation comparison_operation;
                 auto invert = false;
                 switch(binary_operation->binary_operator) {
                     case BinaryOperation::Operator::Equal: {
-                        comparison_operation = ComparisonOperation::Operation::Equal;
+                        comparison_operation = IntegerComparisonOperation::Operation::Equal;
                     } break;
 
                     case BinaryOperation::Operator::NotEqual: {
-                        comparison_operation = ComparisonOperation::Operation::Equal;
+                        comparison_operation = IntegerComparisonOperation::Operation::Equal;
                         invert = true;
                     } break;
 
                     case BinaryOperation::Operator::LessThan: {
                         if(integer->is_signed) {
-                            comparison_operation = ComparisonOperation::Operation::SignedLessThan;
+                            comparison_operation = IntegerComparisonOperation::Operation::SignedLessThan;
                         } else {
-                            comparison_operation = ComparisonOperation::Operation::UnsignedLessThan;
+                            comparison_operation = IntegerComparisonOperation::Operation::UnsignedLessThan;
                         }
                     } break;
 
                     case BinaryOperation::Operator::GreaterThan: {
                         if(integer->is_signed) {
-                            comparison_operation = ComparisonOperation::Operation::SignedGreaterThan;
+                            comparison_operation = IntegerComparisonOperation::Operation::SignedGreaterThan;
                         } else {
-                            comparison_operation = ComparisonOperation::Operation::UnsignedGreaterThan;
+                            comparison_operation = IntegerComparisonOperation::Operation::UnsignedGreaterThan;
                         }
                     } break;
 
@@ -6145,7 +6319,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     } break;
                 }
 
-                result_register = append_comparison_operation(
+                result_register = append_integer_comparison_operation(
                     context,
                     instructions,
                     binary_operation->range.first_line,
@@ -6189,14 +6363,14 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
             auto right_register = generate_in_register_boolean_value(context, instructions, binary_operation->right->range, right.value);
 
             auto is_arithmetic = true;
-            ArithmeticOperation::Operation arithmetic_operation;
+            IntegerArithmeticOperation::Operation arithmetic_operation;
             switch(binary_operation->binary_operator) {
                 case BinaryOperation::Operator::BooleanAnd: {
-                    arithmetic_operation = ArithmeticOperation::Operation::BitwiseAnd;
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseAnd;
                 } break;
 
                 case BinaryOperation::Operator::BooleanOr: {
-                    arithmetic_operation = ArithmeticOperation::Operation::BitwiseOr;
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseOr;
                 } break;
 
                 default: {
@@ -6206,7 +6380,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
             size_t result_register;
             if(is_arithmetic) {
-                result_register = append_arithmetic_operation(
+                result_register = append_integer_arithmetic_operation(
                     context,
                     instructions,
                     binary_operation->range.first_line,
@@ -6216,15 +6390,15 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     right_register
                 );
             } else {
-                ComparisonOperation::Operation comparison_operation;
+                IntegerComparisonOperation::Operation comparison_operation;
                 auto invert = false;
                 switch(binary_operation->binary_operator) {
                     case BinaryOperation::Operator::Equal: {
-                        comparison_operation = ComparisonOperation::Operation::Equal;
+                        comparison_operation = IntegerComparisonOperation::Operation::Equal;
                     } break;
 
                     case BinaryOperation::Operator::NotEqual: {
-                        comparison_operation = ComparisonOperation::Operation::Equal;
+                        comparison_operation = IntegerComparisonOperation::Operation::Equal;
                         invert = true;
                     } break;
 
@@ -6235,7 +6409,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     } break;
                 }
 
-                result_register = append_comparison_operation(
+                result_register = append_integer_comparison_operation(
                     context,
                     instructions,
                     binary_operation->range.first_line,
@@ -6254,6 +6428,119 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 true,
                 {
                     new Boolean,
+                    new RegisterValue {
+                        result_register
+                    }
+                }
+            };
+        } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+            expect(left_register, coerce_to_float_register_value(
+                context,
+                instructions,
+                binary_operation->left->range,
+                left.type,
+                left.value,
+                *float_type,
+                false
+            ));
+
+            expect(right_register, coerce_to_float_register_value(
+                context,
+                instructions,
+                binary_operation->right->range,
+                right.type,
+                right.value,
+                *float_type,
+                false
+            ));
+
+            auto is_arithmetic = true;
+            FloatArithmeticOperation::Operation arithmetic_operation;
+            switch(binary_operation->binary_operator) {
+                case BinaryOperation::Operator::Addition: {
+                    arithmetic_operation = FloatArithmeticOperation::Operation::Add;
+                } break;
+
+                case BinaryOperation::Operator::Subtraction: {
+                    arithmetic_operation = FloatArithmeticOperation::Operation::Subtract;
+                } break;
+
+                case BinaryOperation::Operator::Multiplication: {
+                    arithmetic_operation = FloatArithmeticOperation::Operation::Multiply;
+                } break;
+
+                case BinaryOperation::Operator::Division: {
+                    arithmetic_operation = FloatArithmeticOperation::Operation::Divide;
+                } break;
+
+                default: {
+                    is_arithmetic = false;
+                } break;
+            }
+
+            size_t result_register;
+            Type *result_type;
+            if(is_arithmetic) {
+                result_register = append_float_arithmetic_operation(
+                    context,
+                    instructions,
+                    binary_operation->range.first_line,
+                    arithmetic_operation,
+                    float_type->size,
+                    left_register,
+                    right_register
+                );
+
+                result_type = float_type;
+            } else {
+                FloatComparisonOperation::Operation comparison_operation;
+                auto invert = false;
+                switch(binary_operation->binary_operator) {
+                    case BinaryOperation::Operator::Equal: {
+                        comparison_operation = FloatComparisonOperation::Operation::Equal;
+                    } break;
+
+                    case BinaryOperation::Operator::NotEqual: {
+                        comparison_operation = FloatComparisonOperation::Operation::Equal;
+                        invert = true;
+                    } break;
+
+                    case BinaryOperation::Operator::LessThan: {
+                        comparison_operation = FloatComparisonOperation::Operation::LessThan;
+                    } break;
+
+                    case BinaryOperation::Operator::GreaterThan: {
+                        comparison_operation = FloatComparisonOperation::Operation::GreaterThan;
+                    } break;
+
+                    default: {
+                        error(*context, binary_operation->range, "Cannot perform that operation on floats");
+
+                        return { false };
+                    } break;
+                }
+
+                result_register = append_float_comparison_operation(
+                    context,
+                    instructions,
+                    binary_operation->range.first_line,
+                    comparison_operation,
+                    float_type->size,
+                    left_register,
+                    right_register
+                );
+
+                if(invert) {
+                    result_register = generate_boolean_invert(context, instructions, binary_operation->range, result_register);
+                }
+
+                result_type = new Boolean;
+            }
+
+            return {
+                true,
+                {
+                    result_type,
                     new RegisterValue {
                         result_register
                     }
@@ -6280,15 +6567,15 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 false
             ));
 
-            ComparisonOperation::Operation comparison_operation;
+            IntegerComparisonOperation::Operation comparison_operation;
             auto invert = false;
             switch(binary_operation->binary_operator) {
                 case BinaryOperation::Operator::Equal: {
-                    comparison_operation = ComparisonOperation::Operation::Equal;
+                    comparison_operation = IntegerComparisonOperation::Operation::Equal;
                 } break;
 
                 case BinaryOperation::Operator::NotEqual: {
-                    comparison_operation = ComparisonOperation::Operation::Equal;
+                    comparison_operation = IntegerComparisonOperation::Operation::Equal;
                     invert = true;
                 } break;
 
@@ -6299,7 +6586,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                 } break;
             }
 
-            auto result_register = append_comparison_operation(
+            auto result_register = append_integer_comparison_operation(
                 context,
                 instructions,
                 binary_operation->range.first_line,
@@ -6512,11 +6799,11 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
                     auto zero_register = append_integer_constant(context, instructions, unary_operation->range.first_line, integer->size, 0);
 
-                    auto result_register = append_arithmetic_operation(
+                    auto result_register = append_integer_arithmetic_operation(
                         context,
                         instructions,
                         unary_operation->range.first_line,
-                        ArithmeticOperation::Operation::Subtract,
+                        IntegerArithmeticOperation::Operation::Subtract,
                         integer->size,
                         zero_register,
                         register_index
@@ -6531,8 +6818,66 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                             }
                         }
                     };
+                } else if(auto float_type = dynamic_cast<FloatType*>(expression_value.type)) {
+                    size_t register_index;
+                    if(auto float_value = dynamic_cast<FloatConstant*>(expression_value.value)) {
+                        return {
+                            true,
+                            {
+                                float_type,
+                                new FloatConstant {
+                                    -float_value->value
+                                }
+                            }
+                        };
+                    } else if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
+                        register_index = register_value->register_index;
+                    } else if(auto address_value = dynamic_cast<AddressValue*>(expression_value.value)) {
+                        register_index = append_load_float(
+                            context,
+                            instructions,
+                            unary_operation->expression->range.first_line,
+                            float_type->size,
+                            address_value->address_register
+                        );
+                    }
+
+                    auto zero_register = append_float_constant(context, instructions, unary_operation->range.first_line, float_type->size, 0.0);
+
+                    auto result_register = append_float_arithmetic_operation(
+                        context,
+                        instructions,
+                        unary_operation->range.first_line,
+                        FloatArithmeticOperation::Operation::Subtract,
+                        float_type->size,
+                        zero_register,
+                        register_index
+                    );
+
+                    return {
+                        true,
+                        {
+                            float_type,
+                            new RegisterValue {
+                                result_register
+                            }
+                        }
+                    };
+                } else if(dynamic_cast<UndeterminedFloat*>(expression_value.type)) {
+                    auto float_value = dynamic_cast<FloatConstant*>(expression_value.value);
+                    assert(float_value);
+
+                    return {
+                        true,
+                        {
+                            new UndeterminedFloat,
+                            new FloatConstant {
+                                -float_value->value
+                            }
+                        }
+                    };
                 } else {
-                    error(*context, unary_operation->expression->range, "Expected an integer, got '%s'", type_description(expression_value.type));
+                    error(*context, unary_operation->expression->range, "Cannot negate '%s'", type_description(expression_value.type));
 
                     return { false };
                 }

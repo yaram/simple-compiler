@@ -10,7 +10,7 @@ struct Instruction {
     virtual ~Instruction() {}
 };
 
-struct ArithmeticOperation : Instruction {
+struct IntegerArithmeticOperation : Instruction {
     enum struct Operation {
         Add,
         Subtract,
@@ -35,10 +35,10 @@ struct ArithmeticOperation : Instruction {
 
     size_t destination_register;
 
-    ArithmeticOperation() {}
+    IntegerArithmeticOperation() {}
 };
 
-struct ComparisonOperation : Instruction {
+struct IntegerComparisonOperation : Instruction {
     enum struct Operation {
         Equal,
         SignedLessThan,
@@ -56,7 +56,7 @@ struct ComparisonOperation : Instruction {
 
     size_t destination_register;
 
-    ComparisonOperation() {}
+    IntegerComparisonOperation() {}
 };
 
 struct IntegerUpcast : Instruction {
@@ -79,6 +79,45 @@ struct IntegerConstantInstruction : Instruction {
     uint64_t value;
 
     IntegerConstantInstruction() {}
+};
+
+struct FloatArithmeticOperation : Instruction {
+    enum struct Operation {
+        Add,
+        Subtract,
+        Multiply,
+        Divide
+    };
+
+    Operation operation;
+
+    RegisterSize size;
+
+    size_t source_register_a;
+    size_t source_register_b;
+
+    size_t destination_register;
+
+    FloatArithmeticOperation() {}
+};
+
+struct FloatComparisonOperation : Instruction {
+    enum struct Operation {
+        Equal,
+        LessThan,
+        GreaterThan
+    };
+
+    Operation operation;
+
+    RegisterSize size;
+
+    size_t source_register_a;
+    size_t source_register_b;
+
+    size_t destination_register;
+
+    FloatComparisonOperation() {}
 };
 
 struct FloatConstantInstruction : Instruction {

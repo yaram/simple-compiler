@@ -28,45 +28,45 @@ static const char *register_size_name(RegisterSize size) {
 }
 
 void print_instruction(Instruction *instruction, bool has_return) {
-    if(auto arithmetic_operation = dynamic_cast<ArithmeticOperation*>(instruction)) {
-        switch(arithmetic_operation->operation) {
-            case ArithmeticOperation::Operation::Add: {
+    if(auto integer_arithmetic_operation = dynamic_cast<IntegerArithmeticOperation*>(instruction)) {
+        switch(integer_arithmetic_operation->operation) {
+            case IntegerArithmeticOperation::Operation::Add: {
                 printf("ADD ");
             } break;
 
-            case ArithmeticOperation::Operation::Subtract: {
+            case IntegerArithmeticOperation::Operation::Subtract: {
                 printf("SUB ");
             } break;
 
-            case ArithmeticOperation::Operation::SignedMultiply: {
+            case IntegerArithmeticOperation::Operation::SignedMultiply: {
                 printf("MUL ");
             } break;
 
-            case ArithmeticOperation::Operation::UnsignedMultiply: {
+            case IntegerArithmeticOperation::Operation::UnsignedMultiply: {
                 printf("UMUL ");
             } break;
 
-            case ArithmeticOperation::Operation::SignedDivide: {
+            case IntegerArithmeticOperation::Operation::SignedDivide: {
                 printf("DIV ");
             } break;
 
-            case ArithmeticOperation::Operation::UnsignedDivide: {
+            case IntegerArithmeticOperation::Operation::UnsignedDivide: {
                 printf("UDIV ");
             } break;
 
-            case ArithmeticOperation::Operation::SignedModulus: {
+            case IntegerArithmeticOperation::Operation::SignedModulus: {
                 printf("MOD ");
             } break;
 
-            case ArithmeticOperation::Operation::UnsignedModulus: {
+            case IntegerArithmeticOperation::Operation::UnsignedModulus: {
                 printf("UMOD ");
             } break;
 
-            case ArithmeticOperation::Operation::BitwiseAnd: {
+            case IntegerArithmeticOperation::Operation::BitwiseAnd: {
                 printf("AND ");
             } break;
 
-            case ArithmeticOperation::Operation::BitwiseOr: {
+            case IntegerArithmeticOperation::Operation::BitwiseOr: {
                 printf("OR ");
             } break;
 
@@ -77,30 +77,30 @@ void print_instruction(Instruction *instruction, bool has_return) {
 
         printf(
             " %s r%zu, r%zu, r%zu",
-            register_size_name(arithmetic_operation->size),
-            arithmetic_operation->source_register_a,
-            arithmetic_operation->source_register_b,
-            arithmetic_operation->destination_register
+            register_size_name(integer_arithmetic_operation->size),
+            integer_arithmetic_operation->source_register_a,
+            integer_arithmetic_operation->source_register_b,
+            integer_arithmetic_operation->destination_register
         );
-    } else if(auto comparison_operation = dynamic_cast<ComparisonOperation*>(instruction)) {
-        switch(comparison_operation->operation) {
-            case ComparisonOperation::Operation::Equal: {
+    } else if(auto integer_comparison_operation = dynamic_cast<IntegerComparisonOperation*>(instruction)) {
+        switch(integer_comparison_operation->operation) {
+            case IntegerComparisonOperation::Operation::Equal: {
                 printf("EQ ");
             } break;
 
-            case ComparisonOperation::Operation::SignedLessThan: {
+            case IntegerComparisonOperation::Operation::SignedLessThan: {
                 printf("SLT ");
             } break;
 
-            case ComparisonOperation::Operation::UnsignedLessThan: {
+            case IntegerComparisonOperation::Operation::UnsignedLessThan: {
                 printf("ULT ");
             } break;
 
-            case ComparisonOperation::Operation::SignedGreaterThan: {
+            case IntegerComparisonOperation::Operation::SignedGreaterThan: {
                 printf("SGT ");
             } break;
 
-            case ComparisonOperation::Operation::UnsignedGreaterThan: {
+            case IntegerComparisonOperation::Operation::UnsignedGreaterThan: {
                 printf("UGT ");
             } break;
 
@@ -111,10 +111,10 @@ void print_instruction(Instruction *instruction, bool has_return) {
 
         printf(
             " %s r%zu, r%zu, r%zu",
-            register_size_name(comparison_operation->size),
-            comparison_operation->source_register_a,
-            comparison_operation->source_register_b,
-            comparison_operation->destination_register
+            register_size_name(integer_comparison_operation->size),
+            integer_comparison_operation->source_register_a,
+            integer_comparison_operation->source_register_b,
+            integer_comparison_operation->destination_register
         );
     } else if(auto integer_upcast = dynamic_cast<IntegerUpcast*>(instruction)) {
         if(integer_upcast->is_signed) {
@@ -156,6 +156,62 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(", r%zu", integer_constant->destination_register);
+    } else if(auto float_arithmetic_operation = dynamic_cast<FloatArithmeticOperation*>(instruction)) {
+        switch(float_arithmetic_operation->operation) {
+            case FloatArithmeticOperation::Operation::Add: {
+                printf("FADD ");
+            } break;
+
+            case FloatArithmeticOperation::Operation::Subtract: {
+                printf("FSUB ");
+            } break;
+
+            case FloatArithmeticOperation::Operation::Multiply: {
+                printf("FMUL ");
+            } break;
+
+            case FloatArithmeticOperation::Operation::Divide: {
+                printf("FDIV ");
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+
+        printf(
+            " %s r%zu, r%zu, r%zu",
+            register_size_name(float_arithmetic_operation->size),
+            float_arithmetic_operation->source_register_a,
+            float_arithmetic_operation->source_register_b,
+            float_arithmetic_operation->destination_register
+        );
+    } else if(auto float_comparison_operation = dynamic_cast<FloatComparisonOperation*>(instruction)) {
+        switch(float_comparison_operation->operation) {
+            case FloatComparisonOperation::Operation::Equal: {
+                printf("FEQ ");
+            } break;
+
+            case FloatComparisonOperation::Operation::LessThan: {
+                printf("FLT ");
+            } break;
+
+            case FloatComparisonOperation::Operation::GreaterThan: {
+                printf("FGT ");
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+
+        printf(
+            " %s r%zu, r%zu, r%zu",
+            register_size_name(float_comparison_operation->size),
+            float_comparison_operation->source_register_a,
+            float_comparison_operation->source_register_b,
+            float_comparison_operation->destination_register
+        );
     } else if(auto float_constant = dynamic_cast<FloatConstantInstruction*>(instruction)) {
         printf("FCONST %s ", register_size_name(float_constant->size));
 
