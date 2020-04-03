@@ -140,63 +140,63 @@ bool generate_c_object(
                     string_buffer_append(&implementation_source, i);
                     string_buffer_append(&implementation_source, ":;");
 
-                    if(auto arithmetic_operation = dynamic_cast<ArithmeticOperation*>(instruction)) {
-                        generate_integer_type(&implementation_source, arithmetic_operation->size, false);
+                    if(auto integer_arithmetic_operation = dynamic_cast<IntegerArithmeticOperation*>(instruction)) {
+                        generate_integer_type(&implementation_source, integer_arithmetic_operation->size, false);
                         string_buffer_append(&implementation_source, " reg_");
-                        string_buffer_append(&implementation_source, arithmetic_operation->destination_register);
+                        string_buffer_append(&implementation_source, integer_arithmetic_operation->destination_register);
 
                         string_buffer_append(&implementation_source, "=");
 
                         char *operator_;
                         bool is_signed;
 
-                        switch(arithmetic_operation->operation) {
-                            case ArithmeticOperation::Operation::Add: {
+                        switch(integer_arithmetic_operation->operation) {
+                            case IntegerArithmeticOperation::Operation::Add: {
                                 operator_ = "+";
                                 is_signed = false;
                             } break;
 
-                            case ArithmeticOperation::Operation::Subtract: {
+                            case IntegerArithmeticOperation::Operation::Subtract: {
                                 operator_ = "-";
                                 is_signed = false;
                             } break;
 
-                            case ArithmeticOperation::Operation::SignedMultiply: {
+                            case IntegerArithmeticOperation::Operation::SignedMultiply: {
                                 operator_ = "*";
                                 is_signed = true;
                             } break;
 
-                            case ArithmeticOperation::Operation::UnsignedMultiply: {
+                            case IntegerArithmeticOperation::Operation::UnsignedMultiply: {
                                 operator_ = "*";
                                 is_signed = false;
                             } break;
 
-                            case ArithmeticOperation::Operation::SignedDivide: {
+                            case IntegerArithmeticOperation::Operation::SignedDivide: {
                                 operator_ = "/";
                                 is_signed = true;
                             } break;
 
-                            case ArithmeticOperation::Operation::UnsignedDivide: {
+                            case IntegerArithmeticOperation::Operation::UnsignedDivide: {
                                 operator_ = "/";
                                 is_signed = false;
                             } break;
 
-                            case ArithmeticOperation::Operation::SignedModulus: {
+                            case IntegerArithmeticOperation::Operation::SignedModulus: {
                                 operator_ = "%";
                                 is_signed = true;
                             } break;
 
-                            case ArithmeticOperation::Operation::UnsignedModulus: {
+                            case IntegerArithmeticOperation::Operation::UnsignedModulus: {
                                 operator_ = "%";
                                 is_signed = false;
                             } break;
 
-                            case ArithmeticOperation::Operation::BitwiseAnd: {
+                            case IntegerArithmeticOperation::Operation::BitwiseAnd: {
                                 operator_ = "&";
                                 is_signed = false;
                             } break;
 
-                            case ArithmeticOperation::Operation::BitwiseOr: {
+                            case IntegerArithmeticOperation::Operation::BitwiseOr: {
                                 operator_ = "|";
                                 is_signed = false;
                             } break;
@@ -207,54 +207,54 @@ bool generate_c_object(
                         }
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_integer_type(&implementation_source, arithmetic_operation->size, is_signed);
+                        generate_integer_type(&implementation_source, integer_arithmetic_operation->size, is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
-                        string_buffer_append(&implementation_source, arithmetic_operation->source_register_a);
+                        string_buffer_append(&implementation_source, integer_arithmetic_operation->source_register_a);
 
                         string_buffer_append(&implementation_source, operator_);
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_integer_type(&implementation_source, arithmetic_operation->size, is_signed);
+                        generate_integer_type(&implementation_source, integer_arithmetic_operation->size, is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
-                        string_buffer_append(&implementation_source, arithmetic_operation->source_register_b);
+                        string_buffer_append(&implementation_source, integer_arithmetic_operation->source_register_b);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto comparison_operation = dynamic_cast<ComparisonOperation*>(instruction)) {
+                    } else if(auto integer_comparison_operation = dynamic_cast<IntegerComparisonOperation*>(instruction)) {
                         generate_integer_type(&implementation_source, register_sizes.default_size, false);
                         string_buffer_append(&implementation_source, " reg_");
-                        string_buffer_append(&implementation_source, comparison_operation->destination_register);
+                        string_buffer_append(&implementation_source, integer_comparison_operation->destination_register);
 
                         string_buffer_append(&implementation_source, "=");
 
                         char *operator_;
                         bool is_signed;
 
-                        switch(comparison_operation->operation) {
-                            case ComparisonOperation::Operation::Equal: {
+                        switch(integer_comparison_operation->operation) {
+                            case IntegerComparisonOperation::Operation::Equal: {
                                 operator_ = "==";
                                 is_signed = false;
                             } break;
 
-                            case ComparisonOperation::Operation::SignedLessThan: {
+                            case IntegerComparisonOperation::Operation::SignedLessThan: {
                                 operator_ = "<";
                                 is_signed = true;
                             } break;
 
-                            case ComparisonOperation::Operation::UnsignedLessThan: {
+                            case IntegerComparisonOperation::Operation::UnsignedLessThan: {
                                 operator_ = "<";
                                 is_signed = false;
                             } break;
 
-                            case ComparisonOperation::Operation::SignedGreaterThan: {
+                            case IntegerComparisonOperation::Operation::SignedGreaterThan: {
                                 operator_ = ">";
                                 is_signed = true;
                             } break;
 
-                            case ComparisonOperation::Operation::UnsignedGreaterThan: {
+                            case IntegerComparisonOperation::Operation::UnsignedGreaterThan: {
                                 operator_ = ">";
                                 is_signed = false;
                             } break;
@@ -265,20 +265,20 @@ bool generate_c_object(
                         }
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_integer_type(&implementation_source, comparison_operation->size, is_signed);
+                        generate_integer_type(&implementation_source, integer_comparison_operation->size, is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
-                        string_buffer_append(&implementation_source, comparison_operation->source_register_a);
+                        string_buffer_append(&implementation_source, integer_comparison_operation->source_register_a);
 
                         string_buffer_append(&implementation_source, operator_);
 
                         string_buffer_append(&implementation_source, "(");
-                        generate_integer_type(&implementation_source, comparison_operation->size, is_signed);
+                        generate_integer_type(&implementation_source, integer_comparison_operation->size, is_signed);
                         string_buffer_append(&implementation_source, ")");
 
                         string_buffer_append(&implementation_source, "reg_");
-                        string_buffer_append(&implementation_source, comparison_operation->source_register_b);
+                        string_buffer_append(&implementation_source, integer_comparison_operation->source_register_b);
 
                         string_buffer_append(&implementation_source, ";");
                     } else if(auto integer_upcast = dynamic_cast<IntegerUpcast*>(instruction)) {
@@ -304,6 +304,98 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, "=");
 
                         string_buffer_append(&implementation_source, integer_constant->value);
+
+                        string_buffer_append(&implementation_source, ";");
+                    } else if(auto float_arithmetic_operation = dynamic_cast<FloatArithmeticOperation*>(instruction)) {
+                        generate_float_type(&implementation_source, float_arithmetic_operation->size);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, float_arithmetic_operation->destination_register);
+
+                        string_buffer_append(&implementation_source, "=");
+
+                        char *operator_;
+
+                        switch(float_arithmetic_operation->operation) {
+                            case FloatArithmeticOperation::Operation::Add: {
+                                operator_ = "+";
+                            } break;
+
+                            case FloatArithmeticOperation::Operation::Subtract: {
+                                operator_ = "-";
+                            } break;
+
+                            case FloatArithmeticOperation::Operation::Multiply: {
+                                operator_ = "*";
+                            } break;
+
+                            case FloatArithmeticOperation::Operation::Divide: {
+                                operator_ = "/";
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_float_type(&implementation_source, float_arithmetic_operation->size);
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, float_arithmetic_operation->source_register_a);
+
+                        string_buffer_append(&implementation_source, operator_);
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_float_type(&implementation_source, float_arithmetic_operation->size);
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, float_arithmetic_operation->source_register_b);
+
+                        string_buffer_append(&implementation_source, ";");
+                    } else if(auto float_comparison_operation = dynamic_cast<FloatComparisonOperation*>(instruction)) {
+                        generate_float_type(&implementation_source, register_sizes.default_size);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, float_comparison_operation->destination_register);
+
+                        string_buffer_append(&implementation_source, "=");
+
+                        char *operator_;
+
+                        switch(float_comparison_operation->operation) {
+                            case FloatComparisonOperation::Operation::Equal: {
+                                operator_ = "==";
+                            } break;
+
+                            case FloatComparisonOperation::Operation::LessThan: {
+                                operator_ = "<";
+                            } break;
+
+                            case FloatComparisonOperation::Operation::GreaterThan: {
+                                operator_ = ">";
+                            } break;
+
+                            default: {
+                                abort();
+                            } break;
+                        }
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_float_type(&implementation_source, float_comparison_operation->size);
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, float_comparison_operation->source_register_a);
+
+                        string_buffer_append(&implementation_source, operator_);
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_float_type(&implementation_source, float_comparison_operation->size);
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, float_comparison_operation->source_register_b);
 
                         string_buffer_append(&implementation_source, ";");
                     } else if(auto float_constant = dynamic_cast<FloatConstantInstruction*>(instruction)) {
