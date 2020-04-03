@@ -468,7 +468,13 @@ bool generate_c_object(
                         }
 
                         if(function_call->has_return) {
-                            generate_integer_type(&implementation_source, callee.return_size, false);
+                            assert(callee.has_return);
+
+                            if(callee.is_return_float) {
+                                generate_float_type(&implementation_source, callee.return_size);
+                            } else {
+                                generate_integer_type(&implementation_source, callee.return_size, false);
+                            }
                             string_buffer_append(&implementation_source, " reg_");
                             string_buffer_append(&implementation_source, function_call->return_register);
                             string_buffer_append(&implementation_source, "=");
