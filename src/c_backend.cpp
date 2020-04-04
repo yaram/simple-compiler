@@ -398,6 +398,54 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, float_comparison_operation->source_register_b);
 
                         string_buffer_append(&implementation_source, ";");
+                    } else if(auto float_conversion = dynamic_cast<FloatConversion*>(instruction)) {
+                        generate_float_type(&implementation_source, float_conversion->destination_size);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, float_conversion->destination_register);
+                        string_buffer_append(&implementation_source, "=");
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_float_type(&implementation_source, float_conversion->destination_size);
+                        string_buffer_append(&implementation_source, ")(");
+                        generate_float_type(&implementation_source, float_conversion->source_size);
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, float_conversion->source_register);
+
+                        string_buffer_append(&implementation_source, ";");
+                    } else if(auto float_truncation = dynamic_cast<FloatTruncation*>(instruction)) {
+                        generate_integer_type(&implementation_source, float_truncation->destination_size, false);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, float_truncation->destination_register);
+                        string_buffer_append(&implementation_source, "=");
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_integer_type(&implementation_source, float_truncation->destination_size, false);
+                        string_buffer_append(&implementation_source, ")(");
+                        generate_float_type(&implementation_source, float_truncation->source_size);
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, float_truncation->source_register);
+
+                        string_buffer_append(&implementation_source, ";");
+                    } else if(auto float_from_integer = dynamic_cast<FloatFromInteger*>(instruction)) {
+                        generate_float_type(&implementation_source, float_from_integer->destination_size);
+                        string_buffer_append(&implementation_source, " reg_");
+                        string_buffer_append(&implementation_source, float_from_integer->destination_register);
+                        string_buffer_append(&implementation_source, "=");
+
+                        string_buffer_append(&implementation_source, "(");
+                        generate_float_type(&implementation_source, float_from_integer->destination_size);
+                        string_buffer_append(&implementation_source, ")(");
+                        generate_integer_type(&implementation_source, float_from_integer->source_size, float_from_integer->is_signed);
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, float_from_integer->source_register);
+
+                        string_buffer_append(&implementation_source, ";");
                     } else if(auto float_constant = dynamic_cast<FloatConstantInstruction*>(instruction)) {
                         generate_float_type(&implementation_source, float_constant->size);
                         string_buffer_append(&implementation_source, " reg_");
