@@ -1159,6 +1159,80 @@ static Result<TypedConstantValue> resolve_constant_named_reference(GenerationCon
     return { false };
 }
 
+static bool check_undetermined_integer_to_integer_coercion(GenerationContext context, FileRange range, Integer target_type, int64_t value, bool probing) {
+    bool in_range;
+    if(target_type.is_signed) {
+        int64_t min;
+        int64_t max;
+        switch(target_type.size) {
+            case RegisterSize::Size8: {
+                min = INT8_MIN;
+                max = INT8_MAX;
+            } break;
+
+            case RegisterSize::Size16: {
+                min = INT16_MIN;
+                max = INT16_MAX;
+            } break;
+
+            case RegisterSize::Size32: {
+                min = INT32_MIN;
+                max = INT32_MAX;
+            } break;
+
+            case RegisterSize::Size64: {
+                min = INT64_MIN;
+                max = INT64_MAX;
+            } break;
+
+            default: {
+                abort();
+            } break;
+        }
+
+        in_range = value >= min && value <= max;
+    } else {
+        if(value < 0) {
+            in_range = false;
+        } else {
+            uint64_t max;
+            switch(target_type.size) {
+                case RegisterSize::Size8: {
+                    max = UINT8_MAX;
+                } break;
+
+                case RegisterSize::Size16: {
+                    max = UINT16_MAX;
+                } break;
+
+                case RegisterSize::Size32: {
+                    max = UINT32_MAX;
+                } break;
+
+                case RegisterSize::Size64: {
+                    max = UINT64_MAX;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+
+            in_range = (uint64_t)value <= max;
+        }
+    }
+
+    if(!in_range) {
+        if(!probing) {
+            error(context, range, "Constant '%zd' cannot fit in '%s'. You must cast explicitly", value, type_description(&target_type));
+        }
+
+        return false;
+    }
+
+    return true;
+}
+
 static Result<IntegerConstant*> coerce_constant_to_integer_type(
     GenerationContext context,
     FileRange range,
@@ -1186,6 +1260,10 @@ static Result<IntegerConstant*> coerce_constant_to_integer_type(
     } else if(dynamic_cast<UndeterminedInteger*>(type)) {
         auto integer_value = dynamic_cast<IntegerConstant*>(value);
         assert(integer_value);
+
+        if(!check_undetermined_integer_to_integer_coercion(context, range, target_type, (int64_t)integer_value->value, probing)) {
+            return { false };
+        }
 
         return {
             true,
@@ -2213,7 +2291,12 @@ static Result<ConstantValue*> evaluate_constant_cast(
                         abort();
                     } break;
                 }
-            }
+            }        
+        } else if(dynamic_cast<UndeterminedInteger*>(type)) {
+            auto integer_value = dynamic_cast<IntegerConstant*>(value);
+            assert(integer_value);
+
+            result = integer_value->value;
         } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
             auto float_value = dynamic_cast<FloatConstant*>(value);
             assert(float_value);
@@ -4326,6 +4409,10 @@ static Result<size_t> coerce_to_integer_register_value(
     } else if(dynamic_cast<UndeterminedInteger*>(type)) {
         auto constant_value = dynamic_cast<IntegerConstant*>(value);
         assert(constant_value);
+
+        if(!check_undetermined_integer_to_integer_coercion(*context, range, target_type, (int64_t)constant_value->value, probing)) {
+            return { false };
+        }
 
         auto regsiter_index = append_integer_constant(context, instructions, range.first_line, target_type.size, constant_value->value);
 
