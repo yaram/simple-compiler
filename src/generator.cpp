@@ -2214,6 +2214,119 @@ static Result<ConstantValue*> evaluate_constant_cast(
                     } break;
                 }
             }
+        } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+            auto float_value = dynamic_cast<FloatConstant*>(value);
+            assert(float_value);
+
+            double from_value;
+            switch(float_type->size) {
+                case RegisterSize::Size32: {
+                    from_value = (double)(float)float_value->value;
+                } break;
+
+                case RegisterSize::Size64: {
+                    from_value = float_value->value;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+
+            if(target_integer->is_signed) {
+                switch(target_integer->size) {
+                    case RegisterSize::Size8: {
+                        result = (int8_t)from_value;
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        result = (int16_t)from_value;
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        result = (int32_t)from_value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = (int64_t)from_value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            } else {
+                switch(target_integer->size) {
+                    case RegisterSize::Size8: {
+                        result = (uint8_t)from_value;
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        result = (uint16_t)from_value;
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        result = (uint32_t)from_value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = (uint64_t)from_value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            }
+        } else if(dynamic_cast<UndeterminedFloat*>(type)) {
+            auto float_value = dynamic_cast<FloatConstant*>(value);
+            assert(float_value);
+
+            if(target_integer->is_signed) {
+                switch(target_integer->size) {
+                    case RegisterSize::Size8: {
+                        result = (int8_t)float_value->value;
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        result = (int16_t)float_value->value;
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        result = (int32_t)float_value->value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = (int64_t)float_value->value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            } else {
+                switch(target_integer->size) {
+                    case RegisterSize::Size8: {
+                        result = (uint8_t)float_value->value;
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        result = (uint16_t)float_value->value;
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        result = (uint32_t)float_value->value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = (uint64_t)float_value->value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            }
         } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
             if(target_integer->size == context.address_integer_size && !target_integer->is_signed) {
                 auto pointer_value = dynamic_cast<PointerConstant*>(value);
@@ -2238,6 +2351,152 @@ static Result<ConstantValue*> evaluate_constant_cast(
         return {
             true,
             new IntegerConstant {
+                result
+            }
+        };
+    } else if(auto target_float_type = dynamic_cast<FloatType*>(target_type)) {
+        double result;
+        if(auto integer = dynamic_cast<Integer*>(type)) {
+            auto integer_value = dynamic_cast<IntegerConstant*>(value);
+            assert(integer_value);
+
+            double from_value;
+            if(integer->is_signed) {
+                switch(integer->size) {
+                    case RegisterSize::Size8: {
+                        from_value = (double)(int8_t)integer_value->value;
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        from_value = (double)(int16_t)integer_value->value;
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        from_value = (double)(int32_t)integer_value->value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        from_value = (double)(int64_t)integer_value->value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            } else {
+                switch(integer->size) {
+                    case RegisterSize::Size8: {
+                        from_value = (double)(uint8_t)integer_value->value;
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        from_value = (double)(uint16_t)integer_value->value;
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        from_value = (double)(uint32_t)integer_value->value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        from_value = (double)integer_value->value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            }
+
+            switch(target_float_type->size) {
+                case RegisterSize::Size32: {
+                    result = (double)(float)from_value;
+                } break;
+
+                case RegisterSize::Size64: {
+                    result = from_value;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } else if(dynamic_cast<UndeterminedInteger*>(type)) {
+            auto integer_value = dynamic_cast<IntegerConstant*>(value);
+            assert(integer_value);
+
+            switch(target_float_type->size) {
+                case RegisterSize::Size32: {
+                    result = (double)(float)(int64_t)integer_value->value;
+                } break;
+
+                case RegisterSize::Size64: {
+                    result = (double)(int64_t)integer_value->value;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+            auto float_value = dynamic_cast<FloatConstant*>(value);
+            assert(float_value);
+
+            double from_value;
+            switch(float_type->size) {
+                case RegisterSize::Size32: {
+                    from_value = (double)(float)float_value->value;
+                } break;
+
+                case RegisterSize::Size64: {
+                    from_value = float_value->value;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+
+            switch(target_float_type->size) {
+                case RegisterSize::Size32: {
+                    result = (double)(float)from_value;
+                } break;
+
+                case RegisterSize::Size64: {
+                    result = from_value;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } else if(dynamic_cast<UndeterminedFloat*>(type)) {
+            auto float_value = dynamic_cast<FloatConstant*>(value);
+            assert(float_value);
+
+            switch(target_float_type->size) {
+                case RegisterSize::Size32: {
+                    result = (double)(float)float_value->value;
+                } break;
+
+                case RegisterSize::Size64: {
+                    result = float_value->value;
+                } break;
+
+                default: {
+                    abort();
+                } break;
+            }
+        } else {
+            if(!probing) {
+                error(context, value_range, "Cannot cast from '%s' to '%s'", type_description(type), type_description(target_float_type));
+            }
+
+            return { false };
+        }
+
+        return {
+            true,
+            new FloatConstant {
                 result
             }
         };
@@ -3716,6 +3975,74 @@ static size_t append_float_comparison_operation(
     float_comparison_operation->destination_register = destination_register;
 
     append(instructions, (Instruction*)float_comparison_operation);
+
+    return destination_register;
+}
+
+static size_t append_float_conversion(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    unsigned int line,
+    RegisterSize source_size,
+    RegisterSize destination_size,
+    size_t source_register
+) {
+    auto destination_register = allocate_register(context);
+
+    auto float_conversion = new FloatConversion;
+    float_conversion->line = line;
+    float_conversion->source_size = source_size;
+    float_conversion->source_register = source_register;
+    float_conversion->destination_size = destination_size;
+    float_conversion->destination_register = destination_register;
+
+    append(instructions, (Instruction*)float_conversion);
+
+    return destination_register;
+}
+
+static size_t append_float_truncation(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    unsigned int line,
+    RegisterSize source_size,
+    RegisterSize destination_size,
+    size_t source_register
+) {
+    auto destination_register = allocate_register(context);
+
+    auto float_truncation = new FloatTruncation;
+    float_truncation->line = line;
+    float_truncation->source_size = source_size;
+    float_truncation->source_register = source_register;
+    float_truncation->destination_size = destination_size;
+    float_truncation->destination_register = destination_register;
+
+    append(instructions, (Instruction*)float_truncation);
+
+    return destination_register;
+}
+
+static size_t append_float_from_integer(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    unsigned int line,
+    bool is_signed,
+    RegisterSize source_size,
+    RegisterSize destination_size,
+    size_t source_register
+) {
+    auto destination_register = allocate_register(context);
+
+    auto float_from_integer = new FloatFromInteger;
+    float_from_integer->line = line;
+    float_from_integer->is_signed = is_signed;
+    float_from_integer->source_size = source_size;
+    float_from_integer->source_register = source_register;
+    float_from_integer->destination_size = destination_size;
+    float_from_integer->destination_register = destination_register;
+
+    append(instructions, (Instruction*)float_from_integer);
 
     return destination_register;
 }
@@ -6956,6 +7283,31 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     target_integer->size,
                     value_register
                 );
+            } else if(auto float_type = dynamic_cast<FloatType*>(expression_value.type)) {
+                size_t value_register;
+                if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
+                    value_register = register_value->register_index;
+                } else if(auto address_value = dynamic_cast<AddressValue*>(expression_value.value)) {
+                    value_register = append_load_float(
+                        context,
+                        instructions,
+                        cast->expression->range.first_line,
+                        float_type->size,
+                        address_value->address_register
+                    );
+                } else {
+                    abort();
+                }
+
+                has_cast = true;
+                register_index = append_float_truncation(
+                    context,
+                    instructions,
+                    cast->range.first_line,
+                    float_type->size,
+                    target_integer->size,
+                    value_register
+                );
             } else if(auto pointer = dynamic_cast<Pointer*>(expression_value.type)) {
                 if(target_integer->size == context->address_integer_size && !target_integer->is_signed) {
                     has_cast = true;
@@ -6974,6 +7326,59 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                         abort();
                     }
                 }
+            }
+        } else if(auto target_float_type = dynamic_cast<FloatType*>(target_type)) {
+            if(auto integer = dynamic_cast<Integer*>(expression_value.type)) {
+                size_t value_register;
+                if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
+                    value_register = register_value->register_index;
+                } else if(auto address_value = dynamic_cast<AddressValue*>(expression_value.value)) {
+                    value_register = append_load_integer(
+                        context,
+                        instructions,
+                        cast->expression->range.first_line,
+                        integer->size,
+                        address_value->address_register
+                    );
+                } else {
+                    abort();
+                }
+
+                has_cast = true;
+                register_index = append_float_from_integer(
+                    context,
+                    instructions,
+                    cast->range.first_line,
+                    integer->is_signed,
+                    integer->size,
+                    target_float_type->size,
+                    value_register
+                );
+            } else if(auto float_type = dynamic_cast<FloatType*>(expression_value.type)) {
+                size_t value_register;
+                if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
+                    value_register = register_value->register_index;
+                } else if(auto address_value = dynamic_cast<AddressValue*>(expression_value.value)) {
+                    value_register = append_load_float(
+                        context,
+                        instructions,
+                        cast->expression->range.first_line,
+                        float_type->size,
+                        address_value->address_register
+                    );
+                } else {
+                    abort();
+                }
+
+                has_cast = true;
+                register_index = append_float_conversion(
+                    context,
+                    instructions,
+                    cast->range.first_line,
+                    float_type->size,
+                    target_float_type->size,
+                    value_register
+                );
             }
         } else if(auto target_pointer = dynamic_cast<Pointer*>(target_type)) {
             if(auto integer = dynamic_cast<Integer*>(expression_value.type)) {

@@ -120,6 +120,38 @@ struct FloatComparisonOperation : Instruction {
     FloatComparisonOperation() {}
 };
 
+struct FloatConversion : Instruction {
+    RegisterSize source_size;
+    size_t source_register;
+
+    RegisterSize destination_size;
+    size_t destination_register;
+
+    FloatConversion() {}
+};
+
+struct FloatTruncation : Instruction {
+    RegisterSize source_size;
+    size_t source_register;
+
+    RegisterSize destination_size;
+    size_t destination_register;
+
+    FloatTruncation() {}
+};
+
+struct FloatFromInteger : Instruction {
+    bool is_signed;
+
+    RegisterSize source_size;
+    size_t source_register;
+
+    RegisterSize destination_size;
+    size_t destination_register;
+
+    FloatFromInteger() {}
+};
+
 struct FloatConstantInstruction : Instruction {
     RegisterSize size;
 

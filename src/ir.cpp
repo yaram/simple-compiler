@@ -39,7 +39,7 @@ void print_instruction(Instruction *instruction, bool has_return) {
             } break;
 
             case IntegerArithmeticOperation::Operation::SignedMultiply: {
-                printf("MUL ");
+                printf("SMUL ");
             } break;
 
             case IntegerArithmeticOperation::Operation::UnsignedMultiply: {
@@ -47,7 +47,7 @@ void print_instruction(Instruction *instruction, bool has_return) {
             } break;
 
             case IntegerArithmeticOperation::Operation::SignedDivide: {
-                printf("DIV ");
+                printf("SDIV ");
             } break;
 
             case IntegerArithmeticOperation::Operation::UnsignedDivide: {
@@ -55,7 +55,7 @@ void print_instruction(Instruction *instruction, bool has_return) {
             } break;
 
             case IntegerArithmeticOperation::Operation::SignedModulus: {
-                printf("MOD ");
+                printf("SMOD ");
             } break;
 
             case IntegerArithmeticOperation::Operation::UnsignedModulus: {
@@ -120,7 +120,7 @@ void print_instruction(Instruction *instruction, bool has_return) {
         if(integer_upcast->is_signed) {
             printf("SCAST");
         } else {
-            printf("CAST");
+            printf("UCAST");
         }
 
         printf(
@@ -180,7 +180,7 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(
-            " %s r%zu, r%zu, r%zu",
+            " f%s r%zu, r%zu, r%zu",
             register_size_name(float_arithmetic_operation->size),
             float_arithmetic_operation->source_register_a,
             float_arithmetic_operation->source_register_b,
@@ -206,14 +206,44 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(
-            " %s r%zu, r%zu, r%zu",
+            " f%s r%zu, r%zu, r%zu",
             register_size_name(float_comparison_operation->size),
             float_comparison_operation->source_register_a,
             float_comparison_operation->source_register_b,
             float_comparison_operation->destination_register
         );
+    } else if(auto float_conversion = dynamic_cast<FloatConversion*>(instruction)) {
+        printf(
+            "FCAST f%s r%zu, f%s r%zu",
+            register_size_name(float_conversion->source_size),
+            float_conversion->source_register,
+            register_size_name(float_conversion->destination_size),
+            float_conversion->destination_register
+        );
+    } else if(auto float_truncation = dynamic_cast<FloatTruncation*>(instruction)) {
+        printf(
+            "FTRUNC f%s r%zu, %s r%zu",
+            register_size_name(float_truncation->source_size),
+            float_truncation->source_register,
+            register_size_name(float_truncation->destination_size),
+            float_truncation->destination_register
+        );
+    } else if(auto float_from_integer = dynamic_cast<FloatFromInteger*>(instruction)) {
+        if(float_from_integer->is_signed) {
+            printf("FSINT");
+        } else {
+            printf("FUINT");
+        }
+
+        printf(
+            " %s r%zu, f%s r%zu",
+            register_size_name(float_from_integer->source_size),
+            float_from_integer->source_register,
+            register_size_name(float_from_integer->destination_size),
+            float_from_integer->destination_register
+        );
     } else if(auto float_constant = dynamic_cast<FloatConstantInstruction*>(instruction)) {
-        printf("FCONST %s ", register_size_name(float_constant->size));
+        printf("FCONST f%s ", register_size_name(float_constant->size));
 
         switch(float_constant->size) {
             case RegisterSize::Size32: {
