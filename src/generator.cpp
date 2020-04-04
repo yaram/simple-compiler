@@ -6527,7 +6527,9 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
 
         expect(type, determine_binary_operation_type(*context, binary_operation->range, left.type, right.type));
 
-        if(auto integer = dynamic_cast<Integer*>(type)) {
+        expect(determined_type, coerce_to_default_type(*context, binary_operation->range, type));
+
+        if(auto integer = dynamic_cast<Integer*>(determined_type)) {
             expect(left_register, coerce_to_integer_register_value(
                 context,
                 instructions,
@@ -6672,7 +6674,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     }
                 }
             };
-        } else if(dynamic_cast<Boolean*>(type)) {
+        } else if(dynamic_cast<Boolean*>(determined_type)) {
             if(!dynamic_cast<Boolean*>(left.type)) {
                 error(*context, binary_operation->left->range, "Expected 'bool', got '%s'", type_description(left.type));
 
@@ -6760,7 +6762,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     }
                 }
             };
-        } else if(auto float_type = dynamic_cast<FloatType*>(type)) {
+        } else if(auto float_type = dynamic_cast<FloatType*>(determined_type)) {
             expect(left_register, coerce_to_float_register_value(
                 context,
                 instructions,
@@ -6873,7 +6875,7 @@ static Result<TypedValue> generate_expression(GenerationContext *context, List<I
                     }
                 }
             };
-        } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
+        } else if(auto pointer = dynamic_cast<Pointer*>(determined_type)) {
             expect(left_register, coerce_to_pointer_register_value(
                 context,
                 instructions,
