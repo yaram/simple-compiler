@@ -678,6 +678,7 @@ bool generate_c_object(
                 string_buffer_append(&implementation_source, "}\n");
             }
         } else if(auto constant = dynamic_cast<StaticConstant*>(runtime_static)) {
+            string_buffer_append(&forward_declaration_source, "const ");
             generate_integer_type(&forward_declaration_source, RegisterSize::Size8, false);
             string_buffer_append(&forward_declaration_source, " __attribute__((aligned(");
             string_buffer_append(&forward_declaration_source, constant->alignment);
