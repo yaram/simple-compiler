@@ -1024,6 +1024,12 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
 
                                             last_range = token_range(*context, token);
                                         } break;
+
+                                        default: {
+                                            error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
+
+                                            return { false };
+                                        }
                                     }
 
                                     append(expression_stack, (Expression*)new ArrayLiteral {
@@ -1471,6 +1477,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                 name,
                 parameters,
                 return_type,
+                false,
                 to_array(statements)
             };
 
@@ -1502,93 +1509,128 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
         } break;
 
         case TokenType::Identifier: {
-            if(strcmp(token.identifier, "extern") != 0) {
-                error(*context, "Expected '->', '{', ';' or 'extern', got '%s'", token.identifier);
+            if(strcmp(token.identifier, "extern") == 0) {
+                context->next_token_index += 1;
 
-                return { false };
-            }
+                List<const char *> libraries{};
 
-            context->next_token_index += 1;
+                expect(token, next_token(*context));
 
-            List<const char *> libraries{};
+                FileRange last_range;
+                switch(token.type) {
+                    case TokenType::Semicolon: {
+                        context->next_token_index += 1;
 
-            expect(token, next_token(*context));
+                        last_range = token_range(*context, token);
+                    } break;
 
-            FileRange last_range;
-            switch(token.type) {
-                case TokenType::Semicolon: {
-                    context->next_token_index += 1;
+                    case TokenType::String: {
+                        while(true) {
+                            expect(string, expect_string(context));
 
-                    last_range = token_range(*context, token);
-                } break;
+                            auto library = allocate<char>(string.count + 1);
+                            memcpy(library, string.elements, string.count);
+                            library[string.count] = 0;
 
-                case TokenType::String: {
-                    while(true) {
-                        expect(string, expect_string(context));
+                            append(&libraries, (const char *)library);
 
-                        auto library = allocate<char>(string.count + 1);
-                        memcpy(library, string.elements, string.count);
-                        library[string.count] = 0;
+                            expect(token, next_token(*context));
 
-                        append(&libraries, (const char *)library);
+                            auto done = false;
+                            switch(token.type) {
+                                case TokenType::Comma: {
+                                    context->next_token_index += 1;
+                                } break;
 
-                        expect(token, next_token(*context));
+                                case TokenType::Semicolon: {
+                                    context->next_token_index += 1;
 
-                        auto done = false;
-                        switch(token.type) {
-                            case TokenType::Comma: {
-                                context->next_token_index += 1;
-                            } break;
+                                    done = true;
+                                } break;
 
-                            case TokenType::Semicolon: {
-                                context->next_token_index += 1;
+                                default: {
+                                    error(*context, "Expected ',' or ';', got '%s'", get_token_text(token));
 
-                                done = true;
-                            } break;
+                                    return { false };
+                                } break;
+                            }
 
-                            default: {
-                                error(*context, "Expected ',' or ';', got '%s'", get_token_text(token));
+                            if(done) {
+                                last_range = token_range(*context, token);
 
-                                return { false };
-                            } break;
+                                break;
+                            }
                         }
+                    } break;
 
-                        if(done) {
-                            last_range = token_range(*context, token);
+                    default: {
+                        error(*context, "Expected ';' or a string, got '%s'", get_token_text(token));
 
-                            break;
-                        }
-                    }
-                } break;
+                        return { false };
+                    } break;
+                }
 
-                default: {
-                    error(*context, "Expected ';' or a string, got '%s'", get_token_text(token));
+                auto function_declaration = new FunctionDeclaration {
+                    span_range(name.range, last_range),
+                    name,
+                    parameters,
+                    return_type,
+                    to_array(libraries)
+                };
 
+                return {
+                    true,
+                    function_declaration
+                };
+            } else if(strcmp(token.identifier, "no_mangle") == 0) {
+                context->next_token_index += 1;
+
+                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
                     return { false };
-                } break;
-            }
-            if(token.type != TokenType::String) {
-                error(*context, "Expected a string, got '%s'", get_token_text(token));
+                }
+
+                List<Statement*> statements{};
+
+                while(true) {
+                    expect(token, next_token(*context));
+
+                    if(token.type == TokenType::CloseCurlyBracket) {
+                        context->next_token_index += 1;
+
+                        last_range = token_range(*context, token);
+
+                        break;
+                    } else {
+                        expect(statement, parse_statement(context));
+
+                        append(&statements, statement);
+                    }
+                }
+
+                auto function_declaration = new FunctionDeclaration {
+                    span_range(name.range, last_range),
+                    name,
+                    parameters,
+                    return_type,
+                    true,
+                    to_array(statements)
+                };
+
+                return {
+                    true,
+                    function_declaration
+                };
+            } else {
+                error(*context, "Expected '->', '{', ';', 'extern' or 'no_mangle', got '%s'", token.identifier);
 
                 return { false };
             }
 
-            auto function_declaration = new FunctionDeclaration {
-                span_range(name.range, last_range),
-                name,
-                parameters,
-                return_type,
-                to_array(libraries)
-            };
-
-            return {
-                true,
-                function_declaration
-            };
+            
         } break;
 
         default: {
-            error(*context, "Expected '->', '{', ';' or 'extern', got '%s'", get_token_text(token));
+            error(*context, "Expected '->', '{', ';', 'extern' or 'no_mangle', got '%s'", get_token_text(token));
 
             return { false };
         } break;
@@ -2339,7 +2381,8 @@ static Result<Statement*> parse_statement(Context *context) {
                                         span_range(first_range, token_range(*context, token)),
                                         identifier,
                                         expression,
-                                        nullptr
+                                        false,
+                                        false
                                     };
 
                                     return {
@@ -2368,8 +2411,50 @@ static Result<Statement*> parse_statement(Context *context) {
                                     };
                                 } break;
 
+                                case TokenType::Identifier: {
+                                    if(strcmp(token.identifier, "extern") == 0) {
+                                        context->next_token_index += 1;
+
+                                        expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+
+                                        auto variable_declaration = new VariableDeclaration {
+                                            span_range(first_range, last_range),
+                                            identifier,
+                                            expression,
+                                            true,
+                                            false
+                                        };
+
+                                        return {
+                                            true,
+                                            variable_declaration
+                                        };
+                                    } else if(strcmp(token.identifier, "no_mangle") == 0) {
+                                        context->next_token_index += 1;
+
+                                        expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+
+                                        auto variable_declaration = new VariableDeclaration {
+                                            span_range(first_range, last_range),
+                                            identifier,
+                                            expression,
+                                            false,
+                                            true
+                                        };
+
+                                        return {
+                                            true,
+                                            variable_declaration
+                                        };
+                                    } else {
+                                        error(*context, "Expected '=', ';', 'extern' or 'no_mangle', got '%s'", token.identifier);
+
+                                        return { false };
+                                    }
+                                } break;
+
                                 default: {
-                                    error(*context, "Expected '=' or ';', got '%s'", get_token_text(token));
+                                    error(*context, "Expected '=', ';', 'extern' or 'no_mangle', got '%s'", get_token_text(token));
 
                                     return { false };
                                 } break;

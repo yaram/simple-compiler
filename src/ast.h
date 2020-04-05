@@ -290,6 +290,8 @@ struct FunctionDeclaration : Statement {
 
     bool is_external;
 
+    bool is_no_mangle;
+
     Array<Statement*> statements;
 
     Array<const char *> external_libraries;
@@ -299,6 +301,7 @@ struct FunctionDeclaration : Statement {
         Identifier name,
         Array<FunctionParameter> parameters,
         Expression *return_type,
+        bool is_no_mangle,
         Array<Statement*> statements
     ) :
         Statement { range },
@@ -306,6 +309,7 @@ struct FunctionDeclaration : Statement {
         parameters { parameters },
         return_type { return_type },
         is_external { false },
+        is_no_mangle { is_no_mangle },
         statements { statements }
     {}
 
@@ -395,6 +399,9 @@ struct VariableDeclaration : Statement {
     Expression *type;
     Expression *initializer;
 
+    bool is_external;
+    bool is_no_mangle;
+
     VariableDeclaration(
         FileRange range,
         Identifier name,
@@ -404,7 +411,24 @@ struct VariableDeclaration : Statement {
         Statement { range },
         name { name },
         type { type },
-        initializer { initializer}
+        initializer { initializer },
+        is_external { false },
+        is_no_mangle { false }
+    {}
+
+    VariableDeclaration(
+        FileRange range,
+        Identifier name,
+        Expression *type,
+        bool is_external,
+        bool is_no_mangle
+    ) :
+        Statement { range },
+        name { name },
+        type { type },
+        initializer { nullptr },
+        is_external { is_external },
+        is_no_mangle { is_no_mangle }
     {}
 };
 
