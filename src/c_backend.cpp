@@ -698,6 +698,14 @@ bool generate_c_object(
             }
 
             string_buffer_append(&forward_declaration_source, "};\n");
+        } else if(auto variable = dynamic_cast<StaticVariable*>(runtime_static)) {
+            generate_integer_type(&forward_declaration_source, RegisterSize::Size8, false);
+            string_buffer_append(&forward_declaration_source, " __attribute__((aligned(");
+            string_buffer_append(&forward_declaration_source, variable->alignment);
+            string_buffer_append(&forward_declaration_source, ")))");
+            string_buffer_append(&forward_declaration_source, variable->name);
+
+            string_buffer_append(&forward_declaration_source, ";\n");
         } else {
             abort();
         }
