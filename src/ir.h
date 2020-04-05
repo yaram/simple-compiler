@@ -300,4 +300,12 @@ struct StaticConstant : RuntimeStatic {
     StaticConstant() {}
 };
 
+struct StaticVariable : RuntimeStatic {
+    size_t size;
+
+    size_t alignment;
+
+    StaticVariable() {}
+};
+
 void print_static(RuntimeStatic *runtime_static);

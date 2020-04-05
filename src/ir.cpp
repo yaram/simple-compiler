@@ -403,7 +403,9 @@ void print_static(RuntimeStatic *runtime_static) {
             }
         }
     } else if(auto constant = dynamic_cast<StaticConstant*>(runtime_static)) {
-        printf("%s %zu", constant->name, constant->data.count);
+        printf(" %zu(%zu) (const)", constant->data.count, constant->alignment);
+    } else if(auto variable = dynamic_cast<StaticVariable*>(runtime_static)) {
+        printf(" %zu(%zu)", variable->size, variable->alignment);
     } else {
         abort();
     }

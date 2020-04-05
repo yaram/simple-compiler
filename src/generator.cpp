@@ -675,6 +675,14 @@ struct FunctionName {
     const char *name;
 };
 
+struct RegisteredStaticVariable {
+    VariableDeclaration *declaration;
+
+    const char *mangled_name;
+
+    Type *type;
+};
+
 struct GenerationContext {
     Array<ConstantParameter> constant_parameters;
 
@@ -692,6 +700,8 @@ struct GenerationContext {
     List<ParsedFile> parsed_files;
 
     List<FunctionName> function_names;
+
+    List<RegisteredStaticVariable> static_variables;
 };
 
 static void error(ConstantScope scope, FileRange range, const char *format, ...) {
@@ -3309,6 +3319,16 @@ static Result<Type*> evaluate_type_expression(GlobalInfo info, ConstantScope sco
     }
 }
 
+static bool does_runtime_static_exist(GenerationContext context, const char *name) {
+    for(auto runtime_static : context.statics) {
+        if(strcmp(runtime_static->name, name) == 0) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantScope scope, GenerationContext *context, Statement *declaration) {
     if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(declaration)) {
         for(auto parameter : function_declaration->parameters) {
@@ -3515,6 +3535,55 @@ static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantS
             statements = new_statements;
         }
 
+        ConstantScope module_scope;
+        module_scope.statements = statements;
+        module_scope.constant_parameters = {};
+        module_scope.is_top_level = true;
+        module_scope.file_path = import_file_path_absolute;
+
+        for(auto statement : statements) {
+            if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+                if(variable_declaration->initializer != nullptr) {
+                    error(module_scope, variable_declaration->type->range, "Static variables cannot have an initializer");
+                }
+
+                expect(type, evaluate_type_expression(info, module_scope, context, variable_declaration->type));
+
+                if(!is_runtime_type(type)) {
+                    error(module_scope, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
+
+                    return { false };
+                }
+
+                char *mangled_name_buffer{};
+
+                string_buffer_append(&mangled_name_buffer, "variable_");
+
+                char buffer[32];
+                sprintf(buffer, "%zu", context->static_variables.count);
+                string_buffer_append(&mangled_name_buffer, context->static_variables.count);
+
+                if(does_runtime_static_exist(*context, mangled_name_buffer)) {
+                    error(module_scope, variable_declaration->name.range, "Duplicate global name '%s'", mangled_name_buffer);
+
+                    return { false };
+                }
+
+                append(&context->static_variables, {
+                    variable_declaration,
+                    mangled_name_buffer,
+                    type
+                });
+
+                auto static_variable = new StaticVariable;
+                static_variable->name = mangled_name_buffer;
+                static_variable->size = get_type_size(info, type);
+                static_variable->alignment = get_type_alignment(info, type);
+
+                append(&context->statics, (RuntimeStatic*)static_variable);
+            }
+        }
+
         return {
             true,
             {
@@ -3550,16 +3619,6 @@ static bool add_new_variable(GenerationContext *context, Identifier name, size_t
     });
 
     return true;
-}
-
-static bool does_runtime_static_exist(GenerationContext context, const char *name) {
-    for(auto runtime_static : context.statics) {
-        if(strcmp(runtime_static->name, name) == 0) {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 struct RegisterValue : Value {
@@ -5276,6 +5335,31 @@ static Result<TypedValue> generate_expression(
                                     value.value
                                 }
                             };
+                        } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+                            if(strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
+                                for(auto static_variable : context->static_variables) {
+                                    if(static_variable.declaration == variable_declaration) {
+                                        auto address_register = append_reference_static(
+                                            context,
+                                            instructions,
+                                            named_reference->range.first_line,
+                                            static_variable.mangled_name
+                                        );
+
+                                        return {
+                                            true,
+                                            {
+                                                static_variable.type,
+                                                new AddressValue {
+                                                    address_register
+                                                }
+                                            }
+                                        };
+                                    }
+                                }
+
+                                abort();
+                            }
                         }
                     }
                 }
@@ -5338,7 +5422,57 @@ static Result<TypedValue> generate_expression(
                                     value.value
                                 }
                             };
+                        } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+                            if(strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
+                                for(auto static_variable : context->static_variables) {
+                                    if(static_variable.declaration == variable_declaration) {
+                                        auto address_register = append_reference_static(
+                                            context,
+                                            instructions,
+                                            named_reference->range.first_line,
+                                            static_variable.mangled_name
+                                        );
+
+                                        return {
+                                            true,
+                                            {
+                                                static_variable.type,
+                                                new AddressValue {
+                                                    address_register
+                                                }
+                                            }
+                                        };
+                                    }
+                                }
+
+                                abort();
+                            }
                         }
+                    }
+                } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+                    if(current_scope->is_top_level && strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
+                        for(auto static_variable : context->static_variables) {
+                            if(static_variable.declaration == variable_declaration) {
+                                auto address_register = append_reference_static(
+                                    context,
+                                    instructions,
+                                    named_reference->range.first_line,
+                                    static_variable.mangled_name
+                                );
+
+                                return {
+                                    true,
+                                    {
+                                        static_variable.type,
+                                        new AddressValue {
+                                            address_register
+                                        }
+                                    }
+                                };
+                            }
+                        }
+
+                        abort();
                     }
                 }
             }
@@ -5830,6 +5964,31 @@ static Result<TypedValue> generate_expression(
                             value.value
                         }
                     };
+                } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+                    if(strcmp(variable_declaration->name.text, member_reference->name.text) == 0) {
+                        for(auto static_variable : context->static_variables) {
+                            if(static_variable.declaration == variable_declaration) {
+                                auto address_register = append_reference_static(
+                                    context,
+                                    instructions,
+                                    member_reference->range.first_line,
+                                    static_variable.mangled_name
+                                );
+
+                                return {
+                                    true,
+                                    {
+                                        static_variable.type,
+                                        new AddressValue {
+                                            address_register
+                                        }
+                                    }
+                                };
+                            }
+                        }
+
+                        abort();
+                    }
                 }
             }
 
@@ -8176,15 +8335,15 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
         main_file_statements
     });
 
+    ConstantScope main_file_scope;
+    main_file_scope.statements = main_file_statements;
+    main_file_scope.constant_parameters = {};
+    main_file_scope.is_top_level = true;
+    main_file_scope.file_path = main_file_path;
+
     auto main_found = false;
     for(auto statement : main_file_statements) {
         if(match_declaration(statement, "main")) {
-            ConstantScope main_file_scope;
-            main_file_scope.statements = main_file_statements;
-            main_file_scope.constant_parameters = {};
-            main_file_scope.is_top_level = true;
-            main_file_scope.file_path = main_file_path;
-
             expect(value, resolve_declaration(info, main_file_scope, &context, statement));
 
             if(auto function = dynamic_cast<FunctionTypeType*>(value.type)) {
@@ -8242,6 +8401,49 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
         fprintf(stderr, "Error: 'main' function not found\n");
 
         return { false };
+    }
+
+    for(auto statement : main_file_statements) {
+        if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+            if(variable_declaration->initializer != nullptr) {
+                error(main_file_scope, variable_declaration->type->range, "Static variables cannot have an initializer");
+            }
+
+            expect(type, evaluate_type_expression(info, main_file_scope, &context, variable_declaration->type));
+
+            if(!is_runtime_type(type)) {
+                error(main_file_scope, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
+
+                return { false };
+            }
+
+            char *mangled_name_buffer{};
+
+            string_buffer_append(&mangled_name_buffer, "variable_");
+
+            char buffer[32];
+            sprintf(buffer, "%zu", context.static_variables.count);
+            string_buffer_append(&mangled_name_buffer, context.static_variables.count);
+
+            if(does_runtime_static_exist(context, mangled_name_buffer)) {
+                error(main_file_scope, variable_declaration->name.range, "Duplicate global name '%s'", mangled_name_buffer);
+
+                return { false };
+            }
+
+            append(&context.static_variables, {
+                variable_declaration,
+                mangled_name_buffer,
+                type
+            });
+
+            auto static_variable = new StaticVariable;
+            static_variable->name = mangled_name_buffer;
+            static_variable->size = get_type_size(info, type);
+            static_variable->alignment = get_type_alignment(info, type);
+
+            append(&context.statics, (RuntimeStatic*)static_variable);
+        }
     }
 
     List<const char*> libraries {};
