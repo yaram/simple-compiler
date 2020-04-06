@@ -503,39 +503,66 @@ bool generate_c_object(
 
                         string_buffer_append(&implementation_source, "}");
                     } else if(auto function_call = dynamic_cast<FunctionCallInstruction*>(instruction)) {
-                        Function callee;
-                        for(auto runtime_static : statics) {
-                            if(strcmp(runtime_static->name, function_call->function_name) == 0) {
-                                auto function = dynamic_cast<Function*>(runtime_static);
-                                assert(function);
-
-                                callee = *function;
-
-                                break;
-                            }
-                        }
-
                         if(function_call->has_return) {
-                            assert(callee.has_return);
-
-                            if(callee.is_return_float) {
-                                generate_float_type(&implementation_source, callee.return_size);
+                            if(function_call->is_return_float) {
+                                generate_float_type(&implementation_source, function_call->return_size);
                             } else {
-                                generate_integer_type(&implementation_source, callee.return_size, false);
+                                generate_integer_type(&implementation_source, function_call->return_size, false);
                             }
+
                             string_buffer_append(&implementation_source, " reg_");
                             string_buffer_append(&implementation_source, function_call->return_register);
                             string_buffer_append(&implementation_source, "=");
                         }
 
-                        string_buffer_append(&implementation_source, callee.name);
                         string_buffer_append(&implementation_source, "(");
 
-                        for(size_t i = 0; i < function_call->parameter_registers.count; i += 1) {
-                            string_buffer_append(&implementation_source, " reg_");
-                            string_buffer_append(&implementation_source, function_call->parameter_registers[i]);
+                        string_buffer_append(&implementation_source, "(");
+                        if(function_call->has_return) {
+                            if(function_call->is_return_float) {
+                                generate_float_type(&implementation_source, function_call->return_size);
+                            } else {
+                                generate_integer_type(&implementation_source, function_call->return_size, false);
+                            }
+                        } else {
+                            string_buffer_append(&implementation_source, "void");
+                        }
+                        string_buffer_append(&implementation_source, "(*)");
+                        string_buffer_append(&implementation_source, "(");
+                        for(size_t i = 0; i < function_call->parameters.count; i += 1) {
+                            if(function_call->parameters[i].is_float) {
+                                generate_float_type(&implementation_source, function_call->parameters[i].size);
+                            } else {
+                                generate_integer_type(&implementation_source, function_call->parameters[i].size, false);
+                            }
 
-                            if(i != function_call->parameter_registers.count - 1) {
+                            if(i != function_call->parameters.count - 1) {
+                                string_buffer_append(&implementation_source, ",");
+                            }
+                        }
+                        string_buffer_append(&implementation_source, ")");
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "reg_");
+                        string_buffer_append(&implementation_source, function_call->address_register);
+
+                        string_buffer_append(&implementation_source, ")");
+
+                        string_buffer_append(&implementation_source, "(");
+
+                        for(size_t i = 0; i < function_call->parameters.count; i += 1) {
+                            string_buffer_append(&implementation_source, "(");
+                            if(function_call->parameters[i].is_float) {
+                                generate_float_type(&implementation_source, function_call->parameters[i].size);
+                            } else {
+                                generate_integer_type(&implementation_source, function_call->parameters[i].size, false);
+                            }
+                            string_buffer_append(&implementation_source, ")");
+
+                            string_buffer_append(&implementation_source, " reg_");
+                            string_buffer_append(&implementation_source, function_call->parameters[i].register_index);
+
+                            if(i != function_call->parameters.count - 1) {
                                 string_buffer_append(&implementation_source, ",");
                             }
                         }
@@ -546,7 +573,11 @@ bool generate_c_object(
 
                         if(function->has_return) {
                             string_buffer_append(&implementation_source, "(");
-                            generate_integer_type(&implementation_source, function->return_size, false);
+                            if(function->is_return_float) {
+                                generate_float_type(&implementation_source, function->return_size);
+                            } else {
+                                generate_integer_type(&implementation_source, function->return_size, false);
+                            }
                             string_buffer_append(&implementation_source, ")");
 
                             string_buffer_append(&implementation_source, "reg_");
