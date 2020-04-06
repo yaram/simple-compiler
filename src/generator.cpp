@@ -6207,12 +6207,12 @@ static Result<TypedValue> generate_expression(
                 return_type_representation = get_type_representation(info, function->return_type);
             }
 
-            auto runtime_parameter_count = parameter_count;
+            auto instruction_parameter_count = parameter_count;
             if(has_return && !return_type_representation.is_in_register) {
-                runtime_parameter_count += 1;
+                instruction_parameter_count += 1;
             }
 
-            auto parameter_registers = allocate<size_t>(runtime_parameter_count);
+            auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(instruction_parameter_count);
 
             for(size_t i = 0; i < parameter_count; i += 1) {
                 expect(parameter_value, generate_expression(info, scope, context, instructions, function_call->parameters[i]));
@@ -6229,17 +6229,36 @@ static Result<TypedValue> generate_expression(
                     false
                 ));
 
-                parameter_registers[i] = parameter_register;
+                auto representation = get_type_representation(info, function->parameters[i]);
+
+                RegisterSize size;
+                if(representation.is_in_register) {
+                    size = representation.value_size;
+                } else {
+                    size = info.address_integer_size;
+                }
+
+                instruction_parameters[i] = {
+                    size,
+                    representation.is_in_register && representation.is_float,
+                    parameter_register
+                };
             }
 
             if(has_return && !return_type_representation.is_in_register) {
-                parameter_registers[runtime_parameter_count - 1] = append_allocate_local(
+                auto parameter_register = append_allocate_local(
                     context,
                     instructions,
                     function_call->range.first_line,
                     get_type_size(info, function->return_type),
                     get_type_alignment(info, function->return_type)
                 );
+
+                instruction_parameters[instruction_parameter_count - 1] = {
+                    info.address_integer_size,
+                    false,
+                    parameter_register
+                };
             }
 
             auto function_value = dynamic_cast<FunctionConstant*>(expression_value.value);
@@ -6288,10 +6307,12 @@ static Result<TypedValue> generate_expression(
                 });
             }
 
+            auto address_register = append_reference_static(context, instructions, function_call->range.first_line, mangled_name);
+
             auto function_call_instruction = new FunctionCallInstruction;
             function_call_instruction->line = function_call->range.first_line;
-            function_call_instruction->function_name = mangled_name;
-            function_call_instruction->parameter_registers = { parameter_count, parameter_registers };
+            function_call_instruction->address_register = address_register;
+            function_call_instruction->parameters = { parameter_count, instruction_parameters };
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
 
             Value *value;
@@ -6299,6 +6320,8 @@ static Result<TypedValue> generate_expression(
                 if(return_type_representation.is_in_register) {
                     auto return_register = allocate_register(context);
 
+                    function_call_instruction->return_size = return_type_representation.value_size;
+                    function_call_instruction->is_return_float = return_type_representation.is_float;
                     function_call_instruction->return_register = return_register;
 
                     value = new RegisterValue {
@@ -6306,7 +6329,7 @@ static Result<TypedValue> generate_expression(
                     };
                 } else {
                     value = new RegisterValue {
-                        parameter_registers[runtime_parameter_count - 1]
+                        instruction_parameters[instruction_parameter_count - 1].register_index
                     };
                 }
             } else {
@@ -6467,12 +6490,12 @@ static Result<TypedValue> generate_expression(
 
             context->constant_parameters = {};
 
-            auto parameter_register_count = runtime_parameter_count;
+            auto instruction_parameter_count = runtime_parameter_count;
             if(has_return && !return_type_representation.is_in_register) {
-                parameter_register_count += 1;
+                instruction_parameter_count += 1;
             }
 
-            auto parameter_registers = allocate<size_t>(parameter_register_count);
+            auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(instruction_parameter_count);
 
             {
                 size_t runtime_parameter_index = 0;
@@ -6508,7 +6531,20 @@ static Result<TypedValue> generate_expression(
                             false
                         ));
 
-                        parameter_registers[runtime_parameter_index] = parameter_register;
+                        auto representation = get_type_representation(info, parameter_types[i]);
+
+                        RegisterSize size;
+                        if(representation.is_in_register) {
+                            size = representation.value_size;
+                        } else {
+                            size = info.address_integer_size;
+                        }
+
+                        instruction_parameters[runtime_parameter_index] = {
+                            size,
+                            representation.is_in_register && representation.is_float,
+                            parameter_register
+                        };
 
                         runtime_parameter_index += 1;
                     }
@@ -6517,13 +6553,19 @@ static Result<TypedValue> generate_expression(
             }
 
             if(has_return && !return_type_representation.is_in_register) {
-                parameter_registers[parameter_register_count - 1] = append_allocate_local(
+                auto parameter_register = append_allocate_local(
                     context,
                     instructions,
                     function_call->range.first_line,
                     get_type_size(info, return_type),
                     get_type_alignment(info, return_type)
                 );
+
+                instruction_parameters[instruction_parameter_count - 1] = {
+                    info.address_integer_size,
+                    false,
+                    parameter_register
+                };
             }
 
             const char *mangled_name;
@@ -6574,9 +6616,11 @@ static Result<TypedValue> generate_expression(
                 function_value->parent
             });
 
+            auto address_register = append_reference_static(context, instructions, function_call->range.first_line, mangled_name);
+
             auto function_call_instruction = new FunctionCallInstruction;
-            function_call_instruction->function_name = mangled_name;
-            function_call_instruction->parameter_registers = { parameter_register_count, parameter_registers };
+            function_call_instruction->address_register = address_register;
+            function_call_instruction->parameters = { instruction_parameter_count, instruction_parameters };
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
 
             Value *value;
@@ -6584,6 +6628,8 @@ static Result<TypedValue> generate_expression(
                 if(return_type_representation.is_in_register) {
                     auto return_register = allocate_register(context);
 
+                    function_call_instruction->return_size = return_type_representation.value_size;
+                    function_call_instruction->is_return_float = return_type_representation.is_float;
                     function_call_instruction->return_register = return_register;
 
                     value = new RegisterValue {
@@ -6591,7 +6637,7 @@ static Result<TypedValue> generate_expression(
                     };
                 } else {
                     value = new RegisterValue {
-                        parameter_registers[parameter_register_count - 1]
+                        instruction_parameters[instruction_parameter_count - 1].register_index
                     };
                 }
             } else {
@@ -6667,6 +6713,127 @@ static Result<TypedValue> generate_expression(
             } else {
                 abort();
             }
+        } else if(auto pointer = dynamic_cast<Pointer*>(expression_value.type)) {
+            auto function = dynamic_cast<FunctionTypeType*>(pointer->type);
+            if(!function) {
+                error(scope, function_call->expression->range, "Cannot call '%s'", type_description(expression_value.type));
+
+                return { false };
+            }
+
+            auto address_register = generate_in_register_pointer_value(info, context, instructions, function_call->expression->range, expression_value.value);
+
+            auto parameter_count = function->parameters.count;
+
+            if(function_call->parameters.count != parameter_count) {
+                error(
+                    scope,
+                    function_call->range,
+                    "Incorrect number of parameters. Expected %zu, got %zu",
+                    parameter_count,
+                    function_call->parameters.count
+                );
+
+                return { false };
+            }
+
+            auto has_return = !dynamic_cast<Void*>(function->return_type);
+
+            RegisterRepresentation return_type_representation;
+            if(has_return) {
+                return_type_representation = get_type_representation(info, function->return_type);
+            }
+
+            auto instruction_parameter_count = parameter_count;
+            if(has_return && !return_type_representation.is_in_register) {
+                instruction_parameter_count += 1;
+            }
+
+            auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(instruction_parameter_count);
+
+            for(size_t i = 0; i < parameter_count; i += 1) {
+                expect(parameter_value, generate_expression(info, scope, context, instructions, function_call->parameters[i]));
+
+                expect(parameter_register, coerce_to_type_register(
+                    info,
+                    scope,
+                    context,
+                    instructions,
+                    function_call->parameters[i]->range,
+                    parameter_value.type,
+                    parameter_value.value,
+                    function->parameters[i],
+                    false
+                ));
+
+                auto representation = get_type_representation(info, function->parameters[i]);
+
+                RegisterSize size;
+                if(representation.is_in_register) {
+                    size = representation.value_size;
+                } else {
+                    size = info.address_integer_size;
+                }
+
+                instruction_parameters[i] = {
+                    size,
+                    representation.is_in_register && representation.is_float,
+                    parameter_register
+                };
+            }
+
+            if(has_return && !return_type_representation.is_in_register) {
+                auto parameter_register = append_allocate_local(
+                    context,
+                    instructions,
+                    function_call->range.first_line,
+                    get_type_size(info, function->return_type),
+                    get_type_alignment(info, function->return_type)
+                );
+
+                instruction_parameters[instruction_parameter_count - 1] = {
+                    info.address_integer_size,
+                    false,
+                    parameter_register
+                };
+            }
+
+            auto function_call_instruction = new FunctionCallInstruction;
+            function_call_instruction->line = function_call->range.first_line;
+            function_call_instruction->address_register = address_register;
+            function_call_instruction->parameters = { parameter_count, instruction_parameters };
+            function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
+
+            Value *value;
+            if(has_return) {
+                if(return_type_representation.is_in_register) {
+                    auto return_register = allocate_register(context);
+
+                    function_call_instruction->return_size = return_type_representation.value_size;
+                    function_call_instruction->is_return_float = return_type_representation.is_float;
+                    function_call_instruction->return_register = return_register;
+
+                    value = new RegisterValue {
+                        return_register
+                    };
+                } else {
+                    value = new RegisterValue {
+                        instruction_parameters[instruction_parameter_count - 1].register_index
+                    };
+                }
+            } else {
+                value = new VoidConstant;
+            }
+
+            append(instructions, (Instruction*)function_call_instruction);
+
+            return {
+                true,
+                {
+                    function->return_type,
+                    value
+                }
+            };
         } else if(dynamic_cast<TypeType*>(expression_value.type)) {
             auto type = dynamic_cast<Type*>(expression_value.value);
             assert(type);

@@ -177,11 +177,21 @@ struct Branch : Instruction {
 };
 
 struct FunctionCallInstruction : Instruction {
-    const char *function_name;
+    struct Parameter {
+        RegisterSize size;
 
-    Array<size_t> parameter_registers;
+        bool is_float;
+
+        size_t register_index;
+    };
+
+    size_t address_register;
+
+    Array<Parameter> parameters;
 
     bool has_return;
+    RegisterSize return_size;
+    bool is_return_float;
     size_t return_register;
 
     FunctionCallInstruction() {}

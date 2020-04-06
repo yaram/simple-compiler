@@ -269,12 +269,18 @@ void print_instruction(Instruction *instruction, bool has_return) {
             branch->destination_instruction
         );
     } else if(auto function_call = dynamic_cast<FunctionCallInstruction*>(instruction)) {
-        printf("CALL %s (", function_call->function_name);
+        printf("CALL r%zu (", function_call->address_register);
 
-        for(size_t i = 0; i < function_call->parameter_registers.count; i += 1) {
-            printf("r%zu", function_call->parameter_registers[i]);
+        for(size_t i = 0; i < function_call->parameters.count; i += 1) {
+            printf("r%zu: ", function_call->parameters[i].register_index);
 
-            if(i != function_call->parameter_registers.count - 1) {
+            if(function_call->parameters[i].is_float) {
+                printf("f");
+            }
+
+            printf("%s", register_size_name(function_call->parameters[i].size));
+
+            if(i != function_call->parameters.count - 1) {
                 printf(", ");
             }
         }
@@ -282,7 +288,13 @@ void print_instruction(Instruction *instruction, bool has_return) {
         printf(")");
 
         if(function_call->has_return) {
-            printf(" r%zu", function_call->return_register);
+            printf(" r%zu: ", function_call->return_register);
+            
+            if(function_call->is_return_float) {
+                printf("f");
+            }
+
+            printf("%s", register_size_name(function_call->return_size));
         }
     } else if(auto return_instruction = dynamic_cast<ReturnInstruction*>(instruction)) {
         printf("RET");
