@@ -3377,7 +3377,7 @@ static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantS
         }
 
         const char *mangled_name;
-        if(function_declaration->is_external) {
+        if(function_declaration->is_external || function_declaration->is_no_mangle) {
             mangled_name = function_declaration->name.text;
         } else {
             auto found = false;
@@ -3555,30 +3555,35 @@ static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantS
                     return { false };
                 }
 
-                char *mangled_name_buffer{};
+                const char *mangled_name;
+                if(variable_declaration->is_external || variable_declaration->is_no_mangle) {
+                    mangled_name = variable_declaration->name.text;
+                } else {
+                    char *buffer{};
 
-                string_buffer_append(&mangled_name_buffer, "variable_");
+                    string_buffer_append(&buffer, "variable_");
+                    string_buffer_append(&buffer, context->static_variables.count);
 
-                char buffer[32];
-                sprintf(buffer, "%zu", context->static_variables.count);
-                string_buffer_append(&mangled_name_buffer, context->static_variables.count);
+                    mangled_name = buffer;
+                }
 
-                if(does_runtime_static_exist(*context, mangled_name_buffer)) {
-                    error(module_scope, variable_declaration->name.range, "Duplicate global name '%s'", mangled_name_buffer);
+                if(does_runtime_static_exist(*context, mangled_name)) {
+                    error(module_scope, variable_declaration->name.range, "Duplicate global name '%s'", mangled_name);
 
                     return { false };
                 }
 
                 append(&context->static_variables, {
                     variable_declaration,
-                    mangled_name_buffer,
+                    mangled_name,
                     type
                 });
 
                 auto static_variable = new StaticVariable;
-                static_variable->name = mangled_name_buffer;
+                static_variable->name = mangled_name;
                 static_variable->size = get_type_size(info, type);
                 static_variable->alignment = get_type_alignment(info, type);
+                static_variable->is_external = variable_declaration->is_external;
 
                 append(&context->statics, (RuntimeStatic*)static_variable);
             }
@@ -6563,7 +6568,7 @@ static Result<TypedValue> generate_expression(
             }
 
             const char *mangled_name;
-            if(polymorphic_function_value->declaration->is_external) {
+            if(polymorphic_function_value->declaration->is_external || polymorphic_function_value->declaration->is_no_mangle) {
                 mangled_name = polymorphic_function_value->declaration->name.text;
             } else {
                 char *mangled_name_buffer{};
@@ -7854,6 +7859,18 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         FileRange type_range;
         size_t address_register;
 
+        if(variable_declaration->is_external) {
+            error(scope, variable_declaration->range, "Local variables cannot be external");
+
+            return false;
+        }
+
+        if(variable_declaration->is_no_mangle) {
+            error(scope, variable_declaration->range, "Local variables cannot be no_mangle");
+
+            return false;
+        }
+
         if(variable_declaration->type != nullptr && variable_declaration->initializer != nullptr) {
             expect(type_value, evaluate_type_expression_runtime(info, scope, context, instructions, variable_declaration->type));
             
@@ -8417,30 +8434,35 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                 return { false };
             }
 
-            char *mangled_name_buffer{};
+            const char *mangled_name;
+            if(variable_declaration->is_external || variable_declaration->is_no_mangle) {
+                mangled_name = variable_declaration->name.text;
+            } else {
+                char *buffer{};
 
-            string_buffer_append(&mangled_name_buffer, "variable_");
+                string_buffer_append(&buffer, "variable_");
+                string_buffer_append(&buffer, context.static_variables.count);
 
-            char buffer[32];
-            sprintf(buffer, "%zu", context.static_variables.count);
-            string_buffer_append(&mangled_name_buffer, context.static_variables.count);
+                mangled_name = buffer;
+            }
 
-            if(does_runtime_static_exist(context, mangled_name_buffer)) {
-                error(main_file_scope, variable_declaration->name.range, "Duplicate global name '%s'", mangled_name_buffer);
+            if(does_runtime_static_exist(context, mangled_name)) {
+                error(main_file_scope, variable_declaration->name.range, "Duplicate global name '%s'", mangled_name);
 
                 return { false };
             }
 
             append(&context.static_variables, {
                 variable_declaration,
-                mangled_name_buffer,
+                mangled_name,
                 type
             });
 
             auto static_variable = new StaticVariable;
-            static_variable->name = mangled_name_buffer;
+            static_variable->name = mangled_name;
             static_variable->size = get_type_size(info, type);
             static_variable->alignment = get_type_alignment(info, type);
+            static_variable->is_external = variable_declaration->is_external;
 
             append(&context.statics, (RuntimeStatic*)static_variable);
         }

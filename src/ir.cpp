@@ -406,6 +406,10 @@ void print_static(RuntimeStatic *runtime_static) {
         printf(" %zu(%zu) (const)", constant->data.count, constant->alignment);
     } else if(auto variable = dynamic_cast<StaticVariable*>(runtime_static)) {
         printf(" %zu(%zu)", variable->size, variable->alignment);
+
+        if(variable->is_external) {
+            printf(" extern");
+        }
     } else {
         abort();
     }

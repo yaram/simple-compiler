@@ -305,6 +305,8 @@ struct StaticVariable : RuntimeStatic {
 
     size_t alignment;
 
+    bool is_external;
+
     StaticVariable() {}
 };
 
