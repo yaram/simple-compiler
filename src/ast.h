@@ -274,8 +274,6 @@ struct FunctionType : Expression {
 struct Statement {
     FileRange range;
 
-    Statement *parent;
-
     Statement(FileRange range) : range { range } {}
 
     virtual ~Statement() {}

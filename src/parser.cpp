@@ -2452,44 +2452,6 @@ static Result<Statement*> parse_statement(Context *context) {
     }
 }
 
-void set_statement_parents(Statement *statement) {
-    if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(statement)) {
-        if(!function_declaration->is_external) {
-            for(auto child : function_declaration->statements) {
-                child->parent = statement;
-
-                set_statement_parents(child);
-            }
-        }
-    } else if(auto if_statement = dynamic_cast<IfStatement*>(statement)) {
-        for(auto child : if_statement->statements) {
-            child->parent = statement;
-
-            set_statement_parents(child);
-        }
-
-        for(auto else_if : if_statement->else_ifs) {
-            for(auto child : else_if.statements) {
-                child->parent = statement;
-
-                set_statement_parents(child);
-            }
-        }
-
-        for(auto child : if_statement->else_statements) {
-            child->parent = statement;
-
-            set_statement_parents(child);
-        }
-    } else if(auto while_loop = dynamic_cast<WhileLoop*>(statement)) {
-        for(auto child : while_loop->statements) {
-            child->parent = statement;
-
-            set_statement_parents(child);
-        }
-    }
-}
-
 Result<Array<Statement*>> parse_tokens(const char *path, Array<Token> tokens) {
     Context context {
         path,
@@ -2502,12 +2464,6 @@ Result<Array<Statement*>> parse_tokens(const char *path, Array<Token> tokens) {
         expect(statement, parse_statement(&context));
 
         append(&statements, statement);
-    }
-
-    for(auto statement : statements) {
-        statement->parent = nullptr;
-
-        set_statement_parents(statement);
     }
 
     return {
