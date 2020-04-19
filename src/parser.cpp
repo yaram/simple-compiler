@@ -240,365 +240,397 @@ static Expression *named_reference_from_identifier(Identifier identifier) {
     };
 }
 
-enum struct OperationType {
-    FunctionCall,
-    MemberReference,
-    IndexReference,
-
-    Pointer,
-    ArrayType,
-    BooleanInvert,
-    Negation,
-
-    Cast,
-
-    Multiplication,
-    Division,
-    Modulo,
-
-    Addition,
-    Subtraction,
-
-    Equal,
-    NotEqual,
-    LessThan,
-    GreaterThan,
-
-    BitwiseAnd,
-
-    BitwiseOr,
-
+enum struct OperatorPrecedence {
+    None,
+    BooleanOr,
     BooleanAnd,
-
-    BooleanOr
+    BitwiseOr,
+    BitwiseAnd,
+    Comparison,
+    Additive,
+    Multiplicitive,
+    Cast,
+    PrefixUnary,
+    PostfixUnary
 };
 
-unsigned int operation_precedences[] = {
-    1, 1, 1,
-    2, 2, 2, 2,
-    3,
-    4, 4, 4,
-    5, 5,
-    8, 8, 8, 8,
-    9,
-    11,
-    12,
-    13
-};
+static Result<FunctionParameter> parse_function_parameter_second_half(Context *context, Identifier name, bool is_constant);
 
-struct Operation {
-    OperationType type;
+static Result<Expression*> parse_expression_continuation(Context *context, OperatorPrecedence minimum_precedence, Expression *expression);
 
-    FileRange range;
-
-    union {
-        Identifier member_reference;
-
-        Expression *index_reference;
-
-        Expression *array_type;
-
-        Array<Expression*> function_call;
-    };
-};
-
-static void apply_operation(List<Expression*> *expression_stack, Operation operation) {
-    Expression *expression;
-
-    switch(operation.type) {
-        case OperationType::MemberReference: {
-            auto sub_expression = take_last(expression_stack);
-
-            expression = new MemberReference {
-                span_range(sub_expression->range, operation.member_reference.range),
-                sub_expression,
-                operation.member_reference
-            };
-        } break;
-
-        case OperationType::IndexReference: {
-            auto sub_expression = take_last(expression_stack);
-
-            expression = new IndexReference {
-                span_range(sub_expression->range, operation.range),
-                sub_expression,
-                operation.index_reference
-            };
-        } break;
-
-        case OperationType::FunctionCall: {
-            auto sub_expression = take_last(expression_stack);
-
-            expression = new FunctionCall {
-                span_range(sub_expression->range, operation.range),
-                sub_expression,
-                operation.function_call
-            };
-        } break;
-
-        case OperationType::Pointer: {
-            auto sub_expression = take_last(expression_stack);
-
-            expression = new UnaryOperation {
-                span_range(operation.range, sub_expression->range),
-                UnaryOperation::Operator::Pointer,
-                sub_expression
-            };
-        } break;
-
-        case OperationType::ArrayType: {
-            auto sub_expression = take_last(expression_stack);
-
-            expression = new ArrayType {
-                span_range(operation.range, sub_expression->range),
-                sub_expression,
-                operation.array_type
-            };
-        } break;
-
-        case OperationType::BooleanInvert: {
-            auto sub_expression = take_last(expression_stack);
-
-            expression = new UnaryOperation {
-                span_range(operation.range, sub_expression->range),
-                UnaryOperation::Operator::BooleanInvert,
-                sub_expression
-            };
-        } break;
-
-        case OperationType::Negation: {
-            auto sub_expression = take_last(expression_stack);
-
-            expression = new UnaryOperation {
-                span_range(operation.range, sub_expression->range),
-                UnaryOperation::Operator::Negation,
-                sub_expression
-            };
-        } break;
-
-        case OperationType::Cast: {
-            auto type = take_last(expression_stack);
-            auto sub_expression = take_last(expression_stack);
-
-            expression = new Cast {
-                span_range(sub_expression->range, type->range),
-                sub_expression,
-                type
-            };
-        } break;
-
-        default: {
-            auto right = take_last(expression_stack);
-            auto left = take_last(expression_stack);
-
-            BinaryOperation::Operator binary_operator;
-            switch(operation.type) {
-                case OperationType::Addition: {
-                    binary_operator = BinaryOperation::Operator::Addition;
-                } break;
-
-                case OperationType::Subtraction: {
-                    binary_operator = BinaryOperation::Operator::Subtraction;
-                } break;
-
-                case OperationType::Multiplication: {
-                    binary_operator = BinaryOperation::Operator::Multiplication;
-                } break;
-
-                case OperationType::Division: {
-                    binary_operator = BinaryOperation::Operator::Division;
-                } break;
-
-                case OperationType::Modulo: {
-                    binary_operator = BinaryOperation::Operator::Modulo;
-                } break;
-
-                case OperationType::Equal: {
-                    binary_operator = BinaryOperation::Operator::Equal;
-                } break;
-
-                case OperationType::NotEqual: {
-                    binary_operator = BinaryOperation::Operator::NotEqual;
-                } break;
-
-                case OperationType::LessThan: {
-                    binary_operator = BinaryOperation::Operator::LessThan;
-                } break;
-
-                case OperationType::GreaterThan: {
-                    binary_operator = BinaryOperation::Operator::GreaterThan;
-                } break;
-
-                case OperationType::BitwiseAnd: {
-                    binary_operator = BinaryOperation::Operator::BitwiseAnd;
-                } break;
-
-                case OperationType::BitwiseOr: {
-                    binary_operator = BinaryOperation::Operator::BitwiseOr;
-                } break;
-
-                case OperationType::BooleanAnd: {
-                    binary_operator = BinaryOperation::Operator::BooleanAnd;
-                } break;
-
-                case OperationType::BooleanOr: {
-                    binary_operator = BinaryOperation::Operator::BooleanOr;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            expression = new BinaryOperation {
-                span_range(left->range, right->range),
-                binary_operator,
-                left,
-                right
-            };
-        } break;
-    }
-
-    append(expression_stack, expression);
-}
-
-static Result<Expression*> parse_expression(Context *context);
-
-static Result<FunctionParameter> parse_function_parameter_second_half(Context *context, Identifier name, bool is_constant) {
-    if(!expect_basic_token(context, TokenType::Colon)) {
-        return { false };
-    }
-
-    FunctionParameter parameter;
-    parameter.name = name;
-    parameter.is_constant = is_constant;
+// Precedence sorting based on https://eli.thegreenplace.net/2012/08/02/parsing-expressions-by-precedence-climbing
+static Result<Expression*> parse_expression(Context *context, OperatorPrecedence minimum_precedence) {
+    Expression *left_expression;
 
     expect(token, next_token(*context));
 
+    // Parse atomic & prefix-unary expressions (non-left-recursive)
     switch(token.type) {
-        case TokenType::Dollar: {
+        case TokenType::Identifier: {
             context->next_token_index += 1;
 
-            expect(name, expect_identifier(context));
+            auto identifier = identifier_from_token(*context, token);
 
-            parameter.is_polymorphic_determiner = true;
-            parameter.polymorphic_determiner = name;
+            left_expression = named_reference_from_identifier(identifier);
         } break;
 
-        default: {
-            expect(expression, parse_expression(context));
+        case TokenType::Integer: {
+            context->next_token_index += 1;
 
-            parameter.is_polymorphic_determiner = false;
-            parameter.type = expression;
+            left_expression = new IntegerLiteral {
+                token_range(*context, token),
+                token.integer
+            };
         } break;
-    }
 
-    return {
-        true,
-        parameter
-    };
-}
+        case TokenType::FloatingPoint: {
+            context->next_token_index += 1;
 
-static Result<Expression*> parse_right_expressions(Context *context, List<Operation> *operation_stack, List<Expression*> *expression_stack, bool start_with_left_recursive) {
-    auto expect_left_recursive = start_with_left_recursive;
+            left_expression = new FloatLiteral {
+                token_range(*context, token),
+                token.floating_point
+            };
+        } break;
 
-    while(true) {
-        if(!expect_left_recursive) {
+        case TokenType::Asterisk: {
+            context->next_token_index += 1;
+
+            expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
+
+            left_expression = new UnaryOperation {
+                span_range(token_range(*context, token), expression->range),
+                UnaryOperation::Operator::Pointer,
+                expression
+            };
+        } break;
+
+        case TokenType::Bang: {
+            context->next_token_index += 1;
+
+            expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
+
+            left_expression = new UnaryOperation {
+                span_range(token_range(*context, token), expression->range),
+                UnaryOperation::Operator::BooleanInvert,
+                expression
+            };
+        } break;
+
+        case TokenType::Dash: {
+            context->next_token_index += 1;
+
+            expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
+
+            left_expression = new UnaryOperation {
+                span_range(token_range(*context, token), expression->range),
+                UnaryOperation::Operator::Negation,
+                expression
+            };
+        } break;
+
+        case TokenType::String: {
+            context->next_token_index += 1;
+
+            left_expression = new StringLiteral {
+                token_range(*context, token),
+                token.string
+            };
+        } break;
+
+        case TokenType::OpenRoundBracket: {
+            context->next_token_index += 1;
+
+            auto first_range = token_range(*context, token);
+
             expect(token, next_token(*context));
 
-            // Parse non-left-recursive expressions first
             switch(token.type) {
+                case TokenType::Dollar: {
+                    context->next_token_index += 1;
+
+                    List<FunctionParameter> parameters{};
+
+                    expect(name, expect_identifier(context));
+
+                    expect(parameter, parse_function_parameter_second_half(context, name, true));
+
+                    append(&parameters, parameter);
+
+                    expect(token, next_token(*context));
+
+                    FileRange last_range;
+                    switch(token.type) {
+                        case TokenType::Comma: {
+                            context->next_token_index += 1;
+
+                            while(true) {
+                                expect(pre_token, next_token(*context));
+
+                                bool is_constant;
+                                if(pre_token.type == TokenType::Dollar) {
+                                    context->next_token_index += 1;
+
+                                    is_constant = true;
+                                } else {
+                                    is_constant = false;
+                                }
+
+                                expect(identifier, expect_identifier(context));
+
+                                expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
+
+                                append(&parameters, parameter);
+
+                                expect(token, next_token(*context));
+
+                                auto done = false;
+                                switch(token.type) {
+                                    case TokenType::Comma: {
+                                        context->next_token_index += 1;
+                                    } break;
+
+                                    case TokenType::CloseRoundBracket: {
+                                        context->next_token_index += 1;
+
+                                        done = true;
+                                    } break;
+
+                                    default: {
+                                        error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+
+                                        return { false };
+                                    } break;
+                                }
+
+                                if(done) {
+                                    last_range = token_range(*context, token);
+
+                                    break;
+                                }
+                            }
+                        } break;
+
+                        case TokenType::CloseRoundBracket: {
+                            context->next_token_index += 1;
+
+                            last_range = token_range(*context, token);
+                        } break;
+
+                        default: {
+                            error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+
+                            return { false };
+                        } break;
+                    }
+
+                    expect(post_token, next_token(*context));
+
+                    Expression *return_type;
+                    if(post_token.type == TokenType::Arrow) {
+                        context->next_token_index += 1;
+
+                        expect(expression, parse_expression(context, OperatorPrecedence::None));
+
+                        return_type = expression;
+                        last_range = expression->range;
+                    } else {
+                        return_type = nullptr;
+                    }
+
+                    left_expression = new FunctionType {
+                        span_range(first_range, last_range),
+                        to_array(parameters),
+                        return_type
+                    };
+                } break;
+
+                case TokenType::CloseRoundBracket: {
+                    context->next_token_index += 1;
+
+                    auto last_range = token_range(*context, token);
+
+                    expect(token, next_token(*context));
+
+                    Expression* return_type;
+                    if(token.type == TokenType::Arrow) {
+                        context->next_token_index += 1;
+
+                        expect(expression, parse_expression(context, OperatorPrecedence::None));
+
+                        return_type = expression;
+                        last_range = expression->range;
+                    } else {
+                        return_type = nullptr;
+                    }
+
+                    left_expression = new FunctionType {
+                        span_range(first_range, last_range),
+                        {},
+                        return_type
+                    };
+                } break;
+
                 case TokenType::Identifier: {
                     context->next_token_index += 1;
 
                     auto identifier = identifier_from_token(*context, token);
 
-                    auto expression = named_reference_from_identifier(identifier);
+                    expect(token, next_token(*context));
 
-                    append(expression_stack, expression);
+                    if(token.type == TokenType::Colon) {
+                        List<FunctionParameter> parameters{};
+
+                        expect(parameter, parse_function_parameter_second_half(context, identifier, false));
+
+                        append(&parameters, parameter);
+
+                        expect(token, next_token(*context));
+
+                        FileRange last_range;
+                        switch(token.type) {
+                            case TokenType::Comma: {
+                                context->next_token_index += 1;
+
+                                while(true) {
+                                    expect(pre_token, next_token(*context));
+
+                                    bool is_constant;
+                                    if(pre_token.type == TokenType::Dollar) {
+                                        context->next_token_index += 1;
+
+                                        is_constant = true;
+                                    } else {
+                                        is_constant = false;
+                                    }
+
+                                    expect(identifier, expect_identifier(context));
+
+                                    expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
+
+                                    append(&parameters, parameter);
+
+                                    expect(token, next_token(*context));
+
+                                    auto done = false;
+                                    switch(token.type) {
+                                        case TokenType::Comma: {
+                                            context->next_token_index += 1;
+                                        } break;
+
+                                        case TokenType::CloseRoundBracket: {
+                                            context->next_token_index += 1;
+
+                                            done = true;
+                                        } break;
+
+                                        default: {
+                                            error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+
+                                            return { false };
+                                        } break;
+                                    }
+
+                                    if(done) {
+                                        last_range = token_range(*context, token);
+
+                                        break;
+                                    }
+                                }
+                            } break;
+
+                            case TokenType::CloseRoundBracket: {
+                                context->next_token_index += 1;
+
+                                last_range = token_range(*context, token);
+                            } break;
+
+                            default: {
+                                error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+
+                                return { false };
+                            } break;
+                        }
+
+                        expect(post_token, next_token(*context));
+
+                        Expression *return_type;
+                        if(post_token.type == TokenType::Arrow) {
+                            context->next_token_index += 1;
+
+                            expect(expression, parse_expression(context, OperatorPrecedence::None));
+
+                            return_type = expression;
+                            last_range = expression->range;
+                        } else {
+                            return_type = nullptr;
+                        }
+
+                        left_expression = new FunctionType {
+                            span_range(first_range, last_range),
+                            to_array(parameters),
+                            return_type
+                        };
+                    } else {
+                        auto expression = named_reference_from_identifier(identifier);
+
+                        expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
+
+                        if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
+                            return { false };
+                        }
+
+                        left_expression = right_expression;
+                    }
                 } break;
 
-                case TokenType::Integer: {
+                default: {
+                    expect(expression, parse_expression(context, OperatorPrecedence::None));
+
+                    if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
+                        return { false };
+                    }
+
+                    left_expression = expression;
+                } break;
+            }
+        } break;
+
+        case TokenType::OpenCurlyBracket: {
+            context->next_token_index += 1;
+
+            auto first_range = token_range(*context, token);
+
+            expect(token, next_token(*context));
+
+            switch(token.type) {
+                case TokenType::CloseCurlyBracket: {
                     context->next_token_index += 1;
 
-                    append(expression_stack, (Expression*)new IntegerLiteral {
-                        token_range(*context, token),
-                        token.integer
-                    });
+                    left_expression = new ArrayLiteral {
+                        span_range(first_range, token_range(*context, token)),
+                        {}
+                    };
                 } break;
 
-                case TokenType::FloatingPoint: {
+                case TokenType::Identifier: {
                     context->next_token_index += 1;
 
-                    append(expression_stack, (Expression*)new FloatLiteral {
-                        token_range(*context, token),
-                        token.floating_point
-                    });
-                } break;
-
-                case TokenType::Asterisk: {
-                    context->next_token_index += 1;
-
-                    Operation operation;
-                    operation.type = OperationType::Pointer;
-                    operation.range = token_range(*context, token);
-
-                    append(operation_stack, operation);
-
-                    continue;
-                } break;
-
-                case TokenType::Bang: {
-                    context->next_token_index += 1;
-
-                    Operation operation;
-                    operation.type = OperationType::BooleanInvert;
-                    operation.range = token_range(*context, token);
-
-                    append(operation_stack, operation);
-
-                    continue;
-                } break;
-
-                case TokenType::Dash: {
-                    context->next_token_index += 1;
-
-                    Operation operation;
-                    operation.type = OperationType::Negation;
-                    operation.range = token_range(*context, token);
-
-                    append(operation_stack, operation);
-
-                    continue;
-                } break;
-
-                case TokenType::String: {
-                    context->next_token_index += 1;
-
-                    append(expression_stack, (Expression*)new StringLiteral {
-                        token_range(*context, token),
-                        token.string
-                    });
-                } break;
-
-                case TokenType::OpenRoundBracket: {
-                    context->next_token_index += 1;
-
-                    auto first_range = token_range(*context, token);
+                    auto identifier = identifier_from_token(*context, token);
 
                     expect(token, next_token(*context));
 
                     switch(token.type) {
-                        case TokenType::Dollar: {
+                        case TokenType::Equals: {
                             context->next_token_index += 1;
 
-                            List<FunctionParameter> parameters{};
+                            expect(first_expression, parse_expression(context, OperatorPrecedence::None));
 
-                            expect(name, expect_identifier(context));
+                            List<StructLiteral::Member> members{};
 
-                            expect(parameter, parse_function_parameter_second_half(context, name, true));
-
-                            append(&parameters, parameter);
+                            append(&members, {
+                                identifier,
+                                first_expression
+                            });
 
                             expect(token, next_token(*context));
 
@@ -608,22 +640,18 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
                                     context->next_token_index += 1;
 
                                     while(true) {
-                                        expect(pre_token, next_token(*context));
-
-                                        bool is_constant;
-                                        if(pre_token.type == TokenType::Dollar) {
-                                            context->next_token_index += 1;
-
-                                            is_constant = true;
-                                        } else {
-                                            is_constant = false;
-                                        }
-
                                         expect(identifier, expect_identifier(context));
 
-                                        expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
+                                        if(!expect_basic_token(context, TokenType::Equals)) {
+                                            return { false };
+                                        }
 
-                                        append(&parameters, parameter);
+                                        expect(expression, parse_expression(context, OperatorPrecedence::None));
+
+                                        append(&members, {
+                                            identifier,
+                                            expression
+                                        });
 
                                         expect(token, next_token(*context));
 
@@ -633,14 +661,14 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
                                                 context->next_token_index += 1;
                                             } break;
 
-                                            case TokenType::CloseRoundBracket: {
+                                            case TokenType::CloseCurlyBracket: {
                                                 context->next_token_index += 1;
 
                                                 done = true;
                                             } break;
 
                                             default: {
-                                                error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+                                                error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
 
                                                 return { false };
                                             } break;
@@ -654,398 +682,47 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
                                     }
                                 } break;
 
-                                case TokenType::CloseRoundBracket: {
+                                case TokenType::CloseCurlyBracket: {
                                     context->next_token_index += 1;
 
                                     last_range = token_range(*context, token);
                                 } break;
 
                                 default: {
-                                    error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+                                    error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
 
                                     return { false };
                                 } break;
                             }
 
-                            expect(post_token, next_token(*context));
-
-                            Expression *return_type;
-                            if(post_token.type == TokenType::Arrow) {
-                                context->next_token_index += 1;
-
-                                expect(expression, parse_expression(context));
-
-                                return_type = expression;
-                                last_range = expression->range;
-                            } else {
-                                return_type = nullptr;
-                            }
-
-                            append(expression_stack, (Expression*)new FunctionType {
+                            left_expression = new StructLiteral {
                                 span_range(first_range, last_range),
-                                to_array(parameters),
-                                return_type
-                            });
+                                to_array(members)
+                            };
                         } break;
 
-                        case TokenType::CloseRoundBracket: {
-                            context->next_token_index += 1;
-
-                            auto last_range = token_range(*context, token);
-
-                            expect(token, next_token(*context));
-
-                            Expression* return_type;
-                            if(token.type == TokenType::Arrow) {
-                                context->next_token_index += 1;
-
-                                expect(expression, parse_expression(context));
-
-                                return_type = expression;
-                                last_range = expression->range;
-                            } else {
-                                return_type = nullptr;
-                            }
-
-                            append(expression_stack, (Expression*)new FunctionType {
-                                span_range(first_range, last_range),
-                                {},
-                                return_type
-                            });
-                        } break;
-
-                        case TokenType::Identifier: {
-                            context->next_token_index += 1;
-
-                            auto identifier = identifier_from_token(*context, token);
-
-                            expect(token, next_token(*context));
-
-                            if(token.type == TokenType::Colon) {
-                                List<FunctionParameter> parameters{};
-
-                                expect(parameter, parse_function_parameter_second_half(context, identifier, false));
-
-                                append(&parameters, parameter);
-
-                                expect(token, next_token(*context));
-
-                                FileRange last_range;
-                                switch(token.type) {
-                                    case TokenType::Comma: {
-                                        context->next_token_index += 1;
-
-                                        while(true) {
-                                            expect(pre_token, next_token(*context));
-
-                                            bool is_constant;
-                                            if(pre_token.type == TokenType::Dollar) {
-                                                context->next_token_index += 1;
-
-                                                is_constant = true;
-                                            } else {
-                                                is_constant = false;
-                                            }
-
-                                            expect(identifier, expect_identifier(context));
-
-                                            expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
-
-                                            append(&parameters, parameter);
-
-                                            expect(token, next_token(*context));
-
-                                            auto done = false;
-                                            switch(token.type) {
-                                                case TokenType::Comma: {
-                                                    context->next_token_index += 1;
-                                                } break;
-
-                                                case TokenType::CloseRoundBracket: {
-                                                    context->next_token_index += 1;
-
-                                                    done = true;
-                                                } break;
-
-                                                default: {
-                                                    error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
-
-                                                    return { false };
-                                                } break;
-                                            }
-
-                                            if(done) {
-                                                last_range = token_range(*context, token);
-
-                                                break;
-                                            }
-                                        }
-                                    } break;
-
-                                    case TokenType::CloseRoundBracket: {
-                                        context->next_token_index += 1;
-
-                                        last_range = token_range(*context, token);
-                                    } break;
-
-                                    default: {
-                                        error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
-
-                                        return { false };
-                                    } break;
-                                }
-
-                                expect(post_token, next_token(*context));
-
-                                Expression *return_type;
-                                if(post_token.type == TokenType::Arrow) {
-                                    context->next_token_index += 1;
-
-                                    expect(expression, parse_expression(context));
-
-                                    return_type = expression;
-                                    last_range = expression->range;
-                                } else {
-                                    return_type = nullptr;
-                                }
-
-                                append(expression_stack, (Expression*)new FunctionType {
-                                    span_range(first_range, last_range),
-                                    to_array(parameters),
-                                    return_type
-                                });
-                            } else {
-                                auto expression = named_reference_from_identifier(identifier);
-
-                                List<Operation> sub_operation_stack{};
-                                List<Expression*> sub_expression_stack{};
-
-                                append(&sub_expression_stack, expression);
-
-                                expect(right_expression, parse_right_expressions(context, &sub_operation_stack, &sub_expression_stack, true));
-
-                                if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
-                                    return { false };
-                                }
-
-                                append(expression_stack, right_expression);
-                            }
-                        } break;
-
-                        default: {
-                            expect(expression, parse_expression(context));
-
-                            if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
-                                return { false };
-                            }
-
-                            append(expression_stack, expression);
-                        } break;
-                    }
-                } break;
-
-                case TokenType::OpenCurlyBracket: {
-                    context->next_token_index += 1;
-
-                    auto first_range = token_range(*context, token);
-
-                    expect(token, next_token(*context));
-
-                    switch(token.type) {
                         case TokenType::CloseCurlyBracket: {
                             context->next_token_index += 1;
 
-                            append(expression_stack, (Expression*)new ArrayLiteral {
+                            auto first_element = named_reference_from_identifier(identifier);
+
+                            left_expression = new ArrayLiteral {
                                 span_range(first_range, token_range(*context, token)),
-                                {}
-                            });
-                        } break;
-
-                        case TokenType::Identifier: {
-                            context->next_token_index += 1;
-
-                            auto identifier = identifier_from_token(*context, token);
-
-                            expect(token, next_token(*context));
-
-                            switch(token.type) {
-                                case TokenType::Equals: {
-                                    context->next_token_index += 1;
-
-                                    expect(first_expression, parse_expression(context));
-
-                                    List<StructLiteral::Member> members{};
-
-                                    append(&members, {
-                                        identifier,
-                                        first_expression
-                                    });
-
-                                    expect(token, next_token(*context));
-
-                                    FileRange last_range;
-                                    switch(token.type) {
-                                        case TokenType::Comma: {
-                                            context->next_token_index += 1;
-
-                                            while(true) {
-                                                expect(identifier, expect_identifier(context));
-
-                                                if(!expect_basic_token(context, TokenType::Equals)) {
-                                                    return { false };
-                                                }
-
-                                                expect(expression, parse_expression(context));
-
-                                                append(&members, {
-                                                    identifier,
-                                                    expression
-                                                });
-
-                                                expect(token, next_token(*context));
-
-                                                auto done = false;
-                                                switch(token.type) {
-                                                    case TokenType::Comma: {
-                                                        context->next_token_index += 1;
-                                                    } break;
-
-                                                    case TokenType::CloseCurlyBracket: {
-                                                        context->next_token_index += 1;
-
-                                                        done = true;
-                                                    } break;
-
-                                                    default: {
-                                                        error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
-
-                                                        return { false };
-                                                    } break;
-                                                }
-
-                                                if(done) {
-                                                    last_range = token_range(*context, token);
-
-                                                    break;
-                                                }
-                                            }
-                                        } break;
-
-                                        case TokenType::CloseCurlyBracket: {
-                                            context->next_token_index += 1;
-
-                                            last_range = token_range(*context, token);
-                                        } break;
-
-                                        default: {
-                                            error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
-
-                                            return { false };
-                                        } break;
-                                    }
-
-                                    append(expression_stack, (Expression*)new StructLiteral {
-                                        span_range(first_range, last_range),
-                                        to_array(members)
-                                    });
-                                } break;
-
-                                case TokenType::CloseCurlyBracket: {
-                                    context->next_token_index += 1;
-
-                                    auto first_element = named_reference_from_identifier(identifier);
-
-                                    append(expression_stack, (Expression*)new ArrayLiteral {
-                                        span_range(first_range, token_range(*context, token)),
-                                        {
-                                            1,
-                                            heapify(first_element)
-                                        }
-                                    });
-                                } break;
-
-                                default: {
-                                    auto sub_expression = named_reference_from_identifier(identifier);
-
-                                    List<Operation> sub_operation_stack{};
-                                    List<Expression*> sub_expression_stack{};
-
-                                    append(&sub_expression_stack, sub_expression);
-
-                                    expect(right_expression, parse_right_expressions(context, &sub_operation_stack, &sub_expression_stack, true));
-
-                                    List<Expression*> elements{};
-
-                                    append(&elements, right_expression);
-
-                                    expect(token, next_token(*context));
-
-                                    FileRange last_range;
-                                    switch(token.type) {
-                                        case TokenType::Comma: {
-                                            context->next_token_index += 1;
-
-                                            while(true) {
-                                                expect(expression, parse_expression(context));
-
-                                                append(&elements, expression);
-
-                                                expect(token, next_token(*context));
-
-                                                auto done = false;
-                                                switch(token.type) {
-                                                    case TokenType::Comma: {
-                                                        context->next_token_index += 1;
-                                                    } break;
-
-                                                    case TokenType::CloseCurlyBracket: {
-                                                        context->next_token_index += 1;
-
-                                                        done = true;
-                                                    } break;
-
-                                                    default: {
-                                                        error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
-
-                                                        return { false };
-                                                    } break;
-                                                }
-
-                                                if(done) {
-                                                    last_range = token_range(*context, token);
-
-                                                    break;
-                                                }
-                                            }
-                                        } break;
-
-                                        case TokenType::CloseCurlyBracket: {
-                                            context->next_token_index += 1;
-
-                                            last_range = token_range(*context, token);
-                                        } break;
-
-                                        default: {
-                                            error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
-
-                                            return { false };
-                                        }
-                                    }
-
-                                    append(expression_stack, (Expression*)new ArrayLiteral {
-                                        span_range(first_range, last_range),
-                                        to_array(elements)
-                                    });
-                                } break;
-                            }
+                                {
+                                    1,
+                                    heapify(first_element)
+                                }
+                            };
                         } break;
 
                         default: {
-                            expect(first_expression, parse_expression(context));
+                            auto sub_expression = named_reference_from_identifier(identifier);
+
+                            expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, sub_expression));
 
                             List<Expression*> elements{};
 
-                            append(&elements, first_expression);
+                            append(&elements, right_expression);
 
                             expect(token, next_token(*context));
 
@@ -1055,7 +732,7 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
                                     context->next_token_index += 1;
 
                                     while(true) {
-                                        expect(expression, parse_expression(context));
+                                        expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                                         append(&elements, expression);
 
@@ -1093,198 +770,406 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
 
                                     last_range = token_range(*context, token);
                                 } break;
+
+                                default: {
+                                    error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
+
+                                    return { false };
+                                }
                             }
 
-                            append(expression_stack, (Expression*)new ArrayLiteral {
+                            left_expression = new ArrayLiteral {
                                 span_range(first_range, last_range),
                                 to_array(elements)
-                            });
+                            };
                         } break;
                     }
                 } break;
 
-                case TokenType::OpenSquareBracket: {
-                    context->next_token_index += 1;
+                default: {
+                    expect(first_expression, parse_expression(context, OperatorPrecedence::None));
+
+                    List<Expression*> elements{};
+
+                    append(&elements, first_expression);
 
                     expect(token, next_token(*context));
 
-                    Expression *index;
                     FileRange last_range;
-                    if(token.type == TokenType::CloseSquareBracket) {
-                        context->next_token_index += 1;
+                    switch(token.type) {
+                        case TokenType::Comma: {
+                            context->next_token_index += 1;
 
-                        index = nullptr;
-                        last_range = token_range(*context, token);
-                    } else {
-                        expect(expression, parse_expression(context));
+                            while(true) {
+                                expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                        expect(range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
+                                append(&elements, expression);
 
-                        index = expression;
-                        last_range = range;
+                                expect(token, next_token(*context));
+
+                                auto done = false;
+                                switch(token.type) {
+                                    case TokenType::Comma: {
+                                        context->next_token_index += 1;
+                                    } break;
+
+                                    case TokenType::CloseCurlyBracket: {
+                                        context->next_token_index += 1;
+
+                                        done = true;
+                                    } break;
+
+                                    default: {
+                                        error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
+
+                                        return { false };
+                                    } break;
+                                }
+
+                                if(done) {
+                                    last_range = token_range(*context, token);
+
+                                    break;
+                                }
+                            }
+                        } break;
+
+                        case TokenType::CloseCurlyBracket: {
+                            context->next_token_index += 1;
+
+                            last_range = token_range(*context, token);
+                        } break;
                     }
 
-                    Operation operation;
-                    operation.type = OperationType::ArrayType;
-                    operation.range = token_range(*context, token);
-                    operation.array_type = index;
-
-                    append(operation_stack, operation);
-
-                    continue;
-                }
-
-                default: {
-                    error(*context, "Expected an expression. Got '%s'", get_token_text(token));
-
-                    return { false };
+                    left_expression = new ArrayLiteral {
+                        span_range(first_range, last_range),
+                        to_array(elements)
+                    };
                 } break;
             }
-        }
+        } break;
 
-        if(context->next_token_index == context->tokens.count) {
-            break;
-        }
+        case TokenType::OpenSquareBracket: {
+            context->next_token_index += 1;
 
-        auto token = context->tokens[context->next_token_index];
+            expect(token, next_token(*context));
 
-        auto first_range = token_range(*context, token);
+            Expression *index;
+            FileRange last_range;
+            if(token.type == TokenType::CloseSquareBracket) {
+                context->next_token_index += 1;
 
-        Operation operation;
+                index = nullptr;
+                last_range = token_range(*context, token);
+            } else {
+                expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-        // Parse left-recursive expressions (e.g. binary operators) after parsing all adjacent non-left-recursive expressions
+                expect(range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
+
+                index = expression;
+                last_range = range;
+            }
+
+            expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
+
+            left_expression = new ArrayType {
+                span_range(token_range(*context, token), expression->range),
+                expression,
+                index
+            };
+        } break;
+
+        default: {
+            error(*context, "Expected an expression. Got '%s'", get_token_text(token));
+
+            return { false };
+        } break;
+    }
+
+    return parse_expression_continuation(context, minimum_precedence, left_expression);
+}
+
+static Result<Expression*> parse_expression_continuation(Context *context, OperatorPrecedence minimum_precedence, Expression *expression) {
+    auto current_expression = expression;
+
+    auto done = false;
+    while(!done) {
+        expect(token, next_token(*context));
+
         auto done = false;
         switch(token.type) {
             case TokenType::Dot: {
+                if(OperatorPrecedence::PostfixUnary <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
                 expect(identifier, expect_identifier(context));
 
-                operation.type = OperationType::MemberReference;
-                operation.range = first_range;
-                operation.member_reference = identifier;
-
-                expect_left_recursive = true;
+                current_expression = new MemberReference {
+                    span_range(current_expression->range, identifier.range),
+                    expression,
+                    identifier
+                };
             } break;
 
             case TokenType::Plus: {
+                if(OperatorPrecedence::Additive <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::Addition;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::Additive));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::Addition,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::Dash: {
+                if(OperatorPrecedence::Additive <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::Subtraction;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::Additive));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::Subtraction,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::Asterisk: {
+                if(OperatorPrecedence::Multiplicitive <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::Multiplication;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::Multiplicitive));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::Multiplication,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::ForwardSlash: {
+                if(OperatorPrecedence::Multiplicitive <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::Division;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::Multiplicitive));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::Division,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::Percent: {
+                if(OperatorPrecedence::Multiplicitive <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::Modulo;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::Multiplicitive));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::Modulo,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::Ampersand: {
+                if(OperatorPrecedence::BitwiseAnd <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::BitwiseAnd;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::BitwiseAnd));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::BitwiseAnd,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::DoubleAmpersand: {
+                if(OperatorPrecedence::BooleanAnd <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::BooleanAnd;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::BooleanAnd));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::BooleanAnd,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::Pipe: {
+                if(OperatorPrecedence::BitwiseOr <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::BitwiseOr;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::BitwiseOr));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::BitwiseOr,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::DoublePipe: {
+                if(OperatorPrecedence::BooleanOr <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::BooleanOr;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::BooleanOr));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::BooleanOr,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::DoubleEquals: {
+                if(OperatorPrecedence::Comparison <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::Equal;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::Comparison));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::Equal,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::BangEquals: {
+                if(OperatorPrecedence::Comparison <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::NotEqual;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::Comparison));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::NotEqual,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::LeftArrow: {
+                if(OperatorPrecedence::Comparison <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::LessThan;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::Comparison));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::LessThan,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::RightArrow: {
+                if(OperatorPrecedence::Comparison <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
-                operation.type = OperationType::GreaterThan;
-                operation.range = first_range;
+                expect(expression, parse_expression(context, OperatorPrecedence::Comparison));
 
-                expect_left_recursive = false;
+                current_expression = new BinaryOperation {
+                    span_range(current_expression->range, expression->range),
+                    BinaryOperation::Operator::GreaterThan,
+                    current_expression,
+                    expression
+                };
             } break;
 
             case TokenType::OpenRoundBracket: {
+                if(OperatorPrecedence::PostfixUnary <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
 
                 List<Expression*> parameters{};
@@ -1298,7 +1183,7 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
                     last_range = token_range(*context, token);
                 } else {
                     while(true) {
-                        expect(expression, parse_expression(context));
+                        expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                         append(&parameters, expression);
 
@@ -1331,46 +1216,66 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
                     }
                 }
 
-                operation.type = OperationType::FunctionCall;
-                operation.range = span_range(first_range, last_range);
-                operation.function_call = to_array(parameters);
-
-                expect_left_recursive = true;
+                current_expression = new FunctionCall {
+                    span_range(current_expression->range, last_range),
+                    current_expression,
+                    to_array(parameters)
+                };
             } break;
 
             case TokenType::OpenSquareBracket: {
+                if(OperatorPrecedence::PostfixUnary <= minimum_precedence) {
+                    done = true;
+
+                    break;
+                }
+
                 context->next_token_index += 1;
+
+                auto first_range = token_range(*context, token);
 
                 expect(token, next_token(*context));
 
+                Expression *index;
+                FileRange last_range;
                 if(token.type == TokenType::CloseSquareBracket) {
                     context->next_token_index += 1;
 
-                    operation.type = OperationType::ArrayType;
-                    operation.range = span_range(first_range, token_range(*context, token));
-
-                    expect_left_recursive = true;
+                    index = nullptr;
+                    last_range = token_range(*context, token);
                 } else {
-                    expect(expression, parse_expression(context));
+                    expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                    expect(last_range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
+                    expect(range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
 
-                    operation.type = OperationType::IndexReference;
-                    operation.range = span_range(first_range, last_range);
-                    operation.index_reference = expression;
-
-                    expect_left_recursive = true;
+                    index = expression;
+                    last_range = range;
                 }
+
+                current_expression = new IndexReference {
+                    span_range(current_expression->range, last_range),
+                    current_expression,
+                    index
+                };
             } break;
 
             case TokenType::Identifier: {
                 if(strcmp(token.identifier, "as") == 0) {
+                    if(OperatorPrecedence::Cast <= minimum_precedence) {
+                        done = true;
+
+                        break;
+                    }
+
                     context->next_token_index += 1;
 
-                    operation.type = OperationType::Cast;
-                    operation.range = token_range(*context, token);
+                    expect(expression, parse_expression(context, OperatorPrecedence::Cast));
 
-                    expect_left_recursive = false;
+                    current_expression = new Cast {
+                        span_range(current_expression->range, expression->range),
+                        current_expression,
+                        expression
+                    };
                 } else {
                     done = true;
                 }
@@ -1384,44 +1289,47 @@ static Result<Expression*> parse_right_expressions(Context *context, List<Operat
         if(done) {
             break;
         }
-
-        // Meat of the precedence sorting
-        while(true) {
-            if(operation_stack->count == 0) {
-                append(operation_stack, operation);
-
-                break;
-            } else {
-                auto last_operation = (*operation_stack)[operation_stack->count - 1];
-
-                if(operation_precedences[(int)operation.type] < operation_precedences[(int)last_operation.type]) {
-                    append(operation_stack, operation);
-
-                    break;
-                } else {
-                    apply_operation(expression_stack, take_last(operation_stack));
-                }
-            }
-        }
-    }
-
-    // Apply the remaining operations
-    while(operation_stack->count != 0) {
-        apply_operation(expression_stack, take_last(operation_stack));
     }
 
     return {
         true,
-        (*expression_stack)[0]
+        current_expression
     };
 }
 
-static Result<Expression*> parse_expression(Context *context) {
-    List<Operation> operation_stack{};
+static Result<FunctionParameter> parse_function_parameter_second_half(Context *context, Identifier name, bool is_constant) {
+    if(!expect_basic_token(context, TokenType::Colon)) {
+        return { false };
+    }
 
-    List<Expression*> expression_stack{};
+    FunctionParameter parameter;
+    parameter.name = name;
+    parameter.is_constant = is_constant;
 
-    return parse_right_expressions(context, &operation_stack, &expression_stack, false);
+    expect(token, next_token(*context));
+
+    switch(token.type) {
+        case TokenType::Dollar: {
+            context->next_token_index += 1;
+
+            expect(name, expect_identifier(context));
+
+            parameter.is_polymorphic_determiner = true;
+            parameter.polymorphic_determiner = name;
+        } break;
+
+        default: {
+            expect(expression, parse_expression(context, OperatorPrecedence::None));
+
+            parameter.is_polymorphic_determiner = false;
+            parameter.type = expression;
+        } break;
+    }
+
+    return {
+        true,
+        parameter
+    };
 }
 
 static Result<Statement*> parse_statement(Context *context);
@@ -1438,7 +1346,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
 
             last_range = token_range(*context, pre_token);
 
-            expect(expression, parse_expression(context));
+            expect(expression, parse_expression(context, OperatorPrecedence::None));
 
             return_type = expression;
         } break;
@@ -1685,7 +1593,7 @@ static Result<Statement*> parse_statement(Context *context) {
             context->next_token_index += 1;
 
             if(strcmp(token.identifier, "if") == 0) {
-                expect(expression, parse_expression(context));
+                expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
                     return { false };
@@ -1752,7 +1660,7 @@ static Result<Statement*> parse_statement(Context *context) {
 
                                 context->next_token_index += 1;
 
-                                expect(expression, parse_expression(context));
+                                expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
                                     return { false };
@@ -1810,7 +1718,7 @@ static Result<Statement*> parse_statement(Context *context) {
                     if_statement
                 };
             } else if(strcmp(token.identifier, "while") == 0) {
-                expect(expression, parse_expression(context));
+                expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
                     return { false };
@@ -1857,7 +1765,7 @@ static Result<Statement*> parse_statement(Context *context) {
 
                     value = nullptr;
                 } else {
-                    expect(expression, parse_expression(context));
+                    expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                     expect(range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
@@ -1876,7 +1784,7 @@ static Result<Statement*> parse_statement(Context *context) {
                     return_statement
                 };
             } else if(strcmp(token.identifier, "using") == 0) {
-                expect(expression, parse_expression(context));
+                expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                 expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
@@ -2111,20 +2019,13 @@ static Result<Statement*> parse_statement(Context *context) {
                                         } else {
                                             auto expression = named_reference_from_identifier(first_identifier);
 
-                                            List<Operation> operation_stack{};
-                                            List<Expression*> expression_stack{};
-
-                                            append(&expression_stack, expression);
-
-                                            expect(right_expreession, parse_right_expressions(context, &operation_stack, &expression_stack, true));
+                                            expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
                                             if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
                                                 return { false };
                                             }
 
-                                            append(&expression_stack, right_expreession);
-
-                                            expect(outer_right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, true));
+                                            expect(outer_right_expression, parse_expression_continuation(context, OperatorPrecedence::None, right_expression));
 
                                             expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
@@ -2140,18 +2041,13 @@ static Result<Statement*> parse_statement(Context *context) {
                                             };
                                         }
                                     } else {
-                                        expect(expression, parse_expression(context));
+                                        expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                                         if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
                                             return { false };
                                         }
 
-                                        List<Operation> operation_stack{};
-                                        List<Expression*> expression_stack{};
-
-                                        append(&expression_stack, expression);
-
-                                        expect(right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, true));
+                                        expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
                                         expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
@@ -2200,7 +2096,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                                         return { false };
                                                     }
 
-                                                    expect(type, parse_expression(context));
+                                                    expect(type, parse_expression(context, OperatorPrecedence::None));
 
                                                     append(&parameters, {
                                                         name,
@@ -2254,7 +2150,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                                     return { false };
                                                 }
 
-                                                expect(expression, parse_expression(context));
+                                                expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                                                 append(&members, {
                                                     identifier,
@@ -2307,12 +2203,7 @@ static Result<Statement*> parse_statement(Context *context) {
 
                                         auto expression = named_reference_from_identifier(sub_identifier);
 
-                                        List<Operation> operation_stack{};
-                                        List<Expression*> expression_stack{};
-
-                                        append(&expression_stack, expression);
-
-                                        expect(right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, true));
+                                        expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
                                         expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
@@ -2330,7 +2221,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                 } break;
 
                                 default: {
-                                    expect(expression, parse_expression(context));
+                                    expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                                     expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
@@ -2351,7 +2242,7 @@ static Result<Statement*> parse_statement(Context *context) {
                         case TokenType::Equals: {
                             context->next_token_index += 1;
 
-                            expect(expression, parse_expression(context));
+                            expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                             expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
@@ -2369,7 +2260,7 @@ static Result<Statement*> parse_statement(Context *context) {
                         } break;
 
                         default: {
-                            expect(expression, parse_expression(context));
+                            expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                             expect(token, next_token(*context));
 
@@ -2394,7 +2285,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                 case TokenType::Equals: {
                                     context->next_token_index += 1;
 
-                                    expect(value_expression, parse_expression(context));
+                                    expect(value_expression, parse_expression(context, OperatorPrecedence::None));
 
                                     expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
@@ -2464,12 +2355,7 @@ static Result<Statement*> parse_statement(Context *context) {
                 } else {
                     auto expression = named_reference_from_identifier(identifier);
 
-                    List<Operation> operation_stack{};
-                    List<Expression*> expression_stack{};
-
-                    append(&expression_stack, expression);
-
-                    expect(right_expression, parse_right_expressions(context, &operation_stack, &expression_stack, true));
+                    expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
                     expect(token, next_token(*context));
 
@@ -2491,7 +2377,7 @@ static Result<Statement*> parse_statement(Context *context) {
                         case TokenType::Equals: {
                             context->next_token_index += 1;
 
-                            expect(expression, parse_expression(context));
+                            expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                             expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
@@ -2518,7 +2404,7 @@ static Result<Statement*> parse_statement(Context *context) {
         } break;
 
         default: {
-            expect(expression, parse_expression(context));
+            expect(expression, parse_expression(context, OperatorPrecedence::None));
 
             expect(token, next_token(*context));
 
@@ -2540,7 +2426,7 @@ static Result<Statement*> parse_statement(Context *context) {
                 case TokenType::Equals: {
                     context->next_token_index += 1;
 
-                    expect(value_expression, parse_expression(context));
+                    expect(value_expression, parse_expression(context, OperatorPrecedence::None));
 
                     expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
