@@ -15,8 +15,8 @@ struct IntegerArithmeticOperation : Instruction {
         Add,
         Subtract,
 
-        SignedMultiply,
-        UnsignedMultiply,
+        Multiply,
+
         SignedDivide,
         UnsignedDivide,
         SignedModulus,
@@ -259,6 +259,8 @@ struct CopyMemory : Instruction {
     size_t source_address_register;
 
     size_t destination_address_register;
+
+    size_t alignment;
 
     CopyMemory() {}
 };

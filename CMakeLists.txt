@@ -41,6 +41,9 @@ add_executable(compiler
     src/c_backend.h
     src/c_backend.cpp
 
+    src/llvm_backend.h
+    src/llvm_backend.cpp
+
     src/main.cpp
 )
 
@@ -50,6 +53,8 @@ if(MSVC)
 else()
     set_target_properties(compiler PROPERTIES LINK_FLAGS -Wl,--stack,10000000)
 endif()
+target_link_libraries(compiler PRIVATE LLVMCore)
+target_include_directories(compiler PRIVATE thirdparty/llvm/include)
 
 add_executable(test_driver
     src/test_driver.cpp

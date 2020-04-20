@@ -6,7 +6,7 @@
 #include "lexer.h"
 #include "parser.h"
 #include "generator.h"
-#include "c_backend.h"
+#include "llvm_backend.h"
 #include "util.h"
 #include "platform.h"
 #include "path.h"
@@ -169,7 +169,9 @@ bool cli_entry(Array<const char*> arguments) {
 
     auto output_file_directory = path_get_directory_component(output_file_path);
 
-    generate_c_object(ir.statics, architecture, os, config, output_file_directory, output_file_name);
+    if(!generate_llvm_object(ir.statics, architecture, os, config, output_file_directory, output_file_name)) {
+        return false;
+    }
 
     {
         char *buffer{};
