@@ -4,6 +4,8 @@ enable_testing()
 
 project(SimpleCompiler LANGUAGES CXX)
 
+add_subdirectory(thirdparty/llvm)
+
 add_executable(compiler
     src/array.h
     src/list.h
