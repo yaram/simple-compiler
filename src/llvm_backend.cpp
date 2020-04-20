@@ -1,5 +1,6 @@
 #include "llvm_backend.h"
 #include <llvm-c/Core.h>
+#include <llvm-c/Analysis.h>
 #include "util.h"
 #include "list.h"
 #include "platform.h"
@@ -166,6 +167,7 @@ bool generate_llvm_object(
 
                     LLVMPositionBuilderAtEnd(builder, blocks[i]);
 
+                    auto need_end_branch = true;
                     if(auto integer_arithmetic_operation = dynamic_cast<IntegerArithmeticOperation*>(instruction)) {
                         auto type = get_llvm_integer_type(integer_arithmetic_operation->size);
 
@@ -421,12 +423,16 @@ bool generate_llvm_object(
                         });
                     } else if(auto jump = dynamic_cast<Jump*>(instruction)) {
                         LLVMBuildBr(builder, blocks[jump->destination_instruction]);
+
+                        need_end_branch = false;
                     } else if(auto branch = dynamic_cast<Branch*>(instruction)) {
                         auto condition_value = get_register_value(*function, function_value, registers, branch->condition_register);
 
                         auto truncated_condition_value = LLVMBuildTrunc(builder, condition_value, LLVMInt1Type(), "truncate");
 
                         LLVMBuildCondBr(builder, truncated_condition_value, blocks[branch->destination_instruction], blocks[i + 1]);
+
+                        need_end_branch = false;
                     } else if(auto function_call = dynamic_cast<FunctionCallInstruction*>(instruction)) {
                         auto parameter_count = function_call->parameters.count;
 
@@ -490,6 +496,8 @@ bool generate_llvm_object(
                         } else {
                             LLVMBuildRetVoid(builder);
                         }
+
+                        need_end_branch = false;
                     } else if(auto allocate_local = dynamic_cast<AllocateLocal*>(instruction)) {
                         auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)allocate_local->size);
 
@@ -594,7 +602,9 @@ bool generate_llvm_object(
                         abort();
                     }
 
-                    if(i != function->instructions.count - 1) {
+                    if(need_end_branch) {
+                        assert(i != function->instructions.count - 1);
+
                         LLVMBuildBr(builder, blocks[i + 1]);
                     }
                 }
@@ -602,7 +612,9 @@ bool generate_llvm_object(
         }
     }
 
-    LLVMDumpModule(module);
+#ifndef NDEBUG
+    LLVMVerifyModule(module, LLVMVerifierFailureAction::LLVMAbortProcessAction, nullptr);
+#endif
 
     return false;
 }

@@ -53,7 +53,7 @@ if(MSVC)
 else()
     set_target_properties(compiler PROPERTIES LINK_FLAGS -Wl,--stack,10000000)
 endif()
-target_link_libraries(compiler PRIVATE LLVMCore)
+target_link_libraries(compiler PRIVATE LLVMCore LLVMAnalysis)
 target_include_directories(compiler PRIVATE thirdparty/llvm/include)
 
 add_executable(test_driver
