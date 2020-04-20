@@ -161,12 +161,7 @@ bool generate_c_object(
                                 is_signed = false;
                             } break;
 
-                            case IntegerArithmeticOperation::Operation::SignedMultiply: {
-                                operator_ = "*";
-                                is_signed = true;
-                            } break;
-
-                            case IntegerArithmeticOperation::Operation::UnsignedMultiply: {
+                            case IntegerArithmeticOperation::Operation::Multiply: {
                                 operator_ = "*";
                                 is_signed = false;
                             } break;

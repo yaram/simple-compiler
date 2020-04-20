@@ -4065,13 +4065,15 @@ static void append_copy_memory(
     unsigned int line,
     size_t length_register,
     size_t source_address_register,
-    size_t destination_address_register
+    size_t destination_address_register,
+    size_t alignment
 ) {
     auto copy_memory = new CopyMemory;
     copy_memory->line = line;
     copy_memory->length_register = length_register;
     copy_memory->source_address_register = source_address_register;
     copy_memory->destination_address_register = destination_address_register;
+    copy_memory->alignment = alignment;
 
     append(instructions, (Instruction*)copy_memory);
 }
@@ -4083,11 +4085,12 @@ static void generate_constant_size_copy(
     FileRange range,
     size_t length,
     size_t source_address_register,
-    size_t destination_address_register
+    size_t destination_address_register,
+    size_t alignment
 ) {
     auto length_register = append_integer_constant(context, instructions, range.first_line, info.address_integer_size, length);
 
-    append_copy_memory(context, instructions, range.first_line, length_register, source_address_register, destination_address_register);
+    append_copy_memory(context, instructions, range.first_line, length_register, source_address_register, destination_address_register, alignment);
 }
 
 static size_t append_load_integer(
@@ -4901,9 +4904,10 @@ static bool coerce_to_type_write(
                     context,
                     instructions,
                     range,
-                    2 * get_type_size(info, array_type->element_type),
+                    2 * register_size_to_byte_size(info.address_integer_size),
                     source_address_register,
-                    address_register
+                    address_register,
+                    register_size_to_byte_size(info.address_integer_size)
                 );
 
                 return true;
@@ -5037,7 +5041,8 @@ static bool coerce_to_type_write(
                     range,
                     static_array->length * get_type_size(info, static_array->element_type),
                     source_address_register,
-                    address_register
+                    address_register,
+                    get_type_size(info, static_array->element_type)
                 );
 
                 return true;
@@ -5084,7 +5089,8 @@ static bool coerce_to_type_write(
                         range,
                         get_struct_size(info, *struct_type),
                         source_address_register,
-                        address_register
+                        address_register,
+                        get_struct_alignment(info, *struct_type)
                     );
 
                     return true;
@@ -5575,7 +5581,7 @@ static Result<TypedValue> generate_expression(
             context,
             instructions,
             index_reference->range.first_line,
-            IntegerArithmeticOperation::Operation::UnsignedMultiply,
+            IntegerArithmeticOperation::Operation::Multiply,
             info.address_integer_size,
             element_size_register,
             index_register
@@ -6988,11 +6994,7 @@ static Result<TypedValue> generate_expression(
                 } break;
 
                 case BinaryOperation::Operator::Multiplication: {
-                    if(integer->is_signed) {
-                        arithmetic_operation = IntegerArithmeticOperation::Operation::SignedMultiply;
-                    } else {
-                        arithmetic_operation = IntegerArithmeticOperation::Operation::UnsignedMultiply;
-                    }
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::Multiply;
                 } break;
 
                 case BinaryOperation::Operator::Division: {
@@ -7720,15 +7722,20 @@ static Result<TypedValue> generate_expression(
                 }
 
                 has_cast = true;
-                register_index = append_integer_upcast(
-                    context,
-                    instructions,
-                    cast->range.first_line,
-                    integer->is_signed,
-                    integer->size,
-                    target_integer->size,
-                    value_register
-                );
+
+                if(target_integer->size > integer->size) {
+                    register_index = append_integer_upcast(
+                        context,
+                        instructions,
+                        cast->range.first_line,
+                        integer->is_signed,
+                        integer->size,
+                        target_integer->size,
+                        value_register
+                    );
+                } else {
+                    register_index = value_register;
+                }
             } else if(auto float_type = dynamic_cast<FloatType*>(expression_value.type)) {
                 size_t value_register;
                 if(auto register_value = dynamic_cast<RegisterValue*>(expression_value.value)) {
@@ -8741,13 +8748,14 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                     };
 
                     auto size = get_type_size(info, parameter.type);
+                    auto alignment = get_type_alignment(info, parameter.type);
 
                     auto address_register = append_allocate_local(
                         &context,
                         &instructions,
                         function.declaration->range.first_line,
                         size,
-                        get_type_alignment(info, parameter.type)
+                        alignment
                     );
 
                     auto representation = get_type_representation(info, parameter.type);
@@ -8780,7 +8788,8 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                             function.declaration->range,
                             size,
                             i,
-                            address_register
+                            address_register,
+                            alignment
                         );
                     }
 

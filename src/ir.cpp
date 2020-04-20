@@ -38,12 +38,8 @@ void print_instruction(Instruction *instruction, bool has_return) {
                 printf("SUB ");
             } break;
 
-            case IntegerArithmeticOperation::Operation::SignedMultiply: {
-                printf("SMUL ");
-            } break;
-
-            case IntegerArithmeticOperation::Operation::UnsignedMultiply: {
-                printf("UMUL ");
+            case IntegerArithmeticOperation::Operation::Multiply: {
+                printf("MUL ");
             } break;
 
             case IntegerArithmeticOperation::Operation::SignedDivide: {
@@ -339,8 +335,9 @@ void print_instruction(Instruction *instruction, bool has_return) {
         );
     } else if(auto copy_memory = dynamic_cast<CopyMemory*>(instruction)) {
         printf(
-            "COPY r%zu, r%zu, r%zu",
+            "COPY r%zu (%zu), r%zu, r%zu",
             copy_memory->length_register,
+            copy_memory->alignment,
             copy_memory->source_address_register,
             copy_memory->destination_address_register
         );
