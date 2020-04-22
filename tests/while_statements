@@ -1,4 +1,4 @@
-main :: () -> i32 {
+main :: () -> i32 no_mangle {
     i : i32 = 0;
 
     while i != 10 {

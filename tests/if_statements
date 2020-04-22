@@ -1,4 +1,4 @@
-main :: () -> i32 {
+main :: () -> i32 no_mangle {
     if false {
         return 1;
     }

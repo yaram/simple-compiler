@@ -1,4 +1,4 @@
-main :: () -> i32 {
+main :: () -> i32 no_mangle {
     a: i32 = 1;
     b: i32 = 0;
 

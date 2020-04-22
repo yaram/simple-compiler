@@ -4,6 +4,6 @@ test :: (a: T, b: $T) -> T {
     return result;
 }
 
-main :: () -> i32 {
+main :: () -> i32 no_mangle {
     return test(1, 1 as i32);
 }

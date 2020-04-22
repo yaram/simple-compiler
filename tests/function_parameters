@@ -2,6 +2,6 @@ test :: (a: i32) -> i32 {
     return a;
 }
 
-main :: () -> i32 {
+main :: () -> i32 no_mangle {
     return test(0);
 }
