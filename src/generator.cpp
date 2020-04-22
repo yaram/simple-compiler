@@ -3764,14 +3764,22 @@ static size_t allocate_register(GenerationContext *context) {
 }
 
 static void write_integer(uint8_t *buffer, size_t offset, RegisterSize size, uint64_t value) {
-    if(size >= RegisterSize::Size8) {
-        buffer[offset] = value;
-    } else if(size >= RegisterSize::Size16) {
+    buffer[offset] = value;
+
+    if(size >= RegisterSize::Size16) {
         buffer[offset + 1] = (value >> 8);
-    } else if(size >= RegisterSize::Size32) {
+    } else {
+        return;
+    }
+
+    if(size >= RegisterSize::Size32) {
         buffer[offset + 2] = (value >> 16);
         buffer[offset + 3] = (value >> 24);
-    } else if(size == RegisterSize::Size64) {
+    } else {
+        return;
+    }
+
+    if(size == RegisterSize::Size64) {
         buffer[offset + 4] = (value >> 32);
         buffer[offset + 5] = (value >> 40);
         buffer[offset + 6] = (value >> 48);
