@@ -3309,7 +3309,7 @@ static bool does_runtime_static_exist(GenerationContext context, const char *nam
 
 static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, ConstantValue *value);
 
-static bool register_static_variables_in_module(GlobalInfo info, GenerationContext *context, Array<Statement*> statements, const char *file_path) {
+static bool register_non_polymorpic_statics_in_module(GlobalInfo info, GenerationContext *context, Array<Statement*> statements, const char *file_path) {
     ConstantScope scope;
     scope.statements = statements;
     scope.constant_parameters = {};
@@ -3317,7 +3317,81 @@ static bool register_static_variables_in_module(GlobalInfo info, GenerationConte
     scope.file_path = file_path;
 
     for(auto statement : statements) {
-        if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+        if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(statement)) {
+            auto is_polymorphic = false;
+            for(auto parameter : function_declaration->parameters) {
+                if(parameter.is_polymorphic_determiner || parameter.is_constant) {
+                    is_polymorphic = true;
+
+                    break;
+                }
+            }
+
+            if(is_polymorphic) {
+                continue;
+            }
+
+            auto parameter_count = function_declaration->parameters.count;
+
+            auto parameter_types = allocate<Type*>(parameter_count);
+            for(size_t i = 0; i < parameter_count; i += 1) {
+                expect(type, evaluate_type_expression(info, scope, context, function_declaration->parameters[i].type));
+
+                if(!is_runtime_type(type)) {
+                    error(scope, function_declaration->parameters[i].type->range, "Function parameters cannot be of type '%s'", type_description(type));
+
+                    return { false };
+                }
+
+                parameter_types[i] = type;
+            }
+
+            Type *return_type;
+            if(function_declaration->return_type) {
+                expect(return_type_value, evaluate_type_expression(info, scope, context, function_declaration->return_type));
+
+                if(!is_runtime_type(return_type_value)) {
+                    error(scope, function_declaration->return_type->range, "Function parameters cannot be of type '%s'", type_description(return_type_value));
+
+                    return { false };
+                }
+
+                return_type = return_type_value;
+            } else {
+                return_type = new Void;
+            }
+
+            const char *mangled_name;
+            if(function_declaration->is_external || function_declaration->is_no_mangle) {
+                mangled_name = function_declaration->name.text;
+            } else {
+                char *mangled_name_buffer{};
+
+                string_buffer_append(&mangled_name_buffer, "function_");
+                string_buffer_append(&mangled_name_buffer, context->runtime_functions.count);
+
+                mangled_name = mangled_name_buffer;
+            }
+
+            auto runtime_parameters = allocate<RuntimeFunctionParameter>(parameter_count);
+
+            for(size_t i = 0; i < parameter_count; i += 1) {
+                runtime_parameters[i] = {
+                    function_declaration->parameters[i].name,
+                    parameter_types[i],
+                    function_declaration->parameters[i].type->range
+                };
+            }
+
+            append(&context->runtime_functions, {
+                mangled_name,
+                { parameter_count, runtime_parameters },
+                return_type,
+                function_declaration,
+                {},
+                scope
+            });
+        } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
             Type *type;
             ConstantValue *initializer;
 
@@ -3438,6 +3512,8 @@ static bool register_static_variables_in_module(GlobalInfo info, GenerationConte
             append(&context->statics, (RuntimeStatic*)static_variable);
         }
     }
+
+    return true;
 }
 
 static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantScope scope, GenerationContext *context, Statement *declaration) {
@@ -3613,7 +3689,7 @@ static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantS
 
             statements = new_statements;
 
-            if(!register_static_variables_in_module(info, context, statements, import_file_path_absolute)) {
+            if(!register_non_polymorpic_statics_in_module(info, context, statements, import_file_path_absolute)) {
                 return { false };
             }
         }
@@ -6362,37 +6438,7 @@ static Result<TypedValue> generate_expression(
                 }
             }
 
-            if(!is_registered) {
-                if(function_value->declaration->is_external || function_value->declaration->is_no_mangle) {
-                    mangled_name = function_value->declaration->name.text;
-                } else {
-                    char *mangled_name_buffer{};
-
-                    string_buffer_append(&mangled_name_buffer, "function_");
-                    string_buffer_append(&mangled_name_buffer, context->runtime_functions.count);
-
-                    mangled_name = mangled_name_buffer;
-                }
-
-                auto runtime_parameters = allocate<RuntimeFunctionParameter>(parameter_count);
-
-                for(size_t i = 0; i < parameter_count; i += 1) {
-                    runtime_parameters[i] = {
-                        function_value->declaration->parameters[i].name,
-                        function->parameters[i],
-                        function_value->declaration->parameters[i].type->range
-                    };
-                }
-
-                append(&context->runtime_functions, {
-                    mangled_name,
-                    { parameter_count, runtime_parameters },
-                    function->return_type,
-                    function_value->declaration,
-                    {},
-                    function_value->parent
-                });
-            }
+            assert(is_registered);
 
             auto address_register = append_reference_static(context, instructions, function_call->range.first_line, mangled_name);
 
@@ -7478,39 +7524,7 @@ static Result<TypedValue> generate_expression(
                             }
                         }
 
-                        if(!is_registered) {
-                            if(function_value->declaration->is_external || function_value->declaration->is_no_mangle) {
-                                mangled_name = function_value->declaration->name.text;
-                            } else {
-                                char *mangled_name_buffer{};
-
-                                string_buffer_append(&mangled_name_buffer, "function_");
-                                string_buffer_append(&mangled_name_buffer, context->runtime_functions.count);
-
-                                mangled_name = mangled_name_buffer;
-                            }
-
-                            auto parameter_count = function->parameters.count;
-
-                            auto runtime_parameters = allocate<RuntimeFunctionParameter>(parameter_count);
-
-                            for(size_t i = 0; i < parameter_count; i += 1) {
-                                runtime_parameters[i] = {
-                                    function_value->declaration->parameters[i].name,
-                                    function->parameters[i],
-                                    function_value->declaration->parameters[i].type->range
-                                };
-                            }
-
-                            append(&context->runtime_functions, {
-                                mangled_name,
-                                { parameter_count, runtime_parameters },
-                                function->return_type,
-                                function_value->declaration,
-                                {},
-                                function_value->parent
-                            });
-                        }
+                        assert(is_registered);
 
                         address_register = append_reference_static(
                             context,
@@ -8569,6 +8583,10 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
 
     GenerationContext context {};
 
+    if(!register_non_polymorpic_statics_in_module(info, &context, main_file_statements, main_file_path)) {
+        return { false };
+    }
+
     append(&context.loaded_files, {
         main_file_path,
         main_file_statements
@@ -8581,68 +8599,15 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
     main_file_scope.file_path = main_file_path;
 
     auto main_found = false;
-    for(auto statement : main_file_statements) {
-        if(match_declaration(statement, "main")) {
-            expect(value, resolve_declaration(info, main_file_scope, &context, statement));
-
-            if(auto function = dynamic_cast<FunctionTypeType*>(value.type)) {
-                auto function_value = dynamic_cast<FunctionConstant*>(value.value);
-                assert(function_value);
-
-                auto parameter_count = function->parameters.count;
-
-                auto runtime_parameters = allocate<RuntimeFunctionParameter>(parameter_count);
-
-                for(size_t i = 0; i < parameter_count; i += 1) {
-                    runtime_parameters[i] = {
-                        function_value->declaration->parameters[i].name,
-                        function->parameters[i]
-                    };
-                }
-
-                auto mangled_name = "main";
-
-                RuntimeFunction runtime_function;
-                runtime_function.mangled_name = mangled_name;
-                runtime_function.parameters = {
-                    parameter_count,
-                    runtime_parameters
-                };
-                runtime_function.return_type = function->return_type;
-                runtime_function.declaration = function_value->declaration;
-                runtime_function.constant_parameters = {};
-                runtime_function.parent = main_file_scope;
-
-                if(does_runtime_static_exist(context, mangled_name)) {
-                    error(main_file_scope, function_value->declaration->name.range, "Duplicate global name '%s'", mangled_name);
-
-                    return { false };
-                }
-
-                append(&context.runtime_functions, runtime_function);
-
-                main_found = true;
-
-                break;
-            } else if(dynamic_cast<PolymorphicFunction*>(value.type)) {
-                error(main_file_scope, statement->range, "'main' cannot be polymorphic");
-
-                return { false };
-            } else {
-                error(main_file_scope, statement->range, "'main' must be a function");
-
-                return { false };
-            }
+    for(auto runtime_function : context.runtime_functions) {
+        if(strcmp(runtime_function.mangled_name, "main") == 0) {
+            main_found = true;
         }
     }
 
     if(!main_found) {
         fprintf(stderr, "Error: 'main' function not found\n");
 
-        return { false };
-    }
-
-    if(!register_static_variables_in_module(info, &context, main_file_statements, main_file_path)) {
         return { false };
     }
 
