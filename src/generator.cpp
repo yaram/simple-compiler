@@ -8847,6 +8847,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                         return { false };
                     } else {
                         auto return_instruction = new ReturnInstruction;
+                        return_instruction->line = function.declaration->range.last_line;
 
                         append(&instructions, (Instruction*)return_instruction);
                     }
