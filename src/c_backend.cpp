@@ -735,6 +735,25 @@ bool generate_c_object(
             string_buffer_append(&forward_declaration_source, variable->alignment);
             string_buffer_append(&forward_declaration_source, ")))");
             string_buffer_append(&forward_declaration_source, variable->name);
+            string_buffer_append(&forward_declaration_source, "[");
+            string_buffer_append(&forward_declaration_source, variable->size);
+            string_buffer_append(&forward_declaration_source, "]");
+
+            if(!variable->is_external && variable->has_initial_data) {
+                string_buffer_append(&forward_declaration_source, "=");
+
+                string_buffer_append(&forward_declaration_source, "{");
+
+                for(size_t i = 0; i < variable->size; i += 1) {
+                    string_buffer_append(&forward_declaration_source, variable->initial_data[i]);
+
+                    if(i != variable->size - 1) {
+                        string_buffer_append(&forward_declaration_source, ",");
+                    }
+                }
+
+                string_buffer_append(&forward_declaration_source, "}");
+            }
 
             string_buffer_append(&forward_declaration_source, ";\n");
         } else {

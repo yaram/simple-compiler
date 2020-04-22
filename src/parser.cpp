@@ -2239,117 +2239,72 @@ static Result<Statement*> parse_statement(Context *context) {
                             }
                         } break;
 
-                        case TokenType::Equals: {
-                            context->next_token_index += 1;
-
-                            expect(expression, parse_expression(context, OperatorPrecedence::None));
-
-                            expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
-
-                            auto variable_declaration = new VariableDeclaration {
-                                span_range(first_range, last_range),
-                                identifier,
-                                nullptr,
-                                expression
-                            };
-
-                            return {
-                                true,
-                                variable_declaration
-                            };
-                        } break;
-
                         default: {
-                            expect(expression, parse_expression(context, OperatorPrecedence::None));
+                            Expression *type = nullptr;
+                            if(token.type != TokenType::Equals) {
+                                expect(expression, parse_expression(context, OperatorPrecedence::None));
+
+                                type = expression;
+                            }
+
+                            expect(pre_token, next_token(*context));
+
+                            Expression *initializer = nullptr;
+                            if(pre_token.type == TokenType::Equals || !type) {
+                                if(!expect_basic_token(context, TokenType::Equals)) {
+                                    return { false };
+                                }
+
+                                expect(expression, parse_expression(context, OperatorPrecedence::None));
+
+                                initializer = expression;
+                            }
 
                             expect(token, next_token(*context));
 
+                            auto is_external = false;
+                            auto is_no_mangle = false;
                             switch(token.type) {
                                 case TokenType::Semicolon: {
                                     context->next_token_index += 1;
-
-                                    auto variable_declaration = new VariableDeclaration {
-                                        span_range(first_range, token_range(*context, token)),
-                                        identifier,
-                                        expression,
-                                        false,
-                                        false
-                                    };
-
-                                    return {
-                                        true,
-                                        variable_declaration
-                                    };
-                                } break;
-
-                                case TokenType::Equals: {
-                                    context->next_token_index += 1;
-
-                                    expect(value_expression, parse_expression(context, OperatorPrecedence::None));
-
-                                    expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
-
-                                    auto variable_declaration = new VariableDeclaration {
-                                        span_range(first_range, last_range),
-                                        identifier,
-                                        expression,
-                                        value_expression
-                                    };
-
-                                    return {
-                                        true,
-                                        variable_declaration
-                                    };
                                 } break;
 
                                 case TokenType::Identifier: {
                                     if(strcmp(token.identifier, "extern") == 0) {
                                         context->next_token_index += 1;
 
-                                        expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
-
-                                        auto variable_declaration = new VariableDeclaration {
-                                            span_range(first_range, last_range),
-                                            identifier,
-                                            expression,
-                                            true,
-                                            false
-                                        };
-
-                                        return {
-                                            true,
-                                            variable_declaration
-                                        };
+                                        is_external = true;
                                     } else if(strcmp(token.identifier, "no_mangle") == 0) {
                                         context->next_token_index += 1;
 
-                                        expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
-
-                                        auto variable_declaration = new VariableDeclaration {
-                                            span_range(first_range, last_range),
-                                            identifier,
-                                            expression,
-                                            false,
-                                            true
-                                        };
-
-                                        return {
-                                            true,
-                                            variable_declaration
-                                        };
+                                        is_no_mangle = true;
                                     } else {
-                                        error(*context, "Expected '=', ';', 'extern' or 'no_mangle', got '%s'", token.identifier);
+                                        error(*context, "Expected ;', 'extern' or 'no_mangle', got '%s'", token.identifier);
 
                                         return { false };
                                     }
                                 } break;
 
                                 default: {
-                                    error(*context, "Expected '=', ';', 'extern' or 'no_mangle', got '%s'", get_token_text(token));
+                                    error(*context, "Expected ;', 'extern' or 'no_mangle', got '%s'", token.identifier);
 
                                     return { false };
                                 } break;
                             }
+
+                            auto variable_declaration = new VariableDeclaration {
+                                span_range(first_range, token_range(*context, token)),
+                                identifier,
+                                type,
+                                initializer,
+                                is_external,
+                                is_no_mangle
+                            };
+
+                            return {
+                                true,
+                                variable_declaration
+                            };
                         } break;
                     }
                 } else {

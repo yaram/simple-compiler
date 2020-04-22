@@ -319,6 +319,9 @@ struct StaticVariable : RuntimeStatic {
 
     bool is_external;
 
+    bool has_initial_data;
+    uint8_t *initial_data;
+
     StaticVariable() {}
 };
 

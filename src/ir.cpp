@@ -418,6 +418,8 @@ void print_static(RuntimeStatic *runtime_static) {
 
         if(variable->is_external) {
             printf(" extern");
+        } else if(variable->has_initial_data) {
+            printf(" initialized");
         }
     } else {
         abort();

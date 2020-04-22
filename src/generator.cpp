@@ -630,7 +630,7 @@ struct RuntimeFunction {
     ConstantScope parent;
 };
 
-struct ParsedFile {
+struct LoadedFile {
     const char *path;
 
     Array<Statement*> statements;
@@ -677,7 +677,7 @@ struct GenerationContext {
 
     List<RuntimeStatic*> statics;
 
-    List<ParsedFile> parsed_files;
+    List<LoadedFile> loaded_files;
 
     List<RegisteredStaticVariable> static_variables;
 };
@@ -3307,6 +3307,139 @@ static bool does_runtime_static_exist(GenerationContext context, const char *nam
     return false;
 }
 
+static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, ConstantValue *value);
+
+static bool register_static_variables_in_module(GlobalInfo info, GenerationContext *context, Array<Statement*> statements, const char *file_path) {
+    ConstantScope scope;
+    scope.statements = statements;
+    scope.constant_parameters = {};
+    scope.is_top_level = true;
+    scope.file_path = file_path;
+
+    for(auto statement : statements) {
+        if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+            Type *type;
+            ConstantValue *initializer;
+
+            if(variable_declaration->type != nullptr && variable_declaration->initializer != nullptr) {
+                if(variable_declaration->is_external) {
+                    error(scope, variable_declaration->range, "External static variables cannot have an initializer");
+
+                    return { false };
+                }
+
+                expect(type_value, evaluate_type_expression(info, scope, context, variable_declaration->type));
+                
+                if(!is_runtime_type(type_value)) {
+                    error(scope, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type_value));
+
+                    return { false };
+                }
+
+                type = type_value;
+
+                expect(initializer_value, evaluate_constant_expression(info, scope, context, variable_declaration->initializer));
+
+                expect(initializer_value_coerced, coerce_constant_to_type(
+                    info,
+                    scope,
+                    variable_declaration->range,
+                    initializer_value.type,
+                    initializer_value.value,
+                    type,
+                    false
+                ));
+
+                initializer = initializer_value_coerced;
+            } else if(variable_declaration->type != nullptr) {
+                expect(type_value, evaluate_type_expression(info, scope, context, variable_declaration->type));
+
+                if(!is_runtime_type(type_value)) {
+                    error(scope, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type_value));
+
+                    return { false };
+                }
+
+                type = type_value;
+            } else if(variable_declaration->initializer != nullptr) {
+                if(variable_declaration->is_external) {
+                    error(scope, variable_declaration->range, "External static variables cannot have an initializer");
+
+                    return { false };
+                }
+
+                expect(initializer_value, evaluate_constant_expression(info, scope, context, variable_declaration->initializer));
+
+                expect(actual_type, coerce_to_default_type(info, scope, variable_declaration->initializer->range, initializer_value.type));
+                
+                if(!is_runtime_type(actual_type)) {
+                    error(scope, variable_declaration->initializer->range, "Cannot create variables of type '%s'", type_description(actual_type));
+
+                    return { false };
+                }
+
+                type = actual_type;
+
+                expect(initializer_value_coerced, coerce_constant_to_type(
+                    info,
+                    scope,
+                    variable_declaration->range,
+                    initializer_value.type,
+                    initializer_value.value,
+                    type,
+                    false
+                ));
+
+                initializer = initializer_value_coerced;
+            } else {
+                abort();
+            }
+
+            const char *mangled_name;
+            if(variable_declaration->is_external || variable_declaration->is_no_mangle) {
+                mangled_name = variable_declaration->name.text;
+            } else {
+                char *buffer{};
+
+                string_buffer_append(&buffer, "variable_");
+                string_buffer_append(&buffer, context->static_variables.count);
+
+                mangled_name = buffer;
+            }
+
+            if(does_runtime_static_exist(*context, mangled_name)) {
+                error(scope, variable_declaration->name.range, "Duplicate global name '%s'", mangled_name);
+
+                return { false };
+            }
+
+            append(&context->static_variables, {
+                variable_declaration,
+                mangled_name,
+                type
+            });
+
+            auto size = get_type_size(info, type);
+
+            auto static_variable = new StaticVariable;
+            static_variable->name = mangled_name;
+            static_variable->size = size;
+            static_variable->alignment = get_type_alignment(info, type);
+            static_variable->is_external = variable_declaration->is_external;
+            static_variable->has_initial_data = variable_declaration->initializer != nullptr;
+            if(variable_declaration->initializer != nullptr) {
+                auto initial_data = allocate<uint8_t>(size);
+
+                write_value(info, initial_data, 0, type, initializer);
+
+                static_variable->initial_data = initial_data;
+            }
+
+            append(&context->statics, (RuntimeStatic*)static_variable);
+        }
+    }
+}
+
 static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantScope scope, GenerationContext *context, Statement *declaration) {
     if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(declaration)) {
         for(auto parameter : function_declaration->parameters) {
@@ -3457,81 +3590,31 @@ static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantS
 
         expect(import_file_path_absolute, path_relative_to_absolute(import_file_path));
 
-        auto already_parsed = false;
+        auto already_loaded = false;
         Array<Statement*> statements;
-        for(auto file : context->parsed_files) {
+        for(auto file : context->loaded_files) {
             if(strcmp(file.path, import_file_path_absolute) == 0) {
-                already_parsed = true;
+                already_loaded = true;
                 statements = file.statements;
 
                 break;
             }
         }
 
-        if(!already_parsed) {
+        if(!already_loaded) {
             expect(tokens, tokenize_source(import_file_path_absolute));
 
             expect(new_statements, parse_tokens(import_file_path_absolute, tokens));
 
-            append(&context->parsed_files, {
+            append(&context->loaded_files, {
                 import_file_path_absolute,
                 new_statements
             });
 
             statements = new_statements;
-        }
 
-        ConstantScope module_scope;
-        module_scope.statements = statements;
-        module_scope.constant_parameters = {};
-        module_scope.is_top_level = true;
-        module_scope.file_path = import_file_path_absolute;
-
-        for(auto statement : statements) {
-            if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
-                if(variable_declaration->initializer != nullptr) {
-                    error(module_scope, variable_declaration->type->range, "Static variables cannot have an initializer");
-                }
-
-                expect(type, evaluate_type_expression(info, module_scope, context, variable_declaration->type));
-
-                if(!is_runtime_type(type)) {
-                    error(module_scope, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
-
-                    return { false };
-                }
-
-                const char *mangled_name;
-                if(variable_declaration->is_external || variable_declaration->is_no_mangle) {
-                    mangled_name = variable_declaration->name.text;
-                } else {
-                    char *buffer{};
-
-                    string_buffer_append(&buffer, "variable_");
-                    string_buffer_append(&buffer, context->static_variables.count);
-
-                    mangled_name = buffer;
-                }
-
-                if(does_runtime_static_exist(*context, mangled_name)) {
-                    error(module_scope, variable_declaration->name.range, "Duplicate global name '%s'", mangled_name);
-
-                    return { false };
-                }
-
-                append(&context->static_variables, {
-                    variable_declaration,
-                    mangled_name,
-                    type
-                });
-
-                auto static_variable = new StaticVariable;
-                static_variable->name = mangled_name;
-                static_variable->size = get_type_size(info, type);
-                static_variable->alignment = get_type_alignment(info, type);
-                static_variable->is_external = variable_declaration->is_external;
-
-                append(&context->statics, (RuntimeStatic*)static_variable);
+            if(!register_static_variables_in_module(info, context, statements, import_file_path_absolute)) {
+                return { false };
             }
         }
 
@@ -3621,8 +3704,6 @@ static void write_integer(uint8_t *buffer, size_t offset, RegisterSize size, uin
         abort();
     }
 }
-
-static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, ConstantValue *value);
 
 static void write_struct(GlobalInfo info, uint8_t *data, size_t offset, StructType struct_type, ConstantValue **member_values) {
     for(size_t i = 0; i < struct_type.members.count; i += 1) {
@@ -8488,7 +8569,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
 
     GenerationContext context {};
 
-    append(&context.parsed_files, {
+    append(&context.loaded_files, {
         main_file_path,
         main_file_statements
     });
@@ -8561,52 +8642,8 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
         return { false };
     }
 
-    for(auto statement : main_file_statements) {
-        if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
-            if(variable_declaration->initializer != nullptr) {
-                error(main_file_scope, variable_declaration->type->range, "Static variables cannot have an initializer");
-            }
-
-            expect(type, evaluate_type_expression(info, main_file_scope, &context, variable_declaration->type));
-
-            if(!is_runtime_type(type)) {
-                error(main_file_scope, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
-
-                return { false };
-            }
-
-            const char *mangled_name;
-            if(variable_declaration->is_external || variable_declaration->is_no_mangle) {
-                mangled_name = variable_declaration->name.text;
-            } else {
-                char *buffer{};
-
-                string_buffer_append(&buffer, "variable_");
-                string_buffer_append(&buffer, context.static_variables.count);
-
-                mangled_name = buffer;
-            }
-
-            if(does_runtime_static_exist(context, mangled_name)) {
-                error(main_file_scope, variable_declaration->name.range, "Duplicate global name '%s'", mangled_name);
-
-                return { false };
-            }
-
-            append(&context.static_variables, {
-                variable_declaration,
-                mangled_name,
-                type
-            });
-
-            auto static_variable = new StaticVariable;
-            static_variable->name = mangled_name;
-            static_variable->size = get_type_size(info, type);
-            static_variable->alignment = get_type_alignment(info, type);
-            static_variable->is_external = variable_declaration->is_external;
-
-            append(&context.statics, (RuntimeStatic*)static_variable);
-        }
+    if(!register_static_variables_in_module(info, &context, main_file_statements, main_file_path)) {
+        return { false };
     }
 
     List<const char*> libraries {};

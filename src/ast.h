@@ -404,27 +404,14 @@ struct VariableDeclaration : Statement {
         FileRange range,
         Identifier name,
         Expression *type,
-        Expression *initializer
-    ) :
-        Statement { range },
-        name { name },
-        type { type },
-        initializer { initializer },
-        is_external { false },
-        is_no_mangle { false }
-    {}
-
-    VariableDeclaration(
-        FileRange range,
-        Identifier name,
-        Expression *type,
+        Expression *initializer,
         bool is_external,
         bool is_no_mangle
     ) :
         Statement { range },
         name { name },
         type { type },
-        initializer { nullptr },
+        initializer { initializer },
         is_external { is_external },
         is_no_mangle { is_no_mangle }
     {}
