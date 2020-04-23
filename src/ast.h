@@ -549,6 +549,14 @@ struct ReturnStatement : Statement {
     {}
 };
 
+struct BreakStatement : Statement {
+    BreakStatement(
+        FileRange range
+    ) :
+        Statement { range }
+    {}
+};
+
 struct Import : Statement {
     const char *path;
 

@@ -1877,6 +1877,17 @@ static Result<Statement*> parse_statement(Context *context) {
                     true,
                     return_statement
                 };
+            } else if(strcmp(token.identifier, "break") == 0) {
+                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+
+                auto break_statement = new BreakStatement {
+                    span_range(first_range, last_range)
+                };
+
+                return {
+                    true,
+                    break_statement
+                };
             } else if(strcmp(token.identifier, "using") == 0) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
