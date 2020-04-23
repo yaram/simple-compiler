@@ -5,6 +5,7 @@
 
 enum struct TokenType {
     Dot,
+    DoubleDot,
     Comma,
     Colon,
     Semicolon,

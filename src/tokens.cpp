@@ -11,6 +11,10 @@ void print_token(Token token) {
             printf("Dot");
         } break;
 
+        case TokenType::DoubleDot: {
+            printf("DoubleDot");
+        } break;
+
         case TokenType::Comma: {
             printf("Comma");
         } break;
@@ -161,6 +165,10 @@ const char *get_token_text(Token token) {
     switch(token.type) {
         case TokenType::Dot: {
             return ".";
+        } break;
+
+        case TokenType::DoubleDot: {
+            return "..";
         } break;
 
         case TokenType::Comma: {

@@ -270,11 +270,21 @@ Result<Array<Token>> tokenize_source(const char *path) {
                 append_single_character_token(line, first_character, &tokens, TokenType::ForwardSlash);
             }
         } else if(source[index] == '.') {
-            append_single_character_token(line, character, &tokens, TokenType::Dot);
+            auto first_character = character;
 
             index += 1;
 
             character += 1;
+
+            if(index != length && source[index] == '.') {
+                append_double_character_token(line, first_character, &tokens, TokenType::DoubleDot);
+
+                index += 1;
+
+                character += 1;
+            } else {
+                append_single_character_token(line, first_character, &tokens, TokenType::Dot);
+            }
         } else if(source[index] == ',') {
             append_single_character_token(line, character, &tokens, TokenType::Comma);
 
