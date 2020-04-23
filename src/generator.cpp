@@ -8111,6 +8111,13 @@ static Result<TypedValue> generate_expression(
     }
 }
 
+static bool is_statement_declaration(Statement *statement) {
+    return
+        dynamic_cast<FunctionDeclaration*>(statement) ||
+        dynamic_cast<ConstantDefinition*>(statement) ||
+        dynamic_cast<StructDefinition*>(statement);
+}
+
 static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationContext *context, List<Instruction*> *instructions, Statement *statement) {
     if(auto expression_statement = dynamic_cast<ExpressionStatement*>(statement)) {
         if(!generate_expression(info, scope, context, instructions, expression_statement->expression).status) {
@@ -8334,8 +8341,10 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         });
 
         for(auto child_statement : if_statement->statements) {
-            if(!generate_statement(info, if_scope, context, instructions, child_statement)) {
-                return false;
+            if(!is_statement_declaration(child_statement)) {
+                if(!generate_statement(info, if_scope, context, instructions, child_statement)) {
+                    return false;
+                }
             }
         }
 
@@ -8392,8 +8401,10 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
             });
 
             for(auto child_statement : if_statement->else_ifs[i].statements) {
-                if(!generate_statement(info, else_if_scope, context, instructions, child_statement)) {
-                    return false;
+                if(!is_statement_declaration(child_statement)) {
+                    if(!generate_statement(info, else_if_scope, context, instructions, child_statement)) {
+                        return false;
+                    }
                 }
             }
 
@@ -8421,8 +8432,10 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         });
 
         for(auto child_statement : if_statement->else_statements) {
-            if(!generate_statement(info, else_scope, context, instructions, child_statement)) {
-                return false;
+            if(!is_statement_declaration(child_statement)) {
+                if(!generate_statement(info, else_scope, context, instructions, child_statement)) {
+                    return false;
+                }
             }
         }
 
@@ -8477,8 +8490,10 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         });
 
         for(auto child_statement : while_loop->statements) {
-            if(!generate_statement(info, while_scope, context, instructions, child_statement)) {
-                return false;
+            if(!is_statement_declaration(child_statement)) {
+                if(!generate_statement(info, while_scope, context, instructions, child_statement)) {
+                    return false;
+                }
             }
         }
 
@@ -8664,9 +8679,11 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
             return { false };
         }
 
-        for(auto statement : for_loop->statements) {
-            if(!generate_statement(info, body_scope, context, instructions, statement)) {
-                return { false };
+        for(auto child_statement : for_loop->statements) {
+            if(!is_statement_declaration(child_statement)) {
+                if(!generate_statement(info, body_scope, context, instructions, child_statement)) {
+                    return { false };
+                }
             }
         }
 
@@ -9065,14 +9082,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                 }
 
                 for(auto statement : function.declaration->statements) {
-                    if(
-                        dynamic_cast<ExpressionStatement*>(statement) ||
-                        dynamic_cast<VariableDeclaration*>(statement) ||
-                        dynamic_cast<Assignment*>(statement) ||
-                        dynamic_cast<IfStatement*>(statement) ||
-                        dynamic_cast<WhileLoop*>(statement) ||
-                        dynamic_cast<ReturnStatement*>(statement)
-                    ) {
+                    if(!is_statement_declaration(statement)) {
                         if(!generate_statement(info, scope, &context, &instructions, statement)) {
                             return { false };
                         }
