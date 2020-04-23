@@ -433,6 +433,26 @@ struct Assignment : Statement {
     {}
 };
 
+struct BinaryOperationAssignment : Statement {
+    Expression *target;
+
+    BinaryOperation::Operator binary_operator;
+
+    Expression *value;
+
+    BinaryOperationAssignment(
+        FileRange range,
+        Expression *target,
+        BinaryOperation::Operator binary_operator,
+        Expression *value
+    ) :
+        Statement { range },
+        target { target },
+        binary_operator { binary_operator },
+        value { value }
+    {}
+};
+
 struct IfStatement : Statement {
     struct ElseIf {
         Expression *condition;

@@ -2329,29 +2329,86 @@ static Result<Statement*> parse_statement(Context *context) {
                             };
                         } break;
 
-                        case TokenType::Equals: {
-                            context->next_token_index += 1;
+                        default: {
+                            bool is_binary_operation_assignment;
+                            BinaryOperation::Operator binary_operator;
+                            switch(token.type) {
+                                case TokenType::Equals: {
+                                    context->next_token_index += 1;
+
+                                    is_binary_operation_assignment = false;
+                                } break;
+
+                                case TokenType::PlusEquals: {
+                                    context->next_token_index += 1;
+
+                                    is_binary_operation_assignment = true;
+                                    binary_operator = BinaryOperation::Operator::Addition;
+                                } break;
+
+                                case TokenType::DashEquals: {
+                                    context->next_token_index += 1;
+
+                                    is_binary_operation_assignment = true;
+                                    binary_operator = BinaryOperation::Operator::Subtraction;
+                                } break;
+
+                                case TokenType::AsteriskEquals: {
+                                    context->next_token_index += 1;
+
+                                    is_binary_operation_assignment = true;
+                                    binary_operator = BinaryOperation::Operator::Multiplication;
+                                } break;
+
+                                case TokenType::ForwardSlashEquals: {
+                                    context->next_token_index += 1;
+
+                                    is_binary_operation_assignment = true;
+                                    binary_operator = BinaryOperation::Operator::Division;
+                                } break;
+
+                                case TokenType::PercentEquals: {
+                                    context->next_token_index += 1;
+
+                                    is_binary_operation_assignment = true;
+                                    binary_operator = BinaryOperation::Operator::Modulo;
+                                } break;
+
+                                default: {
+                                    error(*context, "Expected '=', '+=', '-=', '*=', '/=', '%=' or ';', got '%s'", get_token_text(token));
+
+                                    return { false };
+                                } break;
+                            }
 
                             expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                             expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
-                            auto assignment = new Assignment {
-                                span_range(first_range, last_range),
-                                right_expression,
-                                expression
-                            };
+                            if(is_binary_operation_assignment) {
+                                auto assignment = new BinaryOperationAssignment {
+                                    span_range(first_range, last_range),
+                                    right_expression,
+                                    binary_operator,
+                                    expression
+                                };
 
-                            return {
-                                true,
-                                assignment
-                            };
-                        } break;
+                                return {
+                                    true,
+                                    assignment
+                                };
+                            } else {
+                                auto assignment = new Assignment {
+                                    span_range(first_range, last_range),
+                                    right_expression,
+                                    expression
+                                };
 
-                        default: {
-                            error(*context, "Expected '=' or ';', got '%s'", get_token_text(token));
-
-                            return { false };
+                                return {
+                                    true,
+                                    assignment
+                                };
+                            }
                         } break;
                     }
                 }
