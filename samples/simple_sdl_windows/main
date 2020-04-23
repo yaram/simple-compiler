@@ -1,0 +1,33 @@
+#import "sdl";
+using sdl;
+
+main :: () -> i32 no_mangle {
+    if SDL_Init(SDL_INIT_VIDEO) != 0 {
+        return 1;
+    }
+
+    window := SDL_CreateWindow("Test\0".pointer, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, 0);
+
+    if window == 0 {
+        return 1;
+    }
+
+    running := true;
+    while running {
+        event: SDL_Event;
+
+        while SDL_PollEvent(*event) != 0 {
+            if event.type == SDL_QUIT {
+                running = false;
+            }
+
+            if event.type == SDL_WINDOWEVENT {
+                if event.body.window.event == SDL_WINDOWEVENT_CLOSE {
+                    running = false;
+                }
+            }
+        }
+    }
+
+    return 0;
+}
