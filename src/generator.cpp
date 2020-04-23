@@ -8739,6 +8739,8 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         }
 
         branch->destination_instruction = instructions->count;
+
+        return true;
     } else if(auto return_statement = dynamic_cast<ReturnStatement*>(statement)) {
         auto return_instruction = new ReturnInstruction;
         return_instruction->line = return_statement->range.first_line;
