@@ -915,7 +915,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
 
                 current_expression = new MemberReference {
                     span_range(current_expression->range, identifier.range),
-                    expression,
+                    current_expression,
                     identifier
                 };
             } break;
