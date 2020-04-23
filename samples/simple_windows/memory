@@ -1,0 +1,14 @@
+#import "windows";
+using windows;
+
+allocate :: (length: usize) -> *void {
+    return HeapAlloc(GetProcessHeap(), 0, length);
+}
+
+reallocate :: (pointer: *void, length: usize) -> *void {
+    return HeapReAlloc(GetProcessHeap(), 0, pointer, length);
+}
+
+free :: (pointer: *void) {
+    HeapFree(GetProcessHeap(), 0, pointer);
+}

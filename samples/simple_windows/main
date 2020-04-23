@@ -1,0 +1,229 @@
+#import "windows";
+using windows;
+
+#import "memory";
+using memory;
+
+int_to_string :: (value: $T, buffer: []u8, radix: T) -> usize {
+    if value == 0 {
+        buffer[0] = 48;
+        buffer[1] = 0;
+
+        return 1;
+    }
+
+    index: usize = 0;
+
+    while(value > 0) {
+        digit_value := value % radix;
+
+        if digit_value < 10 {
+            buffer[index] = (48 + digit_value) as u8;
+        } else {
+            buffer[index] = (65 + (digit_value - 10)) as u8;
+        }
+
+        value = value / radix;
+        index += 1;
+    }
+
+    length := index;
+
+    half_length := (length - 1) / 2 + 1;
+
+    for 0..half_length - 1 {
+        temp := buffer[it];
+
+        buffer[it] = buffer[length - 1 - it];
+        buffer[length - 1 - it] = temp;
+    }
+
+    return length;
+}
+
+print_string :: (string: []u8) {
+    buffer: [1024]u8;
+
+    i: usize = 0;
+    while i < string.length && i < buffer.length - 1 {
+        buffer[i] = string[i];
+
+        i += 1;
+    }
+
+    buffer[i] = 0;
+
+    OutputDebugStringA(buffer.pointer);
+}
+
+print_int :: (int: $T, radix: T) {
+    buffer: [64]u8;
+
+    used_length := int_to_string(int, buffer, radix);
+
+    print_string({ pointer = buffer.pointer, length = used_length });
+}
+
+window_procedure :: (hWnd: HWND, uMsg: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
+    if uMsg == WM_PAINT {
+        ValidateRect(hWnd, 0);
+    } else if uMsg == WM_DESTROY {
+        PostQuitMessage(0);
+    } else {
+        return DefWindowProcA(hWnd, uMsg, wParam, lParam);
+    }
+
+    return 0;
+}
+
+main :: () -> i32 no_mangle {
+    module_handle := GetModuleHandleA(0);
+
+    class_name := "BestClass\0";
+
+    window_class_info: WNDCLASSA = {
+        style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC,
+        lpfnWndProc = *window_procedure,
+        cbClsExtra = 0,
+        cbWndExtra = 0,
+        hInstance = module_handle,
+        hIcon = 0,
+        hCursor = 0,
+        hBrush = 0,
+        lpszMenuName = 0,
+        lpszClassName = class_name.pointer
+    };
+
+    if RegisterClassA(*window_class_info) == 0 {
+        print_string("Error: Unable to register window class\n");
+
+        ExitProcess(1);
+    }
+
+    window := CreateWindowExA(
+        0,
+        class_name.pointer,
+        "Best Window\0".pointer,
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        CW_USEDEFAULT as i32,
+        CW_USEDEFAULT as i32,
+        CW_USEDEFAULT as i32,
+        CW_USEDEFAULT as i32,
+        0,
+        0,
+        module_handle,
+        0
+    );
+
+    if window == 0 {
+        print_string("Error: Unable to create window\n");
+
+        ExitProcess(1);
+    }
+
+    ticks_per_second: LONGLONG;
+    QueryPerformanceFrequency(*ticks_per_second);
+
+    last_frame_ticks: LONGLONG;
+    QueryPerformanceCounter(*last_frame_ticks);
+
+    position := 0.0;
+    
+    window_bounds: RECT;
+    GetClientRect(window, *window_bounds);
+
+    window_width := (window_bounds.right - window_bounds.left) as usize;
+    window_height := (window_bounds.bottom - window_bounds.top) as usize;
+
+    framebuffer_pointer := allocate(window_width * window_height * 4);
+
+    running := true;
+    while running {
+        current_frame_ticks: LONGLONG;
+        QueryPerformanceCounter(*current_frame_ticks);
+
+        frame_time_ticks := current_frame_ticks - last_frame_ticks;
+
+        frame_time_seconds := frame_time_ticks as f64 / ticks_per_second as f64;
+
+        frames_per_second := 1 / frame_time_seconds;
+
+        print_string("FPS: ");
+        print_int(frames_per_second as i64, 10);
+        print_string("\n");
+
+        last_frame_ticks = current_frame_ticks;
+
+        message: MSG;
+        while PeekMessageA(*message, 0, 0, 0, 1) == 1 {
+            if message.message == WM_QUIT {
+                running = false;
+            } else {
+                TranslateMessage(*message);
+                DispatchMessageA(*message);
+            }
+        }
+
+        position += 256 * frame_time_seconds;
+
+        device_context := GetDC(window);
+    
+        window_bounds: RECT;
+        GetClientRect(window, *window_bounds);
+
+        current_window_width := (window_bounds.right - window_bounds.left) as usize;
+        current_window_height := (window_bounds.bottom - window_bounds.top) as usize;
+
+        if current_window_width != window_width || current_window_height != window_height {
+            window_width = current_window_width;
+            window_height = current_window_height;
+
+            framebuffer_pointer = reallocate(framebuffer_pointer, window_width * window_height * 4);
+        }
+
+        bitmap_info: BITMAPINFO = {
+            biSize = size_of(BITMAPINFO) as u32,
+            biWidth = window_width as LONG,
+            biHeight = window_height as LONG,
+            biPlanes = 1,
+            biBitCount = 32,
+            biCompression = BI_RGB,
+            biSizeImage = 0,
+            biXPelsPerMeter = 0,
+            biYPelsPerMeter = 0,
+            biClrUsed = 0,
+            biClrImportant = 0
+        };
+
+        framebuffer: []u8 = {
+            pointer = framebuffer_pointer as *u8,
+            length = window_width * window_height * 4
+        };
+
+        for y: 0..window_height - 1 {
+            for x: 0..window_width - 1 {
+                index := (y * window_width + x) * 4;
+
+                framebuffer[index] = (x as i64 - position as i64) as u8;
+                framebuffer[index + 1] = y as u8;
+                framebuffer[index + 2] = 0;
+            }
+        }
+
+        StretchDIBits(
+            device_context,
+            0, 0,
+            window_width as i32, window_height as i32,
+            0, 0,
+            window_width as i32, window_height as i32,
+            framebuffer_pointer,
+            *bitmap_info,
+            DIB_RGB_COLORS,
+            SRCCOPY
+        );
+    }
+
+    ExitProcess(0);
+
+    return 0;
+}

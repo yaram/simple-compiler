@@ -1,0 +1,222 @@
+BOOL :: u32;
+
+WORD :: u16;
+
+DWORD :: u32;
+
+ATOM :: WORD;
+
+UINT :: u32;
+
+UINT_PTR :: *usize;
+
+LONG :: u32;
+
+LONGLONG :: u64;
+
+LONG_PTR :: usize;
+
+WPARAM :: UINT_PTR;
+
+LPARAM :: LONG_PTR;
+
+LRESULT :: LONG_PTR;
+
+PVOID :: *void;
+
+LPVOID :: *void;
+
+HANDLE :: PVOID;
+
+HINSTANCE :: HANDLE;
+
+HMODULE :: HANDLE;
+
+HICON :: HANDLE;
+
+HCURSOR :: HANDLE;
+
+HBRUSH :: HANDLE;
+
+HWND :: HANDLE;
+
+HMENU :: HANDLE;
+
+HDC :: HANDLE;
+
+CHAR :: u8;
+
+LPCSTR :: *CHAR;
+
+ULONG_PTR :: usize;
+
+SIZE_T :: ULONG_PTR;
+
+MEM_COMMIT :: 0x00001000;
+MEM_RESERVE :: 0x00002000;
+
+MEM_DECOMMIT :: 0x00004000;
+MEM_RELEASE :: 0x00008000;
+
+PAGE_NOACCESS :: 0x01;
+PAGE_READONLY :: 0x02;
+PAGE_READWRITE :: 0x04;
+PAGE_WRITECOPY :: 0x08;
+PAGE_EXECUTE :: 0x10;
+PAGE_EXECUTE_READ :: 0x20;
+PAGE_EXECUTE_READWRITE :: 0x40;
+PAGE_EXECUTE_WRITECOPY :: 0x80;
+
+WS_OVERLAPPED :: 0x00000000;
+WS_MAXIMIZEBOX :: 0x00010000;
+WS_MINIMIZEBOX :: 0x00020000;
+WS_THICKFRAME :: 0x00040000;
+WS_SYSMENU :: 0x00080000;
+WS_CAPTION :: 0x00C00000;
+WS_VISIBLE :: 0x10000000;
+
+WS_OVERLAPPEDWINDOW :: WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+
+CS_VREDRAW :: 0x0001;
+CS_HREDRAW :: 0x00002;
+CS_OWNDC :: 0x0020;
+
+BI_RGB :: 0;
+
+DIB_RGB_COLORS :: 0;
+
+SRCCOPY :: 0x00CC0020;
+
+WNDPROC :: *(hwnd: HWND, uMsg: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT;
+
+WNDCLASSA :: struct {
+    style: UINT,
+    lpfnWndProc: WNDPROC,
+    cbClsExtra: i32,
+    cbWndExtra: i32,
+    hInstance: HINSTANCE,
+    hIcon: HICON,
+    hCursor: HCURSOR,
+    hBrush: HBRUSH,
+    lpszMenuName: LPCSTR,
+    lpszClassName: LPCSTR
+}
+
+POINT :: struct {
+    x: LONG,
+    y: LONG
+}
+
+RECT :: struct {
+    left: LONG,
+    top: LONG,
+    right: LONG,
+    bottom: LONG
+}
+
+LPRECT :: *RECT;
+
+MSG :: struct {
+    hwnd: HWND,
+    message: UINT,
+    wParam: WPARAM,
+    lParam: LPARAM,
+    time: DWORD,
+    pt: POINT,
+    lPrivate: DWORD
+}
+
+LPMSG :: *MSG;
+
+BITMAPINFO :: struct {
+    biSize: DWORD,
+    biWidth: LONG,
+    biHeight: LONG,
+    biPlanes: WORD,
+    biBitCount: WORD,
+    biCompression: DWORD,
+    biSizeImage: DWORD,
+    biXPelsPerMeter: LONG,
+    biYPelsPerMeter: LONG,
+    biClrUsed: DWORD,
+    biClrImportant: DWORD
+}
+
+WM_DESTROY :: 0x0002;
+WM_PAINT :: 0x000F;
+WM_QUIT :: 0x0012;
+
+ExitProcess :: (uExitCode: UINT) extern "kernel32.lib";
+
+OutputDebugStringA :: (lpOutputString: LPCSTR) extern "kernel32.lib";
+
+GetLastError :: () -> DWORD extern "kernel32.lib";
+
+VirtualAlloc :: (lpAddress: LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtected: DWORD) -> LPVOID extern "kernel32.lib";
+VirtualFree :: (lpAddress: LPVOID, dwSize: SIZE_T, dwFreeType: DWORD) -> BOOL extern "kernel32.lib";
+
+GetProcessHeap :: () -> HANDLE extern "kernel32.lib";
+
+HeapAlloc :: (hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) -> LPVOID extern "kernel32.lib";
+HeapReAlloc :: (hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID, dwBytes: SIZE_T) -> LPVOID extern "kernel32.lib";
+HeapFree :: (hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID) -> BOOL extern "kernel32.lib";
+
+GetModuleHandleA :: (lpModuleName: LPCSTR) -> HMODULE extern "kernel32.lib";
+
+QueryPerformanceFrequency :: (lpFrequency: *LONGLONG) -> BOOL extern "kernel32.lib";
+QueryPerformanceCounter :: (lpPerformanceCount: *LONGLONG) -> BOOL extern "kernel32.lib";
+
+PostQuitMessage :: (nExitCode: i32) extern "user32.lib";
+
+MessageBoxA :: (hWnd: HWND, lpText: LPCSTR, lpCaption: LPCSTR, uType: UINT) extern "user32.lib";
+
+RegisterClassA :: (lpWndClass: *WNDCLASSA) -> ATOM extern "user32.lib";
+
+CW_USEDEFAULT :: 0x80000000;
+
+CreateWindowExA :: (
+    dwExStyle: DWORD,
+    lpClassName: LPCSTR,
+    lpWindowName: LPCSTR,
+    dwStyle: DWORD,
+    X: i32,
+    Y: i32,
+    nWidth: i32,
+    nHeight: i32,
+    hWndParent: HWND,
+    hMenu: HMENU,
+    hInstance: HINSTANCE,
+    lpParam: LPVOID
+) -> HWND extern "user32.lib";
+
+DefWindowProcA :: (hWnd: HWND, Msg: UINT, wParam: WPARAM, lparam: LPARAM) -> LRESULT extern "user32.lib";
+
+GetMessageA :: (lpMsg: LPMSG, hWnd: HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT) -> BOOL extern "user32.lib";
+PeekMessageA :: (lpMsg: LPMSG, hWnd: HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT, wRemoveMsg: UINT) -> BOOL extern "user32.lib";
+TranslateMessage :: (lpMsg: LPMSG) -> BOOL extern "user32.lib";
+DispatchMessageA :: (lpMsg: LPMSG) -> LRESULT extern "user32.lib";
+
+GetWindowRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL extern "user32.lib";
+GetClientRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL extern "user32.lib";
+
+ValidateRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL extern "user32.lib";
+
+GetDC :: (hWnd: HWND) -> HDC extern "gdi32.lib";
+
+Rectangle :: (hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL extern "gdi32.lib";
+
+StretchDIBits :: (
+    hdc: HDC,
+    xDest: i32,
+    yDest: i32,
+    DestWidth: i32,
+    DestHeight: i32,
+    xSrc: i32,
+    ySrc: i32,
+    SrcWidth: i32,
+    SrcHeight: i32,
+    lpBits: *void,
+    lpbmi: *BITMAPINFO,
+    iUsage: UINT,
+    rop: DWORD
+) -> i32 extern "gdi32.lib";
