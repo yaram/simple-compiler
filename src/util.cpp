@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 void string_buffer_append(char **string_buffer, const char *string) {
-    const size_t minumum_increment = 16;
+    const size_t minumum_increment = 64;
 
     auto string_length = strlen(string);
 
@@ -24,7 +24,8 @@ void string_buffer_append(char **string_buffer, const char *string) {
 
         auto new_string_buffer = (char*)realloc((void*)(*string_buffer), new_string_buffer_length + 1);
 
-        strcat(new_string_buffer, string);
+        memcpy(&new_string_buffer[string_buffer_length], string, string_length);
+        new_string_buffer[string_buffer_length + string_length] = 0;
 
         *string_buffer = new_string_buffer;
     }
