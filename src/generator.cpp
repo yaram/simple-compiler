@@ -604,7 +604,6 @@ struct Variable {
     Identifier name;
 
     Type *type;
-    FileRange type_range;
 
     size_t address_register;
 };
@@ -3709,7 +3708,7 @@ static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantS
     }
 }
 
-static bool add_new_variable(GenerationContext *context, Identifier name, size_t address_register, Type *type, FileRange type_range) {
+static bool add_new_variable(GenerationContext *context, Identifier name, size_t address_register, Type *type) {
     auto variable_scope = &(context->variable_scope_stack[context->variable_scope_stack.count - 1]);
 
     for(auto variable : variable_scope->variables) {
@@ -3724,7 +3723,6 @@ static bool add_new_variable(GenerationContext *context, Identifier name, size_t
     append(&variable_scope->variables, Variable {
         name,
         type,
-        type_range,
         address_register
     });
 
@@ -8122,7 +8120,6 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         return true;
     } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
         Type *type;
-        FileRange type_range;
         size_t address_register;
 
         if(variable_declaration->is_external) {
@@ -8147,7 +8144,6 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
             }
 
             type = type_value;
-            type_range = variable_declaration->type->range;
 
             expect(initializer_value, generate_expression(info, scope, context, instructions, variable_declaration->initializer));
 
@@ -8182,7 +8178,6 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
             }
 
             type = type_value;
-            type_range = variable_declaration->type->range;
 
             address_register = append_allocate_local(
                 context,
@@ -8203,7 +8198,6 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
             }
 
             type = actual_type;
-            type_range = variable_declaration->initializer->range;
 
             address_register = append_allocate_local(
                 context,
@@ -8234,8 +8228,7 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
             context,
             variable_declaration->name,
             address_register,
-            type,
-            type_range
+            type
         )) {
             return false;
         }
@@ -8501,6 +8494,201 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         jump_out->destination_instruction = instructions->count;
 
         return true;
+    } else if(auto for_loop = dynamic_cast<ForLoop*>(statement)) {
+        Identifier index_name;
+        if(for_loop->has_index_name) {
+            index_name = for_loop->index_name;
+        } else {
+            index_name = {
+                "it",
+                for_loop->range
+            };
+        }
+
+        expect(from_value, generate_expression(info, scope, context, instructions, for_loop->from));
+
+        auto index_address_register = allocate_register(context);
+
+        auto allocate_local = new AllocateLocal;
+        allocate_local->line = for_loop->range.first_line;
+        allocate_local->destination_register = index_address_register;
+
+        append(instructions, (Instruction*)allocate_local);
+
+        size_t condition_index;
+        size_t to_register;
+        Integer *index_type;
+        if(dynamic_cast<UndeterminedInteger*>(from_value.type)) {
+            auto from_integer_constant = dynamic_cast<IntegerConstant*>(from_value.value);
+            assert(from_integer_constant);
+                
+            auto from_regsiter = allocate_register(context);
+
+            auto integer_constant = new IntegerConstantInstruction;
+            integer_constant->line = for_loop->range.first_line;
+            integer_constant->destination_register = from_regsiter;
+            integer_constant->value = from_integer_constant->value;
+
+            append(instructions, (Instruction*)integer_constant);
+
+            auto store_integer = new StoreInteger;
+            store_integer->line = for_loop->range.first_line;
+            store_integer->source_register = from_regsiter;
+            store_integer->address_register = index_address_register;
+
+            append(instructions, (Instruction*)store_integer);
+
+            condition_index = instructions->count;
+
+            expect(to_value, generate_expression(info, scope, context, instructions, for_loop->to));
+
+            expect(determined_index_type, coerce_to_default_type(info, scope, for_loop->range, to_value.type));
+
+            if(auto integer = dynamic_cast<Integer*>(determined_index_type)) {
+                allocate_local->size = register_size_to_byte_size(integer->size);
+                allocate_local->alignment = register_size_to_byte_size(integer->size);
+
+                integer_constant->size = integer->size;
+
+                store_integer->size = integer->size;
+
+                if(!check_undetermined_integer_to_integer_coercion(scope, for_loop->range, *integer, (int64_t)from_integer_constant->value, false)) {
+                    return { false };
+                }
+
+                expect(to_register_index, coerce_to_integer_register_value(
+                    scope,
+                    context,
+                    instructions,
+                    for_loop->to->range,
+                    to_value.type,
+                    to_value.value,
+                    *integer,
+                    false
+                ));
+
+                to_register = to_register_index;
+                index_type = integer;
+            } else {
+                error(scope, for_loop->range, "For loop index/range must be an integer. Got '%s'", type_description(determined_index_type));
+
+                return { false };
+            }
+        } else {
+            expect(determined_index_type, coerce_to_default_type(info, scope, for_loop->range, from_value.type));
+
+            if(auto integer = dynamic_cast<Integer*>(determined_index_type)) {
+                allocate_local->size = register_size_to_byte_size(integer->size);
+                allocate_local->alignment = register_size_to_byte_size(integer->size);
+
+                expect(from_register, coerce_to_integer_register_value(
+                    scope,
+                    context,
+                    instructions,
+                    for_loop->from->range,
+                    from_value.type,
+                    from_value.value,
+                    *integer,
+                    false
+                ));
+
+                append_store_integer(context, instructions, for_loop->range.first_line, integer->size, from_register, index_address_register);
+
+                condition_index = instructions->count;
+
+                expect(to_value, generate_expression(info, scope, context, instructions, for_loop->to));
+
+                expect(to_register_index, coerce_to_integer_register_value(
+                    scope,
+                    context,
+                    instructions,
+                    for_loop->to->range,
+                    to_value.type,
+                    to_value.value,
+                    *integer,
+                    false
+                ));
+
+                to_register = to_register_index;
+                index_type = integer;
+            } else {
+                error(scope, for_loop->range, "For loop index/range must be an integer. Got '%s'", type_description(determined_index_type));
+
+                return { false };
+            }
+        }
+
+        auto current_index_regsiter = append_load_integer(
+            context,
+            instructions,
+            for_loop->range.first_line,
+            index_type->size,
+            index_address_register
+        );
+
+        IntegerComparisonOperation::Operation operation;
+        if(index_type->is_signed) {
+            operation = IntegerComparisonOperation::Operation::SignedGreaterThan;
+        } else {
+            operation = IntegerComparisonOperation::Operation::UnsignedGreaterThan;
+        }
+
+        auto condition_register = append_integer_comparison_operation(
+            context,
+            instructions,
+            for_loop->range.first_line,
+            operation,
+            index_type->size,
+            current_index_regsiter,
+            to_register
+        );
+
+        auto branch = new Branch;
+        branch->line = for_loop->range.first_line;
+        branch->condition_register = condition_register;
+
+        append(instructions, (Instruction*)branch);
+
+        ConstantScope body_scope;
+        body_scope.statements = for_loop->statements;
+        body_scope.constant_parameters = {};
+        body_scope.is_top_level = false;
+        body_scope.parent = heapify(scope);
+
+        append(&context->variable_scope_stack, {
+            body_scope,
+            {}
+        });
+
+        if(!add_new_variable(context, index_name, index_address_register, index_type)) {
+            return { false };
+        }
+
+        for(auto statement : for_loop->statements) {
+            if(!generate_statement(info, scope, context, instructions, statement)) {
+                return { false };
+            }
+        }
+
+        context->variable_scope_stack.count -= 1;
+
+        auto one_register = append_integer_constant(context, instructions, for_loop->range.last_line, index_type->size, 1);
+
+        auto next_index_register = append_integer_arithmetic_operation(
+            context,
+            instructions,
+            for_loop->range.last_line,
+            IntegerArithmeticOperation::Operation::Add,
+            index_type->size,
+            current_index_regsiter,
+            one_register
+        );
+
+        append_store_integer(context, instructions, for_loop->range.last_line, index_type->size, next_index_register, index_address_register);
+
+        append_jump(context, instructions, for_loop->range.last_line, condition_index);
+
+        branch->destination_instruction = instructions->count;
     } else if(auto return_statement = dynamic_cast<ReturnStatement*>(statement)) {
         auto return_instruction = new ReturnInstruction;
         return_instruction->line = return_statement->range.first_line;
@@ -8813,7 +9001,6 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                     parameters[i] = {
                         parameter.name,
                         parameter.type,
-                        parameter.type_range,
                         i
                     };
 
@@ -8867,8 +9054,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
                         &context,
                         parameter.name,
                         address_register,
-                        parameter.type,
-                        parameter.type_range
+                        parameter.type
                     );
                 }
 
