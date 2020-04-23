@@ -11,21 +11,51 @@
 #include "platform.h"
 #include "path.h"
 
+static const char *get_host_architecture() {
+#if defined(ARCH_X64)
+    return "x64";
+#endif
+}
+
+static const char *get_host_os() {
+#if defined(OS_LINUX)
+    return "linux";
+#elif defined(OS_WINDOWS)
+    return "windows";
+#endif
+}
+
+static const char *get_default_output_file(const char *os) {
+    if(strcmp(os, "windows") == 0) {
+        return "out.exe";
+    } else {
+        return "out";
+    }
+}
+
+static void print_help_message(FILE *file) {
+    fprintf(file, "Usage: compiler [options] <source file>\n\n");
+
+    auto default_os = get_host_os();
+
+    fprintf(file, "Options:\n");
+    fprintf(file, "  -output <output file>  (default: %s) Specify executable file path\n", get_default_output_file(default_os));
+    fprintf(file, "  -arch x64  (default: %s) Specify CPU architecture to target\n", get_host_architecture());
+    fprintf(file, "  -os windows|linux  (default: %s) Specify operating system to target\n", default_os);
+    fprintf(file, "  -config debug|release  (default: debug) Specify build configuration\n");
+    fprintf(file, "  -print-ir  Print internal intermediate representation\n");
+    fprintf(file, "  -help  Display this help message then exit\n");
+}
+
 bool cli_entry(Array<const char*> arguments) {
     auto start_time = clock();
 
     const char *source_file_path = nullptr;
     const char *output_file_path = nullptr;
 
-#if defined(ARCH_X64)
-    const char *architecture = "x64";
-#endif
+    auto architecture = get_host_architecture();
 
-#if defined(OS_LINUX)
-    const char *os = "linux";
-#elif defined(OS_WINDOWS)
-    const char *os = "windows";
-#endif
+    auto os = get_host_os();
 
     auto config = "debug";
 
@@ -35,13 +65,14 @@ bool cli_entry(Array<const char*> arguments) {
     while(argument_index < arguments.count) {
         auto argument = arguments[argument_index];
 
-        if(argument_index == arguments.count - 1) {
+        if(argument_index == arguments.count - 1 && argument[0] != '-') {
             source_file_path = argument;
         } else if(strcmp(argument, "-output") == 0) {
             argument_index += 1;
 
             if(argument_index == arguments.count - 1) {
-                fprintf(stderr, "Missing value for '-output' option\n");
+                fprintf(stderr, "Error: Missing value for '-output' option\n\n");
+                print_help_message(stderr);
 
                 return false;
             }
@@ -51,7 +82,8 @@ bool cli_entry(Array<const char*> arguments) {
             argument_index += 1;
 
             if(argument_index == arguments.count - 1) {
-                fprintf(stderr, "Missing value for '-arch' option\n");
+                fprintf(stderr, "Error: Missing value for '-arch' option\n\n");
+                print_help_message(stderr);
 
                 return false;
             }
@@ -61,7 +93,8 @@ bool cli_entry(Array<const char*> arguments) {
             argument_index += 1;
 
             if(argument_index == arguments.count - 1) {
-                fprintf(stderr, "Missing value for '-os' option\n");
+                fprintf(stderr, "Error: Missing value for '-os' option\n\n");
+                print_help_message(stderr);
 
                 return false;
             }
@@ -71,7 +104,8 @@ bool cli_entry(Array<const char*> arguments) {
             argument_index += 1;
 
             if(argument_index == arguments.count - 1) {
-                fprintf(stderr, "Missing value for '-config' option\n");
+                fprintf(stderr, "Error: Missing value for '-config' option\n\n");
+                print_help_message(stderr);
 
                 return false;
             }
@@ -79,8 +113,13 @@ bool cli_entry(Array<const char*> arguments) {
             config = arguments[argument_index];
         } else if(strcmp(argument, "-print-ir") == 0) {
             print_ir = true;
+        } else if(strcmp(argument, "-help") == 0) {
+            print_help_message(stdout);
+
+            return true;
         } else {
-            fprintf(stderr, "Unknown option '%s'\n", argument);
+            fprintf(stderr, "Error: Unknown option '%s'\n\n", argument);
+            print_help_message(stderr);
 
             return false;
         }
@@ -92,7 +131,8 @@ bool cli_entry(Array<const char*> arguments) {
         strcmp(config, "debug") != 0 &&
         strcmp(config, "release") != 0
     ) {
-        fprintf(stderr, "Unknown config '%s'\n", config);
+        fprintf(stderr, "Error: Unknown config '%s'\n\n", config);
+        print_help_message(stderr);
 
         return false;
     }
@@ -101,19 +141,22 @@ bool cli_entry(Array<const char*> arguments) {
         strcmp(os, "linux") != 0 &&
         strcmp(os, "windows") != 0
     ) {
-        fprintf(stderr, "Unknown OS '%s'\n", os);
+        fprintf(stderr, "Error: Unknown OS '%s'\n\n", os);
+        print_help_message(stderr);
 
         return false;
     }
 
     if(strcmp(architecture, "x64") != 0) {
-        fprintf(stderr, "Unknown architecture '%s'\n", architecture);
+        fprintf(stderr, "Error: Unknown architecture '%s'\n\n", architecture);
+        print_help_message(stderr);
 
         return false;
     }
 
     if(source_file_path == nullptr) {
-        fprintf(stderr, "No source file provided\n");
+        fprintf(stderr, "Error: No source file provided\n\n");
+        print_help_message(stderr);
 
         return false;
     }
@@ -121,11 +164,7 @@ bool cli_entry(Array<const char*> arguments) {
     expect(absolute_source_file_path, path_relative_to_absolute(source_file_path));
 
     if(output_file_path == nullptr) {
-        if(strcmp(os, "windows") == 0) {
-            output_file_path = "out.exe";
-        } else {
-            output_file_path = "out";
-        }
+        output_file_path = get_default_output_file(os);
     }
 
     expect(source_file_tokens, tokenize_source(absolute_source_file_path));
