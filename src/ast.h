@@ -529,6 +529,7 @@ struct ForLoop : Statement {
         Array<Statement*> statements
     ) :
         Statement { range },
+        has_index_name { true },
         index_name { index_name },
         from { from },
         to { to },

@@ -8665,7 +8665,7 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         }
 
         for(auto statement : for_loop->statements) {
-            if(!generate_statement(info, scope, context, instructions, statement)) {
+            if(!generate_statement(info, body_scope, context, instructions, statement)) {
                 return { false };
             }
         }
