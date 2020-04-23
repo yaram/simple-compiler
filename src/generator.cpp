@@ -5390,6 +5390,465 @@ static Result<Type*> evaluate_type_expression_runtime(
     }
 }
 
+static Result<TypedValue> generate_binary_operation(
+    GlobalInfo info,
+    ConstantScope scope,
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    FileRange range,
+    Expression *left_expression,
+    Expression *right_expression,
+    BinaryOperation::Operator binary_operator
+) {
+    expect(left, generate_expression(info, scope, context, instructions, left_expression));
+
+    expect(right, generate_expression(info, scope, context, instructions, right_expression));
+
+    if(dynamic_cast<ConstantValue*>(left.value) && dynamic_cast<ConstantValue*>(right.value)) {
+        expect(constant, evaluate_constant_binary_operation(
+            info,
+            scope,
+            range,
+            binary_operator,
+            left_expression->range,
+            left.type,
+            dynamic_cast<ConstantValue*>(left.value),
+            right_expression->range,
+            right.type,
+            dynamic_cast<ConstantValue*>(right.value)
+        ));
+
+        return {
+            true,
+            {
+                constant.type,
+                constant.value
+            }
+        };
+    }
+
+    expect(type, determine_binary_operation_type(scope, range, left.type, right.type));
+
+    expect(determined_type, coerce_to_default_type(info, scope, range, type));
+
+    if(auto integer = dynamic_cast<Integer*>(determined_type)) {
+        expect(left_register, coerce_to_integer_register_value(
+            scope,
+            context,
+            instructions,
+            left_expression->range,
+            left.type,
+            left.value,
+            *integer,
+            false
+        ));
+
+        expect(right_register, coerce_to_integer_register_value(
+            scope,
+            context,
+            instructions,
+            right_expression->range,
+            right.type,
+            right.value,
+            *integer,
+            false
+        ));
+
+        auto is_arithmetic = true;
+        IntegerArithmeticOperation::Operation arithmetic_operation;
+        switch(binary_operator) {
+            case BinaryOperation::Operator::Addition: {
+                arithmetic_operation = IntegerArithmeticOperation::Operation::Add;
+            } break;
+
+            case BinaryOperation::Operator::Subtraction: {
+                arithmetic_operation = IntegerArithmeticOperation::Operation::Subtract;
+            } break;
+
+            case BinaryOperation::Operator::Multiplication: {
+                arithmetic_operation = IntegerArithmeticOperation::Operation::Multiply;
+            } break;
+
+            case BinaryOperation::Operator::Division: {
+                if(integer->is_signed) {
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::SignedDivide;
+                } else {
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::UnsignedDivide;
+                }
+            } break;
+
+            case BinaryOperation::Operator::Modulo: {
+                if(integer->is_signed) {
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::SignedModulus;
+                } else {
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::UnsignedModulus;
+                }
+            } break;
+
+            case BinaryOperation::Operator::BitwiseAnd: {
+                arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseAnd;
+            } break;
+
+            case BinaryOperation::Operator::BitwiseOr: {
+                arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseOr;
+            } break;
+
+            default: {
+                is_arithmetic = false;
+            } break;
+        }
+
+        size_t result_register;
+        Type *result_type;
+        if(is_arithmetic) {
+            result_register = append_integer_arithmetic_operation(
+                context,
+                instructions,
+                range.first_line,
+                arithmetic_operation,
+                integer->size,
+                left_register,
+                right_register
+            );
+
+            result_type = integer;
+        } else {
+            IntegerComparisonOperation::Operation comparison_operation;
+            auto invert = false;
+            switch(binary_operator) {
+                case BinaryOperation::Operator::Equal: {
+                    comparison_operation = IntegerComparisonOperation::Operation::Equal;
+                } break;
+
+                case BinaryOperation::Operator::NotEqual: {
+                    comparison_operation = IntegerComparisonOperation::Operation::Equal;
+                    invert = true;
+                } break;
+
+                case BinaryOperation::Operator::LessThan: {
+                    if(integer->is_signed) {
+                        comparison_operation = IntegerComparisonOperation::Operation::SignedLessThan;
+                    } else {
+                        comparison_operation = IntegerComparisonOperation::Operation::UnsignedLessThan;
+                    }
+                } break;
+
+                case BinaryOperation::Operator::GreaterThan: {
+                    if(integer->is_signed) {
+                        comparison_operation = IntegerComparisonOperation::Operation::SignedGreaterThan;
+                    } else {
+                        comparison_operation = IntegerComparisonOperation::Operation::UnsignedGreaterThan;
+                    }
+                } break;
+
+                default: {
+                    error(scope, range, "Cannot perform that operation on integers");
+
+                    return { false };
+                } break;
+            }
+
+            result_register = append_integer_comparison_operation(
+                context,
+                instructions,
+                range.first_line,
+                comparison_operation,
+                integer->size,
+                left_register,
+                right_register
+            );
+
+            if(invert) {
+                result_register = generate_boolean_invert(info, context, instructions, range, result_register);
+            }
+
+            result_type = new Boolean;
+        }
+
+        return {
+            true,
+            {
+                result_type,
+                new RegisterValue {
+                    result_register
+                }
+            }
+        };
+    } else if(dynamic_cast<Boolean*>(determined_type)) {
+        if(!dynamic_cast<Boolean*>(left.type)) {
+            error(scope, left_expression->range, "Expected 'bool', got '%s'", type_description(left.type));
+
+            return { false };
+        }
+
+        auto left_register = generate_in_register_boolean_value(info, context, instructions, left_expression->range, left.value);
+
+        if(!dynamic_cast<Boolean*>(right.type)) {
+            error(scope, right_expression->range, "Expected 'bool', got '%s'", type_description(right.type));
+
+            return { false };
+        }
+
+        auto right_register = generate_in_register_boolean_value(info, context, instructions, right_expression->range, right.value);
+
+        auto is_arithmetic = true;
+        IntegerArithmeticOperation::Operation arithmetic_operation;
+        switch(binary_operator) {
+            case BinaryOperation::Operator::BooleanAnd: {
+                arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseAnd;
+            } break;
+
+            case BinaryOperation::Operator::BooleanOr: {
+                arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseOr;
+            } break;
+
+            default: {
+                is_arithmetic = false;
+            } break;
+        }
+
+        size_t result_register;
+        if(is_arithmetic) {
+            result_register = append_integer_arithmetic_operation(
+                context,
+                instructions,
+                range.first_line,
+                arithmetic_operation,
+                info.default_integer_size,
+                left_register,
+                right_register
+            );
+        } else {
+            IntegerComparisonOperation::Operation comparison_operation;
+            auto invert = false;
+            switch(binary_operator) {
+                case BinaryOperation::Operator::Equal: {
+                    comparison_operation = IntegerComparisonOperation::Operation::Equal;
+                } break;
+
+                case BinaryOperation::Operator::NotEqual: {
+                    comparison_operation = IntegerComparisonOperation::Operation::Equal;
+                    invert = true;
+                } break;
+
+                default: {
+                    error(scope, range, "Cannot perform that operation on 'bool'");
+
+                    return { false };
+                } break;
+            }
+
+            result_register = append_integer_comparison_operation(
+                context,
+                instructions,
+                range.first_line,
+                comparison_operation,
+                info.default_integer_size,
+                left_register,
+                right_register
+            );
+
+            if(invert) {
+                result_register = generate_boolean_invert(info, context, instructions, range, result_register);
+            }
+        }
+
+        return {
+            true,
+            {
+                new Boolean,
+                new RegisterValue {
+                    result_register
+                }
+            }
+        };
+    } else if(auto float_type = dynamic_cast<FloatType*>(determined_type)) {
+        expect(left_register, coerce_to_float_register_value(
+            scope,
+            context,
+            instructions,
+            left_expression->range,
+            left.type,
+            left.value,
+            *float_type,
+            false
+        ));
+
+        expect(right_register, coerce_to_float_register_value(
+            scope,
+            context,
+            instructions,
+            right_expression->range,
+            right.type,
+            right.value,
+            *float_type,
+            false
+        ));
+
+        auto is_arithmetic = true;
+        FloatArithmeticOperation::Operation arithmetic_operation;
+        switch(binary_operator) {
+            case BinaryOperation::Operator::Addition: {
+                arithmetic_operation = FloatArithmeticOperation::Operation::Add;
+            } break;
+
+            case BinaryOperation::Operator::Subtraction: {
+                arithmetic_operation = FloatArithmeticOperation::Operation::Subtract;
+            } break;
+
+            case BinaryOperation::Operator::Multiplication: {
+                arithmetic_operation = FloatArithmeticOperation::Operation::Multiply;
+            } break;
+
+            case BinaryOperation::Operator::Division: {
+                arithmetic_operation = FloatArithmeticOperation::Operation::Divide;
+            } break;
+
+            default: {
+                is_arithmetic = false;
+            } break;
+        }
+
+        size_t result_register;
+        Type *result_type;
+        if(is_arithmetic) {
+            result_register = append_float_arithmetic_operation(
+                context,
+                instructions,
+                range.first_line,
+                arithmetic_operation,
+                float_type->size,
+                left_register,
+                right_register
+            );
+
+            result_type = float_type;
+        } else {
+            FloatComparisonOperation::Operation comparison_operation;
+            auto invert = false;
+            switch(binary_operator) {
+                case BinaryOperation::Operator::Equal: {
+                    comparison_operation = FloatComparisonOperation::Operation::Equal;
+                } break;
+
+                case BinaryOperation::Operator::NotEqual: {
+                    comparison_operation = FloatComparisonOperation::Operation::Equal;
+                    invert = true;
+                } break;
+
+                case BinaryOperation::Operator::LessThan: {
+                    comparison_operation = FloatComparisonOperation::Operation::LessThan;
+                } break;
+
+                case BinaryOperation::Operator::GreaterThan: {
+                    comparison_operation = FloatComparisonOperation::Operation::GreaterThan;
+                } break;
+
+                default: {
+                    error(scope, range, "Cannot perform that operation on floats");
+
+                    return { false };
+                } break;
+            }
+
+            result_register = append_float_comparison_operation(
+                context,
+                instructions,
+                range.first_line,
+                comparison_operation,
+                float_type->size,
+                left_register,
+                right_register
+            );
+
+            if(invert) {
+                result_register = generate_boolean_invert(info, context, instructions, range, result_register);
+            }
+
+            result_type = new Boolean;
+        }
+
+        return {
+            true,
+            {
+                result_type,
+                new RegisterValue {
+                    result_register
+                }
+            }
+        };
+    } else if(auto pointer = dynamic_cast<Pointer*>(determined_type)) {
+        expect(left_register, coerce_to_pointer_register_value(
+            info,
+            scope,
+            context,
+            instructions,
+            left_expression->range,
+            left.type,
+            left.value,
+            *pointer,
+            false
+        ));
+
+        expect(right_register, coerce_to_pointer_register_value(
+            info,
+            scope,
+            context,
+            instructions,
+            right_expression->range,
+            right.type,
+            right.value,
+            *pointer,
+            false
+        ));
+
+        IntegerComparisonOperation::Operation comparison_operation;
+        auto invert = false;
+        switch(binary_operator) {
+            case BinaryOperation::Operator::Equal: {
+                comparison_operation = IntegerComparisonOperation::Operation::Equal;
+            } break;
+
+            case BinaryOperation::Operator::NotEqual: {
+                comparison_operation = IntegerComparisonOperation::Operation::Equal;
+                invert = true;
+            } break;
+
+            default: {
+                error(scope, range, "Cannot perform that operation on '%s'", type_description(pointer));
+
+                return { false };
+            } break;
+        }
+
+        auto result_register = append_integer_comparison_operation(
+            context,
+            instructions,
+            range.first_line,
+            comparison_operation,
+            info.address_integer_size,
+            left_register,
+            right_register
+        );
+
+        if(invert) {
+            result_register = generate_boolean_invert(info, context, instructions, range, result_register);
+        }
+
+        return {
+            true,
+            {
+                new Boolean,
+                new RegisterValue {
+                    result_register
+                }
+            }
+        };
+    } else {
+        abort();
+    }
+}
+
 static Result<TypedValue> generate_expression(
     GlobalInfo info,
     ConstantScope scope,
@@ -7063,453 +7522,16 @@ static Result<TypedValue> generate_expression(
             return { false };
         }
     } else if(auto binary_operation = dynamic_cast<BinaryOperation*>(expression)) {
-        expect(left, generate_expression(info, scope, context, instructions, binary_operation->left));
-
-        expect(right, generate_expression(info, scope, context, instructions, binary_operation->right));
-
-        if(dynamic_cast<ConstantValue*>(left.value) && dynamic_cast<ConstantValue*>(right.value)) {
-            expect(constant, evaluate_constant_binary_operation(
-                info,
-                scope,
-                binary_operation->range,
-                binary_operation->binary_operator,
-                binary_operation->left->range,
-                left.type,
-                dynamic_cast<ConstantValue*>(left.value),
-                binary_operation->right->range,
-                right.type,
-                dynamic_cast<ConstantValue*>(right.value)
-            ));
-
-            return {
-                true,
-                {
-                    constant.type,
-                    constant.value
-                }
-            };
-        }
-
-        expect(type, determine_binary_operation_type(scope, binary_operation->range, left.type, right.type));
-
-        expect(determined_type, coerce_to_default_type(info, scope, binary_operation->range, type));
-
-        if(auto integer = dynamic_cast<Integer*>(determined_type)) {
-            expect(left_register, coerce_to_integer_register_value(
-                scope,
-                context,
-                instructions,
-                binary_operation->left->range,
-                left.type,
-                left.value,
-                *integer,
-                false
-            ));
-
-            expect(right_register, coerce_to_integer_register_value(
-                scope,
-                context,
-                instructions,
-                binary_operation->right->range,
-                right.type,
-                right.value,
-                *integer,
-                false
-            ));
-
-            auto is_arithmetic = true;
-            IntegerArithmeticOperation::Operation arithmetic_operation;
-            switch(binary_operation->binary_operator) {
-                case BinaryOperation::Operator::Addition: {
-                    arithmetic_operation = IntegerArithmeticOperation::Operation::Add;
-                } break;
-
-                case BinaryOperation::Operator::Subtraction: {
-                    arithmetic_operation = IntegerArithmeticOperation::Operation::Subtract;
-                } break;
-
-                case BinaryOperation::Operator::Multiplication: {
-                    arithmetic_operation = IntegerArithmeticOperation::Operation::Multiply;
-                } break;
-
-                case BinaryOperation::Operator::Division: {
-                    if(integer->is_signed) {
-                        arithmetic_operation = IntegerArithmeticOperation::Operation::SignedDivide;
-                    } else {
-                        arithmetic_operation = IntegerArithmeticOperation::Operation::UnsignedDivide;
-                    }
-                } break;
-
-                case BinaryOperation::Operator::Modulo: {
-                    if(integer->is_signed) {
-                        arithmetic_operation = IntegerArithmeticOperation::Operation::SignedModulus;
-                    } else {
-                        arithmetic_operation = IntegerArithmeticOperation::Operation::UnsignedModulus;
-                    }
-                } break;
-
-                case BinaryOperation::Operator::BitwiseAnd: {
-                    arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseAnd;
-                } break;
-
-                case BinaryOperation::Operator::BitwiseOr: {
-                    arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseOr;
-                } break;
-
-                default: {
-                    is_arithmetic = false;
-                } break;
-            }
-
-            size_t result_register;
-            Type *result_type;
-            if(is_arithmetic) {
-                result_register = append_integer_arithmetic_operation(
-                    context,
-                    instructions,
-                    binary_operation->range.first_line,
-                    arithmetic_operation,
-                    integer->size,
-                    left_register,
-                    right_register
-                );
-
-                result_type = integer;
-            } else {
-                IntegerComparisonOperation::Operation comparison_operation;
-                auto invert = false;
-                switch(binary_operation->binary_operator) {
-                    case BinaryOperation::Operator::Equal: {
-                        comparison_operation = IntegerComparisonOperation::Operation::Equal;
-                    } break;
-
-                    case BinaryOperation::Operator::NotEqual: {
-                        comparison_operation = IntegerComparisonOperation::Operation::Equal;
-                        invert = true;
-                    } break;
-
-                    case BinaryOperation::Operator::LessThan: {
-                        if(integer->is_signed) {
-                            comparison_operation = IntegerComparisonOperation::Operation::SignedLessThan;
-                        } else {
-                            comparison_operation = IntegerComparisonOperation::Operation::UnsignedLessThan;
-                        }
-                    } break;
-
-                    case BinaryOperation::Operator::GreaterThan: {
-                        if(integer->is_signed) {
-                            comparison_operation = IntegerComparisonOperation::Operation::SignedGreaterThan;
-                        } else {
-                            comparison_operation = IntegerComparisonOperation::Operation::UnsignedGreaterThan;
-                        }
-                    } break;
-
-                    default: {
-                        error(scope, binary_operation->range, "Cannot perform that operation on integers");
-
-                        return { false };
-                    } break;
-                }
-
-                result_register = append_integer_comparison_operation(
-                    context,
-                    instructions,
-                    binary_operation->range.first_line,
-                    comparison_operation,
-                    integer->size,
-                    left_register,
-                    right_register
-                );
-
-                if(invert) {
-                    result_register = generate_boolean_invert(info, context, instructions, binary_operation->range, result_register);
-                }
-
-                result_type = new Boolean;
-            }
-
-            return {
-                true,
-                {
-                    result_type,
-                    new RegisterValue {
-                        result_register
-                    }
-                }
-            };
-        } else if(dynamic_cast<Boolean*>(determined_type)) {
-            if(!dynamic_cast<Boolean*>(left.type)) {
-                error(scope, binary_operation->left->range, "Expected 'bool', got '%s'", type_description(left.type));
-
-                return { false };
-            }
-
-            auto left_register = generate_in_register_boolean_value(info, context, instructions, binary_operation->left->range, left.value);
-
-            if(!dynamic_cast<Boolean*>(right.type)) {
-                error(scope, binary_operation->right->range, "Expected 'bool', got '%s'", type_description(right.type));
-
-                return { false };
-            }
-
-            auto right_register = generate_in_register_boolean_value(info, context, instructions, binary_operation->right->range, right.value);
-
-            auto is_arithmetic = true;
-            IntegerArithmeticOperation::Operation arithmetic_operation;
-            switch(binary_operation->binary_operator) {
-                case BinaryOperation::Operator::BooleanAnd: {
-                    arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseAnd;
-                } break;
-
-                case BinaryOperation::Operator::BooleanOr: {
-                    arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseOr;
-                } break;
-
-                default: {
-                    is_arithmetic = false;
-                } break;
-            }
-
-            size_t result_register;
-            if(is_arithmetic) {
-                result_register = append_integer_arithmetic_operation(
-                    context,
-                    instructions,
-                    binary_operation->range.first_line,
-                    arithmetic_operation,
-                    info.default_integer_size,
-                    left_register,
-                    right_register
-                );
-            } else {
-                IntegerComparisonOperation::Operation comparison_operation;
-                auto invert = false;
-                switch(binary_operation->binary_operator) {
-                    case BinaryOperation::Operator::Equal: {
-                        comparison_operation = IntegerComparisonOperation::Operation::Equal;
-                    } break;
-
-                    case BinaryOperation::Operator::NotEqual: {
-                        comparison_operation = IntegerComparisonOperation::Operation::Equal;
-                        invert = true;
-                    } break;
-
-                    default: {
-                        error(scope, binary_operation->range, "Cannot perform that operation on 'bool'");
-
-                        return { false };
-                    } break;
-                }
-
-                result_register = append_integer_comparison_operation(
-                    context,
-                    instructions,
-                    binary_operation->range.first_line,
-                    comparison_operation,
-                    info.default_integer_size,
-                    left_register,
-                    right_register
-                );
-
-                if(invert) {
-                    result_register = generate_boolean_invert(info, context, instructions, binary_operation->range, result_register);
-                }
-            }
-
-            return {
-                true,
-                {
-                    new Boolean,
-                    new RegisterValue {
-                        result_register
-                    }
-                }
-            };
-        } else if(auto float_type = dynamic_cast<FloatType*>(determined_type)) {
-            expect(left_register, coerce_to_float_register_value(
-                scope,
-                context,
-                instructions,
-                binary_operation->left->range,
-                left.type,
-                left.value,
-                *float_type,
-                false
-            ));
-
-            expect(right_register, coerce_to_float_register_value(
-                scope,
-                context,
-                instructions,
-                binary_operation->right->range,
-                right.type,
-                right.value,
-                *float_type,
-                false
-            ));
-
-            auto is_arithmetic = true;
-            FloatArithmeticOperation::Operation arithmetic_operation;
-            switch(binary_operation->binary_operator) {
-                case BinaryOperation::Operator::Addition: {
-                    arithmetic_operation = FloatArithmeticOperation::Operation::Add;
-                } break;
-
-                case BinaryOperation::Operator::Subtraction: {
-                    arithmetic_operation = FloatArithmeticOperation::Operation::Subtract;
-                } break;
-
-                case BinaryOperation::Operator::Multiplication: {
-                    arithmetic_operation = FloatArithmeticOperation::Operation::Multiply;
-                } break;
-
-                case BinaryOperation::Operator::Division: {
-                    arithmetic_operation = FloatArithmeticOperation::Operation::Divide;
-                } break;
-
-                default: {
-                    is_arithmetic = false;
-                } break;
-            }
-
-            size_t result_register;
-            Type *result_type;
-            if(is_arithmetic) {
-                result_register = append_float_arithmetic_operation(
-                    context,
-                    instructions,
-                    binary_operation->range.first_line,
-                    arithmetic_operation,
-                    float_type->size,
-                    left_register,
-                    right_register
-                );
-
-                result_type = float_type;
-            } else {
-                FloatComparisonOperation::Operation comparison_operation;
-                auto invert = false;
-                switch(binary_operation->binary_operator) {
-                    case BinaryOperation::Operator::Equal: {
-                        comparison_operation = FloatComparisonOperation::Operation::Equal;
-                    } break;
-
-                    case BinaryOperation::Operator::NotEqual: {
-                        comparison_operation = FloatComparisonOperation::Operation::Equal;
-                        invert = true;
-                    } break;
-
-                    case BinaryOperation::Operator::LessThan: {
-                        comparison_operation = FloatComparisonOperation::Operation::LessThan;
-                    } break;
-
-                    case BinaryOperation::Operator::GreaterThan: {
-                        comparison_operation = FloatComparisonOperation::Operation::GreaterThan;
-                    } break;
-
-                    default: {
-                        error(scope, binary_operation->range, "Cannot perform that operation on floats");
-
-                        return { false };
-                    } break;
-                }
-
-                result_register = append_float_comparison_operation(
-                    context,
-                    instructions,
-                    binary_operation->range.first_line,
-                    comparison_operation,
-                    float_type->size,
-                    left_register,
-                    right_register
-                );
-
-                if(invert) {
-                    result_register = generate_boolean_invert(info, context, instructions, binary_operation->range, result_register);
-                }
-
-                result_type = new Boolean;
-            }
-
-            return {
-                true,
-                {
-                    result_type,
-                    new RegisterValue {
-                        result_register
-                    }
-                }
-            };
-        } else if(auto pointer = dynamic_cast<Pointer*>(determined_type)) {
-            expect(left_register, coerce_to_pointer_register_value(
-                info,
-                scope,
-                context,
-                instructions,
-                binary_operation->left->range,
-                left.type,
-                left.value,
-                *pointer,
-                false
-            ));
-
-            expect(right_register, coerce_to_pointer_register_value(
-                info,
-                scope,
-                context,
-                instructions,
-                binary_operation->right->range,
-                right.type,
-                right.value,
-                *pointer,
-                false
-            ));
-
-            IntegerComparisonOperation::Operation comparison_operation;
-            auto invert = false;
-            switch(binary_operation->binary_operator) {
-                case BinaryOperation::Operator::Equal: {
-                    comparison_operation = IntegerComparisonOperation::Operation::Equal;
-                } break;
-
-                case BinaryOperation::Operator::NotEqual: {
-                    comparison_operation = IntegerComparisonOperation::Operation::Equal;
-                    invert = true;
-                } break;
-
-                default: {
-                    error(scope, binary_operation->range, "Cannot perform that operation on '%s'", type_description(pointer));
-
-                    return { false };
-                } break;
-            }
-
-            auto result_register = append_integer_comparison_operation(
-                context,
-                instructions,
-                binary_operation->range.first_line,
-                comparison_operation,
-                info.address_integer_size,
-                left_register,
-                right_register
-            );
-
-            if(invert) {
-                result_register = generate_boolean_invert(info, context, instructions, binary_operation->range, result_register);
-            }
-
-            return {
-                true,
-                {
-                    new Boolean,
-                    new RegisterValue {
-                        result_register
-                    }
-                }
-            };
-        } else {
-            abort();
-        }
+        return generate_binary_operation(
+            info,
+            scope,
+            context,
+            instructions,
+            binary_operation->range,
+            binary_operation->left,
+            binary_operation->right,
+            binary_operation->binary_operator
+        );
     } else if(auto unary_operation = dynamic_cast<UnaryOperation*>(expression)) {
         expect(expression_value, generate_expression(info, scope, context, instructions, unary_operation->expression));
 
@@ -8239,6 +8261,44 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
             context,
             instructions,
             assignment->range,
+            value.type,
+            value.value,
+            target.type,
+            address_register
+        )) {
+            return false;
+        }
+
+        return true;
+    } else if(auto binary_operation_assignment = dynamic_cast<BinaryOperationAssignment*>(statement)) {
+        expect(target, generate_expression(info, scope, context, instructions, binary_operation_assignment->target));
+
+        size_t address_register;
+        if(auto address_value = dynamic_cast<AddressValue*>(target.value)){
+            address_register = address_value->address_register;
+        } else {
+            error(scope, assignment->target->range, "Value is not assignable");
+
+            return false;
+        }
+
+        expect(value, generate_binary_operation(
+            info,
+            scope,
+            context,
+            instructions,
+            binary_operation_assignment->range,
+            binary_operation_assignment->target,
+            binary_operation_assignment->value,
+            binary_operation_assignment->binary_operator
+        ));
+
+        if(!coerce_to_type_write(
+            info,
+            scope,
+            context,
+            instructions,
+            binary_operation_assignment->range,
             value.type,
             value.value,
             target.type,
