@@ -135,7 +135,7 @@ static FileRange span_range(FileRange first, FileRange last) {
     };
 }
 
-static Result<Token> next_token(Context context) {
+static Result<Token> peek_token(Context context) {
     if(context.next_token_index < context.tokens.count) {
         auto token = context.tokens[context.next_token_index];
 
@@ -150,8 +150,12 @@ static Result<Token> next_token(Context context) {
     }
 }
 
+static void consume_token(Context *context) {
+    context->next_token_index += 1;
+}
+
 static bool expect_basic_token(Context *context, TokenType type) {
-    expect(token, next_token(*context));
+    expect(token, peek_token(*context));
 
     if(token.type != type) {
         Token expected_token;
@@ -162,13 +166,13 @@ static bool expect_basic_token(Context *context, TokenType type) {
         return false;
     }
 
-    context->next_token_index += 1;
+    consume_token(context);
 
     return true;
 }
 
 static Result<FileRange> expect_basic_token_with_range(Context *context, TokenType type) {
-    expect(token, next_token(*context));
+    expect(token, peek_token(*context));
 
     if(token.type != type) {
         Token expected_token;
@@ -179,7 +183,7 @@ static Result<FileRange> expect_basic_token_with_range(Context *context, TokenTy
         return { false };
     }
 
-    context->next_token_index += 1;
+    consume_token(context);
 
     auto range = token_range(*context, token);
 
@@ -190,7 +194,7 @@ static Result<FileRange> expect_basic_token_with_range(Context *context, TokenTy
 }
 
 static Result<Array<char>> expect_string(Context *context) {
-    expect(token, next_token(*context));
+    expect(token, peek_token(*context));
 
     if(token.type != TokenType::String) {
         error(*context, "Expected a string, got '%s'", get_token_text(token));
@@ -198,7 +202,7 @@ static Result<Array<char>> expect_string(Context *context) {
         return { false };
     }
 
-    context->next_token_index += 1;
+    consume_token(context);
 
     return {
         true,
@@ -207,7 +211,7 @@ static Result<Array<char>> expect_string(Context *context) {
 }
 
 static Result<Identifier> expect_identifier(Context *context) {
-    expect(token, next_token(*context));
+    expect(token, peek_token(*context));
 
     if(token.type != TokenType::Identifier) {
         error(*context, "Expected an identifier, got '%s'", get_token_text(token));
@@ -215,7 +219,7 @@ static Result<Identifier> expect_identifier(Context *context) {
         return { false };
     }
 
-    context->next_token_index += 1;
+    consume_token(context);
 
     return {
         true,
@@ -262,12 +266,12 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
 static Result<Expression*> parse_expression(Context *context, OperatorPrecedence minimum_precedence) {
     Expression *left_expression;
 
-    expect(token, next_token(*context));
+    expect(token, peek_token(*context));
 
     // Parse atomic & prefix-unary expressions (non-left-recursive)
     switch(token.type) {
         case TokenType::Identifier: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             auto identifier = identifier_from_token(*context, token);
 
@@ -275,7 +279,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
         } break;
 
         case TokenType::Integer: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             left_expression = new IntegerLiteral {
                 token_range(*context, token),
@@ -284,7 +288,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
         } break;
 
         case TokenType::FloatingPoint: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             left_expression = new FloatLiteral {
                 token_range(*context, token),
@@ -293,7 +297,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
         } break;
 
         case TokenType::Asterisk: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
@@ -305,7 +309,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
         } break;
 
         case TokenType::Bang: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
@@ -317,7 +321,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
         } break;
 
         case TokenType::Dash: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
@@ -329,7 +333,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
         } break;
 
         case TokenType::String: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             left_expression = new StringLiteral {
                 token_range(*context, token),
@@ -338,15 +342,15 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
         } break;
 
         case TokenType::OpenRoundBracket: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             auto first_range = token_range(*context, token);
 
-            expect(token, next_token(*context));
+            expect(token, peek_token(*context));
 
             switch(token.type) {
                 case TokenType::Dollar: {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     List<FunctionParameter> parameters{};
 
@@ -356,19 +360,19 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
 
                     append(&parameters, parameter);
 
-                    expect(token, next_token(*context));
+                    expect(token, peek_token(*context));
 
                     FileRange last_range;
                     switch(token.type) {
                         case TokenType::Comma: {
-                            context->next_token_index += 1;
+                            consume_token(context);
 
                             while(true) {
-                                expect(pre_token, next_token(*context));
+                                expect(pre_token, peek_token(*context));
 
                                 bool is_constant;
                                 if(pre_token.type == TokenType::Dollar) {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     is_constant = true;
                                 } else {
@@ -381,16 +385,16 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
 
                                 append(&parameters, parameter);
 
-                                expect(token, next_token(*context));
+                                expect(token, peek_token(*context));
 
                                 auto done = false;
                                 switch(token.type) {
                                     case TokenType::Comma: {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
                                     } break;
 
                                     case TokenType::CloseRoundBracket: {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
 
                                         done = true;
                                     } break;
@@ -411,7 +415,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                         } break;
 
                         case TokenType::CloseRoundBracket: {
-                            context->next_token_index += 1;
+                            consume_token(context);
 
                             last_range = token_range(*context, token);
                         } break;
@@ -423,11 +427,11 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                         } break;
                     }
 
-                    expect(post_token, next_token(*context));
+                    expect(post_token, peek_token(*context));
 
                     Expression *return_type;
                     if(post_token.type == TokenType::Arrow) {
-                        context->next_token_index += 1;
+                        consume_token(context);
 
                         expect(expression, parse_expression(context, OperatorPrecedence::None));
 
@@ -445,15 +449,15 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                 } break;
 
                 case TokenType::CloseRoundBracket: {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     auto last_range = token_range(*context, token);
 
-                    expect(token, next_token(*context));
+                    expect(token, peek_token(*context));
 
                     Expression* return_type;
                     if(token.type == TokenType::Arrow) {
-                        context->next_token_index += 1;
+                        consume_token(context);
 
                         expect(expression, parse_expression(context, OperatorPrecedence::None));
 
@@ -471,11 +475,11 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                 } break;
 
                 case TokenType::Identifier: {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     auto identifier = identifier_from_token(*context, token);
 
-                    expect(token, next_token(*context));
+                    expect(token, peek_token(*context));
 
                     if(token.type == TokenType::Colon) {
                         List<FunctionParameter> parameters{};
@@ -484,19 +488,19 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
 
                         append(&parameters, parameter);
 
-                        expect(token, next_token(*context));
+                        expect(token, peek_token(*context));
 
                         FileRange last_range;
                         switch(token.type) {
                             case TokenType::Comma: {
-                                context->next_token_index += 1;
+                                consume_token(context);
 
                                 while(true) {
-                                    expect(pre_token, next_token(*context));
+                                    expect(pre_token, peek_token(*context));
 
                                     bool is_constant;
                                     if(pre_token.type == TokenType::Dollar) {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
 
                                         is_constant = true;
                                     } else {
@@ -509,16 +513,16 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
 
                                     append(&parameters, parameter);
 
-                                    expect(token, next_token(*context));
+                                    expect(token, peek_token(*context));
 
                                     auto done = false;
                                     switch(token.type) {
                                         case TokenType::Comma: {
-                                            context->next_token_index += 1;
+                                            consume_token(context);
                                         } break;
 
                                         case TokenType::CloseRoundBracket: {
-                                            context->next_token_index += 1;
+                                            consume_token(context);
 
                                             done = true;
                                         } break;
@@ -539,7 +543,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                             } break;
 
                             case TokenType::CloseRoundBracket: {
-                                context->next_token_index += 1;
+                                consume_token(context);
 
                                 last_range = token_range(*context, token);
                             } break;
@@ -551,11 +555,11 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                             } break;
                         }
 
-                        expect(post_token, next_token(*context));
+                        expect(post_token, peek_token(*context));
 
                         Expression *return_type;
                         if(post_token.type == TokenType::Arrow) {
-                            context->next_token_index += 1;
+                            consume_token(context);
 
                             expect(expression, parse_expression(context, OperatorPrecedence::None));
 
@@ -596,15 +600,15 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
         } break;
 
         case TokenType::OpenCurlyBracket: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             auto first_range = token_range(*context, token);
 
-            expect(token, next_token(*context));
+            expect(token, peek_token(*context));
 
             switch(token.type) {
                 case TokenType::CloseCurlyBracket: {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     left_expression = new ArrayLiteral {
                         span_range(first_range, token_range(*context, token)),
@@ -613,15 +617,15 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                 } break;
 
                 case TokenType::Identifier: {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     auto identifier = identifier_from_token(*context, token);
 
-                    expect(token, next_token(*context));
+                    expect(token, peek_token(*context));
 
                     switch(token.type) {
                         case TokenType::Equals: {
-                            context->next_token_index += 1;
+                            consume_token(context);
 
                             expect(first_expression, parse_expression(context, OperatorPrecedence::None));
 
@@ -632,12 +636,12 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                                 first_expression
                             });
 
-                            expect(token, next_token(*context));
+                            expect(token, peek_token(*context));
 
                             FileRange last_range;
                             switch(token.type) {
                                 case TokenType::Comma: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     while(true) {
                                         expect(identifier, expect_identifier(context));
@@ -653,16 +657,16 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                                             expression
                                         });
 
-                                        expect(token, next_token(*context));
+                                        expect(token, peek_token(*context));
 
                                         auto done = false;
                                         switch(token.type) {
                                             case TokenType::Comma: {
-                                                context->next_token_index += 1;
+                                                consume_token(context);
                                             } break;
 
                                             case TokenType::CloseCurlyBracket: {
-                                                context->next_token_index += 1;
+                                                consume_token(context);
 
                                                 done = true;
                                             } break;
@@ -683,7 +687,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                                 } break;
 
                                 case TokenType::CloseCurlyBracket: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     last_range = token_range(*context, token);
                                 } break;
@@ -702,7 +706,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                         } break;
 
                         case TokenType::CloseCurlyBracket: {
-                            context->next_token_index += 1;
+                            consume_token(context);
 
                             auto first_element = named_reference_from_identifier(identifier);
 
@@ -724,28 +728,28 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
 
                             append(&elements, right_expression);
 
-                            expect(token, next_token(*context));
+                            expect(token, peek_token(*context));
 
                             FileRange last_range;
                             switch(token.type) {
                                 case TokenType::Comma: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     while(true) {
                                         expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                                         append(&elements, expression);
 
-                                        expect(token, next_token(*context));
+                                        expect(token, peek_token(*context));
 
                                         auto done = false;
                                         switch(token.type) {
                                             case TokenType::Comma: {
-                                                context->next_token_index += 1;
+                                                consume_token(context);
                                             } break;
 
                                             case TokenType::CloseCurlyBracket: {
-                                                context->next_token_index += 1;
+                                                consume_token(context);
 
                                                 done = true;
                                             } break;
@@ -766,7 +770,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                                 } break;
 
                                 case TokenType::CloseCurlyBracket: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     last_range = token_range(*context, token);
                                 } break;
@@ -793,28 +797,28 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
 
                     append(&elements, first_expression);
 
-                    expect(token, next_token(*context));
+                    expect(token, peek_token(*context));
 
                     FileRange last_range;
                     switch(token.type) {
                         case TokenType::Comma: {
-                            context->next_token_index += 1;
+                            consume_token(context);
 
                             while(true) {
                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                                 append(&elements, expression);
 
-                                expect(token, next_token(*context));
+                                expect(token, peek_token(*context));
 
                                 auto done = false;
                                 switch(token.type) {
                                     case TokenType::Comma: {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
                                     } break;
 
                                     case TokenType::CloseCurlyBracket: {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
 
                                         done = true;
                                     } break;
@@ -835,7 +839,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
                         } break;
 
                         case TokenType::CloseCurlyBracket: {
-                            context->next_token_index += 1;
+                            consume_token(context);
 
                             last_range = token_range(*context, token);
                         } break;
@@ -850,14 +854,14 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
         } break;
 
         case TokenType::OpenSquareBracket: {
-            context->next_token_index += 1;
+            consume_token(context);
 
-            expect(token, next_token(*context));
+            expect(token, peek_token(*context));
 
             Expression *index;
             FileRange last_range;
             if(token.type == TokenType::CloseSquareBracket) {
-                context->next_token_index += 1;
+                consume_token(context);
 
                 index = nullptr;
                 last_range = token_range(*context, token);
@@ -894,7 +898,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
 
     auto done = false;
     while(!done) {
-        expect(token, next_token(*context));
+        expect(token, peek_token(*context));
 
         auto done = false;
         switch(token.type) {
@@ -905,7 +909,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(identifier, expect_identifier(context));
 
@@ -923,7 +927,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::Additive));
 
@@ -942,7 +946,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::Additive));
 
@@ -961,7 +965,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::Multiplicitive));
 
@@ -980,7 +984,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::Multiplicitive));
 
@@ -999,7 +1003,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::Multiplicitive));
 
@@ -1018,7 +1022,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::BitwiseAnd));
 
@@ -1037,7 +1041,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::BooleanAnd));
 
@@ -1056,7 +1060,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::BitwiseOr));
 
@@ -1075,7 +1079,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::BooleanOr));
 
@@ -1094,7 +1098,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::Comparison));
 
@@ -1113,7 +1117,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::Comparison));
 
@@ -1132,7 +1136,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::Comparison));
 
@@ -1151,7 +1155,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 expect(expression, parse_expression(context, OperatorPrecedence::Comparison));
 
@@ -1170,15 +1174,15 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 List<Expression*> parameters{};
 
-                expect(token, next_token(*context));
+                expect(token, peek_token(*context));
 
                 FileRange last_range;
                 if(token.type == TokenType::CloseRoundBracket) {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     last_range = token_range(*context, token);
                 } else {
@@ -1187,16 +1191,16 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
 
                         append(&parameters, expression);
 
-                        expect(token, next_token(*context));
+                        expect(token, peek_token(*context));
 
                         auto done = false;
                         switch(token.type) {
                             case TokenType::Comma: {
-                                context->next_token_index += 1;
+                                consume_token(context);
                             } break;
 
                             case TokenType::CloseRoundBracket: {
-                                context->next_token_index += 1;
+                                consume_token(context);
 
                                 done = true;
                             } break;
@@ -1230,16 +1234,16 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                     break;
                 }
 
-                context->next_token_index += 1;
+                consume_token(context);
 
                 auto first_range = token_range(*context, token);
 
-                expect(token, next_token(*context));
+                expect(token, peek_token(*context));
 
                 Expression *index;
                 FileRange last_range;
                 if(token.type == TokenType::CloseSquareBracket) {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     index = nullptr;
                     last_range = token_range(*context, token);
@@ -1267,7 +1271,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
                         break;
                     }
 
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     expect(expression, parse_expression(context, OperatorPrecedence::Cast));
 
@@ -1306,11 +1310,11 @@ static Result<FunctionParameter> parse_function_parameter_second_half(Context *c
     parameter.name = name;
     parameter.is_constant = is_constant;
 
-    expect(token, next_token(*context));
+    expect(token, peek_token(*context));
 
     switch(token.type) {
         case TokenType::Dollar: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             expect(name, expect_identifier(context));
 
@@ -1337,12 +1341,12 @@ static Result<Statement*> parse_statement(Context *context);
 static Result<Statement*> continue_parsing_function_declaration_or_function_type_constant(Context *context, Identifier name, Array<FunctionParameter> parameters, FileRange parameters_range) {
     auto last_range = parameters_range;
 
-    expect(pre_token, next_token(*context));
+    expect(pre_token, peek_token(*context));
 
     Expression *return_type;
     switch(pre_token.type) {
         case TokenType::Arrow: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             last_range = token_range(*context, pre_token);
 
@@ -1356,19 +1360,19 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
         } break;
     }
 
-    expect(token, next_token(*context));
+    expect(token, peek_token(*context));
 
     switch(token.type) {
         case TokenType::OpenCurlyBracket: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             List<Statement*> statements{};
 
             while(true) {
-                expect(token, next_token(*context));
+                expect(token, peek_token(*context));
 
                 if(token.type == TokenType::CloseCurlyBracket) {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     last_range = token_range(*context, token);
 
@@ -1396,7 +1400,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
         } break;
 
         case TokenType::Semicolon: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             auto function_type = new FunctionType {
                 span_range(parameters_range, last_range),
@@ -1418,16 +1422,16 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
 
         case TokenType::Identifier: {
             if(strcmp(token.identifier, "extern") == 0) {
-                context->next_token_index += 1;
+                consume_token(context);
 
                 List<const char *> libraries{};
 
-                expect(token, next_token(*context));
+                expect(token, peek_token(*context));
 
                 FileRange last_range;
                 switch(token.type) {
                     case TokenType::Semicolon: {
-                        context->next_token_index += 1;
+                        consume_token(context);
 
                         last_range = token_range(*context, token);
                     } break;
@@ -1442,16 +1446,16 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
 
                             append(&libraries, (const char *)library);
 
-                            expect(token, next_token(*context));
+                            expect(token, peek_token(*context));
 
                             auto done = false;
                             switch(token.type) {
                                 case TokenType::Comma: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
                                 } break;
 
                                 case TokenType::Semicolon: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     done = true;
                                 } break;
@@ -1491,7 +1495,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                     function_declaration
                 };
             } else if(strcmp(token.identifier, "no_mangle") == 0) {
-                context->next_token_index += 1;
+                consume_token(context);
 
                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
                     return { false };
@@ -1500,10 +1504,10 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                 List<Statement*> statements{};
 
                 while(true) {
-                    expect(token, next_token(*context));
+                    expect(token, peek_token(*context));
 
                     if(token.type == TokenType::CloseCurlyBracket) {
-                        context->next_token_index += 1;
+                        consume_token(context);
 
                         last_range = token_range(*context, token);
 
@@ -1546,15 +1550,15 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
 }
 
 static Result<Statement*> parse_statement(Context *context) {
-    expect(token, next_token(*context));
+    expect(token, peek_token(*context));
 
     auto first_range = token_range(*context, token);
 
     switch(token.type) {
         case TokenType::Hash: {
-            context->next_token_index += 1;
+            consume_token(context);
 
-            expect(token, next_token(*context));
+            expect(token, peek_token(*context));
 
             if(token.type != TokenType::Identifier) {
                 error(*context, "Expected 'import', got '%s'", get_token_text(token));
@@ -1562,7 +1566,7 @@ static Result<Statement*> parse_statement(Context *context) {
                 return { false };
             }
 
-            context->next_token_index += 1;
+            consume_token(context);
 
             if(strcmp(token.identifier, "import") == 0) {
                 expect(string, expect_string(context));
@@ -1590,7 +1594,7 @@ static Result<Statement*> parse_statement(Context *context) {
         } break;
 
         case TokenType::Identifier: {
-            context->next_token_index += 1;
+            consume_token(context);
 
             if(strcmp(token.identifier, "if") == 0) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -1603,10 +1607,10 @@ static Result<Statement*> parse_statement(Context *context) {
 
                 FileRange last_range;
                 while(true) {
-                    expect(token, next_token(*context));
+                    expect(token, peek_token(*context));
 
                     if(token.type == TokenType::CloseCurlyBracket) {
-                        context->next_token_index += 1;
+                        consume_token(context);
 
                         last_range = token_range(*context, token);
 
@@ -1623,22 +1627,22 @@ static Result<Statement*> parse_statement(Context *context) {
                 auto has_else = false;
                 List<Statement*> else_statements{};
                 while(true) {
-                    expect(token, next_token(*context));
+                    expect(token, peek_token(*context));
 
                     if(token.type == TokenType::Identifier && strcmp(token.identifier, "else") == 0) {
-                        context->next_token_index += 1;
+                        consume_token(context);
 
-                        expect(token, next_token(*context));
+                        expect(token, peek_token(*context));
 
                         switch(token.type) {
                             case TokenType::OpenCurlyBracket: {
-                                context->next_token_index += 1;
+                                consume_token(context);
 
                                 while(true) {
-                                    expect(token, next_token(*context));
+                                    expect(token, peek_token(*context));
 
                                     if(token.type == TokenType::CloseCurlyBracket) {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
 
                                         last_range = token_range(*context, token);
 
@@ -1658,7 +1662,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                     return { false };
                                 }
 
-                                context->next_token_index += 1;
+                                consume_token(context);
 
                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
@@ -1669,10 +1673,10 @@ static Result<Statement*> parse_statement(Context *context) {
                                 List<Statement*> statements{};
 
                                 while(true) {
-                                    expect(token, next_token(*context));
+                                    expect(token, peek_token(*context));
 
                                     if(token.type == TokenType::CloseCurlyBracket) {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
 
                                         last_range = token_range(*context, token);
 
@@ -1728,10 +1732,10 @@ static Result<Statement*> parse_statement(Context *context) {
 
                 FileRange last_range;
                 while(true) {
-                    expect(token, next_token(*context));
+                    expect(token, peek_token(*context));
 
                     if(token.type == TokenType::CloseCurlyBracket) {
-                        context->next_token_index += 1;
+                        consume_token(context);
 
                         last_range = token_range(*context, token);
 
@@ -1753,13 +1757,103 @@ static Result<Statement*> parse_statement(Context *context) {
                     true,
                     while_loop
                 };
+            } else if(strcmp(token.identifier, "for") == 0) {
+                expect(token, peek_token(*context));
+
+                bool has_index_name;
+                Identifier index_name;
+                Expression *from;
+                if(token.type == TokenType::Identifier) {
+                    consume_token(context);
+
+                    auto identifier = identifier_from_token(*context, token);
+
+                    expect(token, peek_token(*context));
+
+                    if(token.type == TokenType::Colon) {
+                        consume_token(context);
+
+                        expect(expression, parse_expression(context, OperatorPrecedence::None));
+
+                        has_index_name = true;
+                        index_name = identifier;
+
+                        from = expression;
+                    } else {
+                        auto named_reference = named_reference_from_identifier(identifier);
+
+                        expect(expression, parse_expression_continuation(context, OperatorPrecedence::None, named_reference));
+
+                        has_index_name = false;
+
+                        from = expression;
+                    }
+                } else {
+                    expect(expression, parse_expression(context, OperatorPrecedence::None));
+
+                    has_index_name = false;
+
+                    from = expression;
+                }
+
+                if(!expect_basic_token(context, TokenType::DoubleDot)) {
+                    return { false };
+                }
+
+                expect(to, parse_expression(context, OperatorPrecedence::None));
+
+                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
+                    return { false };
+                }
+
+                List<Statement*> statements{};
+
+                FileRange last_range;
+                while(true) {
+                    expect(token, peek_token(*context));
+
+                    if(token.type == TokenType::CloseCurlyBracket) {
+                        consume_token(context);
+
+                        last_range = token_range(*context, token);
+
+                        break;
+                    } else {
+                        expect(statement, parse_statement(context));
+
+                        append(&statements, statement);
+                    }
+                }
+
+                ForLoop *for_loop;
+                if(has_index_name) {
+                    for_loop = new ForLoop(
+                        span_range(first_range, last_range),
+                        index_name,
+                        from,
+                        to,
+                        to_array(statements)
+                    );
+                } else {
+                    for_loop = new ForLoop(
+                        span_range(first_range, last_range),
+                        from,
+                        to,
+                        to_array(statements)
+                    );
+                }
+
+                return {
+                    true,
+                    for_loop
+                };
             } else if(strcmp(token.identifier, "return") == 0) {
-                expect(token, next_token(*context));
+                expect(token, peek_token(*context));
 
                 Expression *value;
                 FileRange last_range;
                 if(token.type == TokenType::Semicolon) {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     last_range = token_range(*context, token);
 
@@ -1800,29 +1894,29 @@ static Result<Statement*> parse_statement(Context *context) {
             } else {
                 auto identifier = identifier_from_token(*context, token);
 
-                expect(token, next_token(*context));
+                expect(token, peek_token(*context));
 
                 if(token.type == TokenType::Colon) {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
-                    expect(token, next_token(*context));
+                    expect(token, peek_token(*context));
 
                     switch(token.type) {
                         case TokenType::Colon: {
-                            context->next_token_index += 1;
+                            consume_token(context);
 
-                            expect(token, next_token(*context));
+                            expect(token, peek_token(*context));
 
                             switch(token.type) {
                                 case TokenType::OpenRoundBracket: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     auto parameters_first_range = token_range(*context, token);
 
-                                    expect(token, next_token(*context));
+                                    expect(token, peek_token(*context));
 
                                     if(token.type == TokenType::Dollar) {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
 
                                         expect(name, expect_identifier(context));
 
@@ -1832,19 +1926,19 @@ static Result<Statement*> parse_statement(Context *context) {
 
                                         append(&parameters, parameter);
 
-                                        expect(token, next_token(*context));
+                                        expect(token, peek_token(*context));
 
                                         FileRange last_range;
                                         switch(token.type) {
                                             case TokenType::Comma: {
-                                                context->next_token_index += 1;
+                                                consume_token(context);
 
                                                 while(true) {
-                                                    expect(pre_token, next_token(*context));
+                                                    expect(pre_token, peek_token(*context));
 
                                                     bool is_constant;
                                                     if(pre_token.type == TokenType::Dollar) {
-                                                        context->next_token_index += 1;
+                                                        consume_token(context);
 
                                                         is_constant = true;
                                                     } else {
@@ -1857,16 +1951,16 @@ static Result<Statement*> parse_statement(Context *context) {
 
                                                     append(&parameters, parameter);
 
-                                                    expect(token, next_token(*context));
+                                                    expect(token, peek_token(*context));
 
                                                     auto done = false;
                                                     switch(token.type) {
                                                         case TokenType::Comma: {
-                                                            context->next_token_index += 1;
+                                                            consume_token(context);
                                                         } break;
 
                                                         case TokenType::CloseRoundBracket: {
-                                                            context->next_token_index += 1;
+                                                            consume_token(context);
 
                                                             done = true;
                                                         } break;
@@ -1887,7 +1981,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                             } break;
 
                                             case TokenType::CloseRoundBracket: {
-                                                context->next_token_index += 1;
+                                                consume_token(context);
 
                                                 last_range = token_range(*context, token);
                                             } break;
@@ -1911,7 +2005,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                             statement
                                         };
                                     } else if(token.type == TokenType::CloseRoundBracket) {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
 
                                         expect(statement, continue_parsing_function_declaration_or_function_type_constant(
                                             context,
@@ -1925,11 +2019,11 @@ static Result<Statement*> parse_statement(Context *context) {
                                             statement
                                         };
                                     } else if(token.type == TokenType::Identifier) {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
 
                                         auto first_identifier = identifier_from_token(*context, token);
 
-                                        expect(token, next_token(*context));
+                                        expect(token, peek_token(*context));
 
                                         if(token.type == TokenType::Colon) {
                                             List<FunctionParameter> parameters{};
@@ -1938,19 +2032,19 @@ static Result<Statement*> parse_statement(Context *context) {
 
                                             append(&parameters, parameter);
 
-                                            expect(token, next_token(*context));
+                                            expect(token, peek_token(*context));
 
                                             FileRange last_range;
                                             switch(token.type) {
                                                 case TokenType::Comma: {
-                                                    context->next_token_index += 1;
+                                                    consume_token(context);
 
                                                     while(true) {
-                                                        expect(pre_token, next_token(*context));
+                                                        expect(pre_token, peek_token(*context));
 
                                                         bool is_constant;
                                                         if(pre_token.type == TokenType::Dollar) {
-                                                            context->next_token_index += 1;
+                                                            consume_token(context);
 
                                                             is_constant = true;
                                                         } else {
@@ -1963,16 +2057,16 @@ static Result<Statement*> parse_statement(Context *context) {
 
                                                         append(&parameters, parameter);
 
-                                                        expect(token, next_token(*context));
+                                                        expect(token, peek_token(*context));
 
                                                         auto done = false;
                                                         switch(token.type) {
                                                             case TokenType::Comma: {
-                                                                context->next_token_index += 1;
+                                                                consume_token(context);
                                                             } break;
 
                                                             case TokenType::CloseRoundBracket: {
-                                                                context->next_token_index += 1;
+                                                                consume_token(context);
 
                                                                 done = true;
                                                             } break;
@@ -1993,7 +2087,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                                 } break;
 
                                                 case TokenType::CloseRoundBracket: {
-                                                    context->next_token_index += 1;
+                                                    consume_token(context);
 
                                                     last_range = token_range(*context, token);
                                                 } break;
@@ -2065,29 +2159,29 @@ static Result<Statement*> parse_statement(Context *context) {
                                 } break;
 
                                 case TokenType::Identifier: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     if(strcmp(token.identifier, "struct") == 0) {
-                                        expect(maybe_union_token, next_token(*context));
+                                        expect(maybe_union_token, peek_token(*context));
 
                                         auto is_union = false;
                                         if(maybe_union_token.type == TokenType::Identifier && strcmp(maybe_union_token.identifier, "union") == 0) {
-                                            context->next_token_index += 1;
+                                            consume_token(context);
 
                                             is_union = true;
                                         }
 
-                                        expect(maybe_parameter_token, next_token(*context));
+                                        expect(maybe_parameter_token, peek_token(*context));
 
                                         List<StructDefinition::Parameter> parameters{};
 
                                         if(maybe_parameter_token.type == TokenType::OpenRoundBracket) {
-                                            context->next_token_index += 1;
+                                            consume_token(context);
 
-                                            expect(token, next_token(*context));
+                                            expect(token, peek_token(*context));
 
                                             if(token.type == TokenType::CloseRoundBracket) {
-                                                context->next_token_index += 1;
+                                                consume_token(context);
                                             } else {
                                                 while(true) {
                                                     expect(name, expect_identifier(context));
@@ -2103,16 +2197,16 @@ static Result<Statement*> parse_statement(Context *context) {
                                                         type
                                                     });
 
-                                                    expect(token, next_token(*context));
+                                                    expect(token, peek_token(*context));
 
                                                     auto done = false;
                                                     switch(token.type) {
                                                         case TokenType::Comma: {
-                                                            context->next_token_index += 1;
+                                                            consume_token(context);
                                                         } break;
 
                                                         case TokenType::CloseRoundBracket: {
-                                                            context->next_token_index += 1;
+                                                            consume_token(context);
 
                                                             done = true;
                                                         } break;
@@ -2135,11 +2229,11 @@ static Result<Statement*> parse_statement(Context *context) {
 
                                         List<StructDefinition::Member> members{};
 
-                                        expect(token, next_token(*context));
+                                        expect(token, peek_token(*context));
 
                                         FileRange last_range;
                                         if(token.type == TokenType::CloseCurlyBracket) {
-                                            context->next_token_index += 1;
+                                            consume_token(context);
 
                                             last_range = token_range(*context, token);
                                         } else {
@@ -2157,16 +2251,16 @@ static Result<Statement*> parse_statement(Context *context) {
                                                     expression
                                                 });
 
-                                                expect(token, next_token(*context));
+                                                expect(token, peek_token(*context));
 
                                                 auto done = false;
                                                 switch(token.type) {
                                                     case TokenType::Comma: {
-                                                        context->next_token_index += 1;
+                                                        consume_token(context);
                                                     } break;
 
                                                     case TokenType::CloseCurlyBracket: {
-                                                        context->next_token_index += 1;
+                                                        consume_token(context);
 
                                                         done = true;
                                                     } break;
@@ -2247,7 +2341,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                 type = expression;
                             }
 
-                            expect(pre_token, next_token(*context));
+                            expect(pre_token, peek_token(*context));
 
                             Expression *initializer = nullptr;
                             if(pre_token.type == TokenType::Equals || !type) {
@@ -2260,22 +2354,22 @@ static Result<Statement*> parse_statement(Context *context) {
                                 initializer = expression;
                             }
 
-                            expect(token, next_token(*context));
+                            expect(token, peek_token(*context));
 
                             auto is_external = false;
                             auto is_no_mangle = false;
                             switch(token.type) {
                                 case TokenType::Semicolon: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
                                 } break;
 
                                 case TokenType::Identifier: {
                                     if(strcmp(token.identifier, "extern") == 0) {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
 
                                         is_external = true;
                                     } else if(strcmp(token.identifier, "no_mangle") == 0) {
-                                        context->next_token_index += 1;
+                                        consume_token(context);
 
                                         is_no_mangle = true;
                                     } else {
@@ -2312,11 +2406,11 @@ static Result<Statement*> parse_statement(Context *context) {
 
                     expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
-                    expect(token, next_token(*context));
+                    expect(token, peek_token(*context));
 
                     switch(token.type) {
                         case TokenType::Semicolon: {
-                            context->next_token_index += 1;
+                            consume_token(context);
 
                             auto expression_statement = new ExpressionStatement {
                                 span_range(first_range, token_range(*context, token)),
@@ -2334,41 +2428,41 @@ static Result<Statement*> parse_statement(Context *context) {
                             BinaryOperation::Operator binary_operator;
                             switch(token.type) {
                                 case TokenType::Equals: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     is_binary_operation_assignment = false;
                                 } break;
 
                                 case TokenType::PlusEquals: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Addition;
                                 } break;
 
                                 case TokenType::DashEquals: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Subtraction;
                                 } break;
 
                                 case TokenType::AsteriskEquals: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Multiplication;
                                 } break;
 
                                 case TokenType::ForwardSlashEquals: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Division;
                                 } break;
 
                                 case TokenType::PercentEquals: {
-                                    context->next_token_index += 1;
+                                    consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Modulo;
@@ -2418,11 +2512,11 @@ static Result<Statement*> parse_statement(Context *context) {
         default: {
             expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-            expect(token, next_token(*context));
+            expect(token, peek_token(*context));
 
             switch(token.type) {
                 case TokenType::Semicolon: {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     auto expression_statement = new ExpressionStatement {
                         span_range(first_range, token_range(*context, token)),
@@ -2436,7 +2530,7 @@ static Result<Statement*> parse_statement(Context *context) {
                 } break;
 
                 case TokenType::Equals: {
-                    context->next_token_index += 1;
+                    consume_token(context);
 
                     expect(value_expression, parse_expression(context, OperatorPrecedence::None));
 

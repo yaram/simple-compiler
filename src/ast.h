@@ -499,6 +499,43 @@ struct WhileLoop : Statement {
     {}
 };
 
+struct ForLoop : Statement {
+    bool has_index_name;
+    Identifier index_name;
+
+    Expression *from;
+    Expression *to;
+
+    Array<Statement*> statements;
+
+    ForLoop(
+        FileRange range,
+        Expression *from,
+        Expression *to,
+        Array<Statement*> statements
+    ) :
+        Statement { range },
+        has_index_name { false },
+        from { from },
+        to { to },
+        statements { statements }
+    {}
+
+    ForLoop(
+        FileRange range,
+        Identifier index_name,
+        Expression *from,
+        Expression *to,
+        Array<Statement*> statements
+    ) :
+        Statement { range },
+        index_name { index_name },
+        from { from },
+        to { to },
+        statements { statements }
+    {}
+};
+
 struct ReturnStatement : Statement {
     Expression *value;
 
