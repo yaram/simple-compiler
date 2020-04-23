@@ -668,6 +668,9 @@ struct GenerationContext {
     Type *return_type;
     size_t return_parameter_register;
 
+    bool in_breakable_scope;
+    List<Jump*> break_jumps;
+
     List<VariableScope> variable_scope_stack;
 
     size_t next_register;
@@ -8489,6 +8492,12 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
             {}
         });
 
+        auto old_in_breakable_scope = context->in_breakable_scope;
+        auto old_break_jumps = context->break_jumps;
+
+        context->in_breakable_scope = true;
+        context->break_jumps = {};
+
         for(auto child_statement : while_loop->statements) {
             if(!is_statement_declaration(child_statement)) {
                 if(!generate_statement(info, while_scope, context, instructions, child_statement)) {
@@ -8496,6 +8505,11 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
                 }
             }
         }
+
+        auto break_jumps = to_array(context->break_jumps);
+
+        context->in_breakable_scope = old_in_breakable_scope;
+        context->break_jumps = old_break_jumps;
 
         context->variable_scope_stack.count -= 1;
 
@@ -8507,6 +8521,10 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         );
 
         jump_out->destination_instruction = instructions->count;
+
+        for(auto jump : break_jumps) {
+            jump->destination_instruction = instructions->count;
+        }
 
         return true;
     } else if(auto for_loop = dynamic_cast<ForLoop*>(statement)) {
@@ -8675,6 +8693,12 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
             {}
         });
 
+        auto old_in_breakable_scope = context->in_breakable_scope;
+        auto old_break_jumps = context->break_jumps;
+
+        context->in_breakable_scope = true;
+        context->break_jumps = {};
+
         if(!add_new_variable(context, index_name, index_address_register, index_type)) {
             return { false };
         }
@@ -8686,6 +8710,11 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
                 }
             }
         }
+
+        auto break_jumps = to_array(context->break_jumps);
+
+        context->in_breakable_scope = old_in_breakable_scope;
+        context->break_jumps = old_break_jumps;
 
         context->variable_scope_stack.count -= 1;
 
@@ -8704,6 +8733,10 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         append_store_integer(context, instructions, for_loop->range.last_line, index_type->size, next_index_register, index_address_register);
 
         append_jump(context, instructions, for_loop->range.last_line, condition_index);
+
+        for(auto jump : break_jumps) {
+            jump->destination_instruction = instructions->count;
+        }
 
         branch->destination_instruction = instructions->count;
     } else if(auto return_statement = dynamic_cast<ReturnStatement*>(statement)) {
@@ -8757,6 +8790,21 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         }
 
         append(instructions, (Instruction*)return_instruction);
+
+        return true;
+    } else if(auto break_statement = dynamic_cast<BreakStatement*>(statement)) {
+        if(!context->in_breakable_scope) {
+            error(scope, break_statement->range, "Not in a break-able scope");
+
+            return { false };
+        }
+
+        auto jump = new Jump;
+        jump->line = break_statement->range.first_line;
+
+        append(instructions, (Instruction*)jump);
+
+        append(&context->break_jumps, jump);
 
         return true;
     } else {
