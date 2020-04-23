@@ -668,6 +668,11 @@ Result<Array<Token>> tokenize_source(const char *path) {
 
             while(index < length) {
                 if(source[index] == '.' && (!definitely_integer && !seen_dot && !seen_e)) {
+                    // Not quite happy about this
+                    if(index + 1 < length && source[index + 1] == '.') {
+                        break;
+                    }
+
                     definitely_float = true;
                     seen_dot = true;
 
