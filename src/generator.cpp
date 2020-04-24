@@ -796,11 +796,17 @@ static void error(ConstantScope scope, FileRange range, const char *format, ...)
 
 static bool match_public_declaration(Statement *statement, const char *name) {
     const char *declaration_name;
-    if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(statement)) {
+    if(statement->kind == StatementKind::FunctionDeclaration) {
+        auto function_declaration = (FunctionDeclaration*)statement;
+
         declaration_name = function_declaration->name.text;
-    } else if(auto constant_definition = dynamic_cast<ConstantDefinition*>(statement)) {
+    } else if(statement->kind == StatementKind::ConstantDefinition) {
+        auto constant_definition = (ConstantDefinition*)statement;
+
         declaration_name = constant_definition->name.text;
-    } else if(auto struct_definition = dynamic_cast<StructDefinition*>(statement)) {
+    } else if(statement->kind == StatementKind::StructDefinition) {
+        auto struct_definition = (StructDefinition*)statement;
+
         declaration_name = struct_definition->name.text;
     } else {
         return false;
@@ -811,13 +817,21 @@ static bool match_public_declaration(Statement *statement, const char *name) {
 
 static bool match_declaration(Statement *statement, const char *name) {
     const char *declaration_name;
-    if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(statement)) {
+    if(statement->kind == StatementKind::FunctionDeclaration) {
+        auto function_declaration = (FunctionDeclaration*)statement;
+
         declaration_name = function_declaration->name.text;
-    } else if(auto constant_definition = dynamic_cast<ConstantDefinition*>(statement)) {
+    } else if(statement->kind == StatementKind::ConstantDefinition) {
+        auto constant_definition = (ConstantDefinition*)statement;
+
         declaration_name = constant_definition->name.text;
-    } else if(auto struct_definition = dynamic_cast<StructDefinition*>(statement)) {
+    } else if(statement->kind == StatementKind::StructDefinition) {
+        auto struct_definition = (StructDefinition*)statement;
+
         declaration_name = struct_definition->name.text;
-    } else if(auto import = dynamic_cast<Import*>(statement)) {
+    } else if(statement->kind == StatementKind::Import) {
+        auto import = (Import*)statement;
+
         declaration_name = path_get_file_component(import->path);
     } else {
         return false;
@@ -2519,7 +2533,9 @@ static Result<Type*> evaluate_type_expression(GlobalInfo info, ConstantScope sco
 static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantScope scope, GenerationContext *context, Statement *declaration);
 
 static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, ConstantScope scope, GenerationContext *context, Expression *expression) {
-    if(auto named_reference = dynamic_cast<NamedReference*>(expression)) {
+    if(expression->kind == ExpressionKind::NamedReference) {
+        auto named_reference = (NamedReference*)expression;
+
         for(auto constant_parameter : context->constant_parameters) {
             if(strcmp(constant_parameter.name, named_reference->name.text) == 0) {
                 return {
@@ -2542,7 +2558,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                         true,
                         value
                     };
-                } else if(auto using_statement = dynamic_cast<UsingStatement*>(statement)) {
+                } else if(statement->kind == StatementKind::UsingStatement) {
+                    auto using_statement = (UsingStatement*)statement;
+
                     expect(expression_value, evaluate_constant_expression(info, *current_scope, context, using_statement->module));
 
                     if(!dynamic_cast<FileModule*>(expression_value.type)) {
@@ -2607,7 +2625,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
         error(scope, named_reference->name.range, "Cannot find named reference %s", named_reference->name.text);
 
         return { false };
-    } else if(auto member_reference = dynamic_cast<MemberReference*>(expression)) {
+    } else if(expression->kind == ExpressionKind::MemberReference) {
+        auto member_reference = (MemberReference*)expression;
+
         expect(expression_value, evaluate_constant_expression(info, scope, context, member_reference->expression));
 
         if(auto array_type = dynamic_cast<ArrayTypeType*>(expression_value.type)) {
@@ -2728,7 +2748,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
             return { false };
         }
-    } else if(auto index_reference = dynamic_cast<IndexReference*>(expression)) {
+    } else if(expression->kind == ExpressionKind::IndexReference) {
+        auto index_reference = (IndexReference*)expression;
+
         expect(expression_value, evaluate_constant_expression(info, scope, context, index_reference->expression));
 
         expect(index, evaluate_constant_expression(info, scope, context, index_reference->index));
@@ -2743,7 +2765,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
             index.value,
             index_reference->index->range
         );
-    } else if(auto integer_literal = dynamic_cast<IntegerLiteral*>(expression)) {
+    } else if(expression->kind == ExpressionKind::IntegerLiteral) {
+        auto integer_literal = (IntegerLiteral*)expression;
+
         return {
             true,
             {
@@ -2753,7 +2777,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 }
             }
         };
-    } else if(auto float_literal = dynamic_cast<FloatLiteral*>(expression)) {
+    } else if(expression->kind == ExpressionKind::FloatLiteral) {
+        auto float_literal = (FloatLiteral*)expression;
+
         return {
             true,
             {
@@ -2763,7 +2789,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 }
             }
         };
-    } else if(auto string_literal = dynamic_cast<StringLiteral*>(expression)) {
+    } else if(expression->kind == ExpressionKind::StringLiteral) {
+        auto string_literal = (StringLiteral*)expression;
+
         auto character_count = string_literal->characters.count;
 
         auto characters = allocate<ConstantValue*>(character_count);
@@ -2789,7 +2817,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 }
             }
         };
-    } else if(auto array_literal = dynamic_cast<ArrayLiteral*>(expression)) {
+    } else if(expression->kind == ExpressionKind::ArrayLiteral) {
+        auto array_literal = (ArrayLiteral*)expression;
+
         auto element_count = array_literal->elements.count;
 
         if(element_count == 0) {
@@ -2839,7 +2869,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 }
             }
         };
-    } else if(auto struct_literal = dynamic_cast<StructLiteral*>(expression)) {
+    } else if(expression->kind == ExpressionKind::StructLiteral) {
+        auto struct_literal = (StructLiteral*)expression;
+
         auto member_count = struct_literal->members.count;
 
         if(member_count == 0) {
@@ -2886,7 +2918,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 }
             }
         };
-    } else if(auto function_call = dynamic_cast<FunctionCall*>(expression)) {
+    } else if(expression->kind == ExpressionKind::FunctionCall) {
+        auto function_call = (FunctionCall*)expression;
+
         expect(expression_value, evaluate_constant_expression(info, scope, context, function_call->expression));
 
         if(auto function = dynamic_cast<FunctionTypeType*>(expression_value.type)) {
@@ -3040,7 +3074,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
             return { false };
         }
-    } else if(auto binary_operation = dynamic_cast<BinaryOperation*>(expression)) {
+    } else if(expression->kind == ExpressionKind::BinaryOperation) {
+        auto binary_operation = (BinaryOperation*)expression;
+
         expect(left, evaluate_constant_expression(info, scope, context, binary_operation->left));
 
         expect(right, evaluate_constant_expression(info, scope, context, binary_operation->right));
@@ -3062,7 +3098,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
             true,
             value
         };
-    } else if(auto unary_operation = dynamic_cast<UnaryOperation*>(expression)) {
+    } else if(expression->kind == ExpressionKind::UnaryOperation) {
+        auto unary_operation = (UnaryOperation*)expression;
+
         expect(expression_value, evaluate_constant_expression(info, scope, context, unary_operation->expression));
 
         switch(unary_operation->unary_operator) {
@@ -3156,7 +3194,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 abort();
             } break;
         }
-    } else if(auto cast = dynamic_cast<Cast*>(expression)) {
+    } else if(expression->kind == ExpressionKind::Cast) {
+        auto cast = (Cast*)expression;
+
         expect(expression_value, evaluate_constant_expression(info, scope, context, cast->expression));
 
         expect(type, evaluate_type_expression(info, scope, context, cast->type));
@@ -3179,7 +3219,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 value
             }
         };
-    } else if(auto array_type = dynamic_cast<ArrayType*>(expression)) {
+    } else if(expression->kind == ExpressionKind::ArrayType) {
+        auto array_type = (ArrayType*)expression;
+
         expect(type, evaluate_type_expression(info, scope, context, array_type->expression));
 
         if(!is_runtime_type(type)) {
@@ -3224,7 +3266,9 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 }
             };
         }
-    } else if(auto function_type = dynamic_cast<FunctionType*>(expression)) {
+    } else if(expression->kind == ExpressionKind::FunctionType) {
+        auto function_type = (FunctionType*)expression;
+
         auto parameter_count = function_type->parameters.count;
 
         auto parameters = allocate<Type*>(parameter_count);
@@ -3320,7 +3364,9 @@ static bool register_non_polymorpic_statics_in_module(GlobalInfo info, Generatio
     scope.file_path = file_path;
 
     for(auto statement : statements) {
-        if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(statement)) {
+        if(statement->kind == StatementKind::FunctionDeclaration) {
+            auto function_declaration = (FunctionDeclaration*)statement;
+
             auto is_polymorphic = false;
             for(auto parameter : function_declaration->parameters) {
                 if(parameter.is_polymorphic_determiner || parameter.is_constant) {
@@ -3394,7 +3440,9 @@ static bool register_non_polymorpic_statics_in_module(GlobalInfo info, Generatio
                 {},
                 scope
             });
-        } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+        } else if(statement->kind == StatementKind::VariableDeclaration) {
+            auto variable_declaration = (VariableDeclaration*)statement;
+
             Type *type;
             ConstantValue *initializer;
 
@@ -3520,7 +3568,9 @@ static bool register_non_polymorpic_statics_in_module(GlobalInfo info, Generatio
 }
 
 static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantScope scope, GenerationContext *context, Statement *declaration) {
-    if(auto function_declaration = dynamic_cast<FunctionDeclaration*>(declaration)) {
+    if(declaration->kind == StatementKind::FunctionDeclaration) {
+        auto function_declaration = (FunctionDeclaration*)declaration;
+
         for(auto parameter : function_declaration->parameters) {
             if(parameter.is_polymorphic_determiner || parameter.is_constant) {
                 return {
@@ -3582,14 +3632,18 @@ static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantS
                 }
             }
         };
-    } else if(auto constant_definition = dynamic_cast<ConstantDefinition*>(declaration)) {
+    } else if(declaration->kind == StatementKind::ConstantDefinition) {
+        auto constant_definition = (ConstantDefinition*)declaration;
+
         expect(value, evaluate_constant_expression(info, scope, context, constant_definition->expression));
 
         return {
             true,
             value
         };
-    } else if(auto struct_definition = dynamic_cast<StructDefinition*>(declaration)) {
+    } else if(declaration->kind == StatementKind::StructDefinition) {
+        auto struct_definition = (StructDefinition*)declaration;
+
         auto parameter_count = struct_definition->parameters.count;
 
         if(parameter_count == 0) {
@@ -3654,7 +3708,9 @@ static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantS
                 }
             };
         }
-    } else if(auto import = dynamic_cast<Import*>(declaration)) {
+    } else if(declaration->kind == StatementKind::Import) {
+        auto import = (Import*)declaration;
+
         auto current_scope = &scope;
         while(!current_scope->is_top_level) {
             current_scope = current_scope->parent;
@@ -5858,7 +5914,9 @@ static Result<TypedValue> generate_expression(
     List<Instruction*> *instructions,
     Expression *expression
 ) {
-    if(auto named_reference = dynamic_cast<NamedReference*>(expression)) {
+    if(expression->kind == ExpressionKind::NamedReference) {
+        auto named_reference = (NamedReference*)expression;
+
         assert(context->variable_scope_stack.count > 0);
 
         for(size_t i = 0; i < context->variable_scope_stack.count; i += 1) {
@@ -5889,7 +5947,9 @@ static Result<TypedValue> generate_expression(
                             value.value
                         }
                     };
-                } else if(auto using_statement = dynamic_cast<UsingStatement*>(statement)) {
+                } else if(statement->kind == StatementKind::UsingStatement) {
+                    auto using_statement = (UsingStatement*)statement;
+
                     expect(expression_value, evaluate_constant_expression(info, current_scope.constant_scope, context, using_statement->module));
 
                     if(!dynamic_cast<FileModule*>(expression_value.type)) {
@@ -5918,7 +5978,9 @@ static Result<TypedValue> generate_expression(
                                     value.value
                                 }
                             };
-                        } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+                        } else if(statement->kind == StatementKind::VariableDeclaration) {
+                            auto variable_declaration = (VariableDeclaration*)statement;
+
                             if(strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
                                 for(auto static_variable : context->static_variables) {
                                     if(static_variable.declaration == variable_declaration) {
@@ -5976,7 +6038,9 @@ static Result<TypedValue> generate_expression(
                             value.value
                         }
                     };
-                } else if(auto using_statement = dynamic_cast<UsingStatement*>(statement)) {
+                } else if(statement->kind == StatementKind::UsingStatement) {
+                    auto using_statement = (UsingStatement*)statement;
+
                     expect(expression_value, evaluate_constant_expression(info, *current_scope, context, using_statement->module));
 
                     if(!dynamic_cast<FileModule*>(expression_value.type)) {
@@ -6005,7 +6069,9 @@ static Result<TypedValue> generate_expression(
                                     value.value
                                 }
                             };
-                        } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+                        } else if(statement->kind == StatementKind::VariableDeclaration) {
+                            auto variable_declaration = (VariableDeclaration*)statement;
+
                             if(strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
                                 for(auto static_variable : context->static_variables) {
                                     if(static_variable.declaration == variable_declaration) {
@@ -6032,7 +6098,9 @@ static Result<TypedValue> generate_expression(
                             }
                         }
                     }
-                } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+                } else if(statement->kind == StatementKind::VariableDeclaration) {
+                    auto variable_declaration = (VariableDeclaration*)statement;
+
                     if(current_scope->is_top_level && strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
                         for(auto static_variable : context->static_variables) {
                             if(static_variable.declaration == variable_declaration) {
@@ -6094,7 +6162,9 @@ static Result<TypedValue> generate_expression(
         error(scope, named_reference->name.range, "Cannot find named reference %s", named_reference->name.text);
 
         return { false };
-    } else if(auto index_reference = dynamic_cast<IndexReference*>(expression)) {
+    } else if(expression->kind == ExpressionKind::IndexReference) {
+        auto index_reference = (IndexReference*)expression;
+
         expect(expression_value, generate_expression(info, scope, context, instructions, index_reference->expression));
 
         expect(index, generate_expression(info, scope, context, instructions, index_reference->index));
@@ -6232,7 +6302,9 @@ static Result<TypedValue> generate_expression(
                 }
             }
         };
-    } else if(auto member_reference = dynamic_cast<MemberReference*>(expression)) {
+    } else if(expression->kind == ExpressionKind::MemberReference) {
+        auto member_reference = (MemberReference*)expression;
+
         expect(expression_value, generate_expression(info, scope, context, instructions, member_reference->expression));
 
         Type *actual_type;
@@ -6547,7 +6619,9 @@ static Result<TypedValue> generate_expression(
                             value.value
                         }
                     };
-                } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+                } else if(statement->kind == StatementKind::VariableDeclaration) {
+                    auto variable_declaration = (VariableDeclaration*)statement;
+
                     if(strcmp(variable_declaration->name.text, member_reference->name.text) == 0) {
                         for(auto static_variable : context->static_variables) {
                             if(static_variable.declaration == variable_declaration) {
@@ -6583,7 +6657,9 @@ static Result<TypedValue> generate_expression(
 
             return { false };
         }
-    } else if(auto integer_literal = dynamic_cast<IntegerLiteral*>(expression)) {
+    } else if(expression->kind == ExpressionKind::IntegerLiteral) {
+        auto integer_literal = (IntegerLiteral*)expression;
+
         return {
             true,
             {
@@ -6593,7 +6669,9 @@ static Result<TypedValue> generate_expression(
                 }
             }
         };
-    } else if(auto float_literal = dynamic_cast<FloatLiteral*>(expression)) {
+    } else if(expression->kind == ExpressionKind::FloatLiteral) {
+        auto float_literal = (FloatLiteral*)expression;
+
         return {
             true,
             {
@@ -6603,7 +6681,9 @@ static Result<TypedValue> generate_expression(
                 }
             }
         };
-    } else if(auto string_literal = dynamic_cast<StringLiteral*>(expression)) {
+    } else if(expression->kind == ExpressionKind::StringLiteral) {
+        auto string_literal = (StringLiteral*)expression;
+
         auto character_count = string_literal->characters.count;
 
         auto characters = allocate<ConstantValue*>(character_count);
@@ -6629,7 +6709,9 @@ static Result<TypedValue> generate_expression(
                 }
             }
         };
-    } else if(auto array_literal = dynamic_cast<ArrayLiteral*>(expression)) {
+    } else if(expression->kind == ExpressionKind::ArrayLiteral) {
+        auto array_literal = (ArrayLiteral*)expression;
+
         auto element_count = array_literal->elements.count;
 
         if(element_count == 0) {
@@ -6746,7 +6828,9 @@ static Result<TypedValue> generate_expression(
                 value
             }
         };
-    } else if(auto struct_literal = dynamic_cast<StructLiteral*>(expression)) {
+    } else if(expression->kind == ExpressionKind::StructLiteral) {
+        auto struct_literal = (StructLiteral*)expression;
+
         if(struct_literal->members.count == 0) {
             error(scope, struct_literal->range, "Empty struct literal");
 
@@ -6814,7 +6898,9 @@ static Result<TypedValue> generate_expression(
                 value
             }
         };
-    } else if(auto function_call = dynamic_cast<FunctionCall*>(expression)) {
+    } else if(expression->kind == ExpressionKind::FunctionCall) {
+        auto function_call = (FunctionCall*)expression;
+
         expect(expression_value, generate_expression(info, scope, context, instructions, function_call->expression));
 
         if(auto function = dynamic_cast<FunctionTypeType*>(expression_value.type)) {
@@ -7523,7 +7609,9 @@ static Result<TypedValue> generate_expression(
 
             return { false };
         }
-    } else if(auto binary_operation = dynamic_cast<BinaryOperation*>(expression)) {
+    } else if(expression->kind == ExpressionKind::BinaryOperation) {
+        auto binary_operation = (BinaryOperation*)expression;
+
         return generate_binary_operation(
             info,
             scope,
@@ -7534,7 +7622,9 @@ static Result<TypedValue> generate_expression(
             binary_operation->right,
             binary_operation->binary_operator
         );
-    } else if(auto unary_operation = dynamic_cast<UnaryOperation*>(expression)) {
+    } else if(expression->kind == ExpressionKind::UnaryOperation) {
+        auto unary_operation = (UnaryOperation*)expression;
+
         expect(expression_value, generate_expression(info, scope, context, instructions, unary_operation->expression));
 
         switch(unary_operation->unary_operator) {
@@ -7786,7 +7876,9 @@ static Result<TypedValue> generate_expression(
                 abort();
             } break;
         }
-    } else if(auto cast = dynamic_cast<Cast*>(expression)) {
+    } else if(expression->kind == ExpressionKind::Cast) {
+        auto cast = (Cast*)expression;
+
         expect(expression_value, generate_expression(info, scope, context, instructions, cast->expression));
 
         expect(target_type, evaluate_type_expression_runtime(info, scope, context, instructions, cast->type));
@@ -8015,7 +8107,9 @@ static Result<TypedValue> generate_expression(
 
             return { false };
         }
-    } else if(auto array_type = dynamic_cast<ArrayType*>(expression)) {
+    } else if(expression->kind == ExpressionKind::ArrayType) {
+        auto array_type = (ArrayType*)expression;
+
         expect(type, evaluate_type_expression_runtime(info, scope, context, instructions, array_type->expression));
 
         if(!is_runtime_type(type)) {
@@ -8060,7 +8154,9 @@ static Result<TypedValue> generate_expression(
                 }
             };
         }
-    } else if(auto function_type = dynamic_cast<FunctionType*>(expression)) {
+    } else if(expression->kind == ExpressionKind::FunctionType) {
+        auto function_type = (FunctionType*)expression;
+
         auto parameter_count = function_type->parameters.count;
 
         auto parameters = allocate<Type*>(parameter_count);
@@ -8117,19 +8213,23 @@ static Result<TypedValue> generate_expression(
 
 static bool is_statement_declaration(Statement *statement) {
     return
-        dynamic_cast<FunctionDeclaration*>(statement) ||
-        dynamic_cast<ConstantDefinition*>(statement) ||
-        dynamic_cast<StructDefinition*>(statement);
+        statement->kind == StatementKind::FunctionDeclaration ||
+        statement->kind == StatementKind::ConstantDefinition ||
+        statement->kind == StatementKind::StructDefinition;
 }
 
 static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationContext *context, List<Instruction*> *instructions, Statement *statement) {
-    if(auto expression_statement = dynamic_cast<ExpressionStatement*>(statement)) {
+    if(statement->kind == StatementKind::ExpressionStatement) {
+        auto expression_statement = (ExpressionStatement*)statement;
+
         if(!generate_expression(info, scope, context, instructions, expression_statement->expression).status) {
             return false;
         }
 
         return true;
-    } else if(auto variable_declaration = dynamic_cast<VariableDeclaration*>(statement)) {
+    } else if(statement->kind == StatementKind::VariableDeclaration) {
+        auto variable_declaration = (VariableDeclaration*)statement;
+
         Type *type;
         size_t address_register;
 
@@ -8245,7 +8345,9 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         }
 
         return true;
-    } else if(auto assignment = dynamic_cast<Assignment*>(statement)) {
+    } else if(statement->kind == StatementKind::Assignment) {
+        auto assignment = (Assignment*)statement;
+
         expect(target, generate_expression(info, scope, context, instructions, assignment->target));
 
         size_t address_register;
@@ -8274,14 +8376,16 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         }
 
         return true;
-    } else if(auto binary_operation_assignment = dynamic_cast<BinaryOperationAssignment*>(statement)) {
+    } else if(statement->kind == StatementKind::BinaryOperationAssignment) {
+        auto binary_operation_assignment = (BinaryOperationAssignment*)statement;
+
         expect(target, generate_expression(info, scope, context, instructions, binary_operation_assignment->target));
 
         size_t address_register;
         if(auto address_value = dynamic_cast<AddressValue*>(target.value)){
             address_register = address_value->address_register;
         } else {
-            error(scope, assignment->target->range, "Value is not assignable");
+            error(scope, binary_operation_assignment->target->range, "Value is not assignable");
 
             return false;
         }
@@ -8312,7 +8416,9 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         }
 
         return true;
-    } else if(auto if_statement = dynamic_cast<IfStatement*>(statement)) {
+    } else if(statement->kind == StatementKind::IfStatement) {
+        auto if_statement = (IfStatement*)statement;
+
         auto end_jump_count = 1 + if_statement->else_ifs.count;
         auto end_jumps = allocate<Jump*>(end_jump_count);
 
@@ -8450,7 +8556,9 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         }
 
         return true;
-    } else if(auto while_loop = dynamic_cast<WhileLoop*>(statement)) {
+    } else if(statement->kind == StatementKind::WhileLoop) {
+        auto while_loop = (WhileLoop*)statement;
+
         auto condition_index = instructions->count;
 
         expect(condition, generate_expression(info, scope, context, instructions, while_loop->condition));
@@ -8528,7 +8636,9 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         }
 
         return true;
-    } else if(auto for_loop = dynamic_cast<ForLoop*>(statement)) {
+    } else if(statement->kind == StatementKind::ForLoop) {
+        auto for_loop = (ForLoop*)statement;
+
         Identifier index_name;
         if(for_loop->has_index_name) {
             index_name = for_loop->index_name;
@@ -8742,7 +8852,9 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         branch->destination_instruction = instructions->count;
 
         return true;
-    } else if(auto return_statement = dynamic_cast<ReturnStatement*>(statement)) {
+    } else if(statement->kind == StatementKind::ReturnStatement) {
+        auto return_statement = (ReturnStatement*)statement;
+
         auto return_instruction = new ReturnInstruction;
         return_instruction->line = return_statement->range.first_line;
 
@@ -8795,7 +8907,9 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         append(instructions, (Instruction*)return_instruction);
 
         return true;
-    } else if(auto break_statement = dynamic_cast<BreakStatement*>(statement)) {
+    } else if(statement->kind == StatementKind::BreakStatement) {
+        auto break_statement = (BreakStatement*)statement;
+
         if(!context->in_breakable_scope) {
             error(scope, break_statement->range, "Not in a break-able scope");
 
@@ -9142,7 +9256,9 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
 
                 bool has_return_at_end;
                 if(function.declaration->statements.count > 0) {
-                    has_return_at_end = dynamic_cast<ReturnStatement*>(function.declaration->statements[function.declaration->statements.count - 1]);
+                    auto last_statement = function.declaration->statements[function.declaration->statements.count - 1];
+
+                    has_return_at_end = last_statement->kind == StatementKind::ReturnStatement;
                 } else {
                     has_return_at_end = false;
                 }

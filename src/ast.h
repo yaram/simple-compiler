@@ -31,12 +31,29 @@ struct FunctionParameter {
     Identifier polymorphic_determiner;
 };
 
+enum struct ExpressionKind {
+    NamedReference,
+    MemberReference,
+    IndexReference,
+    IntegerLiteral,
+    FloatLiteral,
+    StringLiteral,
+    ArrayLiteral,
+    StructLiteral,
+    FunctionCall,
+    BinaryOperation,
+    UnaryOperation,
+    Cast,
+    ArrayType,
+    FunctionType
+};
+
 struct Expression {
+    ExpressionKind kind;
+
     FileRange range;
 
-    Expression(FileRange range) : range { range } {}
-
-    virtual ~Expression() {}
+    Expression(ExpressionKind kind, FileRange range) : kind { kind }, range { range } {}
 };
 
 struct NamedReference : Expression {
@@ -46,7 +63,7 @@ struct NamedReference : Expression {
         FileRange range,
         Identifier name
     ) :
-        Expression { range },
+        Expression { ExpressionKind::NamedReference, range },
         name { name }
     {}
 };
@@ -61,7 +78,7 @@ struct MemberReference : Expression {
         Expression *expression,
         Identifier name
     ) :
-        Expression { range },
+        Expression { ExpressionKind::MemberReference, range },
         expression { expression },
         name { name }
     {}
@@ -77,7 +94,7 @@ struct IndexReference : Expression {
         Expression *expression,
         Expression *index
     ) :
-        Expression { range },
+        Expression { ExpressionKind::IndexReference, range },
         expression { expression },
         index { index }
     {}
@@ -90,7 +107,7 @@ struct IntegerLiteral : Expression {
         FileRange range,
         uint64_t value
     ) :
-        Expression { range },
+        Expression { ExpressionKind::IntegerLiteral, range },
         value { value }
     {}
 };
@@ -102,7 +119,7 @@ struct FloatLiteral : Expression {
         FileRange range,
         double value
     ) :
-        Expression { range },
+        Expression { ExpressionKind::FloatLiteral, range },
         value { value }
     {}
 };
@@ -114,7 +131,7 @@ struct StringLiteral : Expression {
         FileRange range,
         Array<char> characters
     ) :
-        Expression { range },
+        Expression { ExpressionKind::StringLiteral, range },
         characters { characters }
     {}
 };
@@ -126,7 +143,7 @@ struct ArrayLiteral : Expression {
         FileRange range,
         Array<Expression*> elements
     ) :
-        Expression { range },
+        Expression { ExpressionKind::ArrayLiteral, range },
         elements { elements }
     {}
 };
@@ -144,7 +161,7 @@ struct StructLiteral : Expression {
         FileRange range,
         Array<Member> members
     ) :
-        Expression { range },
+        Expression { ExpressionKind::StructLiteral, range },
         members { members }
     {}
 };
@@ -159,7 +176,7 @@ struct FunctionCall : Expression {
         Expression *expression,
         Array<Expression*> parameters
     ) :
-        Expression { range },
+        Expression { ExpressionKind::FunctionCall, range },
         expression { expression },
         parameters { parameters }
     {}
@@ -194,7 +211,7 @@ struct BinaryOperation : Expression {
         Expression *left,
         Expression *right
     ) :
-        Expression { range },
+        Expression { ExpressionKind::BinaryOperation, range },
         binary_operator { binary_operator },
         left { left },
         right { right }
@@ -217,7 +234,7 @@ struct UnaryOperation : Expression {
         Operator unary_operator,
         Expression *expression
     ) :
-        Expression { range },
+        Expression { ExpressionKind::UnaryOperation, range },
         unary_operator { unary_operator },
         expression { expression }
     {}
@@ -233,7 +250,7 @@ struct Cast : Expression {
         Expression *expression,
         Expression *type
     ) :
-        Expression { range },
+        Expression { ExpressionKind::Cast, range },
         expression { expression },
         type { type }
     {}
@@ -249,7 +266,7 @@ struct ArrayType : Expression {
         Expression *expression,
         Expression *index
     ) :
-        Expression { range },
+        Expression { ExpressionKind::ArrayType, range },
         expression { expression },
         index { index }
     {}
@@ -265,18 +282,35 @@ struct FunctionType : Expression {
         Array<FunctionParameter> parameters,
         Expression *return_type
     ) :
-        Expression { range },
+        Expression { ExpressionKind::FunctionType, range },
         parameters { parameters },
         return_type { return_type }
     {}
 };
 
+enum struct StatementKind {
+    FunctionDeclaration,
+    ConstantDefinition,
+    StructDefinition,
+    ExpressionStatement,
+    VariableDeclaration,
+    Assignment,
+    BinaryOperationAssignment,
+    IfStatement,
+    WhileLoop,
+    ForLoop,
+    ReturnStatement,
+    BreakStatement,
+    Import,
+    UsingStatement
+};
+
 struct Statement {
+    StatementKind kind;
+
     FileRange range;
 
-    Statement(FileRange range) : range { range } {}
-
-    virtual ~Statement() {}
+    Statement(StatementKind kind, FileRange range) : kind { kind }, range { range } {}
 };
 
 struct FunctionDeclaration : Statement {
@@ -302,7 +336,7 @@ struct FunctionDeclaration : Statement {
         bool is_no_mangle,
         Array<Statement*> statements
     ) :
-        Statement { range },
+        Statement { StatementKind::FunctionDeclaration, range },
         name { name },
         parameters { parameters },
         return_type { return_type },
@@ -318,7 +352,7 @@ struct FunctionDeclaration : Statement {
         Expression *return_type,
         Array<const char *> external_libraries
     ) :
-        Statement { range },
+        Statement { StatementKind::FunctionDeclaration, range },
         name { name },
         parameters { parameters },
         return_type { return_type },
@@ -337,7 +371,7 @@ struct ConstantDefinition : Statement {
         Identifier name,
         Expression *expression
     ) :
-        Statement { range },
+        Statement { StatementKind::ConstantDefinition, range },
         name { name },
         expression { expression }
     {}
@@ -371,7 +405,7 @@ struct StructDefinition : Statement {
         Array<Parameter> parameters,
         Array<Member> members
     ) :
-        Statement { range },
+        Statement { StatementKind::StructDefinition, range },
         name { name },
         is_union { is_union },
         parameters { parameters },
@@ -386,7 +420,7 @@ struct ExpressionStatement : Statement {
         FileRange range,
         Expression *expression
     ) :
-        Statement { range },
+        Statement { StatementKind::ExpressionStatement, range },
         expression { expression }
     {}
 };
@@ -408,7 +442,7 @@ struct VariableDeclaration : Statement {
         bool is_external,
         bool is_no_mangle
     ) :
-        Statement { range },
+        Statement { StatementKind::VariableDeclaration, range },
         name { name },
         type { type },
         initializer { initializer },
@@ -427,7 +461,7 @@ struct Assignment : Statement {
         Expression *target,
         Expression *value
     ) :
-        Statement { range },
+        Statement { StatementKind::Assignment, range },
         target { target },
         value { value }
     {}
@@ -446,7 +480,7 @@ struct BinaryOperationAssignment : Statement {
         BinaryOperation::Operator binary_operator,
         Expression *value
     ) :
-        Statement { range },
+        Statement { StatementKind::BinaryOperationAssignment, range },
         target { target },
         binary_operator { binary_operator },
         value { value }
@@ -475,7 +509,7 @@ struct IfStatement : Statement {
         Array<ElseIf> else_ifs,
         Array<Statement*> else_statements
     ) :
-        Statement { range },
+        Statement { StatementKind::IfStatement, range },
         condition { condition },
         statements { statements },
         else_ifs { else_ifs },
@@ -493,7 +527,7 @@ struct WhileLoop : Statement {
         Expression *condition,
         Array<Statement*> statements
     ) :
-        Statement { range },
+        Statement { StatementKind::WhileLoop, range },
         condition { condition },
         statements { statements }
     {}
@@ -514,7 +548,7 @@ struct ForLoop : Statement {
         Expression *to,
         Array<Statement*> statements
     ) :
-        Statement { range },
+        Statement { StatementKind::ForLoop, range },
         has_index_name { false },
         from { from },
         to { to },
@@ -528,7 +562,7 @@ struct ForLoop : Statement {
         Expression *to,
         Array<Statement*> statements
     ) :
-        Statement { range },
+        Statement { StatementKind::ForLoop, range },
         has_index_name { true },
         index_name { index_name },
         from { from },
@@ -544,7 +578,7 @@ struct ReturnStatement : Statement {
         FileRange range,
         Expression *value
     ) :
-        Statement { range },
+        Statement { StatementKind::ReturnStatement, range },
         value { value }
     {}
 };
@@ -553,7 +587,7 @@ struct BreakStatement : Statement {
     BreakStatement(
         FileRange range
     ) :
-        Statement { range }
+        Statement { StatementKind::BreakStatement, range }
     {}
 };
 
@@ -564,7 +598,7 @@ struct Import : Statement {
         FileRange range,
         const char *path
     ) :
-        Statement { range },
+        Statement { StatementKind::Import, range },
         path { path }
     {}
 };
@@ -576,7 +610,7 @@ struct UsingStatement : Statement {
         FileRange range,
         Expression *module
     ) :
-        Statement { range },
+        Statement { StatementKind::UsingStatement, range },
         module { module }
     {}
 };
