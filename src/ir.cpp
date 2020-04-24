@@ -28,7 +28,9 @@ static const char *register_size_name(RegisterSize size) {
 }
 
 void print_instruction(Instruction *instruction, bool has_return) {
-    if(auto integer_arithmetic_operation = dynamic_cast<IntegerArithmeticOperation*>(instruction)) {
+    if(instruction->kind == InstructionKind::IntegerArithmeticOperation) {
+        auto integer_arithmetic_operation = (IntegerArithmeticOperation*)instruction;
+
         switch(integer_arithmetic_operation->operation) {
             case IntegerArithmeticOperation::Operation::Add: {
                 printf("ADD ");
@@ -78,7 +80,9 @@ void print_instruction(Instruction *instruction, bool has_return) {
             integer_arithmetic_operation->source_register_b,
             integer_arithmetic_operation->destination_register
         );
-    } else if(auto integer_comparison_operation = dynamic_cast<IntegerComparisonOperation*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::IntegerComparisonOperation) {
+        auto integer_comparison_operation = (IntegerComparisonOperation*)instruction;
+
         switch(integer_comparison_operation->operation) {
             case IntegerComparisonOperation::Operation::Equal: {
                 printf("EQ ");
@@ -112,7 +116,9 @@ void print_instruction(Instruction *instruction, bool has_return) {
             integer_comparison_operation->source_register_b,
             integer_comparison_operation->destination_register
         );
-    } else if(auto integer_upcast = dynamic_cast<IntegerUpcast*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::IntegerUpcast) {
+        auto integer_upcast = (IntegerUpcast*)instruction;
+
         if(integer_upcast->is_signed) {
             printf("SCAST");
         } else {
@@ -126,7 +132,9 @@ void print_instruction(Instruction *instruction, bool has_return) {
             register_size_name(integer_upcast->destination_size),
             integer_upcast->destination_register
         );
-    } else if(auto integer_constant = dynamic_cast<IntegerConstantInstruction*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::IntegerConstantInstruction) {
+        auto integer_constant = (IntegerConstantInstruction*)instruction;
+
         printf("CONST %s ", register_size_name(integer_constant->size));
 
         switch(integer_constant->size) {
@@ -152,7 +160,9 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(", r%zu", integer_constant->destination_register);
-    } else if(auto float_arithmetic_operation = dynamic_cast<FloatArithmeticOperation*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::FloatArithmeticOperation) {
+        auto float_arithmetic_operation = (FloatArithmeticOperation*)instruction;
+
         switch(float_arithmetic_operation->operation) {
             case FloatArithmeticOperation::Operation::Add: {
                 printf("FADD ");
@@ -182,7 +192,9 @@ void print_instruction(Instruction *instruction, bool has_return) {
             float_arithmetic_operation->source_register_b,
             float_arithmetic_operation->destination_register
         );
-    } else if(auto float_comparison_operation = dynamic_cast<FloatComparisonOperation*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::FloatComparisonOperation) {
+        auto float_comparison_operation = (FloatComparisonOperation*)instruction;
+
         switch(float_comparison_operation->operation) {
             case FloatComparisonOperation::Operation::Equal: {
                 printf("FEQ ");
@@ -208,7 +220,9 @@ void print_instruction(Instruction *instruction, bool has_return) {
             float_comparison_operation->source_register_b,
             float_comparison_operation->destination_register
         );
-    } else if(auto float_conversion = dynamic_cast<FloatConversion*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::FloatConversion) {
+        auto float_conversion = (FloatConversion*)instruction;
+
         printf(
             "FCAST f%s r%zu, f%s r%zu",
             register_size_name(float_conversion->source_size),
@@ -216,7 +230,9 @@ void print_instruction(Instruction *instruction, bool has_return) {
             register_size_name(float_conversion->destination_size),
             float_conversion->destination_register
         );
-    } else if(auto float_truncation = dynamic_cast<FloatTruncation*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::FloatTruncation) {
+        auto float_truncation = (FloatTruncation*)instruction;
+
         printf(
             "FTRUNC f%s r%zu, %s r%zu",
             register_size_name(float_truncation->source_size),
@@ -224,7 +240,9 @@ void print_instruction(Instruction *instruction, bool has_return) {
             register_size_name(float_truncation->destination_size),
             float_truncation->destination_register
         );
-    } else if(auto float_from_integer = dynamic_cast<FloatFromInteger*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::FloatFromInteger) {
+        auto float_from_integer = (FloatFromInteger*)instruction;
+
         if(float_from_integer->is_signed) {
             printf("FSINT");
         } else {
@@ -238,7 +256,9 @@ void print_instruction(Instruction *instruction, bool has_return) {
             register_size_name(float_from_integer->destination_size),
             float_from_integer->destination_register
         );
-    } else if(auto float_constant = dynamic_cast<FloatConstantInstruction*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::FloatConstantInstruction) {
+        auto float_constant = (FloatConstantInstruction*)instruction;
+
         printf("FCONST f%s ", register_size_name(float_constant->size));
 
         switch(float_constant->size) {
@@ -256,15 +276,21 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(", r%zu", float_constant->destination_register);
-    } else if(auto jump = dynamic_cast<Jump*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::Jump) {
+        auto jump = (Jump*)instruction;
+
         printf("JMP %zu", jump->destination_instruction);
-    } else if(auto branch = dynamic_cast<Branch*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::Branch) {
+        auto branch = (Branch*)instruction;
+
         printf(
             "BR r%zu, %zu",
             branch->condition_register,
             branch->destination_instruction
         );
-    } else if(auto function_call = dynamic_cast<FunctionCallInstruction*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::FunctionCallInstruction) {
+        auto function_call = (FunctionCallInstruction*)instruction;
+
         printf("CALL r%zu (", function_call->address_register);
 
         for(size_t i = 0; i < function_call->parameters.count; i += 1) {
@@ -292,48 +318,62 @@ void print_instruction(Instruction *instruction, bool has_return) {
 
             printf("%s", register_size_name(function_call->return_size));
         }
-    } else if(auto return_instruction = dynamic_cast<ReturnInstruction*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::ReturnInstruction) {
+        auto return_instruction = (ReturnInstruction*)instruction;
+
         printf("RET");
 
         if(has_return) {
             printf(" r%zu", return_instruction->value_register);
         }
-    } else if(auto allocate_local = dynamic_cast<AllocateLocal*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::AllocateLocal) {
+        auto allocate_local = (AllocateLocal*)instruction;
+
         printf(
             "LOCAL %zu(%zu), r%zu",
             allocate_local->size,
             allocate_local->alignment,
             allocate_local->destination_register
         );
-    } else if(auto load_integer = dynamic_cast<LoadInteger*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::LoadInteger) {
+        auto load_integer = (LoadInteger*)instruction;
+
         printf(
             "LOAD %s r%zu, r%zu",
             register_size_name(load_integer->size),
             load_integer->address_register,
             load_integer->destination_register
         );
-    } else if(auto store_integer = dynamic_cast<StoreInteger*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::StoreInteger) {
+        auto store_integer = (StoreInteger*)instruction;
+
         printf(
             "STORE %s r%zu, r%zu",
             register_size_name(store_integer->size),
             store_integer->source_register,
             store_integer->address_register
         );
-    } else if(auto load_float = dynamic_cast<LoadFloat*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::LoadFloat) {
+        auto load_float = (LoadFloat*)instruction;
+
         printf(
             "FLOAD %s r%zu, r%zu",
             register_size_name(load_float->size),
             load_float->address_register,
             load_float->destination_register
         );
-    } else if(auto store_float = dynamic_cast<StoreFloat*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::StoreFloat) {
+        auto store_float = (StoreFloat*)instruction;
+
         printf(
             "FSTORE %s r%zu, r%zu",
             register_size_name(store_float->size),
             store_float->source_register,
             store_float->address_register
         );
-    } else if(auto copy_memory = dynamic_cast<CopyMemory*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::CopyMemory) {
+        auto copy_memory = (CopyMemory*)instruction;
+
         printf(
             "COPY r%zu (%zu), r%zu, r%zu",
             copy_memory->length_register,
@@ -341,7 +381,9 @@ void print_instruction(Instruction *instruction, bool has_return) {
             copy_memory->source_address_register,
             copy_memory->destination_address_register
         );
-    } else if(auto reference_static = dynamic_cast<ReferenceStatic*>(instruction)) {
+    } else if(instruction->kind == InstructionKind::ReferenceStatic) {
+        auto reference_static = (ReferenceStatic*)instruction;
+
         printf(
             "STATIC %s r%zu",
             reference_static->name,
@@ -355,8 +397,10 @@ void print_instruction(Instruction *instruction, bool has_return) {
 void print_static(RuntimeStatic *runtime_static) {
     printf("%s", runtime_static->name);
 
-    if(auto function = dynamic_cast<Function*>(runtime_static)) {
-        printf(" (", function->name);
+    if(runtime_static->kind == RuntimeStaticKind::Function) {
+        auto function = (Function*)runtime_static;
+
+        printf(" (");
 
         for(size_t i = 0; i < function->parameters.count; i += 1) {
             printf(
@@ -411,10 +455,12 @@ void print_static(RuntimeStatic *runtime_static) {
                 }
             }
         }
-    } else if(auto constant = dynamic_cast<StaticConstant*>(runtime_static)) {
+    } else if(runtime_static->kind == RuntimeStaticKind::StaticConstant) {
+        auto constant = (StaticConstant*)runtime_static;
+
         printf(" %zu(%zu) (const)", constant->data.count, constant->alignment);
-    } else if(auto variable = dynamic_cast<StaticVariable*>(runtime_static)) {
-        printf(" %zu(%zu)", variable->size, variable->alignment);
+    } else if(runtime_static->kind == RuntimeStaticKind::StaticVariable) {
+        auto variable = (StaticVariable*)runtime_static;
 
         if(variable->is_external) {
             printf(" extern");

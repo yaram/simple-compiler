@@ -105,7 +105,9 @@ bool generate_c_object(
     auto register_sizes = get_register_sizes(architecture);
 
     for(auto runtime_static : statics) {
-        if(auto function = dynamic_cast<Function*>(runtime_static)) {
+        if(runtime_static->kind == RuntimeStaticKind::Function) {
+            auto function = (Function*)runtime_static;
+
             generate_function_signature(&forward_declaration_source, *function);
             string_buffer_append(&forward_declaration_source, ";\n");
 
@@ -140,7 +142,9 @@ bool generate_c_object(
                     string_buffer_append(&implementation_source, i);
                     string_buffer_append(&implementation_source, ":;");
 
-                    if(auto integer_arithmetic_operation = dynamic_cast<IntegerArithmeticOperation*>(instruction)) {
+                    if(instruction->kind == InstructionKind::IntegerArithmeticOperation) {
+                        auto integer_arithmetic_operation = (IntegerArithmeticOperation*)instruction;
+
                         generate_integer_type(&implementation_source, integer_arithmetic_operation->size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, integer_arithmetic_operation->destination_register);
@@ -218,7 +222,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, integer_arithmetic_operation->source_register_b);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto integer_comparison_operation = dynamic_cast<IntegerComparisonOperation*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::IntegerComparisonOperation) {
+                        auto integer_comparison_operation = (IntegerComparisonOperation*)instruction;
+
                         generate_integer_type(&implementation_source, register_sizes.default_size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, integer_comparison_operation->destination_register);
@@ -276,7 +282,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, integer_comparison_operation->source_register_b);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto integer_upcast = dynamic_cast<IntegerUpcast*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::IntegerUpcast) {
+                        auto integer_upcast = (IntegerUpcast*)instruction;
+
                         generate_integer_type(&implementation_source, integer_upcast->destination_size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, integer_upcast->destination_register);
@@ -292,7 +300,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, integer_upcast->source_register);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto integer_constant = dynamic_cast<IntegerConstantInstruction*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::IntegerConstantInstruction) {
+                        auto integer_constant = (IntegerConstantInstruction*)instruction;
+
                         generate_integer_type(&implementation_source, integer_constant->size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, integer_constant->destination_register);
@@ -301,7 +311,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, integer_constant->value);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto float_arithmetic_operation = dynamic_cast<FloatArithmeticOperation*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FloatArithmeticOperation) {
+                        auto float_arithmetic_operation = (FloatArithmeticOperation*)instruction;
+
                         generate_float_type(&implementation_source, float_arithmetic_operation->size);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, float_arithmetic_operation->destination_register);
@@ -349,7 +361,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, float_arithmetic_operation->source_register_b);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto float_comparison_operation = dynamic_cast<FloatComparisonOperation*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FloatComparisonOperation) {
+                        auto float_comparison_operation = (FloatComparisonOperation*)instruction;
+
                         generate_float_type(&implementation_source, register_sizes.default_size);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, float_comparison_operation->destination_register);
@@ -393,7 +407,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, float_comparison_operation->source_register_b);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto float_conversion = dynamic_cast<FloatConversion*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FloatConversion) {
+                        auto float_conversion = (FloatConversion*)instruction;
+
                         generate_float_type(&implementation_source, float_conversion->destination_size);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, float_conversion->destination_register);
@@ -409,7 +425,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, float_conversion->source_register);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto float_truncation = dynamic_cast<FloatTruncation*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FloatTruncation) {
+                        auto float_truncation = (FloatTruncation*)instruction;
+
                         generate_integer_type(&implementation_source, float_truncation->destination_size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, float_truncation->destination_register);
@@ -425,7 +443,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, float_truncation->source_register);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto float_from_integer = dynamic_cast<FloatFromInteger*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FloatFromInteger) {
+                        auto float_from_integer = (FloatFromInteger*)instruction;
+
                         generate_float_type(&implementation_source, float_from_integer->destination_size);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, float_from_integer->destination_register);
@@ -441,7 +461,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, float_from_integer->source_register);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto float_constant = dynamic_cast<FloatConstantInstruction*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FloatConstantInstruction) {
+                        auto float_constant = (FloatConstantInstruction*)instruction;
+
                         generate_float_type(&implementation_source, float_constant->size);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, float_constant->destination_register);
@@ -469,14 +491,18 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, buffer);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto jump = dynamic_cast<Jump*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::Jump) {
+                        auto jump = (Jump*)instruction;
+
                         string_buffer_append(&implementation_source, "goto ");
                         string_buffer_append(&implementation_source, function->name);
                         string_buffer_append(&implementation_source, "_");
                         string_buffer_append(&implementation_source, jump->destination_instruction);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto branch = dynamic_cast<Branch*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::Branch) {
+                        auto branch = (Branch*)instruction;
+
                         string_buffer_append(&implementation_source, "if(");
 
                         string_buffer_append(&implementation_source, "(");
@@ -497,7 +523,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, ";");
 
                         string_buffer_append(&implementation_source, "}");
-                    } else if(auto function_call = dynamic_cast<FunctionCallInstruction*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FunctionCallInstruction) {
+                        auto function_call = (FunctionCallInstruction*)instruction;
+
                         if(function_call->has_return) {
                             if(function_call->is_return_float) {
                                 generate_float_type(&implementation_source, function_call->return_size);
@@ -563,7 +591,9 @@ bool generate_c_object(
                         }
 
                         string_buffer_append(&implementation_source, ");");
-                    } else if(auto return_instuction = dynamic_cast<ReturnInstruction*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::ReturnInstruction) {
+                        auto return_instuction = (ReturnInstruction*)instruction;
+
                         string_buffer_append(&implementation_source, "return");
 
                         if(function->has_return) {
@@ -580,7 +610,9 @@ bool generate_c_object(
                         }
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto allocate_local = dynamic_cast<AllocateLocal*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::AllocateLocal) {
+                        auto allocate_local = (AllocateLocal*)instruction;
+
                         string_buffer_append(&implementation_source, "char __attribute__((aligned(");
                         string_buffer_append(&implementation_source, allocate_local->alignment);
                         string_buffer_append(&implementation_source, "))) local_");
@@ -602,7 +634,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, allocate_local->destination_register);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto load_integer = dynamic_cast<LoadInteger*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::LoadInteger) {
+                        auto load_integer = (LoadInteger*)instruction;
+
                         generate_integer_type(&implementation_source, load_integer->size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, load_integer->destination_register);
@@ -618,7 +652,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, load_integer->address_register);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto store_integer = dynamic_cast<StoreInteger*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::StoreInteger) {
+                        auto store_integer = (StoreInteger*)instruction;
+
                         string_buffer_append(&implementation_source, "*(");
                         generate_integer_type(&implementation_source, store_integer->size, false);
                         string_buffer_append(&implementation_source, "*)reg_");
@@ -632,7 +668,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, store_integer->source_register);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto load_float = dynamic_cast<LoadFloat*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::LoadFloat) {
+                        auto load_float = (LoadFloat*)instruction;
+
                         generate_float_type(&implementation_source, load_float->size);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, load_float->destination_register);
@@ -648,7 +686,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, load_float->address_register);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto store_float = dynamic_cast<StoreFloat*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::StoreFloat) {
+                        auto store_float = (StoreFloat*)instruction;
+
                         string_buffer_append(&implementation_source, "*(");
                         generate_float_type(&implementation_source, store_float->size);
                         string_buffer_append(&implementation_source, "*)reg_");
@@ -662,7 +702,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, store_float->source_register);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto reference_static = dynamic_cast<ReferenceStatic*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::ReferenceStatic) {
+                        auto reference_static = (ReferenceStatic*)instruction;
+
                         generate_integer_type(&implementation_source, register_sizes.address_size, false);
                         string_buffer_append(&implementation_source, " reg_");
                         string_buffer_append(&implementation_source, reference_static->destination_register);
@@ -672,7 +714,9 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, reference_static->name);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(auto copy_memory = dynamic_cast<CopyMemory*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::CopyMemory) {
+                        auto copy_memory = (CopyMemory*)instruction;
+
                         string_buffer_append(&implementation_source, "for(");
                         generate_integer_type(&implementation_source, register_sizes.address_size, false);
                         string_buffer_append(&implementation_source, " i=0;i<reg_");
@@ -703,7 +747,9 @@ bool generate_c_object(
 
                 string_buffer_append(&implementation_source, "}\n");
             }
-        } else if(auto constant = dynamic_cast<StaticConstant*>(runtime_static)) {
+        } else if(runtime_static->kind == RuntimeStaticKind::StaticConstant) {
+            auto constant = (StaticConstant*)runtime_static;
+
             string_buffer_append(&forward_declaration_source, "const ");
             generate_integer_type(&forward_declaration_source, RegisterSize::Size8, false);
             string_buffer_append(&forward_declaration_source, " __attribute__((aligned(");
@@ -725,7 +771,9 @@ bool generate_c_object(
             }
 
             string_buffer_append(&forward_declaration_source, "};\n");
-        } else if(auto variable = dynamic_cast<StaticVariable*>(runtime_static)) {
+        } else if(runtime_static->kind == RuntimeStaticKind::StaticVariable) {
+            auto variable = (StaticVariable*)runtime_static;
+
             if(variable->is_external) {
                 string_buffer_append(&forward_declaration_source, "extern ");
             }

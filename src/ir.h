@@ -4,10 +4,36 @@
 #include "array.h"
 #include "register_size.h"
 
+enum struct InstructionKind {
+    IntegerArithmeticOperation,
+    IntegerComparisonOperation,
+    IntegerUpcast,
+    IntegerConstantInstruction,
+    FloatArithmeticOperation,
+    FloatComparisonOperation,
+    FloatConversion,
+    FloatTruncation,
+    FloatFromInteger,
+    FloatConstantInstruction,
+    Jump,
+    Branch,
+    FunctionCallInstruction,
+    ReturnInstruction,
+    AllocateLocal,
+    LoadInteger,
+    StoreInteger,
+    LoadFloat,
+    StoreFloat,
+    CopyMemory,
+    ReferenceStatic
+};
+
 struct Instruction {
+    InstructionKind kind;
+
     unsigned int line;
 
-    virtual ~Instruction() {}
+    Instruction(InstructionKind kind) : kind { kind } {}
 };
 
 struct IntegerArithmeticOperation : Instruction {
@@ -35,7 +61,7 @@ struct IntegerArithmeticOperation : Instruction {
 
     size_t destination_register;
 
-    IntegerArithmeticOperation() {}
+    IntegerArithmeticOperation() : Instruction { InstructionKind::IntegerArithmeticOperation } {}
 };
 
 struct IntegerComparisonOperation : Instruction {
@@ -56,7 +82,7 @@ struct IntegerComparisonOperation : Instruction {
 
     size_t destination_register;
 
-    IntegerComparisonOperation() {}
+    IntegerComparisonOperation() : Instruction { InstructionKind::IntegerComparisonOperation } {}
 };
 
 struct IntegerUpcast : Instruction {
@@ -68,7 +94,7 @@ struct IntegerUpcast : Instruction {
     RegisterSize destination_size;
     size_t destination_register;
 
-    IntegerUpcast() {}
+    IntegerUpcast() : Instruction { InstructionKind::IntegerUpcast } {}
 };
 
 struct IntegerConstantInstruction : Instruction {
@@ -78,7 +104,7 @@ struct IntegerConstantInstruction : Instruction {
 
     uint64_t value;
 
-    IntegerConstantInstruction() {}
+    IntegerConstantInstruction() : Instruction { InstructionKind::IntegerConstantInstruction } {}
 };
 
 struct FloatArithmeticOperation : Instruction {
@@ -98,7 +124,7 @@ struct FloatArithmeticOperation : Instruction {
 
     size_t destination_register;
 
-    FloatArithmeticOperation() {}
+    FloatArithmeticOperation() : Instruction { InstructionKind::FloatArithmeticOperation } {}
 };
 
 struct FloatComparisonOperation : Instruction {
@@ -117,7 +143,7 @@ struct FloatComparisonOperation : Instruction {
 
     size_t destination_register;
 
-    FloatComparisonOperation() {}
+    FloatComparisonOperation() : Instruction { InstructionKind::FloatComparisonOperation } {}
 };
 
 struct FloatConversion : Instruction {
@@ -127,7 +153,7 @@ struct FloatConversion : Instruction {
     RegisterSize destination_size;
     size_t destination_register;
 
-    FloatConversion() {}
+    FloatConversion() : Instruction { InstructionKind::FloatConversion } {}
 };
 
 struct FloatTruncation : Instruction {
@@ -137,7 +163,7 @@ struct FloatTruncation : Instruction {
     RegisterSize destination_size;
     size_t destination_register;
 
-    FloatTruncation() {}
+    FloatTruncation() : Instruction { InstructionKind::FloatTruncation } {}
 };
 
 struct FloatFromInteger : Instruction {
@@ -149,7 +175,7 @@ struct FloatFromInteger : Instruction {
     RegisterSize destination_size;
     size_t destination_register;
 
-    FloatFromInteger() {}
+    FloatFromInteger() : Instruction { InstructionKind::FloatFromInteger } {}
 };
 
 struct FloatConstantInstruction : Instruction {
@@ -159,13 +185,13 @@ struct FloatConstantInstruction : Instruction {
 
     double value;
 
-    FloatConstantInstruction() {}
+    FloatConstantInstruction() : Instruction { InstructionKind::FloatConstantInstruction } {}
 };
 
 struct Jump : Instruction {
     size_t destination_instruction;
 
-    Jump() {}
+    Jump() : Instruction { InstructionKind::Jump } {}
 };
 
 struct Branch : Instruction {
@@ -173,7 +199,7 @@ struct Branch : Instruction {
 
     size_t destination_instruction;
 
-    Branch() {}
+    Branch() : Instruction { InstructionKind::Branch } {}
 };
 
 struct FunctionCallInstruction : Instruction {
@@ -194,13 +220,13 @@ struct FunctionCallInstruction : Instruction {
     bool is_return_float;
     size_t return_register;
 
-    FunctionCallInstruction() {}
+    FunctionCallInstruction() : Instruction { InstructionKind::FunctionCallInstruction } {}
 };
 
 struct ReturnInstruction : Instruction {
     size_t value_register;
 
-    ReturnInstruction() {}
+    ReturnInstruction() : Instruction { InstructionKind::ReturnInstruction } {}
 };
 
 struct AllocateLocal : Instruction {
@@ -210,7 +236,7 @@ struct AllocateLocal : Instruction {
 
     size_t destination_register;
 
-    AllocateLocal() {}
+    AllocateLocal() : Instruction { InstructionKind::AllocateLocal } {}
 };
 
 struct LoadInteger : Instruction {
@@ -220,7 +246,7 @@ struct LoadInteger : Instruction {
 
     size_t destination_register;
 
-    LoadInteger() {}
+    LoadInteger() : Instruction { InstructionKind::LoadInteger } {}
 };
 
 struct StoreInteger : Instruction {
@@ -230,7 +256,7 @@ struct StoreInteger : Instruction {
 
     size_t address_register;
 
-    StoreInteger() {}
+    StoreInteger() : Instruction { InstructionKind::StoreInteger } {}
 };
 
 struct LoadFloat : Instruction {
@@ -240,7 +266,7 @@ struct LoadFloat : Instruction {
 
     size_t destination_register;
 
-    LoadFloat() {}
+    LoadFloat() : Instruction { InstructionKind::LoadFloat } {}
 };
 
 struct StoreFloat : Instruction {
@@ -250,7 +276,7 @@ struct StoreFloat : Instruction {
 
     size_t address_register;
 
-    StoreFloat() {}
+    StoreFloat() : Instruction { InstructionKind::StoreFloat } {}
 };
 
 struct CopyMemory : Instruction {
@@ -262,7 +288,7 @@ struct CopyMemory : Instruction {
 
     size_t alignment;
 
-    CopyMemory() {}
+    CopyMemory() : Instruction { InstructionKind::CopyMemory } {}
 };
 
 struct ReferenceStatic : Instruction {
@@ -270,15 +296,23 @@ struct ReferenceStatic : Instruction {
 
     size_t destination_register;
 
-    ReferenceStatic() {}
+    ReferenceStatic() : Instruction { InstructionKind::ReferenceStatic } {}
 };
 
 void print_instruction(Instruction *instruction, bool has_return);
 
+enum struct RuntimeStaticKind {
+    Function,
+    StaticConstant,
+    StaticVariable
+};
+
 struct RuntimeStatic {
+    RuntimeStaticKind kind;
+
     const char *name;
 
-    virtual ~RuntimeStatic() {}
+    RuntimeStatic(RuntimeStaticKind kind) : kind { kind } {}
 };
 
 struct Function : RuntimeStatic {
@@ -301,7 +335,7 @@ struct Function : RuntimeStatic {
     const char *file;
     unsigned int line;
 
-    Function() {}
+    Function() : RuntimeStatic { RuntimeStaticKind::Function } {}
 };
 
 struct StaticConstant : RuntimeStatic {
@@ -309,7 +343,7 @@ struct StaticConstant : RuntimeStatic {
 
     Array<uint8_t> data;
 
-    StaticConstant() {}
+    StaticConstant() : RuntimeStatic { RuntimeStaticKind::StaticConstant } {}
 };
 
 struct StaticVariable : RuntimeStatic {
@@ -322,7 +356,7 @@ struct StaticVariable : RuntimeStatic {
     bool has_initial_data;
     uint8_t *initial_data;
 
-    StaticVariable() {}
+    StaticVariable() : RuntimeStatic { RuntimeStaticKind::StaticVariable } {}
 };
 
 void print_static(RuntimeStatic *runtime_static);
