@@ -6,7 +6,7 @@
 #include "path.h"
 #include "util.h"
 
-static void generate_integer_type(char **source, RegisterSize size, bool is_signed) {
+static void generate_integer_type(StringBuffer *source, RegisterSize size, bool is_signed) {
     if(is_signed) {
         string_buffer_append(source, "signed ");
     } else {
@@ -36,7 +36,7 @@ static void generate_integer_type(char **source, RegisterSize size, bool is_sign
     }
 }
 
-static void generate_float_type(char **source, RegisterSize size) {
+static void generate_float_type(StringBuffer *source, RegisterSize size) {
     switch(size) {
         case RegisterSize::Size32: {
             string_buffer_append(source, "float");
@@ -52,7 +52,7 @@ static void generate_float_type(char **source, RegisterSize size) {
     }
 }
 
-static bool generate_function_signature(char **source, Function function) {
+static bool generate_function_signature(StringBuffer *source, Function function) {
     if(function.has_return) {
         if(function.is_return_float) {
             generate_float_type(source, function.return_size);
@@ -99,8 +99,8 @@ bool generate_c_object(
     const char *output_directory,
     const char *output_name
 ) {
-    char *forward_declaration_source{};
-    char *implementation_source{};
+    StringBuffer forward_declaration_source {};
+    StringBuffer implementation_source {};
 
     auto register_sizes = get_register_sizes(architecture);
 
@@ -761,12 +761,12 @@ bool generate_c_object(
         }
     }
 
-    char *source{};
+    StringBuffer source {};
 
-    string_buffer_append(&source, forward_declaration_source);
-    string_buffer_append(&source, implementation_source);
+    string_buffer_append(&source, forward_declaration_source.data);
+    string_buffer_append(&source, implementation_source.data);
 
-    if(source == nullptr) {
+    if(source.data == nullptr) {
         string_buffer_append(&source, "");
     }
 
@@ -775,13 +775,13 @@ bool generate_c_object(
         string_buffer_append(&source, "int __fltused;");
     }
 
-    char *source_file_path_buffer{};
+    StringBuffer source_file_path_buffer {};
 
     string_buffer_append(&source_file_path_buffer, output_directory);
     string_buffer_append(&source_file_path_buffer, output_name);
     string_buffer_append(&source_file_path_buffer, ".c");
 
-    auto source_file = fopen(source_file_path_buffer, "w");
+    auto source_file = fopen(source_file_path_buffer.data, "w");
 
     if(source_file == nullptr) {
         fprintf(stderr, "Unable to create C output file\n");
@@ -789,11 +789,11 @@ bool generate_c_object(
         return false;
     }
 
-    fprintf(source_file, "%s", source);
+    fprintf(source_file, "%s", source.data);
 
     fclose(source_file);
 
-    char *command_buffer{};
+    StringBuffer command_buffer {};
 
     auto triple = get_llvm_triple(architecture, os);
 
@@ -814,9 +814,9 @@ bool generate_c_object(
     string_buffer_append(&command_buffer, output_name);
     string_buffer_append(&command_buffer, ".o ");
 
-    string_buffer_append(&command_buffer, source_file_path_buffer);
+    string_buffer_append(&command_buffer, source_file_path_buffer.data);
 
-    if(system(command_buffer) != 0) {
+    if(system(command_buffer.data) != 0) {
         return false;
     }
 

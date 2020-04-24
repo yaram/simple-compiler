@@ -305,7 +305,7 @@ static bool types_equal(Type *a, Type *b) {
 
 static const char *type_description(Type *type) {
     if(auto function = dynamic_cast<FunctionTypeType*>(type)) {
-        char *buffer{};
+        StringBuffer buffer {};
 
         string_buffer_append(&buffer, "(");
 
@@ -323,7 +323,8 @@ static const char *type_description(Type *type) {
             string_buffer_append(&buffer, " -> ");
             string_buffer_append(&buffer, type_description(function->return_type));
         }
-        return buffer;
+
+        return buffer.data;
     } else if(dynamic_cast<PolymorphicFunction*>(type)) {
         return "{function}";
     } else if(dynamic_cast<BuiltinFunction*>(type)) {
@@ -399,28 +400,28 @@ static const char *type_description(Type *type) {
     } else if(dynamic_cast<Void*>(type)) {
         return "void";
     } else if(auto pointer = dynamic_cast<Pointer*>(type)) {
-        char *buffer{};
+        StringBuffer buffer {};
 
         string_buffer_append(&buffer, "*");
         string_buffer_append(&buffer, type_description(pointer->type));
 
-        return buffer;
+        return buffer.data;
     } else if(auto array = dynamic_cast<ArrayTypeType*>(type)) {
-        char *buffer{};
+        StringBuffer buffer {};
 
         string_buffer_append(&buffer, "[]");
         string_buffer_append(&buffer, type_description(array->element_type));
 
-        return buffer;
+        return buffer.data;
     } else if(auto static_array = dynamic_cast<StaticArray*>(type)) {
-        char *buffer{};
+        StringBuffer buffer {};
 
         string_buffer_append(&buffer, "[");
         string_buffer_append(&buffer, static_array->length);
         string_buffer_append(&buffer, "]");
         string_buffer_append(&buffer, type_description(static_array->element_type));
 
-        return buffer;
+        return buffer.data;
     } else if(auto struct_type = dynamic_cast<StructType*>(type)) {
         return struct_type->definition->name.text;
     } else if(auto polymorphic_struct = dynamic_cast<PolymorphicStruct*>(type)) {
@@ -3367,12 +3368,12 @@ static bool register_non_polymorpic_statics_in_module(GlobalInfo info, Generatio
             if(function_declaration->is_external || function_declaration->is_no_mangle) {
                 mangled_name = function_declaration->name.text;
             } else {
-                char *mangled_name_buffer{};
+                StringBuffer mangled_name_buffer {};
 
                 string_buffer_append(&mangled_name_buffer, "function_");
                 string_buffer_append(&mangled_name_buffer, context->runtime_functions.count);
 
-                mangled_name = mangled_name_buffer;
+                mangled_name = mangled_name_buffer.data;
             }
 
             auto runtime_parameters = allocate<RuntimeFunctionParameter>(parameter_count);
@@ -3475,12 +3476,12 @@ static bool register_non_polymorpic_statics_in_module(GlobalInfo info, Generatio
             if(variable_declaration->is_external || variable_declaration->is_no_mangle) {
                 mangled_name = variable_declaration->name.text;
             } else {
-                char *buffer{};
+                StringBuffer buffer {};
 
                 string_buffer_append(&buffer, "variable_");
                 string_buffer_append(&buffer, context->static_variables.count);
 
-                mangled_name = buffer;
+                mangled_name = buffer.data;
             }
 
             if(does_runtime_static_exist(*context, mangled_name)) {
@@ -3661,12 +3662,12 @@ static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantS
 
         auto source_file_directory = path_get_directory_component(current_scope->file_path);
 
-        char *import_file_path{};
+        StringBuffer import_file_path {};
 
         string_buffer_append(&import_file_path, source_file_directory);
         string_buffer_append(&import_file_path, import->path);
 
-        expect(import_file_path_absolute, path_relative_to_absolute(import_file_path));
+        expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
 
         auto already_loaded = false;
         Array<Statement*> statements;
@@ -3701,7 +3702,7 @@ static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantS
             {
                 new FileModule,
                 new FileModuleConstant {
-                    import_file_path,
+                    import_file_path_absolute,
                     statements
                 }
             }
@@ -3903,11 +3904,11 @@ static const char *register_static_array_constant(GlobalInfo info, GenerationCon
 
     auto number = context->statics.count;
 
-    char *name_buffer{};
+    StringBuffer name_buffer {};
     string_buffer_append(&name_buffer, "constant_");
     string_buffer_append(&name_buffer, number);
 
-    while(does_runtime_static_exist(*context, name_buffer)) {
+    while(does_runtime_static_exist(*context, name_buffer.data)) {
         number += 1;
 
         string_buffer_append(&name_buffer, "constant_");
@@ -3915,7 +3916,7 @@ static const char *register_static_array_constant(GlobalInfo info, GenerationCon
     }
 
     auto constant = new StaticConstant;
-    constant->name = name_buffer;
+    constant->name = name_buffer.data;
     constant->data = {
         data_length,
         data
@@ -3924,7 +3925,7 @@ static const char *register_static_array_constant(GlobalInfo info, GenerationCon
 
     append(&context->statics, (RuntimeStatic*)constant);
 
-    return name_buffer;
+    return name_buffer.data;
 }
 
 static const char *register_struct_constant(GlobalInfo info, GenerationContext *context, StructType struct_type, ConstantValue **members) {
@@ -3935,11 +3936,11 @@ static const char *register_struct_constant(GlobalInfo info, GenerationContext *
 
     auto number = context->statics.count;
 
-    char *name_buffer{};
+    StringBuffer name_buffer {};
     string_buffer_append(&name_buffer, "constant_");
     string_buffer_append(&name_buffer, number);
 
-    while(does_runtime_static_exist(*context, name_buffer)) {
+    while(does_runtime_static_exist(*context, name_buffer.data)) {
         number += 1;
 
         string_buffer_append(&name_buffer, "constant_");
@@ -3947,7 +3948,7 @@ static const char *register_struct_constant(GlobalInfo info, GenerationContext *
     }
 
     auto constant = new StaticConstant;
-    constant->name = name_buffer;
+    constant->name = name_buffer.data;
     constant->data = {
         data_length,
         data
@@ -3956,7 +3957,7 @@ static const char *register_struct_constant(GlobalInfo info, GenerationContext *
 
     append(&context->statics, (RuntimeStatic*)constant);
 
-    return name_buffer;
+    return name_buffer.data;
 }
 
 static size_t append_integer_arithmetic_operation(
@@ -7173,12 +7174,12 @@ static Result<TypedValue> generate_expression(
             if(function_value->declaration->is_external || function_value->declaration->is_no_mangle) {
                 mangled_name = function_value->declaration->name.text;
             } else {
-                char *mangled_name_buffer{};
+                StringBuffer mangled_name_buffer {};
 
                 string_buffer_append(&mangled_name_buffer, "function_");
                 string_buffer_append(&mangled_name_buffer, context->runtime_functions.count);
 
-                mangled_name = mangled_name_buffer;
+                mangled_name = mangled_name_buffer.data;
             }
 
             auto runtime_parameters = allocate<RuntimeFunctionParameter>(runtime_parameter_count);

@@ -14,7 +14,7 @@ RegisterSizes get_register_sizes(const char *architecture) {
 }
 
 const char *get_llvm_triple(const char *architecture, const char *os) {
-    char *buffer{};
+    StringBuffer buffer {};
 
     const char *triple_architecture;
     if(strcmp(architecture, "x64") == 0) {
@@ -46,5 +46,5 @@ const char *get_llvm_triple(const char *architecture, const char *os) {
     string_buffer_append(&buffer, "-");
     string_buffer_append(&buffer, triple_abi);
 
-    return buffer;
+    return buffer.data;
 }

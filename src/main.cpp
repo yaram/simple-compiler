@@ -211,7 +211,7 @@ bool cli_entry(Array<const char*> arguments) {
     generate_c_object(ir.statics, architecture, os, config, output_file_directory, output_file_name);
 
     {
-        char *buffer{};
+        StringBuffer buffer {};
 
         const char *linker_options;
         if(strcmp(os, "windows") == 0) {
@@ -248,7 +248,7 @@ bool cli_entry(Array<const char*> arguments) {
         string_buffer_append(&buffer, output_file_name);
         string_buffer_append(&buffer, ".o");
 
-        if(system(buffer) != 0) {
+        if(system(buffer.data) != 0) {
             return false;
         }
     }

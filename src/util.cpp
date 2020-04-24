@@ -2,36 +2,37 @@
 #include <string.h>
 #include <stdio.h>
 
-void string_buffer_append(char **string_buffer, const char *string) {
-    const size_t minumum_increment = 64;
+void string_buffer_append(StringBuffer *string_buffer, const char *string) {
+    const size_t minimum_allocation = 64;
 
     auto string_length = strlen(string);
 
-    if(*string_buffer == nullptr) {
-        *string_buffer = (char*)malloc(string_length + 1);
+    if(string_buffer->capacity == 0) {
+        auto capacity = string_length + minimum_allocation;
 
-        strcpy(*string_buffer, string);
+        auto data = (char*)malloc(capacity + 1);
+
+        string_buffer->capacity = capacity;
+        string_buffer->data = data;
     } else {
-        auto string_buffer_length = strlen(*string_buffer);
+        auto new_length = string_buffer->length + string_length;
 
-        auto new_string_buffer_length = string_buffer_length;
+        if(new_length > string_buffer->capacity) {
+            auto new_capacity = new_length + minimum_allocation;
 
-        if(string_length >= minumum_increment) {
-            new_string_buffer_length += string_length;
-        } else {
-            new_string_buffer_length += minumum_increment;
+            auto new_data = (char*)realloc(string_buffer->data, new_capacity + 1);
+
+            string_buffer->capacity = new_capacity;
+            string_buffer->data = new_data;
         }
-
-        auto new_string_buffer = (char*)realloc((void*)(*string_buffer), new_string_buffer_length + 1);
-
-        memcpy(&new_string_buffer[string_buffer_length], string, string_length);
-        new_string_buffer[string_buffer_length + string_length] = 0;
-
-        *string_buffer = new_string_buffer;
     }
+
+    memcpy(&string_buffer->data[string_buffer->length], string, string_length + 1);
+
+    string_buffer->length += string_length;
 }
 
-void string_buffer_append(char **string_buffer, size_t number) {
+void string_buffer_append(StringBuffer *string_buffer, size_t number) {
     const size_t buffer_size = 32;
     char buffer[buffer_size];
     snprintf(buffer, buffer_size, "%zu", number);
@@ -39,7 +40,7 @@ void string_buffer_append(char **string_buffer, size_t number) {
     string_buffer_append(string_buffer, (const char*)buffer);
 }
 
-void string_buffer_append_character(char **string_buffer, char character) {
+void string_buffer_append_character(StringBuffer *string_buffer, char character) {
     char buffer[2];
     buffer[0] = character;
     buffer[1] = 0;
