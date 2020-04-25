@@ -809,20 +809,6 @@ bool generate_c_object(
         }
     }
 
-    StringBuffer source {};
-
-    string_buffer_append(&source, forward_declaration_source.data);
-    string_buffer_append(&source, implementation_source.data);
-
-    if(source.data == nullptr) {
-        string_buffer_append(&source, "");
-    }
-
-    if(strcmp(os, "windows") == 0) {
-        string_buffer_append(&source, "int _fltused;");
-        string_buffer_append(&source, "int __fltused;");
-    }
-
     StringBuffer source_file_path_buffer {};
 
     string_buffer_append(&source_file_path_buffer, output_directory);
@@ -837,7 +823,12 @@ bool generate_c_object(
         return false;
     }
 
-    fputs(source.data, source_file);
+    fputs(forward_declaration_source.data, source_file);
+    fputs(implementation_source.data, source_file);
+
+    if(strcmp(os, "windows") == 0) {
+        fputs("int _fltused;int __fltused;", source_file);
+    }
 
     fclose(source_file);
 
