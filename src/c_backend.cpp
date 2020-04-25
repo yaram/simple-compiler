@@ -837,7 +837,7 @@ bool generate_c_object(
         return false;
     }
 
-    fprintf(source_file, "%s", source.data);
+    fputs(source.data, source_file);
 
     fclose(source_file);
 

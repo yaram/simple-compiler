@@ -32,10 +32,46 @@ void string_buffer_append(StringBuffer *string_buffer, const char *string) {
     string_buffer->length += string_length;
 }
 
+static void int_to_string(char buffer[32], size_t value, size_t radix) {
+    if(value == 0) {
+        buffer[0] = '0';
+        buffer[1] = '\0';
+
+        return;
+    }
+
+    size_t index = 0;
+
+    while(value > 0) {
+        auto digit_value = value % radix;
+
+        if(digit_value < 10){
+            buffer[index] = (char)('0' + digit_value);
+        } else {
+            buffer[index] = (char)('A' + (digit_value - 10));
+        }
+
+        value = value / radix;
+        index += 1;
+    }
+
+    auto length = index;
+
+    auto half_length = (length - 1) / 2 + 1;
+
+    for(size_t i = 0; i < half_length; i += 1) {
+        auto temp = buffer[i];
+
+        buffer[i] = buffer[length - 1 - i];
+        buffer[length - 1 - i] = temp;
+    }
+
+    buffer[length] = '\0';
+}
+
 void string_buffer_append(StringBuffer *string_buffer, size_t number) {
-    const size_t buffer_size = 32;
-    char buffer[buffer_size];
-    snprintf(buffer, buffer_size, "%zu", number);
+    char buffer[32];
+    int_to_string(buffer, number, 10);
 
     string_buffer_append(string_buffer, (const char*)buffer);
 }
