@@ -52,8 +52,6 @@ struct Expression {
     ExpressionKind kind;
 
     FileRange range;
-
-    Expression(ExpressionKind kind, FileRange range) : kind { kind }, range { range } {}
 };
 
 struct NamedReference : Expression {
@@ -309,8 +307,6 @@ struct Statement {
     StatementKind kind;
 
     FileRange range;
-
-    Statement(StatementKind kind, FileRange range) : kind { kind }, range { range } {}
 };
 
 struct FunctionDeclaration : Statement {

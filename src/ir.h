@@ -32,8 +32,6 @@ struct Instruction {
     InstructionKind kind;
 
     unsigned int line;
-
-    Instruction(InstructionKind kind) : kind { kind } {}
 };
 
 struct IntegerArithmeticOperation : Instruction {
@@ -311,8 +309,6 @@ struct RuntimeStatic {
     RuntimeStaticKind kind;
 
     const char *name;
-
-    RuntimeStatic(RuntimeStaticKind kind) : kind { kind } {}
 };
 
 struct Function : RuntimeStatic {
