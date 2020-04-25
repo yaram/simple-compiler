@@ -3033,7 +3033,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
             if(strcmp(builtin_function_value->name, "size_of") == 0) {
                 if(function_call->parameters.count != 1) {
-                    error(scope, function_call->range, "Incorrect parameter count. Expected '%zu' got '%zu'", 1, function_call->parameters.count);
+                    error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
                     return { false };
                 }
@@ -3069,7 +3069,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 };
             } else if(strcmp(builtin_function_value->name, "type_of") == 0) {
                 if(function_call->parameters.count != 1) {
-                    error(scope, function_call->range, "Incorrect parameter count. Expected '%zu' got '%zu'", 1, function_call->parameters.count);
+                    error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
                     return { false };
                 }
@@ -3083,6 +3083,10 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                         new TypeConstant { parameter_value.type }
                     }
                 };
+            } else if(strcmp(builtin_function_value->name, "memcpy") == 0) {
+                error(scope, function_call->range, "'memcpy' cannot be called in a constant context");
+
+                return { false };
             } else {
                 abort();
             }
@@ -7796,7 +7800,7 @@ static Result<TypedRuntimeValue> generate_expression(
 
             if(strcmp(builtin_function_value->name, "size_of") == 0) {
                 if(function_call->parameters.count != 1) {
-                    error(scope, function_call->range, "Incorrect parameter count. Expected '%zu' got '%zu'", 1, function_call->parameters.count);
+                    error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
                     return { false };
                 }
@@ -7834,7 +7838,7 @@ static Result<TypedRuntimeValue> generate_expression(
                 };
             } else if(strcmp(builtin_function_value->name, "type_of") == 0) {
                 if(function_call->parameters.count != 1) {
-                    error(scope, function_call->range, "Incorrect parameter count. Expected '%zu' got '%zu'", 1, function_call->parameters.count);
+                    error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
                     return { false };
                 }
@@ -7849,6 +7853,103 @@ static Result<TypedRuntimeValue> generate_expression(
                             new TypeConstant {
                                 parameter_value.type
                             }
+                        }
+                    }
+                };
+            } else if(strcmp(builtin_function_value->name, "memcpy") == 0) {
+                if(function_call->parameters.count != 3) {
+                    error(scope, function_call->range, "Incorrect parameter count. Expected 3 got %zu", function_call->parameters.count);
+
+                    return { false };
+                }
+
+                Integer u8_type { RegisterSize::Size8, false };
+                Pointer u8_pointer_type { &u8_type };
+
+                expect(destination_value, generate_expression(info, scope, context, instructions, function_call->parameters[0]));
+
+                if(!types_equal(destination_value.type, &u8_pointer_type)) {
+                    error(
+                        scope,
+                        function_call->parameters[0]->range,
+                        "Incorrect type for parameter 0. Expected '%s', got '%s'",
+                        type_description(&u8_pointer_type),
+                        type_description(destination_value.type)
+                    );
+
+                    return { false };
+                }
+
+                expect(source_value, generate_expression(info, scope, context, instructions, function_call->parameters[1]));
+
+                if(!types_equal(source_value.type, &u8_pointer_type)) {
+                    error(
+                        scope,
+                        function_call->parameters[1]->range,
+                        "Incorrect type for parameter 1. Expected '%s', got '%s'",
+                        type_description(&u8_pointer_type),
+                        type_description(source_value.type)
+                    );
+
+                    return { false };
+                }
+
+                Integer usize_type { info.address_integer_size, false };
+
+                expect(size_value, generate_expression(info, scope, context, instructions, function_call->parameters[2]));
+
+                if(!types_equal(size_value.type, &usize_type)) {
+                    error(
+                        scope,
+                        function_call->parameters[1]->range,
+                        "Incorrect type for parameter 2. Expected '%s', got '%s'",
+                        type_description(&usize_type),
+                        type_description(size_value.type)
+                    );
+
+                    return { false };
+                }
+
+                auto destination_address_register = generate_in_register_pointer_value(
+                    info,
+                    context,
+                    instructions,
+                    function_call->parameters[0]->range,
+                    destination_value.value
+                );
+
+                auto source_address_register = generate_in_register_pointer_value(
+                    info,
+                    context,
+                    instructions,
+                    function_call->parameters[1]->range,
+                    source_value.value
+                );
+
+                auto size_register = generate_in_register_integer_value(
+                    context,
+                    instructions,
+                    function_call->parameters[2]->range,
+                    usize_type,
+                    size_value.value
+                );
+
+                append_copy_memory(
+                    context,
+                    instructions,
+                    function_call->range.first_line,
+                    size_register,
+                    source_address_register,
+                    destination_address_register,
+                    1
+                );
+
+                return {
+                    true,
+                    {
+                        &void_singleton,
+                        new RuntimeConstantValue {
+                            &void_constant_singleton
                         }
                     }
                 };
@@ -9606,6 +9707,8 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
 
     append_builtin(&global_constants, "size_of");
     append_builtin(&global_constants, "type_of");
+
+    append_builtin(&global_constants, "memcpy");
 
     GlobalInfo info {
         to_array(global_constants),
