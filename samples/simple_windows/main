@@ -44,14 +44,16 @@ int_to_string :: (value: $T, buffer: []u8, radix: T) -> usize {
 print_string :: (string: []u8) {
     buffer: [1024]u8;
 
-    i: usize = 0;
-    while i < string.length && i < buffer.length - 1 {
-        buffer[i] = string[i];
-
-        i += 1;
+    length_to_copy: usize;
+    if string.length < buffer.length - 1 {
+        length_to_copy = string.length;
+    } else {
+        length_to_copy = buffer.length - 1;
     }
 
-    buffer[i] = 0;
+    memcpy(buffer.pointer, string.pointer, length_to_copy);
+
+    buffer[length_to_copy] = 0;
 
     OutputDebugStringA(buffer.pointer);
 }
