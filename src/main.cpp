@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
-#include <time.h>
+#include "timing.h"
 #include "lexer.h"
 #include "parser.h"
 #include "generator.h"
@@ -48,7 +48,7 @@ static void print_help_message(FILE *file) {
 }
 
 bool cli_entry(Array<const char*> arguments) {
-    auto start_time = clock();
+    auto start_time = get_timer_counts();
 
     const char *source_file_path = nullptr;
     const char *output_file_path = nullptr;
@@ -167,13 +167,13 @@ bool cli_entry(Array<const char*> arguments) {
         output_file_path = get_default_output_file(os);
     }
 
-    auto main_file_parser_start = clock();
+    auto main_file_parser_start = get_timer_counts();
 
     expect(source_file_tokens, tokenize_source(absolute_source_file_path));
 
     expect(source_file_statements, parse_tokens(absolute_source_file_path, source_file_tokens));
 
-    auto main_file_parser_end = clock();
+    auto main_file_parser_end = get_timer_counts();
 
     auto main_file_parser_time = main_file_parser_end - main_file_parser_start;
 
@@ -214,15 +214,15 @@ bool cli_entry(Array<const char*> arguments) {
 
     auto output_file_directory = path_get_directory_component(output_file_path);
 
-    auto backend_start = clock();
+    auto backend_start = get_timer_counts();
 
     generate_c_object(generator_result.statics, architecture, os, config, output_file_directory, output_file_name);
 
-    auto backend_end = clock();
+    auto backend_end = get_timer_counts();
 
     auto backend_time = backend_end - backend_start;
 
-    clock_t linker_time;
+    uint64_t linker_time;
     {
         StringBuffer buffer {};
 
@@ -261,26 +261,28 @@ bool cli_entry(Array<const char*> arguments) {
         string_buffer_append(&buffer, output_file_name);
         string_buffer_append(&buffer, ".o");
 
-        auto start = clock();
+        auto start = get_timer_counts();
 
         if(system(buffer.data) != 0) {
             return false;
         }
 
-        auto end = clock();
+        auto end = get_timer_counts();
 
         linker_time = end - start;
     }
 
-    auto end_time = clock();
+    auto end_time = get_timer_counts();
 
     auto total_time = end_time - start_time;
 
-    printf("Total time: %.1fms\n", (double)total_time / CLOCKS_PER_SEC * 1000);
-    printf("  Parser time: %.1fms\n", (double)(main_file_parser_time + generator_result.parser_time) / CLOCKS_PER_SEC * 1000);
-    printf("  Generator time: %.1fms\n", (double)(generator_result.generator_time) / CLOCKS_PER_SEC * 1000);
-    printf("  C Backend time: %.1fms\n", (double)backend_time / CLOCKS_PER_SEC * 1000);
-    printf("  Linker time: %.1fms\n", (double)linker_time / CLOCKS_PER_SEC * 1000);
+    auto counts_per_second = get_timer_counts_per_second();
+
+    printf("Total time: %.2fms\n", (double)total_time / counts_per_second * 1000);
+    printf("  Parser time: %.2fms\n", (double)(main_file_parser_time + generator_result.parser_time) / counts_per_second * 1000);
+    printf("  Generator time: %.2fms\n", (double)generator_result.generator_time / counts_per_second * 1000);
+    printf("  C Backend time: %.2fms\n", (double)backend_time / counts_per_second * 1000);
+    printf("  Linker time: %.2fms\n", (double)linker_time / counts_per_second * 1000);
 
     return true;
 }

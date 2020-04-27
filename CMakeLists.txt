@@ -16,6 +16,9 @@ add_executable(compiler
     src/path.h
     src/path.cpp
 
+    src/timing.h
+    src/timing.cpp
+
     src/util.h
     src/util.cpp
 

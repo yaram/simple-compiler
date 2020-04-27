@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <stdarg.h>
+#include "timing.h"
 #include "list.h"
 #include "util.h"
 #include "path.h"
@@ -3448,14 +3449,14 @@ static bool does_runtime_static_exist(GenerationContext context, const char *nam
 
 static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, ConstantValue *value);
 
-static Result<clock_t> load_file(GlobalInfo info, GenerationContext *context, Array<Statement*> statements, const char *file_path) {
+static Result<uint64_t> load_file(GlobalInfo info, GenerationContext *context, Array<Statement*> statements, const char *file_path) {
     ConstantScope scope;
     scope.statements = statements;
     scope.constant_parameters = {};
     scope.is_top_level = true;
     scope.file_path = file_path;
 
-    clock_t total_parser_time = 0;
+    uint64_t total_parser_time = 0;
 
     for(auto statement : statements) {
         if(statement->kind == StatementKind::FunctionDeclaration) {
@@ -3677,13 +3678,13 @@ static Result<clock_t> load_file(GlobalInfo info, GenerationContext *context, Ar
             }
 
             if(!already_loaded) {
-                auto parser_start = clock();
+                auto parser_start = get_timer_counts();
 
                 expect(tokens, tokenize_source(import_file_path_absolute));
 
                 expect(statements, parse_tokens(import_file_path_absolute, tokens));
 
-                auto parser_end = clock();
+                auto parser_end = get_timer_counts();
 
                 total_parser_time += parser_end - parser_start;
 
@@ -9548,7 +9549,7 @@ inline void append_builtin(List<GlobalConstant> *global_constants, const char *n
 }
 
 Result<GeneratorResult> generate_ir(const char *main_file_path, Array<Statement*> main_file_statements, RegisterSize address_size, RegisterSize default_size) {
-    auto start_time = clock();
+    auto start_time = get_timer_counts();
 
     List<GlobalConstant> global_constants{};
 
@@ -9887,7 +9888,7 @@ Result<GeneratorResult> generate_ir(const char *main_file_path, Array<Statement*
         }
     }
 
-    auto end_time = clock();
+    auto end_time = get_timer_counts();
 
     return {
         true,
