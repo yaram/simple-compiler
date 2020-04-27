@@ -167,16 +167,22 @@ bool cli_entry(Array<const char*> arguments) {
         output_file_path = get_default_output_file(os);
     }
 
+    auto main_file_parser_start = clock();
+
     expect(source_file_tokens, tokenize_source(absolute_source_file_path));
 
     expect(source_file_statements, parse_tokens(absolute_source_file_path, source_file_tokens));
 
+    auto main_file_parser_end = clock();
+
+    auto main_file_parser_time = main_file_parser_end - main_file_parser_start;
+
     auto register_sizes = get_register_sizes(architecture);
 
-    expect(ir, generate_ir(absolute_source_file_path, source_file_statements, register_sizes.address_size, register_sizes.default_size));
+    expect(generator_result, generate_ir(absolute_source_file_path, source_file_statements, register_sizes.address_size, register_sizes.default_size));
 
     if(print_ir) {
-        for(auto runtime_static : ir.statics) {
+        for(auto runtime_static : generator_result.statics) {
             print_static(runtime_static);
             printf("\n");
         }
@@ -208,8 +214,15 @@ bool cli_entry(Array<const char*> arguments) {
 
     auto output_file_directory = path_get_directory_component(output_file_path);
 
-    generate_c_object(ir.statics, architecture, os, config, output_file_directory, output_file_name);
+    auto backend_start = clock();
 
+    generate_c_object(generator_result.statics, architecture, os, config, output_file_directory, output_file_name);
+
+    auto backend_end = clock();
+
+    auto backend_time = backend_end - backend_start;
+
+    clock_t linker_time;
     {
         StringBuffer buffer {};
 
@@ -238,7 +251,7 @@ bool cli_entry(Array<const char*> arguments) {
         string_buffer_append(&buffer, " -o");
         string_buffer_append(&buffer, output_file_path);
         
-        for(auto library : ir.libraries) {
+        for(auto library : generator_result.libraries) {
             string_buffer_append(&buffer, " -l");
             string_buffer_append(&buffer, library);
         }
@@ -248,9 +261,15 @@ bool cli_entry(Array<const char*> arguments) {
         string_buffer_append(&buffer, output_file_name);
         string_buffer_append(&buffer, ".o");
 
+        auto start = clock();
+
         if(system(buffer.data) != 0) {
             return false;
         }
+
+        auto end = clock();
+
+        linker_time = end - start;
     }
 
     auto end_time = clock();
@@ -258,6 +277,10 @@ bool cli_entry(Array<const char*> arguments) {
     auto total_time = end_time - start_time;
 
     printf("Total time: %.1fms\n", (double)total_time / CLOCKS_PER_SEC * 1000);
+    printf("  Parser time: %.1fms\n", (double)(main_file_parser_time + generator_result.parser_time) / CLOCKS_PER_SEC * 1000);
+    printf("  Generator time: %.1fms\n", (double)(generator_result.generator_time) / CLOCKS_PER_SEC * 1000);
+    printf("  C Backend time: %.1fms\n", (double)backend_time / CLOCKS_PER_SEC * 1000);
+    printf("  Linker time: %.1fms\n", (double)linker_time / CLOCKS_PER_SEC * 1000);
 
     return true;
 }

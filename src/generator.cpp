@@ -3448,12 +3448,14 @@ static bool does_runtime_static_exist(GenerationContext context, const char *nam
 
 static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, ConstantValue *value);
 
-static bool load_file(GlobalInfo info, GenerationContext *context, Array<Statement*> statements, const char *file_path) {
+static Result<clock_t> load_file(GlobalInfo info, GenerationContext *context, Array<Statement*> statements, const char *file_path) {
     ConstantScope scope;
     scope.statements = statements;
     scope.constant_parameters = {};
     scope.is_top_level = true;
     scope.file_path = file_path;
+
+    clock_t total_parser_time = 0;
 
     for(auto statement : statements) {
         if(statement->kind == StatementKind::FunctionDeclaration) {
@@ -3675,23 +3677,32 @@ static bool load_file(GlobalInfo info, GenerationContext *context, Array<Stateme
             }
 
             if(!already_loaded) {
+                auto parser_start = clock();
+
                 expect(tokens, tokenize_source(import_file_path_absolute));
 
                 expect(statements, parse_tokens(import_file_path_absolute, tokens));
+
+                auto parser_end = clock();
+
+                total_parser_time += parser_end - parser_start;
 
                 append(&context->loaded_files, {
                     import_file_path_absolute,
                     statements
                 });
 
-                if(!load_file(info, context, statements, import_file_path_absolute)) {
-                    return { false };
-                }
+                expect(sub_total_parser_time, load_file(info, context, statements, import_file_path_absolute));
+
+                total_parser_time += sub_total_parser_time;
             }
         }
     }
 
-    return true;
+    return {
+        true,
+        total_parser_time
+    };
 }
 
 static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantScope scope, GenerationContext *context, Statement *declaration) {
@@ -9536,7 +9547,9 @@ inline void append_builtin(List<GlobalConstant> *global_constants, const char *n
     });
 }
 
-Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_statements, RegisterSize address_size, RegisterSize default_size) {
+Result<GeneratorResult> generate_ir(const char *main_file_path, Array<Statement*> main_file_statements, RegisterSize address_size, RegisterSize default_size) {
+    auto start_time = clock();
+
     List<GlobalConstant> global_constants{};
 
     append_base_integer_type(&global_constants, "u8", RegisterSize::Size8, false);
@@ -9611,9 +9624,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
 
     GenerationContext context {};
 
-    if(!load_file(info, &context, main_file_statements, main_file_path)) {
-        return { false };
-    }
+    expect(total_parser_time, load_file(info, &context, main_file_statements, main_file_path));
 
     append(&context.loaded_files, {
         main_file_path,
@@ -9876,11 +9887,15 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
         }
     }
 
+    auto end_time = clock();
+
     return {
         true,
         {
             to_array(context.statics),
-            to_array(libraries)
+            to_array(libraries),
+            end_time - start_time - total_parser_time,
+            total_parser_time
         }
     };
 }
