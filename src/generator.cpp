@@ -83,7 +83,6 @@ struct FunctionTypeType : Type {
     {}
 };
 
-
 struct Integer : Type {
     RegisterSize size;
 
@@ -630,11 +629,15 @@ struct TypeConstant : ConstantValue {
     {}
 };
 
-static Type *extract_type_value(ConstantValue *value) {
-    auto type_constant = (TypeConstant*)value;
-    assert(value->kind == ConstantValueKind::TypeConstant);
+#define extract_constant_value(kind, value) extract_constant_value_internal<kind>(value, ConstantValueKind::kind)
 
-    return type_constant->type;
+template <typename T>
+static T *extract_constant_value_internal(ConstantValue *value, ConstantValueKind kind) {
+    assert(value->kind == kind);
+
+    auto extracted_value = (T*)value;
+
+    return extracted_value;
 }
 
 struct TypedConstantValue {
@@ -3020,7 +3023,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
                 Type *type;
                 if(parameter_value.type->kind == TypeKind::TypeType) {
-                    type = extract_type_value(parameter_value.value);
+                    type = extract_constant_value(TypeConstant, parameter_value.value)->type;
                 } else {
                     type = parameter_value.type;
                 }
@@ -3069,7 +3072,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 abort();
             }
         } else if(expression_value.type->kind == TypeKind::TypeType) {
-            auto type = extract_type_value(expression_value.value);
+            auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
 
             if(type->kind == TypeKind::PolymorphicStruct) {
                 auto polymorphic_struct = (PolymorphicStruct*)type;
@@ -3189,7 +3192,7 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
         switch(unary_operation->unary_operator) {
             case UnaryOperation::Operator::Pointer: {
                 if(expression_value.type->kind == TypeKind::TypeType) {
-                    auto type = extract_type_value(expression_value.value);
+                    auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
 
                     if(
                         !is_runtime_type(type) &&
@@ -3420,7 +3423,7 @@ static Result<Type*> evaluate_type_expression(GlobalInfo info, ConstantScope sco
     expect(expression_value, evaluate_constant_expression(info, scope, context, expression));
 
     if(expression_value.type->kind == TypeKind::TypeType) {
-        auto type = extract_type_value(expression_value.value);
+        auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
 
         return {
             true,
@@ -3899,17 +3902,13 @@ struct RuntimeConstantValue : RuntimeValue {
     RuntimeConstantValue(ConstantValue *value) : RuntimeValue { RuntimeValueKind::RuntimeConstantValue }, value { value } {}
 };
 
-static ConstantValue *extract_constant_value(RuntimeValue *value) {
-    auto runtime_constant_value = (RuntimeConstantValue*)value;
+template <typename T>
+static T *extract_constant_value_internal(RuntimeValue *value, ConstantValueKind kind) {
     assert(value->kind == RuntimeValueKind::RuntimeConstantValue);
 
-    return runtime_constant_value->value;
-}
+    auto runtime_constant_value = (RuntimeConstantValue*)value;
 
-static Type *extract_type_value(RuntimeValue *value) {
-    auto constant_value = extract_constant_value(value);
-
-    return extract_type_value(constant_value);
+    return extract_constant_value_internal<T>(runtime_constant_value->value, kind);
 }
 
 struct RegisterValue : RuntimeValue {
@@ -4573,10 +4572,7 @@ static size_t generate_in_register_integer_value(
     RuntimeValue *value
 ) {
     if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto constant_value = extract_constant_value(value);
-
-        auto integer_value = (IntegerConstant*)constant_value;
-        assert(constant_value->kind == ConstantValueKind::IntegerConstant);
+        auto integer_value = extract_constant_value(IntegerConstant, value);
 
         return append_integer_constant(context, instructions, range.first_line, type.size, integer_value->value);
     } else if(value->kind == RuntimeValueKind::RegisterValue) {
@@ -4594,10 +4590,7 @@ static size_t generate_in_register_integer_value(
 
 static size_t generate_in_register_boolean_value(GlobalInfo info, GenerationContext *context, List<Instruction*> *instructions, FileRange range, RuntimeValue *value) {
     if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto constant_value = extract_constant_value(value);
-
-        auto boolean_value = (BooleanConstant*)constant_value;
-        assert(constant_value->kind == ConstantValueKind::BooleanConstant);
+        auto boolean_value = extract_constant_value(BooleanConstant, value);
 
         return append_integer_constant(context, instructions, range.first_line, info.default_integer_size, boolean_value->value);
     } else if(value->kind == RuntimeValueKind::RegisterValue) {
@@ -4615,10 +4608,7 @@ static size_t generate_in_register_boolean_value(GlobalInfo info, GenerationCont
 
 static size_t generate_in_register_pointer_value(GlobalInfo info, GenerationContext *context, List<Instruction*> *instructions, FileRange range, RuntimeValue *value) {
     if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto constant_value = extract_constant_value(value);
-
-        auto pointer_value = (PointerConstant*)constant_value;
-        assert(constant_value->kind == ConstantValueKind::PointerConstant);
+        auto pointer_value = extract_constant_value(PointerConstant, value);
 
         return append_integer_constant(context, instructions, range.first_line, info.address_integer_size, pointer_value->value);
     } else if(value->kind == RuntimeValueKind::RegisterValue) {
@@ -4656,10 +4646,7 @@ static Result<size_t> coerce_to_integer_register_value(
             };
         }
     } else if(type->kind == TypeKind::UndeterminedInteger) {
-        auto constant_value = extract_constant_value(value);
-
-        auto integer_value = (IntegerConstant*)constant_value;
-        assert(integer_value->kind == ConstantValueKind::IntegerConstant);
+        auto integer_value = extract_constant_value(IntegerConstant, value);
 
         if(!check_undetermined_integer_to_integer_coercion(scope, range, target_type, (int64_t)integer_value->value, probing)) {
             return { false };
@@ -4691,10 +4678,7 @@ static Result<size_t> coerce_to_float_register_value(
     bool probing
 ) {
     if(type->kind == TypeKind::UndeterminedInteger) {
-        auto constant_value = extract_constant_value(value);
-
-        auto integer_value = (IntegerConstant*)constant_value;
-        assert(constant_value->kind == ConstantValueKind::IntegerConstant);
+        auto integer_value = extract_constant_value(IntegerConstant, value);
 
         auto register_index = append_float_constant(context, instructions, range.first_line, target_type.size, (double)integer_value->value);
 
@@ -4708,10 +4692,8 @@ static Result<size_t> coerce_to_float_register_value(
         if(target_type.size == float_type->size) {
             size_t register_index;
             if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto constant_value = extract_constant_value(value);
-
-                auto float_value = (FloatConstant*)constant_value;
-                assert(constant_value->kind == ConstantValueKind::FloatConstant);
+                auto float_value = extract_constant_value(FloatConstant, value);
+;
 
                 register_index = append_float_constant(context, instructions, range.first_line, float_type->size, float_value->value);
             } else if(value->kind == RuntimeValueKind::RegisterValue) {
@@ -4732,10 +4714,8 @@ static Result<size_t> coerce_to_float_register_value(
             };
         }
     } else if(type->kind == TypeKind::UndeterminedFloat) {
-        auto constant_value = extract_constant_value(value);
-
-        auto float_value = (FloatConstant*)constant_value;
-        assert(constant_value->kind == ConstantValueKind::FloatConstant);
+        auto float_value = extract_constant_value(FloatConstant, value);
+;
 
         auto register_index = append_float_constant(context, instructions, range.first_line, target_type.size, float_value->value);
 
@@ -4764,10 +4744,7 @@ static Result<size_t> coerce_to_pointer_register_value(
     bool probing
 ) {
     if(type->kind == TypeKind::UndeterminedInteger) {
-        auto constant_value = extract_constant_value(value);
-
-        auto integer_value = (IntegerConstant*)constant_value;
-        assert(constant_value->kind == ConstantValueKind::IntegerConstant);
+        auto integer_value = extract_constant_value(IntegerConstant, value);
 
         auto register_index = append_integer_constant(
             context,
@@ -4918,10 +4895,7 @@ static Result<size_t> coerce_to_type_register(
             if(types_equal(target_array->element_type, static_array->element_type)) {
                 size_t pointer_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = extract_constant_value(value);
-
-                    auto static_array_value = (StaticArrayConstant*)constant_value;
-                    assert(constant_value->kind == ConstantValueKind::StaticArrayConstant);
+                    auto static_array_value = extract_constant_value(StaticArrayConstant, value);
 
                     auto constant_name = register_static_array_constant(
                         info,
@@ -5267,10 +5241,7 @@ static bool coerce_to_type_write(
         auto target_pointer = (Pointer*)target_type;
 
         if(type->kind == TypeKind::UndeterminedInteger) {
-            auto constant_value = extract_constant_value(value);
-
-            auto integer_value = (IntegerConstant*)constant_value;
-            assert(constant_value->kind == ConstantValueKind::IntegerConstant);
+            auto integer_value = extract_constant_value(IntegerConstant, value);
 
             auto register_index = append_integer_constant(
                 context,
@@ -5310,10 +5281,8 @@ static bool coerce_to_type_write(
             if(types_equal(target_array->element_type, array_type->element_type)) {
                 size_t source_address_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = extract_constant_value(value);
-
-                    auto array_value = (ArrayConstant*)constant_value;
-                    assert(constant_value->kind == ConstantValueKind::ArrayConstant);
+                    auto array_value = extract_constant_value(ArrayConstant, value);
+;
 
                     auto pointer_register = append_integer_constant(
                         context,
@@ -5375,10 +5344,7 @@ static bool coerce_to_type_write(
             if(types_equal(target_array->element_type, static_array->element_type)) {
                 size_t pointer_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = extract_constant_value(value);
-
-                    auto static_array_value = (StaticArrayConstant*)constant_value;
-                    assert(constant_value->kind == ConstantValueKind::StaticArrayConstant);
+                    auto static_array_value = extract_constant_value(StaticArrayConstant, value);
 
                     auto constant_name = register_static_array_constant(
                         info,
@@ -5492,10 +5458,7 @@ static bool coerce_to_type_write(
             if(types_equal(target_static_array->element_type, static_array->element_type) && target_static_array->length == static_array->length) {
                 size_t source_address_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = extract_constant_value(value);
-
-                    auto static_array_value = (StaticArrayConstant*)constant_value;
-                    assert(constant_value->kind == ConstantValueKind::StaticArrayConstant);
+                    auto static_array_value = extract_constant_value(StaticArrayConstant, value);
 
                     auto constant_name = register_static_array_constant(
                         info,
@@ -5553,10 +5516,7 @@ static bool coerce_to_type_write(
                 if(same_members) {
                     size_t source_address_register;
                     if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto constant_value = extract_constant_value(value);
-
-                        auto struct_value = (StructConstant*)constant_value;
-                        assert(constant_value->kind == ConstantValueKind::StructConstant);
+                        auto struct_value = extract_constant_value(StructConstant, value);
 
                         auto constant_name = register_struct_constant(
                             info,
@@ -5601,10 +5561,7 @@ static bool coerce_to_type_write(
                         if(strcmp(target_struct_type->members[i].name, undetermined_struct->members[0].name) == 0) {
                             RuntimeValue *variant_value;
                             if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                                auto constant_value = extract_constant_value(value);
-
-                                auto struct_value = (StructConstant*)constant_value;
-                                assert(constant_value->kind == ConstantValueKind::StructConstant);
+                                auto struct_value = extract_constant_value(StructConstant, value);
 
                                 variant_value = new RuntimeConstantValue {
                                     struct_value->members[0]
@@ -5651,10 +5608,7 @@ static bool coerce_to_type_write(
                         for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
                             RuntimeValue *member_value;
                             if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                                auto constant_value = extract_constant_value(value);
-
-                                auto struct_value = (StructConstant*)constant_value;
-                                assert(constant_value->kind == ConstantValueKind::StructConstant);
+                                auto struct_value = extract_constant_value(StructConstant, value);
 
                                 member_value = new RuntimeConstantValue {
                                     struct_value->members[i]
@@ -5727,7 +5681,7 @@ static Result<Type*> evaluate_type_expression_runtime(
     expect(expression_value, generate_expression(info, scope, context, instructions, expression));
 
     if(expression_value.type->kind == TypeKind::TypeType) {
-        auto type = extract_type_value(expression_value.value);
+        auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
 
         return {
             true,
@@ -5755,9 +5709,9 @@ static Result<TypedRuntimeValue> generate_binary_operation(
     expect(right, generate_expression(info, scope, context, instructions, right_expression));
 
     if(left.value->kind == RuntimeValueKind::RuntimeConstantValue && right.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto left_value = extract_constant_value(left.value);
+        auto left_value = ((RuntimeConstantValue*)left.value)->value;
 
-        auto right_value = extract_constant_value(right.value);
+        auto right_value = ((RuntimeConstantValue*)right.value)->value;
 
         expect(constant, evaluate_constant_binary_operation(
             info,
@@ -6488,9 +6442,9 @@ static Result<TypedRuntimeValue> generate_expression(
         expect(index, generate_expression(info, scope, context, instructions, index_reference->index));
 
         if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue && index.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-            auto expression_constant = extract_constant_value(expression_value.value);
+            auto expression_constant = ((RuntimeConstantValue*)expression_value.value)->value;
 
-            auto index_constant = extract_constant_value(index.value);
+            auto index_constant = ((RuntimeConstantValue*)index.value)->value;
 
             expect(constant, evaluate_constant_index(
                 info,
@@ -6535,10 +6489,7 @@ static Result<TypedRuntimeValue> generate_expression(
             element_type = array_type->element_type;
 
             if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto constant_value = extract_constant_value(expression_value.value);
-
-                auto pointer_value = (PointerConstant*)constant_value;
-                assert(constant_value->kind == ConstantValueKind::PointerConstant);
+                auto pointer_value = extract_constant_value(PointerConstant, expression_value.value);
 
                 base_address_register = append_integer_constant(
                     context,
@@ -6575,10 +6526,7 @@ static Result<TypedRuntimeValue> generate_expression(
             element_type = static_array->element_type;
 
             if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto constant_value = extract_constant_value(expression_value.value);
-
-                auto static_array_value = (StaticArrayConstant*)constant_value;
-                assert(constant_value->kind == ConstantValueKind::StaticArrayConstant);
+                auto static_array_value = extract_constant_value(StaticArrayConstant, expression_value.value);
 
                 auto constant_name = register_static_array_constant(
                     info,
@@ -6656,10 +6604,7 @@ static Result<TypedRuntimeValue> generate_expression(
 
             size_t address_register;
             if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto constant_value = extract_constant_value(expression_value.value);
-
-                auto integer_value = (IntegerConstant*)constant_value;
-                assert(constant_value->kind == ConstantValueKind::IntegerConstant);
+                auto integer_value = extract_constant_value(IntegerConstant, expression_value.value);
 
                 address_register = append_integer_constant(
                     context,
@@ -6705,10 +6650,7 @@ static Result<TypedRuntimeValue> generate_expression(
 
                 RuntimeValue *value;
                 if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = extract_constant_value(actual_value);
-
-                    auto array_value = (ArrayConstant*)constant_value;
-                    assert(constant_value->kind == ConstantValueKind::ArrayConstant);
+                    auto array_value = extract_constant_value(ArrayConstant, actual_value);
 
                     value = new RuntimeConstantValue {
                         new IntegerConstant {
@@ -6770,10 +6712,7 @@ static Result<TypedRuntimeValue> generate_expression(
             } else if(strcmp(member_reference->name.text, "pointer") == 0) {
                 RuntimeValue *value;
                 if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = extract_constant_value(actual_value);
-
-                    auto array_value = (ArrayConstant*)constant_value;
-                    assert(constant_value->kind == ConstantValueKind::ArrayConstant);
+                    auto array_value = extract_constant_value(ArrayConstant, actual_value);
 
                     value = new RuntimeConstantValue {
                         new PointerConstant {
@@ -6839,10 +6778,7 @@ static Result<TypedRuntimeValue> generate_expression(
             } else if(strcmp(member_reference->name.text, "pointer") == 0) {
                 size_t address_regsiter;
                 if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = extract_constant_value(actual_value);
-
-                    auto static_array_value = (StaticArrayConstant*)constant_value;
-                    assert(constant_value->kind == ConstantValueKind::StaticArrayConstant);
+                    auto static_array_value = extract_constant_value(StaticArrayConstant, actual_value);
 
                     auto constant_name = register_static_array_constant(
                         info,
@@ -6888,10 +6824,7 @@ static Result<TypedRuntimeValue> generate_expression(
                     auto member_type = struct_type->members[i].type;
 
                     if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto constant_value = extract_constant_value(actual_value);
-
-                        auto struct_value = (StructConstant*)constant_value;
-                        assert(constant_value->kind == ConstantValueKind::StructConstant);
+                        auto struct_value = extract_constant_value(StructConstant, actual_value);
 
                         assert(!struct_type->definition->is_union);
 
@@ -7001,10 +6934,7 @@ static Result<TypedRuntimeValue> generate_expression(
 
             return { false };
         } else if(actual_type->kind == TypeKind::FileModule) {
-            auto constant_value = extract_constant_value(actual_value);
-
-            auto file_module_value = (FileModuleConstant*)constant_value;
-            assert(constant_value->kind == ConstantValueKind::FileModuleConstant);
+            auto file_module_value = extract_constant_value(FileModuleConstant, actual_value);
 
             for(auto statement : file_module_value->statements) {
                 if(match_public_declaration(statement, member_reference->name.text)) {
@@ -7161,7 +7091,7 @@ static Result<TypedRuntimeValue> generate_expression(
             auto element_values = allocate<ConstantValue*>(element_count);
 
             for(size_t i = 0; i < element_count; i += 1) {
-                auto constant_value = extract_constant_value(elements[i].value);
+                auto constant_value = ((RuntimeConstantValue*)elements[i].value)->value;
 
                 expect(coerced_constant_value, coerce_constant_to_type(
                     info,
@@ -7287,7 +7217,7 @@ static Result<TypedRuntimeValue> generate_expression(
             auto constant_member_values = allocate<ConstantValue*>(member_count);
 
             for(size_t i = 0; i < member_count; i += 1) {
-                auto constant_value = extract_constant_value(member_values[i]);
+                auto constant_value = ((RuntimeConstantValue*)member_values[i])->value;
 
                 constant_member_values[i] = constant_value;
             }
@@ -7397,10 +7327,7 @@ static Result<TypedRuntimeValue> generate_expression(
                 };
             }
 
-            auto constant_value = extract_constant_value(expression_value.value);
-
-            auto function_value = (FunctionConstant*)constant_value;
-            assert(constant_value->kind == ConstantValueKind::FunctionConstant);
+            auto function_value = extract_constant_value(FunctionConstant, expression_value.value);
 
             auto is_registered = false;
             const char *mangled_name;
@@ -7456,10 +7383,7 @@ static Result<TypedRuntimeValue> generate_expression(
                 }
             };
         } else if(expression_value.type->kind == TypeKind::PolymorphicFunction) {
-            auto constant_value = extract_constant_value(expression_value.value);
-
-            auto function_value = (FunctionConstant*)constant_value;
-            assert(constant_value->kind == ConstantValueKind::FunctionConstant);
+            auto function_value = extract_constant_value(FunctionConstant, expression_value.value);
 
             auto original_parameter_count = function_value->declaration->parameters.count;
 
@@ -7531,7 +7455,7 @@ static Result<TypedRuntimeValue> generate_expression(
                         return { false };
                     }
 
-                    auto constant_value = extract_constant_value(parameter_value.value);
+                    auto constant_value = ((RuntimeConstantValue*)parameter_value.value)->value;
 
                     expect(coerced_constant_value, coerce_constant_to_type(
                         info,
@@ -7771,10 +7695,7 @@ static Result<TypedRuntimeValue> generate_expression(
                 }
             };
         } else if(expression_value.type->kind == TypeKind::BuiltinFunction) {
-            auto constant_value = extract_constant_value(expression_value.value);
-
-            auto builtin_function_value = (BuiltinFunctionConstant*)constant_value;
-            assert(constant_value->kind == ConstantValueKind::BuiltinFunctionConstant);
+            auto builtin_function_value = extract_constant_value(BuiltinFunctionConstant, expression_value.value);
 
             if(strcmp(builtin_function_value->name, "size_of") == 0) {
                 if(function_call->parameters.count != 1) {
@@ -7787,7 +7708,7 @@ static Result<TypedRuntimeValue> generate_expression(
 
                 Type *type;
                 if(parameter_value.type->kind == TypeKind::TypeType) {
-                    type = extract_type_value(parameter_value.value);
+                    type = extract_constant_value(TypeConstant, parameter_value.value)->type;
                 } else {
                     type = parameter_value.type;
                 }
@@ -8061,7 +7982,7 @@ static Result<TypedRuntimeValue> generate_expression(
                 }
             };
         } else if(expression_value.type->kind == TypeKind::TypeType) {
-            auto type = extract_type_value(expression_value.value);
+            auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
 
             if(type->kind == TypeKind::PolymorphicStruct) {
                 auto polymorphic_struct = (PolymorphicStruct*)type;
@@ -8173,15 +8094,12 @@ static Result<TypedRuntimeValue> generate_expression(
             case UnaryOperation::Operator::Pointer: {
                 size_t address_register;
                 if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = extract_constant_value(expression_value.value);
+                    auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
 
                     if(expression_value.type->kind == TypeKind::FunctionTypeType) {
                         auto function = (FunctionTypeType*)expression_value.type;
 
-                        auto constant_value = extract_constant_value(expression_value.value);
-
-                        auto function_value = (FunctionConstant*)constant_value;
-                        assert(constant_value->kind == ConstantValueKind::FunctionConstant);
+                        auto function_value = extract_constant_value(FunctionConstant, expression_value.value);
 
                         auto is_registered = false;
                         const char *mangled_name;
@@ -8203,7 +8121,7 @@ static Result<TypedRuntimeValue> generate_expression(
                             mangled_name
                         );
                     } else if(expression_value.type->kind == TypeKind::TypeType) {
-                        auto type = extract_type_value(expression_value.value);
+                        auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
 
                         if(
                             !is_runtime_type(type) &&
@@ -8270,10 +8188,7 @@ static Result<TypedRuntimeValue> generate_expression(
 
                 size_t register_index;
                 if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = extract_constant_value(expression_value.value);
-
-                    auto boolean_value = (BooleanConstant*)constant_value;
-                    assert(constant_value->kind == ConstantValueKind::BooleanConstant);
+                    auto boolean_value = extract_constant_value(BooleanConstant, expression_value.value);
 
                     return {
                         true,
@@ -8317,10 +8232,7 @@ static Result<TypedRuntimeValue> generate_expression(
 
             case UnaryOperation::Operator::Negation: {
                 if(expression_value.type->kind == TypeKind::UndeterminedInteger) {
-                    auto constant_value = extract_constant_value(expression_value.value);
-
-                    auto integer_value = (IntegerConstant*)constant_value;
-                    assert(constant_value->kind == ConstantValueKind::IntegerConstant);
+                    auto integer_value = extract_constant_value(IntegerConstant, expression_value.value);
 
                     return {
                         true,
@@ -8338,10 +8250,7 @@ static Result<TypedRuntimeValue> generate_expression(
 
                     size_t register_index;
                     if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto constant_value = extract_constant_value(expression_value.value);
-
-                        auto integer_value = (IntegerConstant*)constant_value;
-                        assert(constant_value->kind == ConstantValueKind::IntegerConstant);
+                        auto integer_value = extract_constant_value(IntegerConstant, expression_value.value);
 
                         return {
                             true,
@@ -8396,10 +8305,7 @@ static Result<TypedRuntimeValue> generate_expression(
 
                     size_t register_index;
                     if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto constant_value = extract_constant_value(expression_value.value);
-
-                        auto float_value = (FloatConstant*)constant_value;
-                        assert(constant_value->kind == ConstantValueKind::FloatConstant);
+                        auto float_value = extract_constant_value(FloatConstant, expression_value.value);
 
                         return {
                             true,
@@ -8450,10 +8356,7 @@ static Result<TypedRuntimeValue> generate_expression(
                         }
                     };
                 } else if(expression_value.type->kind == TypeKind::UndeterminedFloat) {
-                    auto constant_value = extract_constant_value(expression_value.value);
-
-                    auto float_value = (FloatConstant*)constant_value;
-                    assert(constant_value->kind == ConstantValueKind::FloatConstant);
+                    auto float_value = extract_constant_value(FloatConstant, expression_value.value);
 
                     return {
                         true,
@@ -8485,7 +8388,7 @@ static Result<TypedRuntimeValue> generate_expression(
         expect(target_type, evaluate_type_expression_runtime(info, scope, context, instructions, cast->type));
 
         if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-            auto constant_value = extract_constant_value(expression_value.value);
+            auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
 
             auto constant_cast_result = evaluate_constant_cast(
                 info,
@@ -9325,10 +9228,7 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         size_t to_register;
         Integer *index_type;
         if(from_value.type->kind == TypeKind::UndeterminedInteger) {
-            auto constant_value = extract_constant_value(from_value.value);
-
-            auto from_integer_constant = (IntegerConstant*)constant_value;
-            assert(constant_value->kind == ConstantValueKind::IntegerConstant);
+            auto from_integer_constant = extract_constant_value(IntegerConstant, from_value.value);
 
             auto from_regsiter = allocate_register(context);
 
