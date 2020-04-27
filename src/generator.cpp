@@ -502,8 +502,6 @@ struct FunctionConstant : ConstantValue {
 
     ConstantScope parent;
 
-    FunctionConstant() : ConstantValue { ConstantValueKind::FunctionConstant } {}
-
     FunctionConstant(
         FunctionDeclaration *declaration,
         ConstantScope parent
@@ -517,8 +515,6 @@ struct FunctionConstant : ConstantValue {
 struct BuiltinFunctionConstant : ConstantValue {
     const char *name;
 
-    BuiltinFunctionConstant() : ConstantValue { ConstantValueKind::BuiltinFunctionConstant } {}
-
     BuiltinFunctionConstant(
         const char *name
     ) :
@@ -529,8 +525,6 @@ struct BuiltinFunctionConstant : ConstantValue {
 
 struct IntegerConstant : ConstantValue {
     uint64_t value;
-
-    IntegerConstant() : ConstantValue { ConstantValueKind::IntegerConstant } {}
 
     IntegerConstant(
         uint64_t value
@@ -543,8 +537,6 @@ struct IntegerConstant : ConstantValue {
 struct FloatConstant : ConstantValue {
     double value;
 
-    FloatConstant() : ConstantValue { ConstantValueKind::FloatConstant } {}
-
     FloatConstant(
         double value
     ) :
@@ -556,8 +548,6 @@ struct FloatConstant : ConstantValue {
 struct BooleanConstant : ConstantValue {
     bool value;
 
-    BooleanConstant() : ConstantValue { ConstantValueKind::BooleanConstant } {}
-
     BooleanConstant(
         bool value
     ) :
@@ -568,8 +558,6 @@ struct BooleanConstant : ConstantValue {
 
 struct PointerConstant : ConstantValue {
     uint64_t value;
-
-    PointerConstant() : ConstantValue { ConstantValueKind::PointerConstant } {}
 
     PointerConstant(
         uint64_t value
@@ -584,8 +572,6 @@ struct ArrayConstant : ConstantValue {
 
     uint64_t pointer;
 
-    ArrayConstant() : ConstantValue { ConstantValueKind::ArrayConstant } {}
-
     ArrayConstant(
         uint64_t length,
         uint64_t pointer
@@ -599,8 +585,6 @@ struct ArrayConstant : ConstantValue {
 struct StaticArrayConstant : ConstantValue {
     ConstantValue **elements;
 
-    StaticArrayConstant() : ConstantValue { ConstantValueKind::StaticArrayConstant } {}
-
     StaticArrayConstant(
         ConstantValue **elements
     ) :
@@ -611,8 +595,6 @@ struct StaticArrayConstant : ConstantValue {
 
 struct StructConstant : ConstantValue {
     ConstantValue **members;
-
-    StructConstant() : ConstantValue { ConstantValueKind::StructConstant } {}
 
     StructConstant(
         ConstantValue **members
@@ -627,8 +609,6 @@ struct FileModuleConstant : ConstantValue {
 
     Array<Statement*> statements;
 
-    FileModuleConstant() : ConstantValue { ConstantValueKind::FileModuleConstant } {}
-
     FileModuleConstant(
         const char *path,
         Array<Statement*> statements
@@ -641,8 +621,6 @@ struct FileModuleConstant : ConstantValue {
 
 struct TypeConstant : ConstantValue {
     Type *type;
-
-    TypeConstant() : ConstantValue { ConstantValueKind::TypeConstant } {}
 
     TypeConstant(
         Type *type
