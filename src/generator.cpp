@@ -3448,7 +3448,7 @@ static bool does_runtime_static_exist(GenerationContext context, const char *nam
 
 static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, ConstantValue *value);
 
-static bool register_non_polymorpic_statics_in_module(GlobalInfo info, GenerationContext *context, Array<Statement*> statements, const char *file_path) {
+static bool load_file(GlobalInfo info, GenerationContext *context, Array<Statement*> statements, const char *file_path) {
     ConstantScope scope;
     scope.statements = statements;
     scope.constant_parameters = {};
@@ -3653,6 +3653,41 @@ static bool register_non_polymorpic_statics_in_module(GlobalInfo info, Generatio
             }
 
             append(&context->statics, (RuntimeStatic*)static_variable);
+        } else if(statement->kind == StatementKind::Import) {
+            auto import = (Import*)statement;
+
+            auto source_file_directory = path_get_directory_component(file_path);
+
+            StringBuffer import_file_path {};
+
+            string_buffer_append(&import_file_path, source_file_directory);
+            string_buffer_append(&import_file_path, import->path);
+
+            expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
+
+            auto already_loaded = false;
+            for(auto file : context->loaded_files) {
+                if(strcmp(file.path, import_file_path_absolute) == 0) {
+                    already_loaded = true;
+
+                    break;
+                }
+            }
+
+            if(!already_loaded) {
+                expect(tokens, tokenize_source(import_file_path_absolute));
+
+                expect(statements, parse_tokens(import_file_path_absolute, tokens));
+
+                append(&context->loaded_files, {
+                    import_file_path_absolute,
+                    statements
+                });
+
+                if(!load_file(info, context, statements, import_file_path_absolute)) {
+                    return { false };
+                }
+            }
         }
     }
 
@@ -3821,44 +3856,24 @@ static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantS
 
         expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
 
-        auto already_loaded = false;
-        Array<Statement*> statements;
         for(auto file : context->loaded_files) {
             if(strcmp(file.path, import_file_path_absolute) == 0) {
-                already_loaded = true;
-                statements = file.statements;
+                return {
+                    true,
+                    {
+                        &file_module_singleton,
+                        new FileModuleConstant {
+                            file.path,
+                            file.statements
+                        }
+                    }
+                };
 
                 break;
             }
         }
 
-        if(!already_loaded) {
-            expect(tokens, tokenize_source(import_file_path_absolute));
-
-            expect(new_statements, parse_tokens(import_file_path_absolute, tokens));
-
-            append(&context->loaded_files, {
-                import_file_path_absolute,
-                new_statements
-            });
-
-            statements = new_statements;
-
-            if(!register_non_polymorpic_statics_in_module(info, context, statements, import_file_path_absolute)) {
-                return { false };
-            }
-        }
-
-        return {
-            true,
-            {
-                &file_module_singleton,
-                new FileModuleConstant {
-                    import_file_path_absolute,
-                    statements
-                }
-            }
-        };
+        abort();
     } else {
         abort();
     }
@@ -9596,7 +9611,7 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
 
     GenerationContext context {};
 
-    if(!register_non_polymorpic_statics_in_module(info, &context, main_file_statements, main_file_path)) {
+    if(!load_file(info, &context, main_file_statements, main_file_path)) {
         return { false };
     }
 
