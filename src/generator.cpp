@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <stdarg.h>
+#include "profiler.h"
 #include "list.h"
 #include "util.h"
 #include "path.h"
@@ -2628,11 +2629,15 @@ static Result<Type*> evaluate_type_expression(GlobalInfo info, ConstantScope sco
 static Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantScope scope, GenerationContext *context, Statement *declaration);
 
 static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, ConstantScope scope, GenerationContext *context, Expression *expression) {
+    enter_function();
+
     if(expression->kind == ExpressionKind::NamedReference) {
         auto named_reference = (NamedReference*)expression;
 
         for(auto constant_parameter : context->constant_parameters) {
             if(strcmp(constant_parameter.name, named_reference->name.text) == 0) {
+                leave_function();
+
                 return {
                     true,
                     {
@@ -2648,6 +2653,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
             for(auto statement : current_scope->statements) {
                 if(match_declaration(statement, named_reference->name.text)) {
                     expect(value, resolve_declaration(info, *current_scope, context, statement));
+
+                    leave_function();
 
                     return {
                         true,
@@ -2677,6 +2684,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
                             expect(value, resolve_declaration(info, module_scope, context, statement));
 
+                            leave_function();
+
                             return {
                                 true,
                                 value
@@ -2688,6 +2697,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
             for(auto constant_parameter : current_scope->constant_parameters) {
                 if(strcmp(constant_parameter.name, named_reference->name.text) == 0) {
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -2707,6 +2718,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
         for(auto global_constant : info.global_constants) {
             if(strcmp(named_reference->name.text, global_constant.name) == 0) {
+                leave_function();
+
                 return {
                     true,
                     {
@@ -2731,6 +2744,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
             assert(expression_value.value->kind == ConstantValueKind::ArrayConstant);
 
             if(strcmp(member_reference->name.text, "length") == 0) {
+                leave_function();
+
                 return {
                     true,
                     new Integer {
@@ -2742,6 +2757,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                     }
                 };
             } else if(strcmp(member_reference->name.text, "pointer") == 0) {
+                leave_function();
+
                 return {
                     true,
                     new Pointer {
@@ -2759,6 +2776,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
         } else if(expression_value.type->kind == TypeKind::StaticArray) {
             auto static_array = (StaticArray*)expression_value.type;
             if(strcmp(member_reference->name.text, "length") == 0) {
+                leave_function();
+
                 return {
                     true,
                     new Integer {
@@ -2785,6 +2804,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
             for(size_t i = 0; i < struct_type->members.count; i += 1) {
                 if(strcmp(member_reference->name.text, struct_type->members[i].name) == 0) {
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -2805,6 +2826,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
             for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
                 if(strcmp(member_reference->name.text, undetermined_struct->members[i].name) == 0) {
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -2831,6 +2854,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                     module_scope.file_path = file_module_value->path;
 
                     expect(value, resolve_declaration(info, module_scope, context, statement));
+
+                    leave_function();
 
                     return {
                         true,
@@ -2867,6 +2892,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
     } else if(expression->kind == ExpressionKind::IntegerLiteral) {
         auto integer_literal = (IntegerLiteral*)expression;
 
+        leave_function();
+
         return {
             true,
             {
@@ -2878,6 +2905,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
         };
     } else if(expression->kind == ExpressionKind::FloatLiteral) {
         auto float_literal = (FloatLiteral*)expression;
+
+        leave_function();
 
         return {
             true,
@@ -2900,6 +2929,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 (uint64_t)string_literal->characters[i]
             };
         }
+
+        leave_function();
 
         return {
             true,
@@ -2956,6 +2987,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
             elements[i] = element_value;
         }
 
+        leave_function();
+
         return {
             true,
             {
@@ -3002,6 +3035,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
             member_values[i] = member.value;
         }
+
+        leave_function();
 
         return {
             true,
@@ -3055,6 +3090,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
                 auto size = get_type_size(info, type);
 
+                leave_function();
+
                 return {
                     true,
                     {
@@ -3075,6 +3112,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 }
 
                 expect(parameter_value, evaluate_constant_expression(info, scope, context, function_call->parameters[0]));
+
+                leave_function();
 
                 return {
                     true,
@@ -3150,6 +3189,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                     };
                 }
 
+                leave_function();
+
                 return {
                     true,
                     {
@@ -3195,6 +3236,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
             right.value
         ));
 
+        leave_function();
+
         return {
             true,
             value
@@ -3219,6 +3262,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                         return { false };
                     }
 
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -3242,6 +3287,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                     auto boolean_value = (BooleanConstant*)expression_value.value;
                     assert(expression_value.value->kind == ConstantValueKind::BooleanConstant);
 
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -3263,6 +3310,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                     auto integer_value = (IntegerConstant*)expression_value.value;
                     assert(expression_value.value->kind == ConstantValueKind::IntegerConstant);
 
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -3275,6 +3324,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 } else if(expression_value.type->kind == TypeKind::FloatType || expression_value.type->kind == TypeKind::UndeterminedFloat) {
                     auto float_value = (FloatConstant*)expression_value.value;
                     assert(expression_value.value->kind == ConstantValueKind::FloatConstant);
+
+                    leave_function();
 
                     return {
                         true,
@@ -3314,6 +3365,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
             false
         ));
 
+        leave_function();
+
         return {
             true,
             {
@@ -3347,6 +3400,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 false
             ));
 
+            leave_function();
+
             return {
                 true,
                 {
@@ -3360,6 +3415,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
                 }
             };
         } else {
+            leave_function();
+
             return {
                 true,
                 {
@@ -3413,6 +3470,8 @@ static Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, 
 
             return_type = return_type_value;
         }
+
+        leave_function();
 
         return {
             true,
@@ -6236,6 +6295,8 @@ static Result<TypedRuntimeValue> generate_expression(
     List<Instruction*> *instructions,
     Expression *expression
 ) {
+    enter_function();
+
     if(expression->kind == ExpressionKind::NamedReference) {
         auto named_reference = (NamedReference*)expression;
 
@@ -6246,6 +6307,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
             for(auto variable : current_scope.variables) {
                 if(strcmp(variable.name.text, named_reference->name.text) == 0) {
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -6261,6 +6324,8 @@ static Result<TypedRuntimeValue> generate_expression(
             for(auto statement : current_scope.constant_scope.statements) {
                 if(match_declaration(statement, named_reference->name.text)) {
                     expect(value, resolve_declaration(info, current_scope.constant_scope, context, statement));
+
+                    leave_function();
 
                     return {
                         true,
@@ -6295,6 +6360,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
                             expect(value, resolve_declaration(info, module_scope, context, statement));
 
+                            leave_function();
+
                             return {
                                 true,
                                 {
@@ -6317,6 +6384,8 @@ static Result<TypedRuntimeValue> generate_expression(
                                             static_variable.mangled_name
                                         );
 
+                                        leave_function();
+
                                         return {
                                             true,
                                             {
@@ -6338,6 +6407,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
             for(auto constant_parameter : current_scope.constant_scope.constant_parameters) {
                 if(strcmp(constant_parameter.name, named_reference->name.text) == 0) {
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -6358,6 +6429,8 @@ static Result<TypedRuntimeValue> generate_expression(
             for(auto statement : current_scope->statements) {
                 if(match_declaration(statement, named_reference->name.text)) {
                     expect(value, resolve_declaration(info, *current_scope, context, statement));
+
+                    leave_function();
 
                     return {
                         true,
@@ -6392,6 +6465,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
                             expect(value, resolve_declaration(info, module_scope, context, statement));
 
+                            leave_function();
+
                             return {
                                 true,
                                 {
@@ -6413,6 +6488,8 @@ static Result<TypedRuntimeValue> generate_expression(
                                             named_reference->range.first_line,
                                             static_variable.mangled_name
                                         );
+
+                                        leave_function();
 
                                         return {
                                             true,
@@ -6443,6 +6520,8 @@ static Result<TypedRuntimeValue> generate_expression(
                                     static_variable.mangled_name
                                 );
 
+                                leave_function();
+
                                 return {
                                     true,
                                     {
@@ -6462,6 +6541,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
             for(auto constant_parameter : current_scope->constant_parameters) {
                 if(strcmp(constant_parameter.name, named_reference->name.text) == 0) {
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -6483,6 +6564,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
         for(auto global_constant : info.global_constants) {
             if(strcmp(named_reference->name.text, global_constant.name) == 0) {
+                leave_function();
+
                 return {
                     true,
                     {
@@ -6520,6 +6603,8 @@ static Result<TypedRuntimeValue> generate_expression(
                 index_constant,
                 index_reference->index->range
             ));
+
+            leave_function();
 
             return {
                 true,
@@ -6652,6 +6737,8 @@ static Result<TypedRuntimeValue> generate_expression(
             offset
         );
 
+        leave_function();
+
         return {
             true,
             {
@@ -6775,6 +6862,8 @@ static Result<TypedRuntimeValue> generate_expression(
                     abort();
                 }
 
+                leave_function();
+
                 return {
                     true,
                     {
@@ -6822,6 +6911,8 @@ static Result<TypedRuntimeValue> generate_expression(
                     abort();
                 }
 
+                leave_function();
+
                 return {
                     true,
                     {
@@ -6840,6 +6931,8 @@ static Result<TypedRuntimeValue> generate_expression(
             auto static_array = (StaticArray*)actual_type;
 
             if(strcmp(member_reference->name.text, "length") == 0) {
+                leave_function();
+
                 return {
                     true,
                     {
@@ -6882,6 +6975,8 @@ static Result<TypedRuntimeValue> generate_expression(
                     abort();
                 }
 
+                leave_function();
+
                 return {
                     true,
                     {
@@ -6912,6 +7007,8 @@ static Result<TypedRuntimeValue> generate_expression(
                         assert(constant_value->kind == ConstantValueKind::StructConstant);
 
                         assert(!struct_type->definition->is_union);
+
+                        leave_function();
 
                         return {
                             true,
@@ -6959,6 +7056,8 @@ static Result<TypedRuntimeValue> generate_expression(
                             register_index = address_register;
                         }
 
+                        leave_function();
+
                         return {
                             true,
                             {
@@ -6979,6 +7078,8 @@ static Result<TypedRuntimeValue> generate_expression(
                             address_value->address_register,
                             get_struct_member_offset(info, *struct_type, i)
                         );
+
+                        leave_function();
 
                         return {
                             true,
@@ -7005,6 +7106,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
             for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
                 if(strcmp(undetermined_struct->members[i].name, member_reference->name.text) == 0) {
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -7034,6 +7137,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
                     expect(value, resolve_declaration(info, module_scope, context, statement));
 
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -7055,6 +7160,8 @@ static Result<TypedRuntimeValue> generate_expression(
                                     member_reference->range.first_line,
                                     static_variable.mangled_name
                                 );
+
+                                leave_function();
 
                                 return {
                                     true,
@@ -7084,6 +7191,8 @@ static Result<TypedRuntimeValue> generate_expression(
     } else if(expression->kind == ExpressionKind::IntegerLiteral) {
         auto integer_literal = (IntegerLiteral*)expression;
 
+        leave_function();
+
         return {
             true,
             {
@@ -7097,6 +7206,8 @@ static Result<TypedRuntimeValue> generate_expression(
         };
     } else if(expression->kind == ExpressionKind::FloatLiteral) {
         auto float_literal = (FloatLiteral*)expression;
+
+        leave_function();
 
         return {
             true,
@@ -7121,6 +7232,8 @@ static Result<TypedRuntimeValue> generate_expression(
                 (uint64_t)string_literal->characters[i]
             };
         }
+
+        leave_function();
 
         return {
             true,
@@ -7252,6 +7365,8 @@ static Result<TypedRuntimeValue> generate_expression(
             };
         }
 
+        leave_function();
+
         return {
             true,
             {
@@ -7320,6 +7435,8 @@ static Result<TypedRuntimeValue> generate_expression(
                 member_values
             };
         }
+
+        leave_function();
 
         return {
             true,
@@ -7465,6 +7582,8 @@ static Result<TypedRuntimeValue> generate_expression(
             }
 
             append(instructions, (Instruction*)function_call_instruction);
+
+            leave_function();
 
             return {
                 true,
@@ -7781,6 +7900,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
             append(instructions, (Instruction*)function_call_instruction);
 
+            leave_function();
+
             return {
                 true,
                 {
@@ -7818,6 +7939,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
                 auto size = get_type_size(info, type);
 
+                leave_function();
+
                 return {
                     true,
                     {
@@ -7840,6 +7963,8 @@ static Result<TypedRuntimeValue> generate_expression(
                 }
 
                 expect(parameter_value, generate_expression(info, scope, context, instructions, function_call->parameters[0]));
+
+                leave_function();
 
                 return {
                     true,
@@ -7974,6 +8099,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
             append(instructions, (Instruction*)function_call_instruction);
 
+            leave_function();
+
             return {
                 true,
                 {
@@ -8045,6 +8172,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
                 context->constant_parameters = {};
 
+                leave_function();
+
                 return {
                     true,
                     {
@@ -8075,7 +8204,7 @@ static Result<TypedRuntimeValue> generate_expression(
     } else if(expression->kind == ExpressionKind::BinaryOperation) {
         auto binary_operation = (BinaryOperation*)expression;
 
-        return generate_binary_operation(
+        expect(result_value, generate_binary_operation(
             info,
             scope,
             context,
@@ -8084,7 +8213,14 @@ static Result<TypedRuntimeValue> generate_expression(
             binary_operation->left,
             binary_operation->right,
             binary_operation->binary_operator
-        );
+        ));
+
+        leave_function();
+
+        return {
+            true,
+            result_value
+        };
     } else if(expression->kind == ExpressionKind::UnaryOperation) {
         auto unary_operation = (UnaryOperation*)expression;
 
@@ -8136,6 +8272,8 @@ static Result<TypedRuntimeValue> generate_expression(
                             return { false };
                         }
 
+                        leave_function();
+
                         return {
                             true,
                             {
@@ -8169,6 +8307,8 @@ static Result<TypedRuntimeValue> generate_expression(
                     abort();
                 }
 
+                leave_function();
+
                 return {
                     true,
                     {
@@ -8195,6 +8335,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
                     auto boolean_value = (BooleanConstant*)constant_value;
                     assert(constant_value->kind == ConstantValueKind::BooleanConstant);
+
+                    leave_function();
 
                     return {
                         true,
@@ -8225,6 +8367,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
                 auto result_register = generate_boolean_invert(info, context, instructions, unary_operation->expression->range, register_index);
 
+                leave_function();
+
                 return {
                     true,
                     {
@@ -8242,6 +8386,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
                     auto integer_value = (IntegerConstant*)constant_value;
                     assert(constant_value->kind == ConstantValueKind::IntegerConstant);
+
+                    leave_function();
 
                     return {
                         true,
@@ -8263,6 +8409,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
                         auto integer_value = (IntegerConstant*)constant_value;
                         assert(constant_value->kind == ConstantValueKind::IntegerConstant);
+
+                        leave_function();
 
                         return {
                             true,
@@ -8303,6 +8451,8 @@ static Result<TypedRuntimeValue> generate_expression(
                         register_index
                     );
 
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -8321,6 +8471,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
                         auto float_value = (FloatConstant*)constant_value;
                         assert(constant_value->kind == ConstantValueKind::FloatConstant);
+
+                        leave_function();
 
                         return {
                             true,
@@ -8361,6 +8513,8 @@ static Result<TypedRuntimeValue> generate_expression(
                         register_index
                     );
 
+                    leave_function();
+
                     return {
                         true,
                         {
@@ -8375,6 +8529,8 @@ static Result<TypedRuntimeValue> generate_expression(
 
                     auto float_value = (FloatConstant*)constant_value;
                     assert(constant_value->kind == ConstantValueKind::FloatConstant);
+
+                    leave_function();
 
                     return {
                         true,
@@ -8420,6 +8576,8 @@ static Result<TypedRuntimeValue> generate_expression(
             );
 
             if(constant_cast_result.status) {
+                leave_function();
+
                 return {
                 true,
                     {
@@ -8660,6 +8818,8 @@ static Result<TypedRuntimeValue> generate_expression(
         }
 
         if(has_cast) {
+            leave_function();
+
             return {
                 true,
                 {
@@ -8700,6 +8860,8 @@ static Result<TypedRuntimeValue> generate_expression(
                 false
             ));
 
+            leave_function();
+
             return {
                 true,
                 {
@@ -8715,6 +8877,8 @@ static Result<TypedRuntimeValue> generate_expression(
                 }
             };
         } else {
+            leave_function();
+
             return {
                 true,
                 {
@@ -8771,6 +8935,8 @@ static Result<TypedRuntimeValue> generate_expression(
             return_type = return_type_value;
         }
 
+        leave_function();
+
         return {
             true,
             {
@@ -8798,12 +8964,16 @@ static bool is_statement_declaration(Statement *statement) {
 }
 
 static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationContext *context, List<Instruction*> *instructions, Statement *statement) {
+    enter_function();
+
     if(statement->kind == StatementKind::ExpressionStatement) {
         auto expression_statement = (ExpressionStatement*)statement;
 
         if(!generate_expression(info, scope, context, instructions, expression_statement->expression).status) {
             return false;
         }
+
+        leave_function();
 
         return true;
     } else if(statement->kind == StatementKind::VariableDeclaration) {
@@ -8923,6 +9093,8 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
             return false;
         }
 
+        leave_function();
+
         return true;
     } else if(statement->kind == StatementKind::Assignment) {
         auto assignment = (Assignment*)statement;
@@ -8955,6 +9127,8 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         )) {
             return false;
         }
+
+        leave_function();
 
         return true;
     } else if(statement->kind == StatementKind::BinaryOperationAssignment) {
@@ -8997,6 +9171,8 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         )) {
             return false;
         }
+
+        leave_function();
 
         return true;
     } else if(statement->kind == StatementKind::IfStatement) {
@@ -9138,6 +9314,8 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
             end_jumps[i]->destination_instruction = instructions->count;
         }
 
+        leave_function();
+
         return true;
     } else if(statement->kind == StatementKind::WhileLoop) {
         auto while_loop = (WhileLoop*)statement;
@@ -9217,6 +9395,8 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         for(auto jump : break_jumps) {
             jump->destination_instruction = instructions->count;
         }
+
+        leave_function();
 
         return true;
     } else if(statement->kind == StatementKind::ForLoop) {
@@ -9440,6 +9620,8 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
 
         branch->destination_instruction = instructions->count;
 
+        leave_function();
+
         return true;
     } else if(statement->kind == StatementKind::ReturnStatement) {
         auto return_statement = (ReturnStatement*)statement;
@@ -9495,6 +9677,8 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
 
         append(instructions, (Instruction*)return_instruction);
 
+        leave_function();
+
         return true;
     } else if(statement->kind == StatementKind::BreakStatement) {
         auto break_statement = (BreakStatement*)statement;
@@ -9511,6 +9695,8 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
         append(instructions, (Instruction*)jump);
 
         append(&context->break_jumps, jump);
+
+        leave_function();
 
         return true;
     } else {
@@ -9543,6 +9729,8 @@ inline void append_builtin(List<GlobalConstant> *global_constants, const char *n
 }
 
 Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_statements, RegisterSize address_size, RegisterSize default_size) {
+    enter_function();
+
     List<GlobalConstant> global_constants{};
 
     append_base_integer_type(&global_constants, "u8", RegisterSize::Size8, false);
@@ -9879,6 +10067,8 @@ Result<IR> generate_ir(const char *main_file_path, Array<Statement*> main_file_s
             append(&context.statics, (RuntimeStatic*)ir_function);
         }
     }
+
+    leave_function();
 
     return {
         true,

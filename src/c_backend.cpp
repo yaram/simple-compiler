@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include "platform.h"
+#include "profiler.h"
 #include "path.h"
 #include "util.h"
 
@@ -99,6 +100,8 @@ bool generate_c_object(
     const char *output_directory,
     const char *output_name
 ) {
+    enter_function();
+
     StringBuffer forward_declaration_source {};
     StringBuffer implementation_source {};
 
@@ -858,6 +861,8 @@ bool generate_c_object(
     if(system(command_buffer.data) != 0) {
         return false;
     }
+
+    leave_function();
 
     return true;
 }

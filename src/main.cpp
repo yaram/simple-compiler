@@ -49,9 +49,7 @@ static void print_help_message(FILE *file) {
 }
 
 bool cli_entry(Array<const char*> arguments) {
-#if defined(PROFILING)
-    init_profiler();
-#endif
+    enter_function();
 
     auto start_time = clock();
 
@@ -264,15 +262,25 @@ bool cli_entry(Array<const char*> arguments) {
 
     printf("Total time: %.1fms\n", (double)total_time / CLOCKS_PER_SEC * 1000);
 
-#if defined(PROFILING)
-    dump_profile();
-#endif
+    leave_function();
 
     return true;
 }
 
 int main(int argument_count, const char *arguments[]) {
+#if defined(PROFILING)
+    init_profiler();
+#endif
+
+    enter_function();
+
     if(cli_entry({ (size_t)argument_count, arguments })) {
+        leave_function();
+
+#if defined(PROFILING)
+        dump_profile();
+#endif
+
         return 0;
     } else {
         return 1;
