@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <string.h>
 #include <time.h>
+#include "profiler.h"
 #include "lexer.h"
 #include "parser.h"
 #include "generator.h"
@@ -48,6 +49,10 @@ static void print_help_message(FILE *file) {
 }
 
 bool cli_entry(Array<const char*> arguments) {
+#if defined(PROFILING)
+    init_profiler();
+#endif
+
     auto start_time = clock();
 
     const char *source_file_path = nullptr;
@@ -258,6 +263,10 @@ bool cli_entry(Array<const char*> arguments) {
     auto total_time = end_time - start_time;
 
     printf("Total time: %.1fms\n", (double)total_time / CLOCKS_PER_SEC * 1000);
+
+#if defined(PROFILING)
+    dump_profile();
+#endif
 
     return true;
 }

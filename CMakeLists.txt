@@ -4,11 +4,13 @@ enable_testing()
 
 project(SimpleCompiler LANGUAGES CXX)
 
-add_executable(compiler
+set(sources
     src/array.h
     src/list.h
     src/result.h
     src/register_size.h
+
+    src/profiler.h
 
     src/platform.h
     src/platform.cpp
@@ -42,11 +44,20 @@ add_executable(compiler
     src/main.cpp
 )
 
+if(PROFILING)
+    set(sources ${sources} src/profiler.cpp)
+endif()
+
+add_executable(compiler ${sources})
+
 target_compile_features(compiler PRIVATE cxx_std_11)
 if(MSVC)
     set_target_properties(compiler PROPERTIES LINK_FLAGS /STACK:10000000)
 else()
     set_target_properties(compiler PROPERTIES LINK_FLAGS -Wl,--stack,10000000)
+endif()
+if(PROFILING)
+    target_compile_definitions(compiler PRIVATE PROFILING)
 endif()
 
 add_executable(test_driver
