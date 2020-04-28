@@ -251,9 +251,13 @@ bool cli_entry(Array<const char*> arguments) {
         string_buffer_append(&buffer, output_file_name);
         string_buffer_append(&buffer, ".o");
 
+        enter_region("linker");
+
         if(system(buffer.data) != 0) {
             return false;
         }
+
+        leave_region();
     }
 
     auto end_time = clock();

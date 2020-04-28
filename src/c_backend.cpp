@@ -858,9 +858,13 @@ bool generate_c_object(
 
     string_buffer_append(&command_buffer, source_file_path_buffer.data);
 
+    enter_region("clang");
+
     if(system(command_buffer.data) != 0) {
         return false;
     }
+
+    leave_region();
 
     leave_region();
 
