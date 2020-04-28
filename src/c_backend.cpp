@@ -100,7 +100,7 @@ bool generate_c_object(
     const char *output_directory,
     const char *output_name
 ) {
-    enter_function();
+    enter_function_region();
 
     StringBuffer forward_declaration_source {};
     StringBuffer implementation_source {};
@@ -862,7 +862,7 @@ bool generate_c_object(
         return false;
     }
 
-    leave_function();
+    leave_region();
 
     return true;
 }

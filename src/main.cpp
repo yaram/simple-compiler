@@ -49,7 +49,7 @@ static void print_help_message(FILE *file) {
 }
 
 bool cli_entry(Array<const char*> arguments) {
-    enter_function();
+    enter_function_region();
 
     auto start_time = clock();
 
@@ -262,7 +262,7 @@ bool cli_entry(Array<const char*> arguments) {
 
     printf("Total time: %.1fms\n", (double)total_time / CLOCKS_PER_SEC * 1000);
 
-    leave_function();
+    leave_region();
 
     return true;
 }
@@ -272,10 +272,10 @@ int main(int argument_count, const char *arguments[]) {
     init_profiler();
 #endif
 
-    enter_function();
+    enter_function_region();
 
     if(cli_entry({ (size_t)argument_count, arguments })) {
-        leave_function();
+        leave_region();
 
 #if defined(PROFILING)
         dump_profile();

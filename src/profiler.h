@@ -6,7 +6,7 @@
 #include <memory.h>
 #include "platform.h"
 
-#define enter_function() enter_function_impl(__FUNCTION__)
+#define enter_function_region() enter_region(__FUNCTION__)
 
 extern uint8_t *profiler_buffer_pointer;
 
@@ -27,12 +27,12 @@ inline uint64_t read_performance_counter() {
 
 #endif
 
-inline void enter_function_impl(const char *function_name) {
-    // Write record type 0 (function entry)
+inline void enter_region(const char *name) {
+    // Write record type 0 (region entry)
     profiler_buffer_pointer[0] = 0;
 
-    // Write function name pointer
-    *((const char**)&profiler_buffer_pointer[1]) = function_name;
+    // Write region name pointer
+    *((const char**)&profiler_buffer_pointer[1]) = name;
 
     // Read performance counter
     uint64_t performance_counter = read_performance_counter();
@@ -44,8 +44,8 @@ inline void enter_function_impl(const char *function_name) {
     profiler_buffer_pointer = &profiler_buffer_pointer[1 + sizeof(const char*) + sizeof(uint64_t)];
 }
 
-inline void leave_function() {
-    // Write record type 1 (function exit)
+inline void leave_region() {
+    // Write record type 1 (region exit)
     profiler_buffer_pointer[0] = 1;
 
     // Read performance counter
@@ -60,7 +60,9 @@ inline void leave_function() {
 
 #else
 
-#define enter_function()
-#define leave_function()
+#define enter_region()
+#define enter_function_region()
+
+#define leave_region()
 
 #endif

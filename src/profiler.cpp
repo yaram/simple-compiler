@@ -24,7 +24,7 @@ struct SpeedscopeEntry {
 static void process_stack_frame_for_speedscope(List<const char*> *type_names, List<SpeedscopeEntry> *entries, size_t *index) {
     assert(profiler_buffer[*index] == 0);
 
-    auto function_name = *(const char**)&profiler_buffer[*index + 1];
+    auto region_name = *(const char**)&profiler_buffer[*index + 1];
 
     auto performance_counter = *(uint64_t*)&profiler_buffer[*index + 1 + sizeof(const char*)];
 
@@ -35,7 +35,7 @@ static void process_stack_frame_for_speedscope(List<const char*> *type_names, Li
     for(size_t i = 0; i < type_names->count; i += 1) {
         auto name = (*type_names)[i];
 
-        if(name == function_name) {
+        if(name == region_name) {
             found_type = true;
             stack_frame_type = i;
 
@@ -44,7 +44,7 @@ static void process_stack_frame_for_speedscope(List<const char*> *type_names, Li
     }
 
     if(!found_type) {
-        stack_frame_type = append(type_names, function_name);
+        stack_frame_type = append(type_names, region_name);
     }
 
     append(entries, {

@@ -265,7 +265,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
 
 // Precedence sorting based on https://eli.thegreenplace.net/2012/08/02/parsing-expressions-by-precedence-climbing
 static Result<Expression*> parse_expression(Context *context, OperatorPrecedence minimum_precedence) {
-    enter_function();
+    enter_function_region();
 
     Expression *left_expression;
 
@@ -895,7 +895,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
 
     expect(final_expression, parse_expression_continuation(context, minimum_precedence, left_expression));
 
-    leave_function();
+    leave_region();
 
     return {
         true,
@@ -904,7 +904,7 @@ static Result<Expression*> parse_expression(Context *context, OperatorPrecedence
 }
 
 static Result<Expression*> parse_expression_continuation(Context *context, OperatorPrecedence minimum_precedence, Expression *expression) {
-    enter_function();
+    enter_function_region();
 
     auto current_expression = expression;
 
@@ -1307,7 +1307,7 @@ static Result<Expression*> parse_expression_continuation(Context *context, Opera
         }
     }
 
-    leave_function();
+    leave_region();
 
     return {
         true,
@@ -1564,7 +1564,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
 }
 
 static Result<Statement*> parse_statement(Context *context) {
-    enter_function();
+    enter_function_region();
 
     expect(token, peek_token(*context));
 
@@ -1598,7 +1598,7 @@ static Result<Statement*> parse_statement(Context *context) {
                     import_path
                 };
 
-                leave_function();
+                leave_region();
 
                 return {
                     true,
@@ -1735,7 +1735,7 @@ static Result<Statement*> parse_statement(Context *context) {
                     to_array(else_statements)
                 };
 
-                leave_function();
+                leave_region();
 
                 return {
                     true,
@@ -1773,7 +1773,7 @@ static Result<Statement*> parse_statement(Context *context) {
                     to_array(statements)
                 };
 
-                leave_function();
+                leave_region();
 
                 return {
                     true,
@@ -1865,7 +1865,7 @@ static Result<Statement*> parse_statement(Context *context) {
                     );
                 }
 
-                leave_function();
+                leave_region();
 
                 return {
                     true,
@@ -1897,7 +1897,7 @@ static Result<Statement*> parse_statement(Context *context) {
                     value
                 };
 
-                leave_function();
+                leave_region();
 
                 return {
                     true,
@@ -1910,7 +1910,7 @@ static Result<Statement*> parse_statement(Context *context) {
                     span_range(first_range, last_range)
                 };
 
-                leave_function();
+                leave_region();
 
                 return {
                     true,
@@ -1926,7 +1926,7 @@ static Result<Statement*> parse_statement(Context *context) {
                     expression
                 };
 
-                leave_function();
+                leave_region();
 
                 return {
                     true,
@@ -2041,7 +2041,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                             span_range(parameters_first_range, last_range)
                                         ));
 
-                                        leave_function();
+                                        leave_region();
 
                                         return {
                                             true,
@@ -2057,7 +2057,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                             span_range(parameters_first_range, token_range(*context, token)))
                                         );
 
-                                        leave_function();
+                                        leave_region();
 
                                         return {
                                             true,
@@ -2151,7 +2151,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                                 span_range(parameters_first_range, last_range)
                                             ));
 
-                                            leave_function();
+                                            leave_region();
 
                                             return {
                                                 true,
@@ -2176,7 +2176,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                                 outer_right_expression
                                             };
 
-                                            leave_function();
+                                            leave_region();
 
                                             return {
                                                 true,
@@ -2200,7 +2200,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                             right_expression
                                         };
 
-                                        leave_function();
+                                        leave_region();
 
                                         return {
                                             true,
@@ -2339,7 +2339,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                             to_array(members)
                                         };
 
-                                        leave_function();
+                                        leave_region();
 
                                         return {
                                             true,
@@ -2360,7 +2360,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                             right_expression
                                         };
 
-                                        leave_function();
+                                        leave_region();
 
                                         return {
                                             true,
@@ -2380,7 +2380,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                         expression
                                     };
 
-                                    leave_function();
+                                    leave_region();
 
                                     return {
                                         true,
@@ -2452,7 +2452,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                 is_no_mangle
                             };
 
-                            leave_function();
+                            leave_region();
 
                             return {
                                 true,
@@ -2476,7 +2476,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                 right_expression
                             };
 
-                            leave_function();
+                            leave_region();
 
                             return {
                                 true,
@@ -2548,7 +2548,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                     expression
                                 };
 
-                                leave_function();
+                                leave_region();
 
                                 return {
                                     true,
@@ -2561,7 +2561,7 @@ static Result<Statement*> parse_statement(Context *context) {
                                     expression
                                 };
 
-                                leave_function();
+                                leave_region();
 
                                 return {
                                     true,
@@ -2588,7 +2588,7 @@ static Result<Statement*> parse_statement(Context *context) {
                         expression
                     };
 
-                    leave_function();
+                    leave_region();
 
                     return {
                         true,
@@ -2609,7 +2609,7 @@ static Result<Statement*> parse_statement(Context *context) {
                         value_expression
                     };
 
-                    leave_function();
+                    leave_region();
 
                     return {
                         true,
@@ -2628,7 +2628,7 @@ static Result<Statement*> parse_statement(Context *context) {
 }
 
 Result<Array<Statement*>> parse_tokens(const char *path, Array<Token> tokens) {
-    enter_function();
+    enter_function_region();
 
     Context context {
         path,
@@ -2643,7 +2643,7 @@ Result<Array<Statement*>> parse_tokens(const char *path, Array<Token> tokens) {
         append(&statements, statement);
     }
 
-    leave_function();
+    leave_region();
 
     return {
         true,
