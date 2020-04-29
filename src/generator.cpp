@@ -7995,6 +7995,8 @@ static Result<TypedRuntimeValue> generate_expression(
                     1
                 );
 
+                leave_region();
+
                 return {
                     true,
                     {
