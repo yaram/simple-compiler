@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include "platform.h"
+#include "profiler.h"
 #include "path.h"
 #include "util.h"
 
@@ -99,6 +100,8 @@ bool generate_c_object(
     const char *output_directory,
     const char *output_name
 ) {
+    enter_function_region();
+
     StringBuffer forward_declaration_source {};
     StringBuffer implementation_source {};
 
@@ -855,9 +858,15 @@ bool generate_c_object(
 
     string_buffer_append(&command_buffer, source_file_path_buffer.data);
 
+    enter_region("clang");
+
     if(system(command_buffer.data) != 0) {
         return false;
     }
+
+    leave_region();
+
+    leave_region();
 
     return true;
 }

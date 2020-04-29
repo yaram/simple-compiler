@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <string.h>
 #include "timing.h"
+#include "profiler.h"
 #include "lexer.h"
 #include "parser.h"
 #include "generator.h"
@@ -48,6 +49,8 @@ static void print_help_message(FILE *file) {
 }
 
 bool cli_entry(Array<const char*> arguments) {
+    enter_function_region();
+
     auto start_time = get_timer_counts();
 
     const char *source_file_path = nullptr;
@@ -263,9 +266,13 @@ bool cli_entry(Array<const char*> arguments) {
 
         auto start = get_timer_counts();
 
+        enter_region("linker");
+
         if(system(buffer.data) != 0) {
             return false;
         }
+
+        leave_region();
 
         auto end = get_timer_counts();
 
@@ -284,11 +291,25 @@ bool cli_entry(Array<const char*> arguments) {
     printf("  C Backend time: %.2fms\n", (double)backend_time / counts_per_second * 1000);
     printf("  Linker time: %.2fms\n", (double)linker_time / counts_per_second * 1000);
 
+    leave_region();
+
     return true;
 }
 
 int main(int argument_count, const char *arguments[]) {
+#if defined(PROFILING)
+    init_profiler();
+#endif
+
+    enter_function_region();
+
     if(cli_entry({ (size_t)argument_count, arguments })) {
+        leave_region();
+
+#if defined(PROFILING)
+        dump_profile();
+#endif
+
         return 0;
     } else {
         return 1;
