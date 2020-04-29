@@ -9,9 +9,34 @@ uint8_t profiler_buffer[profiler_buffer_size];
 
 uint8_t *profiler_buffer_pointer;
 
+bool read_performance_frequency;
+uint64_t performance_frequency;
+
+#if defined(OS_WINDOWS)
+
+#include <Windows.h>
+
 void init_profiler() {
     profiler_buffer_pointer = profiler_buffer;
+
+    read_performance_frequency = false;
+
+    HKEY key;
+    if(RegOpenKeyExA(HKEY_LOCAL_MACHINE, "HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 0, KEY_READ, &key) == ERROR_SUCCESS) {
+        DWORD type;
+        DWORD value;
+        DWORD dword_size = sizeof(DWORD);
+        if(
+            RegQueryValueExA(key, "~MHz", 0, &type, (LPBYTE)&value, &dword_size) == ERROR_SUCCESS &&
+            type == REG_DWORD
+        ) {
+            read_performance_frequency = true;
+            performance_frequency = (uint64_t)value * 1000000;
+        }
+    }
 }
+
+#endif
 
 struct SpeedscopeEntry {
     size_t type;
@@ -108,21 +133,47 @@ void dump_profile() {
         }
     }
 
+    const char *unit;
+    if(read_performance_frequency) {
+        unit = "nanoseconds";
+    } else {
+        unit = "none";
+    }
+
+    auto start_time = entries[0].time;
+    if(read_performance_frequency) {
+        start_time = start_time * 1000000000 / performance_frequency;
+    }
+
+    auto end_time = entries[entries.count - 1].time;
+    if(read_performance_frequency) {
+        end_time = end_time * 1000000000 / performance_frequency;
+    }
+
     fprintf(
         file,
-        "]},\"profiles\":[{\"type\":\"evented\",\"name\":\"simple-compiler\",\"unit\":\"none\",\"startValue\":%llu,\"endValue\":%llu,\"events\":[",
-        entries[0].time,
-        entries[entries.count - 1].time
+        "]},\"profiles\":[{\"type\":\"evented\",\"name\":\"simple-compiler\",\"unit\":\"%s\",\"startValue\":%llu,\"endValue\":%llu,\"events\":[",
+        unit,
+        start_time,
+        end_time
     );
 
     for(size_t i = 0; i < entries.count; i += 1) {
-        auto frame_entry = entries[i];
+        auto entry = entries[i];
 
-        if(frame_entry.is_exit) {
-            fprintf(file, "{\"type\":\"C\",\"frame\":%zu,\"at\":%llu}", frame_entry.type, frame_entry.time);
+        const char *type;
+        if(entry.is_exit) {
+            type = "C";
         } else {
-            fprintf(file, "{\"type\":\"O\",\"frame\":%zu,\"at\":%llu}", frame_entry.type, frame_entry.time);
+            type = "O";
         }
+
+        auto time = entry.time;
+        if(read_performance_frequency) {
+            time = time * 1000000000 / performance_frequency;
+        }
+
+        fprintf(file, "{\"type\":\"%s\",\"frame\":%zu,\"at\":%llu}", type, entry.type, time);
 
         if(i != entries.count - 1) {
             fprintf(file, ",");
