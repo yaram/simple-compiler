@@ -286,6 +286,8 @@ struct FunctionType : Expression {
     {}
 };
 
+void print_expression(Expression *expression);
+
 enum struct StatementKind {
     FunctionDeclaration,
     ConstantDefinition,
@@ -610,3 +612,5 @@ struct UsingStatement : Statement {
         module { module }
     {}
 };
+
+void print_statement(Statement *statement);

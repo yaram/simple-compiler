@@ -702,6 +702,8 @@ struct GlobalInfo {
 
     RegisterSize address_integer_size;
     RegisterSize default_integer_size;
+
+    bool print_ast;
 };
 
 struct FunctionName {
@@ -3746,6 +3748,15 @@ static Result<uint64_t> load_file(GlobalInfo info, GenerationContext *context, A
                 auto parser_end = get_timer_counts();
 
                 total_parser_time += parser_end - parser_start;
+
+                if(info.print_ast) {
+                    printf("%s:\n", import_file_path_absolute);
+
+                    for(auto statement : statements) {
+                        print_statement(statement);
+                        printf("\n");
+                    }
+                }
 
                 append(&context->loaded_files, {
                     import_file_path_absolute,
@@ -9736,7 +9747,13 @@ inline void append_builtin(List<GlobalConstant> *global_constants, const char *n
     });
 }
 
-Result<GeneratorResult> generate_ir(const char *main_file_path, Array<Statement*> main_file_statements, RegisterSize address_size, RegisterSize default_size) {
+Result<GeneratorResult> generate_ir(
+    const char *main_file_path,
+    Array<Statement*> main_file_statements,
+    RegisterSize address_size,
+    RegisterSize default_size,
+    bool print_ast
+) {
     enter_function_region();
 
     auto start_time = get_timer_counts();
@@ -9810,7 +9827,8 @@ Result<GeneratorResult> generate_ir(const char *main_file_path, Array<Statement*
     GlobalInfo info {
         to_array(global_constants),
         address_size,
-        default_size
+        default_size,
+        print_ast
     };
 
     GenerationContext context {};

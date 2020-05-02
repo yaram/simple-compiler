@@ -30,6 +30,7 @@ static void print_help_message(FILE *file) {
     fprintf(file, "  -arch x64  (default: %s) Specify CPU architecture to target\n", get_host_architecture());
     fprintf(file, "  -os windows|linux  (default: %s) Specify operating system to target\n", default_os);
     fprintf(file, "  -config debug|release  (default: debug) Specify build configuration\n");
+    fprintf(file, "  -print-ast  Print abstract syntax tree\n");
     fprintf(file, "  -print-ir  Print internal intermediate representation\n");
     fprintf(file, "  -help  Display this help message then exit\n");
 }
@@ -48,6 +49,7 @@ bool cli_entry(Array<const char*> arguments) {
 
     auto config = "debug";
 
+    auto print_ast = false;
     auto print_ir = false;
 
     int argument_index = 1;
@@ -100,6 +102,8 @@ bool cli_entry(Array<const char*> arguments) {
             }
 
             config = arguments[argument_index];
+        } else if(strcmp(argument, "-print-ast") == 0) {
+            print_ast = true;
         } else if(strcmp(argument, "-print-ir") == 0) {
             print_ir = true;
         } else if(strcmp(argument, "-help") == 0) {
@@ -163,9 +167,18 @@ bool cli_entry(Array<const char*> arguments) {
 
     auto main_file_parser_time = main_file_parser_end - main_file_parser_start;
 
+    if(print_ast) {
+        printf("%s:\n", source_file_path);
+
+        for(auto statement : source_file_statements) {
+            print_statement(statement);
+            printf("\n");
+        }
+    }
+
     auto register_sizes = get_register_sizes(architecture);
 
-    expect(generator_result, generate_ir(absolute_source_file_path, source_file_statements, register_sizes.address_size, register_sizes.default_size));
+    expect(generator_result, generate_ir(absolute_source_file_path, source_file_statements, register_sizes.address_size, register_sizes.default_size, print_ast));
 
     if(print_ir) {
         for(auto runtime_static : generator_result.statics) {
