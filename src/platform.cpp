@@ -2,6 +2,17 @@
 #include <string.h>
 #include "util.h"
 
+bool does_os_exist(const char *os) {
+    return (
+        strcmp(os, "linux") == 0 ||
+        strcmp(os, "windows") == 0
+    );
+}
+
+bool does_architecture_exist(const char *architecture) {
+    return strcmp(architecture, "x64") == 0;
+}
+
 RegisterSizes get_register_sizes(const char *architecture) {
     if(strcmp(architecture, "x64") == 0) {
         return {
@@ -47,4 +58,18 @@ const char *get_llvm_triple(const char *architecture, const char *os) {
     string_buffer_append(&buffer, triple_abi);
 
     return buffer.data;
+}
+
+const char *get_host_architecture() {
+#if defined(ARCH_X64)
+    return "x64";
+#endif
+}
+
+const char *get_host_os() {
+#if defined(OS_LINUX)
+    return "linux";
+#elif defined(OS_WINDOWS)
+    return "windows";
+#endif
 }

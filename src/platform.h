@@ -26,5 +26,9 @@ struct RegisterSizes {
     RegisterSize default_size;
 };
 
+bool does_os_exist(const char *os);
+bool does_architecture_exist(const char *architecture);
 RegisterSizes get_register_sizes(const char *architecture);
 const char *get_llvm_triple(const char *architecture, const char *os);
+const char *get_host_architecture();
+const char *get_host_os();

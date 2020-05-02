@@ -12,20 +12,6 @@
 #include "platform.h"
 #include "path.h"
 
-static const char *get_host_architecture() {
-#if defined(ARCH_X64)
-    return "x64";
-#endif
-}
-
-static const char *get_host_os() {
-#if defined(OS_LINUX)
-    return "linux";
-#elif defined(OS_WINDOWS)
-    return "windows";
-#endif
-}
-
 static const char *get_default_output_file(const char *os) {
     if(strcmp(os, "windows") == 0) {
         return "out.exe";
@@ -140,17 +126,14 @@ bool cli_entry(Array<const char*> arguments) {
         return false;
     }
 
-    if(
-        strcmp(os, "linux") != 0 &&
-        strcmp(os, "windows") != 0
-    ) {
+    if(!does_os_exist(os)) {
         fprintf(stderr, "Error: Unknown OS '%s'\n\n", os);
         print_help_message(stderr);
 
         return false;
     }
 
-    if(strcmp(architecture, "x64") != 0) {
+    if(!does_architecture_exist(architecture)) {
         fprintf(stderr, "Error: Unknown architecture '%s'\n\n", architecture);
         print_help_message(stderr);
 
