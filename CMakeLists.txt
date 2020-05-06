@@ -8,6 +8,7 @@ set(sources
     src/array.h
     src/list.h
     src/result.h
+    src/jobs.h
 
     src/profiler.h
 

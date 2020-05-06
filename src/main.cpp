@@ -168,6 +168,9 @@ bool cli_entry(Array<const char*> arguments) {
 
     append(&jobs, (Job*)main_file_parse_job);
 
+    size_t function_count = 0;
+    size_t static_variable_count = 0;
+
     while(true) {
         auto all_jobs_done = true;
         for(auto job : jobs) {
@@ -187,6 +190,8 @@ bool cli_entry(Array<const char*> arguments) {
                     if(!waiting_for_done) {
                         continue;
                     }
+
+                    job->waiting_for = nullptr;
                 }
 
                 switch(job->kind) {
@@ -194,29 +199,163 @@ bool cli_entry(Array<const char*> arguments) {
                         auto parse_file = (ParseFile*)job;
 
                         expect(tokens, tokenize_source(parse_file->path));
+
                         expect(statements, parse_tokens(parse_file->path, tokens));
+
+                        auto scope = new ConstantScope;
+                        scope->statements = statements;
+                        scope->constant_parameters = {};
+                        scope->is_top_level = true;
+                        scope->file_path = parse_file->path;
+
+                        for(auto statement : statements) {
+                            switch(statement->kind) {
+                                case StatementKind::FunctionDeclaration: {
+                                    auto function_declaration = (FunctionDeclaration*)statement;
+
+                                    auto is_polymorphic = false;
+                                    for(auto parameter : function_declaration->parameters) {
+                                        if(parameter.is_polymorphic_determiner || parameter.is_constant) {
+                                            is_polymorphic = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if(!is_polymorphic) {
+                                        auto resolve_declaration = new ResolveDeclaration;
+                                        resolve_declaration->done = false;
+                                        resolve_declaration->waiting_for = nullptr;
+                                        resolve_declaration->declaration = function_declaration;
+                                        resolve_declaration->parameters = {};
+                                        resolve_declaration->scope = scope;
+
+                                        append(&jobs, (Job*)resolve_declaration);
+                                    }
+                                } break;
+
+                                case StatementKind::ConstantDefinition: {
+                                    auto constant_definition = (ConstantDefinition*)statement;
+
+                                    auto resolve_declaration = new ResolveDeclaration;
+                                    resolve_declaration->done = false;
+                                    resolve_declaration->waiting_for = nullptr;
+                                    resolve_declaration->declaration = constant_definition;
+                                    resolve_declaration->parameters = {};
+                                    resolve_declaration->scope = scope;
+
+                                    append(&jobs, (Job*)resolve_declaration);
+                                } break;
+
+                                case StatementKind::StructDefinition: {
+                                    auto struct_definition = (StructDefinition*)statement;
+
+                                    if(struct_definition->parameters.count == 0) {
+                                        auto resolve_declaration = new ResolveDeclaration;
+                                        resolve_declaration->done = false;
+                                        resolve_declaration->waiting_for = nullptr;
+                                        resolve_declaration->declaration = struct_definition;
+                                        resolve_declaration->parameters = {};
+                                        resolve_declaration->scope = scope;
+
+                                        append(&jobs, (Job*)resolve_declaration);
+                                    }
+                                } break;
+
+                                case StatementKind::VariableDeclaration: {
+                                    auto variable_declaration = (VariableDeclaration*)statement;
+
+                                    StringBuffer name_buffer {};
+                                    string_buffer_append(&name_buffer, "variable_");
+                                    string_buffer_append(&name_buffer, static_variable_count);
+
+                                    auto generate_static_variable = new GenerateStaticVariable;
+                                    generate_static_variable->done = false;
+                                    generate_static_variable->waiting_for = false;
+                                    generate_static_variable->declaration = variable_declaration;
+                                    generate_static_variable->name = name_buffer.data;
+                                    generate_static_variable->scope = scope;
+
+                                    append(&jobs, (Job*)generate_static_variable);
+
+                                    static_variable_count += 1;
+                                } break;
+
+                                case StatementKind::ExpressionStatement:
+                                case StatementKind::Assignment:
+                                case StatementKind::BinaryOperationAssignment:
+                                case StatementKind::IfStatement:
+                                case StatementKind::WhileLoop:
+                                case StatementKind::ForLoop:
+                                case StatementKind::ReturnStatement:
+                                case StatementKind::BreakStatement: {
+                                    error(*scope, statement->range, "This kind of statement cannot be top-level");
+
+                                    return false;
+                                } break;
+
+                                case StatementKind::Import: {
+                                    auto import = (Import*)statement;
+
+                                    auto source_file_directory = path_get_directory_component(scope->file_path);
+
+                                    StringBuffer import_file_path {};
+
+                                    string_buffer_append(&import_file_path, source_file_directory);
+                                    string_buffer_append(&import_file_path, import->path);
+
+                                    expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
+
+                                    auto job_already_added = false;
+                                    for(auto job : jobs) {
+                                        if(job->kind == JobKind::ParseFile) {
+                                            auto parse_file = (ParseFile*)job;
+
+                                            if(strcmp(parse_file->path, import_file_path_absolute) == 0) {
+                                                job_already_added = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    if(!job_already_added) {
+                                        auto parse_file = new ParseFile;
+                                        parse_file->done = false;
+                                        parse_file->waiting_for = nullptr;
+                                        parse_file->path = import_file_path_absolute;
+
+                                        append(&jobs, (Job*)parse_file);
+                                    }
+                                } break;
+
+                                case StatementKind::UsingStatement: break;
+
+                                default: abort();
+                            }
+                        }
 
                         parse_file->statements = statements;
                         parse_file->done = true;
                     } break;
 
-                    default: {
-                        abort();
+                    case JobKind::ResolveDeclaration: {
+
                     } break;
+
+                    case JobKind::GenerateFunction: {
+
+                    } break;
+
+                    case JobKind::GenerateStaticVariable: {
+
+                    } break;
+
+                    default: abort();
                 }
             }
         }
 
         if(all_jobs_done) {
             break;
-        }
-    }
-
-    for(auto job : jobs) {
-        if(job->waiting_for != nullptr) {
-            fprintf(stderr, "Error: Circular dependency detected\n");
-
-            return false;
         }
     }
 
