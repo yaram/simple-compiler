@@ -8,13 +8,15 @@
 enum struct JobKind {
     ParseFile,
     ResolveDeclaration,
-    GenerateFunction
+    GenerateFunction,
+    GenerateStaticVariable
 };
 
 struct Job {
     JobKind kind;
 
     bool done;
+    Job* waiting_for;
 };
 
 struct ParseFile : Job {
@@ -40,7 +42,18 @@ struct GenerateFunction : Job {
     const char *name;
     Array<ConstantParameter> constant_parameters;
 
-    Array<Instruction*> instructions;
+    Function *function;
+    Array<StaticConstant*> static_constants;
 
     GenerateFunction() : Job { JobKind::GenerateFunction } {}
+};
+
+struct GenerateStaticVariable : Job {
+    VariableDeclaration *declaration;
+    const char *name;
+
+    StaticVariable *static_variable;
+    Array<StaticConstant*> static_constants;
+
+    GenerateStaticVariable() : Job { JobKind::GenerateStaticVariable } {}
 };

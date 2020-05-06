@@ -11,6 +11,8 @@
 #include "util.h"
 #include "platform.h"
 #include "path.h"
+#include "list.h"
+#include "jobs.h"
 
 static const char *get_default_output_file(const char *os) {
     if(strcmp(os, "windows") == 0) {
@@ -157,135 +159,66 @@ bool cli_entry(Array<const char*> arguments) {
         output_file_path = get_default_output_file(os);
     }
 
-    auto main_file_parser_start = get_timer_counts();
+    List<Job*> jobs {};
 
-    expect(source_file_tokens, tokenize_source(absolute_source_file_path));
+    auto main_file_parse_job = new ParseFile;
+    main_file_parse_job->done = false;
+    main_file_parse_job->waiting_for = nullptr;
+    main_file_parse_job->path = absolute_source_file_path;
 
-    expect(source_file_statements, parse_tokens(absolute_source_file_path, source_file_tokens));
+    append(&jobs, (Job*)main_file_parse_job);
 
-    auto main_file_parser_end = get_timer_counts();
+    while(true) {
+        auto all_jobs_done = true;
+        for(auto job : jobs) {
+            if(!job->done) {
+                all_jobs_done = false;
 
-    auto main_file_parser_time = main_file_parser_end - main_file_parser_start;
+                if(job->waiting_for != nullptr) {
+                    auto waiting_for = job->waiting_for;
 
-    if(print_ast) {
-        printf("%s:\n", source_file_path);
+                    auto waiting_for_done = false;
+                    for(auto job : jobs) {
+                        if(job == waiting_for) {
+                            waiting_for_done = job->done;
+                        }
+                    }
 
-        for(auto statement : source_file_statements) {
-            print_statement(statement);
-            printf("\n");
-        }
-    }
+                    if(!waiting_for_done) {
+                        continue;
+                    }
+                }
 
-    auto register_sizes = get_register_sizes(architecture);
+                switch(job->kind) {
+                    case JobKind::ParseFile: {
+                        auto parse_file = (ParseFile*)job;
 
-    expect(generator_result, generate_ir(absolute_source_file_path, source_file_statements, register_sizes.address_size, register_sizes.default_size, print_ast));
+                        expect(tokens, tokenize_source(parse_file->path));
+                        expect(statements, parse_tokens(parse_file->path, tokens));
 
-    if(print_ir) {
-        for(auto runtime_static : generator_result.statics) {
-            print_static(runtime_static);
-            printf("\n");
-        }
-    }
+                        parse_file->statements = statements;
+                        parse_file->done = true;
+                    } break;
 
-    const char *output_file_name;
-    {
-        auto full_name = path_get_file_component(output_file_path);
-
-        auto dot_pointer = strchr(full_name, '.');
-
-        if(dot_pointer == nullptr) {
-            output_file_name = full_name;
-        } else {
-            auto length = (size_t)dot_pointer - (size_t)full_name;
-
-            if(length == 0) {
-                output_file_name = "out";
-            } else {
-                auto buffer = allocate<char>(length + 1);
-
-                memcpy(buffer, full_name, length);
-                buffer[length] = 0;
-
-                output_file_name = buffer;
+                    default: {
+                        abort();
+                    } break;
+                }
             }
         }
+
+        if(all_jobs_done) {
+            break;
+        }
     }
 
-    auto output_file_directory = path_get_directory_component(output_file_path);
+    for(auto job : jobs) {
+        if(job->waiting_for != nullptr) {
+            fprintf(stderr, "Error: Circular dependency detected\n");
 
-    auto backend_start = get_timer_counts();
-
-    generate_c_object(generator_result.statics, architecture, os, config, output_file_directory, output_file_name);
-
-    auto backend_end = get_timer_counts();
-
-    auto backend_time = backend_end - backend_start;
-
-    uint64_t linker_time;
-    {
-        StringBuffer buffer {};
-
-        const char *linker_options;
-        if(strcmp(os, "windows") == 0) {
-            if(strcmp(config, "debug") == 0) {
-                linker_options = "/entry:main,/DEBUG";
-            } else if(strcmp(config, "release") == 0) {
-                linker_options = "/entry:main";
-            } else {
-                abort();
-            }
-        } else {
-            linker_options = "--entry=main";
-        }
-
-        auto triple = get_llvm_triple(architecture, os);
-
-        string_buffer_append(&buffer, "clang -nostdlib -fuse-ld=lld -target ");
-
-        string_buffer_append(&buffer, triple);
-
-        string_buffer_append(&buffer, " -Wl,");
-        string_buffer_append(&buffer, linker_options);
-
-        string_buffer_append(&buffer, " -o");
-        string_buffer_append(&buffer, output_file_path);
-        
-        for(auto library : generator_result.libraries) {
-            string_buffer_append(&buffer, " -l");
-            string_buffer_append(&buffer, library);
-        }
-
-        string_buffer_append(&buffer, " ");
-        string_buffer_append(&buffer, output_file_directory);
-        string_buffer_append(&buffer, output_file_name);
-        string_buffer_append(&buffer, ".o");
-
-        auto start = get_timer_counts();
-
-        enter_region("linker");
-
-        if(system(buffer.data) != 0) {
             return false;
         }
-
-        leave_region();
-
-        auto end = get_timer_counts();
-
-        linker_time = end - start;
     }
-
-    auto end_time = get_timer_counts();
-
-    auto total_time = end_time - start_time;
-
-    auto counts_per_second = get_timer_counts_per_second();
-
-    printf("Total time: %.2fms\n", (double)total_time / counts_per_second * 1000);
-    printf("  Parser time: %.2fms\n", (double)(main_file_parser_time + generator_result.parser_time) / counts_per_second * 1000);
-    printf("  Generator time: %.2fms\n", (double)generator_result.generator_time / counts_per_second * 1000);
-    printf("  C Backend time: %.2fms\n", (double)backend_time / counts_per_second * 1000);
-    printf("  Linker time: %.2fms\n", (double)linker_time / counts_per_second * 1000);
 
     leave_region();
 
