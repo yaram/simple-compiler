@@ -4,7 +4,9 @@
 #include "result.h"
 #include "ast.h"
 #include "register_size.h"
+#include "list.h"
 
+struct Job;
 struct Type;
 struct ConstantValue;
 
@@ -211,8 +213,6 @@ struct GlobalInfo {
 
     RegisterSize address_integer_size;
     RegisterSize default_integer_size;
-
-    bool print_ast;
 };
 
 enum struct ConstantValueKind {
@@ -380,95 +380,42 @@ T *extract_constant_value_internal(ConstantValue *value, ConstantValueKind kind)
     return extracted_value;
 }
 
-struct LoadedFile {
-    const char *path;
-
-    Array<Statement*> statements;
-};
-
-struct ConstantContext {
-    Array<ConstantParameter> constant_parameters;
-
-    Array<LoadedFile> loaded_files;
-};
-
 struct TypedConstantValue {
     Type *type;
 
     ConstantValue *value;
 };
 
-struct RegisterRepresentation {
-    bool is_in_register;
+template <typename T>
+struct DelayedValue {
+    bool has_value;
 
-    RegisterSize value_size;
-    bool is_float;
+    T value;
+    Job *waiting_for;
 };
 
-bool types_equal(Type *a, Type *b);
-const char *type_description(Type *type);
-bool is_runtime_type(Type *type);
-uint64_t get_struct_alignment(GlobalInfo info, StructType type);
-uint64_t get_type_alignment(GlobalInfo info, Type *type);
-uint64_t get_struct_size(GlobalInfo info, StructType type);
-uint64_t get_type_size(GlobalInfo info, Type *type);
-uint64_t get_struct_member_offset(GlobalInfo info, StructType type, size_t member_index);
+#define expect_delayed(name, expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,{},__##name##_delayed.waiting_for}};auto name=__##name##_delayed.value;
 
 void error(ConstantScope scope, FileRange range, const char *format, ...);
-bool check_undetermined_integer_to_integer_coercion(ConstantScope scope, FileRange range, Integer target_type, int64_t value, bool probing);
-Result<IntegerConstant*> coerce_constant_to_integer_type(
-    ConstantScope scope,
-    FileRange range,
-    Type *type,
-    ConstantValue *value,
-    Integer target_type,
-    bool probing
-);
-Result<ConstantValue*> coerce_constant_to_type(
+
+Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
     GlobalInfo info,
+    List<Job*> *jobs,
     ConstantScope scope,
-    FileRange range,
-    Type* type,
-    ConstantValue* value,
-    Type* target_type,
-    bool probing
+    Expression *expression
 );
-Result<TypedConstantValue> evaluate_constant_index(
+
+Result<DelayedValue<TypedConstantValue>> do_resolve_function_declaration(
     GlobalInfo info,
-    ConstantScope scope,
-    Type *type,
-    ConstantValue *value,
-    FileRange range,
-    Type *index_type,
-    ConstantValue *index_value,
-    FileRange index_range
+    List<Job*> *jobs,
+    FunctionDeclaration *function_declaration,
+    ConstantScope scope
 );
-Result<Type*> determine_binary_operation_type(ConstantScope scope, FileRange range, Type *left, Type *right);
-Result<TypedConstantValue> evaluate_constant_binary_operation(
+
+Result<DelayedValue<Type*>> do_resolve_struct_definition(
     GlobalInfo info,
-    ConstantScope scope,
-    FileRange range,
-    BinaryOperation::Operator binary_operator,
-    FileRange left_range,
-    Type *left_type,
-    ConstantValue *left_value,
-    FileRange right_range,
-    Type *right_type,
-    ConstantValue *right_value
+    List<Job*> *jobs,
+    StructDefinition *struct_definition,
+    ConstantValue **parameters,
+    ConstantScope scope
 );
-Result<ConstantValue*> evaluate_constant_cast(
-    GlobalInfo info,
-    ConstantScope scope,
-    Type *type,
-    ConstantValue *value,
-    FileRange value_range,
-    Type *target_type,
-    FileRange target_range,
-    bool probing
-);
-Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope scope, FileRange range, Type *type);
-bool match_public_declaration(Statement *statement, const char *name);
-bool match_declaration(Statement *statement, const char *name);
-Result<TypedConstantValue> evaluate_constant_expression(GlobalInfo info, ConstantScope scope, ConstantContext context, Expression *expression);
-Result<Type*> evaluate_type_expression(GlobalInfo info, ConstantScope scope, ConstantContext context, Expression *expression);
-Result<TypedConstantValue> resolve_declaration(GlobalInfo info, ConstantScope scope, ConstantContext context, Statement *declaration);

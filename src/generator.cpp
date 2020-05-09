@@ -6175,30 +6175,6 @@ static bool generate_statement(GlobalInfo info, ConstantScope scope, GenerationC
     }
 }
 
-inline void append_global_type(List<GlobalConstant> *global_constants, const char *name, Type *type) {
-    append(global_constants, {
-        name,
-        &type_type_singleton,
-        new TypeConstant {
-            type
-        }
-    });
-}
-
-inline void append_base_integer_type(List<GlobalConstant> *global_constants, const char *name, RegisterSize size, bool is_signed) {
-    append_global_type(global_constants, name, new Integer { size, is_signed });
-}
-
-inline void append_builtin(List<GlobalConstant> *global_constants, const char *name) {
-    append(global_constants, {
-        name,
-        &builtin_function_singleton,
-        new BuiltinFunctionConstant {
-            name
-        }
-    });
-}
-
 Result<GeneratorResult> generate_ir(
     const char *main_file_path,
     Array<Statement*> main_file_statements,
@@ -6209,79 +6185,6 @@ Result<GeneratorResult> generate_ir(
     enter_function_region();
 
     auto start_time = get_timer_counts();
-
-    List<GlobalConstant> global_constants{};
-
-    append_base_integer_type(&global_constants, "u8", RegisterSize::Size8, false);
-    append_base_integer_type(&global_constants, "u16", RegisterSize::Size16, false);
-    append_base_integer_type(&global_constants, "u32", RegisterSize::Size32, false);
-    append_base_integer_type(&global_constants, "u64", RegisterSize::Size64, false);
-
-    append_base_integer_type(&global_constants, "i8", RegisterSize::Size8, true);
-    append_base_integer_type(&global_constants, "i16", RegisterSize::Size16, true);
-    append_base_integer_type(&global_constants, "i32", RegisterSize::Size32, true);
-    append_base_integer_type(&global_constants, "i64", RegisterSize::Size64, true);
-
-    append_base_integer_type(&global_constants, "usize", address_size, false);
-    append_base_integer_type(&global_constants, "isize", address_size, true);
-
-    append_global_type(
-        &global_constants,
-        "bool",
-        &boolean_singleton
-    );
-
-    append_global_type(
-        &global_constants,
-        "void",
-        &void_singleton
-    );
-
-    append_global_type(
-        &global_constants,
-        "f32",
-        new FloatType {
-            RegisterSize::Size32
-        }
-    );
-
-    append_global_type(
-        &global_constants,
-        "f64",
-        new FloatType {
-            RegisterSize::Size64
-        }
-    );
-
-    append(&global_constants, GlobalConstant {
-        "true",
-        &boolean_singleton,
-        new BooleanConstant { true }
-    });
-
-    append(&global_constants, GlobalConstant {
-        "false",
-        &boolean_singleton,
-        new BooleanConstant { false }
-    });
-
-    append_global_type(
-        &global_constants,
-        "type",
-        &type_type_singleton
-    );
-
-    append_builtin(&global_constants, "size_of");
-    append_builtin(&global_constants, "type_of");
-
-    append_builtin(&global_constants, "memcpy");
-
-    GlobalInfo info {
-        to_array(global_constants),
-        address_size,
-        default_size,
-        print_ast
-    };
 
     GenerationContext context {};
 

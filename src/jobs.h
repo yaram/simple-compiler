@@ -5,9 +5,14 @@
 #include "constant.h"
 #include "ir.h"
 
+struct Type;
+struct ConstantValue;
+
 enum struct JobKind {
     ParseFile,
-    ResolveDeclaration,
+    ResolveFunctionDeclaration,
+    ResolveConstantDefinition,
+    ResolveStructDefinition,
     GenerateFunction,
     GenerateStaticVariable
 };
@@ -27,22 +32,41 @@ struct ParseFile : Job {
     ParseFile() : Job { JobKind::ParseFile } {}
 };
 
-struct ResolveDeclaration : Job {
-    Statement *declaration;
-    Array<ConstantParameter> parameters;
-    ConstantScope *scope;
+struct ResolveFunctionDeclaration : Job {
+    FunctionDeclaration *declaration;
+    ConstantScope scope;
 
     Type *type;
     ConstantValue *value;
 
-    ResolveDeclaration() : Job { JobKind::ResolveDeclaration } {}
+    ResolveFunctionDeclaration() : Job { JobKind::ResolveFunctionDeclaration } {}
+};
+
+struct ResolveConstantDefinition : Job {
+    ConstantDefinition *definition;
+    ConstantScope scope;
+
+    Type *type;
+    ConstantValue *value;
+
+    ResolveConstantDefinition() : Job { JobKind::ResolveConstantDefinition } {}
+};
+
+struct ResolveStructDefinition : Job {
+    StructDefinition *definition;
+    ConstantValue **parameters;
+    ConstantScope scope;
+
+    Type *type;
+
+    ResolveStructDefinition() : Job { JobKind::ResolveStructDefinition } {}
 };
 
 struct GenerateFunction : Job {
     FunctionDeclaration *declaration;
     const char *name;
     Array<ConstantParameter> constant_parameters;
-    ConstantScope *scope;
+    ConstantScope scope;
 
     Function *function;
     Array<StaticConstant*> static_constants;
@@ -53,7 +77,7 @@ struct GenerateFunction : Job {
 struct GenerateStaticVariable : Job {
     VariableDeclaration *declaration;
     const char *name;
-    ConstantScope *scope;
+    ConstantScope scope;
 
     StaticVariable *static_variable;
     Array<StaticConstant*> static_constants;

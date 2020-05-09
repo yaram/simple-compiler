@@ -45,9 +45,6 @@ set(sources
     src/constant.h
     src/constant.cpp
 
-    src/generator.h
-    src/generator.cpp
-
     src/c_backend.h
     src/c_backend.cpp
 
