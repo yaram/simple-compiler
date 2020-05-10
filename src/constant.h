@@ -8,6 +8,7 @@
 
 struct Job;
 struct Type;
+struct Integer;
 struct ConstantValue;
 
 struct ConstantParameter {
@@ -28,176 +29,6 @@ struct ConstantScope {
     ConstantScope *parent;
 
     const char *file_path;
-};
-
-enum struct TypeKind {
-    FunctionTypeType,
-    PolymorphicFunction,
-    BuiltinFunction,
-    Integer,
-    UndeterminedInteger,
-    Boolean,
-    FloatType,
-    UndeterminedFloat,
-    TypeType,
-    Void,
-    Pointer,
-    ArrayTypeType,
-    StaticArray,
-    StructType,
-    PolymorphicStruct,
-    UndeterminedStruct,
-    FileModule
-};
-
-struct Type {
-    TypeKind kind;
-
-    Type(TypeKind kind) : kind { kind } {}
-};
-
-extern Type polymorphic_function_singleton;
-extern Type builtin_function_singleton;
-extern Type undetermined_integer_singleton;
-extern Type boolean_singleton;
-extern Type undetermined_float_singleton;
-extern Type type_type_singleton;
-extern Type void_singleton;
-extern Type file_module_singleton;
-
-struct FunctionTypeType : Type {
-    Array<Type*> parameters;
-
-    Type *return_type;
-
-    FunctionTypeType(
-        Array<Type*> parameters,
-        Type *return_type
-    ) :
-        Type { TypeKind::FunctionTypeType },
-        parameters { parameters },
-        return_type { return_type }
-    {}
-};
-
-struct Integer : Type {
-    RegisterSize size;
-
-    bool is_signed;
-
-    Integer(
-        RegisterSize size,
-        bool is_signed
-    ) :
-        Type { TypeKind::Integer },
-        size { size },
-        is_signed { is_signed }
-    {}
-};
-
-struct FloatType : Type {
-    RegisterSize size;
-
-    FloatType(
-        RegisterSize size
-    ) :
-        Type { TypeKind::FloatType },
-        size { size }
-    {}
-};
-
-struct Pointer : Type {
-    Type *type;
-
-    Pointer(
-        Type *type
-    ) :
-        Type { TypeKind::Pointer },
-        type { type }
-    {}
-};
-
-struct ArrayTypeType : Type {
-    Type *element_type;
-
-    ArrayTypeType(
-        Type *element_type
-    ) :
-        Type { TypeKind::ArrayTypeType },
-        element_type { element_type }
-    {}
-};
-
-struct StaticArray : Type {
-    size_t length;
-
-    Type *element_type;
-
-    StaticArray(
-        size_t length,
-        Type *element_type
-    ) :
-        Type { TypeKind::StaticArray },
-        length { length },
-        element_type { element_type }
-    {}
-};
-
-struct StructType : Type {
-    struct Member {
-        const char *name;
-
-        Type *type;
-    };
-
-    StructDefinition *definition;
-
-    Array<Member> members;
-
-    StructType(
-        StructDefinition *definition,
-        Array<Member> members
-    ) :
-        Type { TypeKind::StructType },
-        definition { definition },
-        members { members }
-    {}
-};
-
-struct PolymorphicStruct : Type {
-    StructDefinition *definition;
-
-    Type **parameter_types;
-
-    ConstantScope parent;
-
-    PolymorphicStruct(
-        StructDefinition *definition,
-        Type **parameter_types,
-        ConstantScope parent
-    ) :
-        Type { TypeKind::PolymorphicStruct },
-        definition { definition },
-        parameter_types { parameter_types },
-        parent { parent }
-    {}
-};
-
-struct UndeterminedStruct : Type {
-    struct Member {
-        const char *name;
-
-        Type *type;
-    };
-
-    Array<Member> members;
-
-    UndeterminedStruct(
-        Array<Member> members
-    ) :
-        Type { TypeKind::UndeterminedStruct },
-        members { members }
-    {}
 };
 
 struct GlobalConstant {
@@ -394,9 +225,87 @@ struct DelayedValue {
     Job *waiting_for;
 };
 
-#define expect_delayed(name, expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,{},__##name##_delayed.waiting_for}};auto name=__##name##_delayed.value;
+template <>
+struct DelayedValue<void> {
+    bool has_value;
+
+    Job *waiting_for;
+};
+
+#define expect_delayed(name, expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,{},__##name##_delayed.waiting_for}};auto name=__##name##_delayed.value
+#define expect_delayed_void_ret(name, expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,__##name##_delayed.waiting_for}};auto name=__##name##_delayed.value
+#define expect_delayed_void_val(expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,{},__##name##_delayed.waiting_for}}
+#define expect_delayed_void_both(expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,__##name##_delayed.waiting_for}}
 
 void error(ConstantScope scope, FileRange range, const char *format, ...);
+
+bool check_undetermined_integer_to_integer_coercion(ConstantScope scope, FileRange range, Integer *target_type, int64_t value, bool probing);
+Result<IntegerConstant*> coerce_constant_to_integer_type(
+    ConstantScope scope,
+    FileRange range,
+    Type *type,
+    ConstantValue *value,
+    Integer *target_type,
+    bool probing
+);
+Result<ConstantValue*> coerce_constant_to_type(
+    GlobalInfo info,
+    ConstantScope scope,
+    FileRange range,
+    Type *type,
+    ConstantValue *value,
+    Type *target_type,
+    bool probing
+);
+Result<TypedConstantValue> evaluate_constant_index(
+    GlobalInfo info,
+    ConstantScope scope,
+    Type *type,
+    ConstantValue *value,
+    FileRange range,
+    Type *index_type,
+    ConstantValue *index_value,
+    FileRange index_range
+);
+Result<Type*> determine_binary_operation_type(ConstantScope scope, FileRange range, Type *left, Type *right);
+Result<TypedConstantValue> evaluate_constant_binary_operation(
+    GlobalInfo info,
+    ConstantScope scope,
+    FileRange range,
+    BinaryOperation::Operator binary_operator,
+    FileRange left_range,
+    Type *left_type,
+    ConstantValue *left_value,
+    FileRange right_range,
+    Type *right_type,
+    ConstantValue *right_value
+);
+Result<ConstantValue*> evaluate_constant_cast(
+    GlobalInfo info,
+    ConstantScope scope,
+    Type *type,
+    ConstantValue *value,
+    FileRange value_range,
+    Type *target_type,
+    FileRange target_range,
+    bool probing
+);
+Result<DelayedValue<Type*>> evaluate_type_expression(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    ConstantScope scope,
+    Expression *expression
+);
+Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope scope, FileRange range, Type *type);
+bool match_public_declaration(Statement *statement, const char *name);
+bool match_declaration(Statement *statement, const char *name);
+Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    ConstantScope scope,
+    Statement *declaration
+);
+bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b);
 
 Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
     GlobalInfo info,

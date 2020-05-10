@@ -64,8 +64,7 @@ struct ResolveStructDefinition : Job {
 
 struct GenerateFunction : Job {
     FunctionDeclaration *declaration;
-    const char *name;
-    Array<ConstantParameter> constant_parameters;
+    TypedConstantValue *parameters;
     ConstantScope scope;
 
     Function *function;
@@ -76,10 +75,10 @@ struct GenerateFunction : Job {
 
 struct GenerateStaticVariable : Job {
     VariableDeclaration *declaration;
-    const char *name;
     ConstantScope scope;
 
     StaticVariable *static_variable;
+    Type *type;
     Array<StaticConstant*> static_constants;
 
     GenerateStaticVariable() : Job { JobKind::GenerateStaticVariable } {}

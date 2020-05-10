@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "array.h"
 #include "register_size.h"
+#include "constant.h"
 
 enum struct InstructionKind {
     IntegerArithmeticOperation,
@@ -31,7 +32,7 @@ enum struct InstructionKind {
 struct Instruction {
     InstructionKind kind;
 
-    unsigned int line;
+    FileRange range;
 };
 
 struct IntegerArithmeticOperation : Instruction {
@@ -289,8 +290,10 @@ struct CopyMemory : Instruction {
     CopyMemory() : Instruction { InstructionKind::CopyMemory } {}
 };
 
+struct RuntimeStatic;
+
 struct ReferenceStatic : Instruction {
-    const char *name;
+    RuntimeStatic *runtime_static;
 
     size_t destination_register;
 
@@ -309,6 +312,7 @@ struct RuntimeStatic {
     RuntimeStaticKind kind;
 
     const char *name;
+    ConstantScope scope;
 };
 
 struct Function : RuntimeStatic {
@@ -324,12 +328,11 @@ struct Function : RuntimeStatic {
     RegisterSize return_size;
     bool is_return_float;
 
+    bool is_no_mangle;
+
     bool is_external;
 
     Array<Instruction*> instructions;
-
-    const char *file;
-    unsigned int line;
 
     Function() : RuntimeStatic { RuntimeStaticKind::Function } {}
 };

@@ -7,422 +7,7 @@
 #include "path.h"
 #include "util.h"
 #include "jobs.h"
-
-Type polymorphic_function_singleton { TypeKind::PolymorphicFunction };
-Type builtin_function_singleton { TypeKind::BuiltinFunction };
-Type undetermined_integer_singleton { TypeKind::UndeterminedInteger };
-Type boolean_singleton { TypeKind::Boolean };
-Type undetermined_float_singleton { TypeKind::UndeterminedFloat };
-Type type_type_singleton { TypeKind::TypeType };
-Type void_singleton { TypeKind::Void };
-Type file_module_singleton { TypeKind::FileModule };
-
-static bool types_equal(Type *a, Type *b) {
-    if(a->kind != b->kind) {
-        return false;
-    }
-
-    auto kind = a->kind;
-
-    if(kind == TypeKind::FunctionTypeType) {
-        auto a_function_type = (FunctionTypeType*)a;
-        auto b_function_type = (FunctionTypeType*)b;
-
-        if(a_function_type->parameters.count != b_function_type->parameters.count) {
-            return false;
-        }
-
-        for(size_t i = 0; i < a_function_type->parameters.count; i += 1) {
-            if(!types_equal(a_function_type->parameters[i], b_function_type->parameters[i])) {
-                return false;
-            }
-        }
-
-        return types_equal(a_function_type->return_type, b_function_type->return_type);
-    } else if(kind == TypeKind::PolymorphicFunction) {
-        return false;
-    } else if(kind == TypeKind::BuiltinFunction) {
-        return false;
-    } else if(kind == TypeKind::Integer) {
-        auto a_integer = (Integer*)a;
-        auto b_integer = (Integer*)b;
-
-        return a_integer->size == b_integer->size && a_integer->is_signed == b_integer->is_signed;
-    } else if(kind == TypeKind::UndeterminedInteger) {
-        return true;
-    } else if(kind == TypeKind::Boolean) {
-        return true;
-    } else if(kind == TypeKind::FloatType) {
-        auto a_float_type = (FloatType*)a;
-        auto b_float_type = (FloatType*)b;
-
-        return a_float_type->size == b_float_type->size;
-    } else if(kind == TypeKind::UndeterminedFloat) {
-        return true;
-    } else if(kind == TypeKind::TypeType) {
-        return true;
-    } else if(kind == TypeKind::Void) {
-        return true;
-    } else if(kind == TypeKind::Pointer) {
-        auto a_pointer = (Pointer*)a;
-        auto b_pointer = (Pointer*)b;
-
-        return types_equal(a_pointer->type, b_pointer->type);
-    } else if(kind == TypeKind::ArrayTypeType) {
-        auto a_array_type = (ArrayTypeType*)a;
-        auto b_array_type = (ArrayTypeType*)b;
-
-        return types_equal(a_array_type->element_type, b_array_type->element_type);
-    } else if(kind == TypeKind::StaticArray) {
-        auto a_static_array = (StaticArray*)a;
-        auto b_static_array = (StaticArray*)b;
-
-        return types_equal(a_static_array->element_type, b_static_array->element_type) && a_static_array->length == b_static_array->length;
-    } else if(kind == TypeKind::StructType) {
-        auto a_struct = (StructType*)a;
-        auto b_struct = (StructType*)b;
-
-        if(a_struct->definition != b_struct->definition) {
-            return false;
-        }
-
-        if(a_struct->members.count != b_struct->members.count) {
-            return false;
-        }
-
-        for(size_t i = 0; i < a_struct->members.count; i += 1) {
-            if(
-                strcmp(a_struct->members[i].name, b_struct->members[i].name) != 0 ||
-                !types_equal(a_struct->members[i].type, b_struct->members[i].type)
-            ) {
-                return false;
-            }
-        }
-
-        return true;
-    } else if(kind == TypeKind::PolymorphicStruct) {
-        auto a_polymorphic_struct = (PolymorphicStruct*)a;
-        auto b_polymorphic_struct = (PolymorphicStruct*)b;
-
-        return a_polymorphic_struct->definition != b_polymorphic_struct->definition;
-    } else if(kind == TypeKind::UndeterminedStruct) {
-        auto a_undetermined_struct = (UndeterminedStruct*)a;
-        auto b_undetermined_struct = (UndeterminedStruct*)b;
-
-        if(a_undetermined_struct->members.count != b_undetermined_struct->members.count) {
-            return false;
-        }
-
-        for(size_t i = 0; i < a_undetermined_struct->members.count; i += 1) {
-            if(
-                strcmp(a_undetermined_struct->members[i].name, b_undetermined_struct->members[i].name) != 0 ||
-                !types_equal(a_undetermined_struct->members[i].type, b_undetermined_struct->members[i].type)
-            ) {
-                return false;
-            }
-        }
-
-        return true;
-    } else if(kind == TypeKind::FileModule) {
-        return true;
-    } else {
-        abort();
-    }
-}
-
-static const char *type_description(Type *type) {
-    if(type->kind == TypeKind::FunctionTypeType) {
-        auto function = (FunctionTypeType*)type;
-        StringBuffer buffer {};
-
-        string_buffer_append(&buffer, "(");
-
-        for(size_t i = 0; i < function->parameters.count; i += 1) {
-            string_buffer_append(&buffer, type_description(function->parameters[i]));
-
-            if(i != function->parameters.count - 1) {
-                string_buffer_append(&buffer, ",");
-            }
-        }
-
-        string_buffer_append(&buffer, ")");
-
-        if(function->return_type != nullptr) {
-            string_buffer_append(&buffer, " -> ");
-            string_buffer_append(&buffer, type_description(function->return_type));
-        }
-
-        return buffer.data;
-    } else if(type->kind == TypeKind::PolymorphicFunction) {
-        return "{function}";
-    } else if(type->kind == TypeKind::BuiltinFunction) {
-        return "{builtin}";
-    } else if(type->kind == TypeKind::Integer) {
-        auto integer = (Integer*)type;
-
-        if(integer->is_signed) {
-            switch(integer->size) {
-                case RegisterSize::Size8: {
-                    return "i8";
-                } break;
-
-                case RegisterSize::Size16: {
-                    return "i16";
-                } break;
-
-                case RegisterSize::Size32: {
-                    return "i32";
-                } break;
-
-                case RegisterSize::Size64: {
-                    return "i64";
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-        } else {
-            switch(integer->size) {
-                case RegisterSize::Size8: {
-                    return "u8";
-                } break;
-
-                case RegisterSize::Size16: {
-                    return "u16";
-                } break;
-
-                case RegisterSize::Size32: {
-                    return "u32";
-                } break;
-
-                case RegisterSize::Size64: {
-                    return "u64";
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-        }
-    } else if(type->kind == TypeKind::UndeterminedInteger) {
-        return "{integer}";
-    } else if(type->kind == TypeKind::Boolean) {
-        return "bool";
-    } else if(type->kind == TypeKind::FloatType) {
-        auto float_type = (FloatType*)type;
-        switch(float_type->size) {
-            case RegisterSize::Size32: {
-                return "f32";
-            } break;
-
-            case RegisterSize::Size64: {
-                return "f64";
-            } break;
-
-            default: {
-                abort();
-            } break;
-        }
-    } else if(type->kind == TypeKind::UndeterminedFloat) {
-        return "{float}";
-    } else if(type->kind == TypeKind::TypeType) {
-        return "{type}";
-    } else if(type->kind == TypeKind::Void) {
-        return "void";
-    } else if(type->kind == TypeKind::Pointer) {
-        auto pointer = (Pointer*)type;
-
-        StringBuffer buffer {};
-
-        string_buffer_append(&buffer, "*");
-        string_buffer_append(&buffer, type_description(pointer->type));
-
-        return buffer.data;
-    } else if(type->kind == TypeKind::ArrayTypeType) {
-        auto array = (ArrayTypeType*)type;
-
-        StringBuffer buffer {};
-
-        string_buffer_append(&buffer, "[]");
-        string_buffer_append(&buffer, type_description(array->element_type));
-
-        return buffer.data;
-    } else if(type->kind == TypeKind::StaticArray) {
-        auto static_array = (StaticArray*)type;
-        StringBuffer buffer {};
-
-        string_buffer_append(&buffer, "[");
-        string_buffer_append(&buffer, static_array->length);
-        string_buffer_append(&buffer, "]");
-        string_buffer_append(&buffer, type_description(static_array->element_type));
-
-        return buffer.data;
-    } else if(type->kind == TypeKind::StructType) {
-        auto struct_type = (StructType*)type;
-        return struct_type->definition->name.text;
-    } else if(type->kind == TypeKind::PolymorphicStruct) {
-        auto polymorphic_struct = (PolymorphicStruct*)type;
-        return polymorphic_struct->definition->name.text;
-    } else if(type->kind == TypeKind::UndeterminedStruct) {
-        return "{struct}";
-    } else if(type->kind == TypeKind::FileModule) {
-        return "{module}";
-    } else {
-        abort();
-    }
-}
-
-static bool is_runtime_type(Type *type) {
-    if(
-        type->kind == TypeKind::Integer ||
-        type->kind == TypeKind::Boolean ||
-        type->kind == TypeKind::FloatType ||
-        type->kind == TypeKind::Pointer ||
-        type->kind == TypeKind::ArrayTypeType ||
-        type->kind == TypeKind::StaticArray ||
-        type->kind == TypeKind::StructType
-    ) {
-        return true;
-    } else {
-        return false;
-    }
-}
-
-static uint64_t get_type_alignment(GlobalInfo info, Type *type);
-
-static uint64_t get_struct_alignment(GlobalInfo info, StructType type) {
-    size_t current_alignment = 1;
-
-    for(auto member : type.members) {
-        auto alignment = get_type_alignment(info, member.type);
-
-        if(alignment > current_alignment) {
-            current_alignment = alignment;
-        }
-    }
-
-    return current_alignment;
-}
-
-static uint64_t get_type_alignment(GlobalInfo info, Type *type) {
-    if(type->kind == TypeKind::Integer) {
-        auto integer = (Integer*)type;
-        return register_size_to_byte_size(integer->size);
-    } else if(type->kind == TypeKind::Boolean) {
-        return register_size_to_byte_size(info.default_integer_size);
-    } else if(type->kind == TypeKind::FloatType) {
-        auto float_type = (FloatType*)type;
-        return register_size_to_byte_size(float_type->size);
-    } else if(type->kind == TypeKind::Pointer) {
-        return register_size_to_byte_size(info.address_integer_size);
-    } else if(type->kind == TypeKind::ArrayTypeType) {
-        return register_size_to_byte_size(info.address_integer_size);
-    } else if(type->kind == TypeKind::StaticArray) {
-        auto static_array = (StaticArray*)type;
-        return get_type_alignment(info, static_array->element_type);
-    } else if(type->kind == TypeKind::StructType) {
-        auto struct_type = (StructType*)type;
-        return get_struct_alignment(info, *struct_type);
-    } else {
-        abort();
-    }
-}
-
-static uint64_t get_type_size(GlobalInfo info, Type *type);
-
-static uint64_t get_struct_size(GlobalInfo info, StructType type) {
-    uint64_t current_size = 0;
-
-    for(auto member : type.members) {
-        if(type.definition->is_union) {
-            auto size = get_type_size(info, member.type);
-
-            if(size > current_size) {
-                current_size = size;
-            }
-        } else {
-            auto alignment = get_type_alignment(info, member.type);
-
-            auto alignment_difference = current_size % alignment;
-
-            uint64_t offset;
-            if(alignment_difference != 0) {
-                offset = alignment - alignment_difference;
-            } else {
-                offset = 0;
-            }
-
-            auto size = get_type_size(info, member.type);
-
-            current_size += offset + size;
-        }        
-    }
-
-    return current_size;
-}
-
-static uint64_t get_type_size(GlobalInfo info, Type *type) {
-    if(type->kind == TypeKind::Integer) {
-        auto integer = (Integer*)type;
-        return register_size_to_byte_size(integer->size);
-    } else if(type->kind == TypeKind::Boolean) {
-        return register_size_to_byte_size(info.default_integer_size);
-    } else if(type->kind == TypeKind::FloatType) {
-        auto float_type = (FloatType*)type;
-        return register_size_to_byte_size(float_type->size);
-    } else if(type->kind == TypeKind::Pointer) {
-        return register_size_to_byte_size(info.address_integer_size);
-    } else if(type->kind == TypeKind::ArrayTypeType) {
-        return 2 * register_size_to_byte_size(info.address_integer_size);
-    } else if(type->kind == TypeKind::StaticArray) {
-        auto static_array = (StaticArray*)type;
-        return static_array->length * get_type_alignment(info, static_array->element_type);
-    } else if(type->kind == TypeKind::StructType) {
-        auto struct_type = (StructType*)type;
-        return get_struct_size(info, *struct_type);
-    } else {
-        abort();
-    }
-}
-
-static uint64_t get_struct_member_offset(GlobalInfo info, StructType type, size_t member_index) {
-    if(type.definition->is_union) {
-        return 0;
-    }
-
-    uint64_t current_offset = 0;
-
-    for(auto i = 0; i < member_index; i += 1) {
-        auto alignment = get_type_alignment(info, type.members[i].type);
-
-        auto alignment_difference = current_offset % alignment;
-
-        uint64_t offset;
-        if(alignment_difference != 0) {
-            offset = alignment - alignment_difference;
-        } else {
-            offset = 0;
-        }
-
-        auto size = get_type_size(info, type.members[i].type);
-
-        current_offset += offset + size;
-    }
-    
-    auto alignment = get_type_alignment(info, type.members[member_index].type);
-
-    auto alignment_difference = current_offset % alignment;
-
-    uint64_t offset;
-    if(alignment_difference != 0) {
-        offset = alignment - alignment_difference;
-    } else {
-        offset = 0;
-    }
-
-    return current_offset + offset;
-}
+#include "types.h"
 
 ConstantValue void_constant_singleton { ConstantValueKind::VoidConstant };
 
@@ -535,12 +120,12 @@ void error(ConstantScope scope, FileRange range, const char *format, ...) {
     va_end(arguments);
 }
 
-static bool check_undetermined_integer_to_integer_coercion(ConstantScope scope, FileRange range, Integer target_type, int64_t value, bool probing) {
+bool check_undetermined_integer_to_integer_coercion(ConstantScope scope, FileRange range, Integer *target_type, int64_t value, bool probing) {
     bool in_range;
-    if(target_type.is_signed) {
+    if(target_type->is_signed) {
         int64_t min;
         int64_t max;
-        switch(target_type.size) {
+        switch(target_type->size) {
             case RegisterSize::Size8: {
                 min = INT8_MIN;
                 max = INT8_MAX;
@@ -572,7 +157,7 @@ static bool check_undetermined_integer_to_integer_coercion(ConstantScope scope, 
             in_range = false;
         } else {
             uint64_t max;
-            switch(target_type.size) {
+            switch(target_type->size) {
                 case RegisterSize::Size8: {
                     max = UINT8_MAX;
                 } break;
@@ -600,7 +185,7 @@ static bool check_undetermined_integer_to_integer_coercion(ConstantScope scope, 
 
     if(!in_range) {
         if(!probing) {
-            error(scope, range, "Constant '%zd' cannot fit in '%s'. You must cast explicitly", value, type_description(&target_type));
+            error(scope, range, "Constant '%zd' cannot fit in '%s'. You must cast explicitly", value, type_description(target_type));
         }
 
         return false;
@@ -609,19 +194,19 @@ static bool check_undetermined_integer_to_integer_coercion(ConstantScope scope, 
     return true;
 }
 
-static Result<IntegerConstant*> coerce_constant_to_integer_type(
+Result<IntegerConstant*> coerce_constant_to_integer_type(
     ConstantScope scope,
     FileRange range,
     Type *type,
     ConstantValue *value,
-    Integer target_type,
+    Integer *target_type,
     bool probing
 ) {
     if(type->kind == TypeKind::Integer) {
         auto integer = (Integer*)type;
-        if(integer->size != target_type.size || integer->size != target_type.size) {
+        if(integer->size != target_type->size || integer->size != target_type->size) {
             if(!probing) {
-                error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(integer), type_description(&target_type));
+                error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(integer), type_description(target_type));
             }
 
             return { false };
@@ -646,7 +231,7 @@ static Result<IntegerConstant*> coerce_constant_to_integer_type(
         };
     } else {
         if(!probing) {
-            error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
+            error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(target_type));
         }
 
         return { false };
@@ -758,7 +343,7 @@ static Result<PointerConstant*> coerce_constant_to_pointer_type(
     return { false };
 }
 
-static Result<ConstantValue*> coerce_constant_to_type(
+Result<ConstantValue*> coerce_constant_to_type(
     GlobalInfo info,
     ConstantScope scope,
     FileRange range,
@@ -770,7 +355,7 @@ static Result<ConstantValue*> coerce_constant_to_type(
     if(target_type->kind == TypeKind::Integer) {
         auto integer = (Integer*)target_type;
 
-        expect(integer_value, coerce_constant_to_integer_type(scope, range, type, value, *integer, probing));
+        expect(integer_value, coerce_constant_to_integer_type(scope, range, type, value, integer, probing));
 
         return {
             true,
@@ -887,10 +472,10 @@ static Result<ConstantValue*> coerce_constant_to_type(
                         range,
                         undetermined_struct->members[1].type,
                         undetermined_struct_value->members[1],
-                        {
+                        heapify<Integer>({
                             info.address_integer_size,
                             false
-                        },
+                        }),
                         true
                     );
 
@@ -920,7 +505,7 @@ static Result<ConstantValue*> coerce_constant_to_type(
     return { false };
 }
 
-static Result<TypedConstantValue> evaluate_constant_index(
+Result<TypedConstantValue> evaluate_constant_index(
     GlobalInfo info,
     ConstantScope scope,
     Type *type,
@@ -935,10 +520,10 @@ static Result<TypedConstantValue> evaluate_constant_index(
         index_range,
         index_type,
         index_value,
-        {
+        heapify<Integer>({
             info.address_integer_size,
             false
-        },
+        }),
         false
     ));
 
@@ -966,7 +551,7 @@ static Result<TypedConstantValue> evaluate_constant_index(
     }
 }
 
-static Result<Type*> determine_binary_operation_type(ConstantScope scope, FileRange range, Type *left, Type *right) {
+Result<Type*> determine_binary_operation_type(ConstantScope scope, FileRange range, Type *left, Type *right) {
     if(left->kind == TypeKind::Boolean || right->kind == TypeKind::Boolean) {
         return {
             true,
@@ -1056,7 +641,7 @@ static Result<Type*> determine_binary_operation_type(ConstantScope scope, FileRa
     }
 }
 
-static Result<TypedConstantValue> evaluate_constant_binary_operation(
+Result<TypedConstantValue> evaluate_constant_binary_operation(
     GlobalInfo info,
     ConstantScope scope,
     FileRange range,
@@ -1594,7 +1179,7 @@ static Result<TypedConstantValue> evaluate_constant_binary_operation(
     }
 }
 
-static Result<ConstantValue*> evaluate_constant_cast(
+Result<ConstantValue*> evaluate_constant_cast(
     GlobalInfo info,
     ConstantScope scope,
     Type *type,
@@ -2012,7 +1597,7 @@ static Result<ConstantValue*> evaluate_constant_cast(
     }
 }
 
-static Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope scope, FileRange range, Type *type) {
+Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope scope, FileRange range, Type *type) {
     if(type->kind == TypeKind::UndeterminedInteger) {
         return {
             true,
@@ -2040,7 +1625,7 @@ static Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope scope
     }
 }
 
-static bool match_public_declaration(Statement *statement, const char *name) {
+bool match_public_declaration(Statement *statement, const char *name) {
     const char *declaration_name;
     if(statement->kind == StatementKind::FunctionDeclaration) {
         auto function_declaration = (FunctionDeclaration*)statement;
@@ -2061,7 +1646,7 @@ static bool match_public_declaration(Statement *statement, const char *name) {
     return strcmp(declaration_name, name) == 0;
 }
 
-static bool match_declaration(Statement *statement, const char *name) {
+bool match_declaration(Statement *statement, const char *name) {
     const char *declaration_name;
     if(statement->kind == StatementKind::FunctionDeclaration) {
         auto function_declaration = (FunctionDeclaration*)statement;
@@ -2119,26 +1704,10 @@ static Result<DelayedValue<Type*>> get_simple_resolved_struct_definition(
         }
     }
 
-    auto resolve_struct_definition = new ResolveStructDefinition;
-    resolve_struct_definition->done = false;
-    resolve_struct_definition->waiting_for = nullptr;
-    resolve_struct_definition->definition = definition;
-    resolve_struct_definition->parameters = nullptr;
-    resolve_struct_definition->scope = scope;
-
-    append(jobs, (Job*)resolve_struct_definition);
-
-    return {
-        true,
-        {
-            false,
-            {},
-            resolve_struct_definition
-        }
-    };
+    abort();
 }
 
-static Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
+Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope scope,
@@ -2168,7 +1737,7 @@ static Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
                             return {
                                 true,
                                 {
-                                    true,
+                                    false,
                                     {},
                                     resolve_function_declaration
                                 }
@@ -2178,22 +1747,7 @@ static Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
                 }
             }
 
-            auto resolve_function_declaration = new ResolveFunctionDeclaration;
-            resolve_function_declaration->done = false;
-            resolve_function_declaration->waiting_for = nullptr;
-            resolve_function_declaration->declaration = function_declaration;
-            resolve_function_declaration->scope = scope;
-
-            append(jobs, (Job*)resolve_function_declaration);
-
-            return {
-                true,
-                {
-                    false,
-                    {},
-                    resolve_function_declaration
-                }
-            };
+            abort();
         } break;
 
         case StatementKind::ConstantDefinition: {
@@ -2229,22 +1783,7 @@ static Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
                 }
             }
 
-            auto resolve_constant_definition = new ResolveConstantDefinition;
-            resolve_constant_definition->done = false;
-            resolve_constant_definition->waiting_for = nullptr;
-            resolve_constant_definition->definition = constant_definition;
-            resolve_constant_definition->scope = scope;
-
-            append(jobs, (Job*)resolve_constant_definition);
-
-            return {
-                true,
-                {
-                    false,
-                    {},
-                    resolve_constant_definition
-                }
-            };
+            abort();
         } break;
 
         case StatementKind::StructDefinition: {
@@ -2317,28 +1856,14 @@ static Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
                 }
             }
 
-            auto parse_file = new ParseFile;
-            parse_file->done = false;
-            parse_file->waiting_for = nullptr;
-            parse_file->path = import_file_path_absolute;
-
-            append(jobs, (Job*)parse_file);
-
-            return {
-                true,
-                {
-                    false,
-                    {},
-                    parse_file
-                }
-            };
+            abort();
         } break;
 
         default: abort();
     }
 }
 
-static bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b) {
+bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b) {
     switch(type->kind) {
         case TypeKind::FunctionTypeType: {
             auto function_value_a = extract_constant_value(FunctionConstant, a);
@@ -2457,13 +1982,6 @@ static bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b
         default: abort();
     }
 }
-
-static Result<DelayedValue<Type*>> evaluate_type_expression(
-    GlobalInfo info,
-    List<Job*> *jobs,
-    ConstantScope scope,
-    Expression *expression
-);
 
 Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
     GlobalInfo info,
@@ -3273,10 +2791,10 @@ Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
                 array_type->index->range,
                 index_value.type,
                 index_value.value,
-                {
+                heapify<Integer>({
                     info.address_integer_size,
                     false
-                },
+                }),
                 false
             ));
 
@@ -3376,7 +2894,7 @@ Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
     }
 }
 
-static Result<DelayedValue<Type*>> evaluate_type_expression(
+Result<DelayedValue<Type*>> evaluate_type_expression(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope scope,
@@ -3407,6 +2925,7 @@ Result<DelayedValue<TypedConstantValue>> do_resolve_function_declaration(
     FunctionDeclaration *function_declaration,
     ConstantScope scope
 ) {
+    auto is_polymorphic = false;
     for(auto parameter : function_declaration->parameters) {
         if(parameter.is_polymorphic_determiner || parameter.is_constant) {
             return {

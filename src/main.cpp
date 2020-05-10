@@ -12,6 +12,8 @@
 #include "path.h"
 #include "list.h"
 #include "jobs.h"
+#include "generator.h"
+#include "types.h"
 
 static const char *get_default_output_file(const char *os) {
     if(strcmp(os, "windows") == 0) {
@@ -265,25 +267,12 @@ bool cli_entry(Array<const char*> arguments) {
         regsiter_sizes.default_size
     };
 
-    size_t function_count = 0;
-    size_t static_variable_count = 0;
-
     while(true) {
         auto did_work = false;
         for(auto job : jobs) {
             if(!job->done) {
                 if(job->waiting_for != nullptr) {
-                    auto waiting_for = job->waiting_for;
-
-                    auto waiting_for_done = false;
-                    for(auto job : jobs) {
-                        if(job == waiting_for) {
-                            waiting_for_done = job->done;
-                            break;
-                        }
-                    }
-
-                    if(!waiting_for_done) {
+                    if(!job->waiting_for->done) {
                         continue;
                     }
 
@@ -333,6 +322,15 @@ bool cli_entry(Array<const char*> arguments) {
                                         resolve_function_declaration->scope = scope;
 
                                         append(&jobs, (Job*)resolve_function_declaration);
+
+                                        auto generate_function = new GenerateFunction;
+                                        generate_function->done = false;
+                                        generate_function->waiting_for = nullptr;
+                                        generate_function->declaration = function_declaration;
+                                        generate_function->parameters = nullptr;
+                                        generate_function->scope = scope;
+
+                                        append(&jobs, (Job*)generate_function);
                                     }
                                 } break;
 
@@ -364,20 +362,13 @@ bool cli_entry(Array<const char*> arguments) {
                                 case StatementKind::VariableDeclaration: {
                                     auto variable_declaration = (VariableDeclaration*)statement;
 
-                                    StringBuffer name_buffer {};
-                                    string_buffer_append(&name_buffer, "variable_");
-                                    string_buffer_append(&name_buffer, static_variable_count);
-
                                     auto generate_static_variable = new GenerateStaticVariable;
                                     generate_static_variable->done = false;
                                     generate_static_variable->waiting_for = false;
                                     generate_static_variable->declaration = variable_declaration;
-                                    generate_static_variable->name = name_buffer.data;
                                     generate_static_variable->scope = scope;
 
                                     append(&jobs, (Job*)generate_static_variable);
-
-                                    static_variable_count += 1;
                                 } break;
 
                                 case StatementKind::ExpressionStatement:
@@ -495,7 +486,39 @@ bool cli_entry(Array<const char*> arguments) {
                     } break;
 
                     case JobKind::GenerateFunction: {
-                        job->done = true;
+                        auto generate_function = (GenerateFunction*)job;
+
+                        expect(delayed_value, do_generate_function(
+                            info,
+                            &jobs,
+                            generate_function->declaration,
+                            generate_function->parameters,
+                            generate_function->scope
+                        ));
+
+                        if(delayed_value.has_value) {
+                            generate_function->done = true;
+                            generate_function->function = delayed_value.value.function;
+                            generate_function->static_constants = delayed_value.value.static_constants;
+
+                            if(print_ir) {
+                                auto current_scope = generate_function->scope;
+                                while(!current_scope.is_top_level) {
+                                    current_scope = *current_scope.parent;
+                                }
+
+                                printf("%s:\n", current_scope.file_path);
+                                print_static(delayed_value.value.function);
+                                printf("\n");
+
+                                for(auto static_constant : delayed_value.value.static_constants) {
+                                    print_static(static_constant);
+                                    printf("\n");
+                                }
+                            }
+                        } else {
+                            generate_function->waiting_for = delayed_value.waiting_for;
+                        }
                     } break;
 
                     case JobKind::GenerateStaticVariable: {

@@ -42,11 +42,14 @@ set(sources
     src/register_size.h
     src/register_size.cpp
 
+    src/types.h
+    src/types.cpp
+
     src/constant.h
     src/constant.cpp
 
-    src/c_backend.h
-    src/c_backend.cpp
+    src/generator.h
+    src/generator.cpp
 
     src/main.cpp
 )
