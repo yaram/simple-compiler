@@ -6,7 +6,25 @@
 #include <memory.h>
 #include "platform.h"
 
-#define enter_function_region() enter_region(__FUNCTION__)
+#define static_profiled_function(return_type, name, parameters, parameter_names) \
+    inline return_type __##name##_internal##parameters; \
+    static return_type name##parameters{ \
+        enter_region(__FUNCTION__); \
+        return_type result = __##name##_internal##parameter_names; \
+        leave_region(); \
+        return result; \
+    } \
+    inline return_type __##name##_internal##parameters
+
+#define profiled_function(return_type, name, parameters, parameter_names) \
+    inline return_type __##name##_internal##parameters; \
+    return_type name##parameters{ \
+        enter_region(__FUNCTION__); \
+        return_type result = __##name##_internal##parameter_names; \
+        leave_region(); \
+        return result; \
+    } \
+    inline return_type __##name##_internal##parameters
 
 extern uint8_t *profiler_buffer_pointer;
 
@@ -60,9 +78,10 @@ inline void leave_region() {
 
 #else
 
-#define enter_region()
-#define enter_function_region()
+#define static_profiled_function(return_type, name, parameters, parameter_names) static return_type name##parameters
+#define profiled_function(return_type, name, parameters, parameter_names) return_type name##parameters
 
+#define enter_region(name)
 #define leave_region()
 
 #endif

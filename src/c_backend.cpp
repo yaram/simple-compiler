@@ -92,16 +92,21 @@ static bool generate_function_signature(StringBuffer *source, Function function)
     return true;
 }
 
-bool generate_c_object(
+profiled_function(bool, generate_c_object,(
     Array<RuntimeStatic*> statics,
     const char *architecture,
     const char *os,
     const char *config,
     const char *output_directory,
     const char *output_name
-) {
-    enter_function_region();
-
+), (
+    statics,
+    architecture,
+    os,
+    config,
+    output_directory,
+    output_name
+)) {
     StringBuffer forward_declaration_source {};
     StringBuffer implementation_source {};
 
@@ -863,8 +868,6 @@ bool generate_c_object(
     if(system(command_buffer.data) != 0) {
         return false;
     }
-
-    leave_region();
 
     leave_region();
 
