@@ -3731,7 +3731,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                             break;
                         } else {
                             return {
-                                false,
+                                true,
                                 {
                                     false,
                                     {},
@@ -4042,7 +4042,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                                 break;
                             } else {
                                 return {
-                                    false,
+                                    true,
                                     {
                                         false,
                                         {},
@@ -6349,4 +6349,162 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
             }
         }
     };
+}
+
+Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    VariableDeclaration *declaration,
+    ConstantScope scope
+) {
+    if(declaration->is_external) {
+        expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));
+
+        if(!is_runtime_type(type)) {
+            error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
+
+            return { false };
+        }
+
+        auto size = get_type_size(info, type);
+        auto alignment = get_type_alignment(info, type);
+
+        auto static_variable = new StaticVariable;
+        static_variable->name = declaration->name.text;
+        static_variable->scope = scope;
+        static_variable->size = size;
+        static_variable->alignment = alignment;
+        static_variable->is_external = true;
+
+        return {
+            true,
+            {
+                true,
+                {
+                    static_variable,
+                    type
+                }
+            }
+        };
+    } else {
+        if(declaration->type != nullptr && declaration->initializer != nullptr) {
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));
+
+            if(!is_runtime_type(type)) {
+                error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
+
+                return { false };
+            }
+
+            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, declaration->initializer));
+
+            expect(coerced_initial_value, coerce_constant_to_type(
+                info,
+                scope,
+                declaration->initializer->range,
+                initial_value.type,
+                initial_value.value,
+                type,
+                false
+            ));
+
+            auto size = get_type_size(info, type);
+            auto alignment = get_type_alignment(info, type);
+
+            auto data = allocate<uint8_t>(size);
+
+            write_value(info, data, 0, type, coerced_initial_value);
+
+            auto static_variable = new StaticVariable;
+            static_variable->name = declaration->name.text;
+            static_variable->scope = scope;
+            static_variable->size = size;
+            static_variable->alignment = alignment;
+            static_variable->is_no_mangle = declaration->is_no_mangle;
+            static_variable->is_external = false;
+            static_variable->has_initial_data = true;
+            static_variable->initial_data = data;
+
+            return {
+                true,
+                {
+                    true,
+                    {
+                        static_variable,
+                        type
+                    }
+                }
+            };
+        } else if(declaration->type != nullptr) {
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));
+
+            if(!is_runtime_type(type)) {
+                error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
+
+                return { false };
+            }
+
+            auto size = get_type_size(info, type);
+            auto alignment = get_type_alignment(info, type);
+
+            auto static_variable = new StaticVariable;
+            static_variable->name = declaration->name.text;
+            static_variable->scope = scope;
+            static_variable->size = size;
+            static_variable->alignment = alignment;
+            static_variable->is_no_mangle = declaration->is_no_mangle;
+            static_variable->is_external = false;
+
+            return {
+                true,
+                {
+                    true,
+                    {
+                        static_variable,
+                        type
+                    }
+                }
+            };
+        } else if(declaration->initializer != nullptr) {
+            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, declaration->initializer));
+
+            expect(type, coerce_to_default_type(info, scope, declaration->initializer->range, initial_value.type));
+
+            if(!is_runtime_type(type)) {
+                error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
+
+                return { false };
+            }
+
+            auto size = get_type_size(info, type);
+            auto alignment = get_type_alignment(info, type);
+
+            auto data = allocate<uint8_t>(size);
+
+            write_value(info, data, 0, type, initial_value.value);
+
+            auto static_variable = new StaticVariable;
+            static_variable->name = declaration->name.text;
+            static_variable->scope = scope;
+            static_variable->size = size;
+            static_variable->alignment = alignment;
+            static_variable->is_no_mangle = declaration->is_no_mangle;
+            static_variable->is_external = false;
+            static_variable->has_initial_data = true;
+            static_variable->initial_data = data;
+
+            return {
+                true,
+                {
+                    true,
+                    {
+                        static_variable,
+                        type
+                    }
+                }
+            };
+        } else {
+            abort();
+        }
+    }
 }

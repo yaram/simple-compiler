@@ -350,6 +350,8 @@ struct StaticVariable : RuntimeStatic {
 
     size_t alignment;
 
+    bool is_no_mangle;
+
     bool is_external;
 
     bool has_initial_data;

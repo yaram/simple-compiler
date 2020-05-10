@@ -522,7 +522,33 @@ bool cli_entry(Array<const char*> arguments) {
                     } break;
 
                     case JobKind::GenerateStaticVariable: {
-                        job->done = true;
+                        auto generate_static_variable = (GenerateStaticVariable*)job;
+
+                        expect(delayed_value, do_generate_static_variable(
+                            info,
+                            &jobs,
+                            generate_static_variable->declaration,
+                            generate_static_variable->scope
+                        ));
+
+                        if(delayed_value.has_value) {
+                            generate_static_variable->done = true;
+                            generate_static_variable->static_variable = delayed_value.value.static_variable;
+                            generate_static_variable->type = delayed_value.value.type;
+
+                            if(print_ir) {
+                                auto current_scope = generate_static_variable->scope;
+                                while(!current_scope.is_top_level) {
+                                    current_scope = *current_scope.parent;
+                                }
+
+                                printf("%s:\n", current_scope.file_path);
+                                print_static(delayed_value.value.static_variable);
+                                printf("\n");
+                            }
+                        } else {
+                            generate_static_variable->waiting_for = delayed_value.waiting_for;
+                        }
                     } break;
 
                     default: abort();

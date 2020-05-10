@@ -79,7 +79,6 @@ struct GenerateStaticVariable : Job {
 
     StaticVariable *static_variable;
     Type *type;
-    Array<StaticConstant*> static_constants;
 
     GenerateStaticVariable() : Job { JobKind::GenerateStaticVariable } {}
 };
