@@ -302,6 +302,7 @@ static StaticConstant *register_static_array_constant(
     GlobalInfo info,
     ConstantScope scope,
     GenerationContext *context,
+    FileRange range,
     Type* element_type,
     Array<ConstantValue*> elements
 ) {
@@ -312,6 +313,8 @@ static StaticConstant *register_static_array_constant(
 
     auto constant = new StaticConstant;
     constant->name = "array_constant";
+    constant->is_no_mangle = false;
+    constant->range = range;
     constant->scope = scope;
     constant->data = {
         data_length,
@@ -328,6 +331,7 @@ static StaticConstant *register_struct_constant(
     GlobalInfo info,
     ConstantScope scope,
     GenerationContext *context,
+    FileRange range,
     StructType struct_type,
     ConstantValue **members
 ) {
@@ -338,6 +342,8 @@ static StaticConstant *register_struct_constant(
 
     auto constant = new StaticConstant;
     constant->name = "struct_constant";
+    constant->is_no_mangle = false;
+    constant->range = range;
     constant->scope = scope;
     constant->data = {
         data_length,
@@ -1116,6 +1122,7 @@ static Result<size_t> coerce_to_type_register(
                         info,
                         scope,
                         context,
+                        range,
                         static_array->element_type,
                         { static_array->length, static_array_value->elements }
                     );
@@ -1498,7 +1505,6 @@ static bool coerce_to_type_write(
                 size_t source_address_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
                     auto array_value = extract_constant_value(ArrayConstant, value);
-;
 
                     auto pointer_register = append_integer_constant(
                         context,
@@ -1566,6 +1572,7 @@ static bool coerce_to_type_write(
                         info,
                         scope,
                         context,
+                        range,
                         static_array->element_type,
                         { static_array->length, static_array_value->elements }
                     );
@@ -1681,6 +1688,7 @@ static bool coerce_to_type_write(
                         info,
                         scope,
                         context,
+                        range,
                         static_array->element_type,
                         { static_array->length, static_array_value->elements }
                     );
@@ -1740,6 +1748,7 @@ static bool coerce_to_type_write(
                             info,
                             scope,
                             context,
+                            range,
                             *struct_type,
                             struct_value->members
                         );
@@ -2854,6 +2863,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                     info,
                     scope,
                     context,
+                    index_reference->expression->range,
                     static_array->element_type,
                     { static_array->length, static_array_value->elements }
                 );
@@ -3119,6 +3129,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                         info,
                         scope,
                         context,
+                        member_reference->expression->range,
                         static_array->element_type,
                         { static_array->length, static_array_value->elements }
                     );
@@ -6190,24 +6201,13 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
         };
     }
 
-    /*
-    Array<Parameter> parameters;
-
-    bool has_return;
-    RegisterSize return_size;
-    bool is_return_float;
-
-    bool is_external;
-
-    Array<Instruction*> instructions;
-    */
-
     auto ir_function = new Function;
     ir_function->name = declaration->name.text;
+    ir_function->is_no_mangle = declaration->is_no_mangle || declaration->is_external;
+    ir_function->range = declaration->range;
     ir_function->scope = scope;
     ir_function->parameters = { ir_parameter_count, ir_parameters };
     ir_function->has_return = return_type->kind != TypeKind::Void;
-    ir_function->is_no_mangle = declaration->is_no_mangle;
     ir_function->is_external = declaration->is_external;
 
     if(return_type->kind != TypeKind::Void && return_representation.is_in_register) {
@@ -6218,6 +6218,7 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
     Array<StaticConstant*> static_constants;
     if(declaration->is_external) {
         static_constants = {};
+        ir_function->libraries = declaration->external_libraries;
     } else {
         GenerationContext context {};
 
@@ -6371,6 +6372,8 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
 
         auto static_variable = new StaticVariable;
         static_variable->name = declaration->name.text;
+        static_variable->is_no_mangle = true;
+        static_variable->range = declaration->range;
         static_variable->scope = scope;
         static_variable->size = size;
         static_variable->alignment = alignment;
@@ -6417,10 +6420,10 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
 
             auto static_variable = new StaticVariable;
             static_variable->name = declaration->name.text;
+            static_variable->is_no_mangle = declaration->is_no_mangle;
             static_variable->scope = scope;
             static_variable->size = size;
             static_variable->alignment = alignment;
-            static_variable->is_no_mangle = declaration->is_no_mangle;
             static_variable->is_external = false;
             static_variable->has_initial_data = true;
             static_variable->initial_data = data;

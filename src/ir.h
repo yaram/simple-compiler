@@ -312,6 +312,9 @@ struct RuntimeStatic {
     RuntimeStaticKind kind;
 
     const char *name;
+    bool is_no_mangle;
+
+    FileRange range;
     ConstantScope scope;
 };
 
@@ -328,11 +331,11 @@ struct Function : RuntimeStatic {
     RegisterSize return_size;
     bool is_return_float;
 
-    bool is_no_mangle;
-
     bool is_external;
 
     Array<Instruction*> instructions;
+
+    Array<const char*> libraries;
 
     Function() : RuntimeStatic { RuntimeStaticKind::Function } {}
 };
@@ -349,8 +352,6 @@ struct StaticVariable : RuntimeStatic {
     size_t size;
 
     size_t alignment;
-
-    bool is_no_mangle;
 
     bool is_external;
 

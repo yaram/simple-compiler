@@ -65,8 +65,6 @@ inline void append_builtin(List<GlobalConstant> *global_constants, const char *n
 bool cli_entry(Array<const char*> arguments) {
     enter_function_region();
 
-    auto start_time = get_timer_counts();
-
     const char *source_file_path = nullptr;
     const char *output_file_path = nullptr;
 
@@ -266,6 +264,9 @@ bool cli_entry(Array<const char*> arguments) {
         regsiter_sizes.address_size,
         regsiter_sizes.default_size
     };
+
+    List<RuntimeStatic*> runtime_statics {};
+    List<const char*> libraries {};
 
     while(true) {
         auto did_work = false;
@@ -501,6 +502,28 @@ bool cli_entry(Array<const char*> arguments) {
                             generate_function->function = delayed_value.value.function;
                             generate_function->static_constants = delayed_value.value.static_constants;
 
+                            append(&runtime_statics, (RuntimeStatic*)delayed_value.value.function);
+
+                            for(auto static_constant : delayed_value.value.static_constants) {
+                                append(&runtime_statics, (RuntimeStatic*)static_constant);
+                            }
+
+                            if(delayed_value.value.function->is_external) {
+                                for(auto library : delayed_value.value.function->libraries) {
+                                    auto already_registered = false;
+                                    for(auto registered_library : libraries) {
+                                        if(strcmp(registered_library, library) == 0) {
+                                            already_registered = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if(!already_registered) {
+                                        append(&libraries, library);
+                                    }
+                                }
+                            }
+
                             if(print_ir) {
                                 auto current_scope = generate_function->scope;
                                 while(!current_scope.is_top_level) {
@@ -535,6 +558,8 @@ bool cli_entry(Array<const char*> arguments) {
                             generate_static_variable->done = true;
                             generate_static_variable->static_variable = delayed_value.value.static_variable;
                             generate_static_variable->type = delayed_value.value.type;
+
+                            append(&runtime_statics, (RuntimeStatic*)delayed_value.value.static_variable);
 
                             if(print_ir) {
                                 auto current_scope = generate_static_variable->scope;
@@ -575,6 +600,81 @@ bool cli_entry(Array<const char*> arguments) {
         fprintf(stderr, "Error: Circular dependency detected\n");
 
         return false;
+    }
+
+    const char *output_file_name;
+    {
+        auto full_name = path_get_file_component(output_file_path);
+
+        auto dot_pointer = strchr(full_name, '.');
+
+        if(dot_pointer == nullptr) {
+            output_file_name = full_name;
+        } else {
+            auto length = (size_t)dot_pointer - (size_t)full_name;
+
+            if(length == 0) {
+                output_file_name = "out";
+            } else {
+                auto buffer = allocate<char>(length + 1);
+
+                memcpy(buffer, full_name, length);
+                buffer[length] = 0;
+
+                output_file_name = buffer;
+            }
+        }
+    }
+
+    auto output_file_directory = path_get_directory_component(output_file_path);
+
+    generate_c_object(to_array(runtime_statics), architecture, os, config, output_file_directory, output_file_name);
+
+    {
+        StringBuffer buffer {};
+
+        const char *linker_options;
+        if(strcmp(os, "windows") == 0) {
+            if(strcmp(config, "debug") == 0) {
+                linker_options = "/entry:main,/DEBUG";
+            } else if(strcmp(config, "release") == 0) {
+                linker_options = "/entry:main";
+            } else {
+                abort();
+            }
+        } else {
+            linker_options = "--entry=main";
+        }
+
+        auto triple = get_llvm_triple(architecture, os);
+
+        string_buffer_append(&buffer, "clang -nostdlib -fuse-ld=lld -target ");
+
+        string_buffer_append(&buffer, triple);
+
+        string_buffer_append(&buffer, " -Wl,");
+        string_buffer_append(&buffer, linker_options);
+
+        string_buffer_append(&buffer, " -o");
+        string_buffer_append(&buffer, output_file_path);
+        
+        for(auto library : libraries) {
+            string_buffer_append(&buffer, " -l");
+            string_buffer_append(&buffer, library);
+        }
+
+        string_buffer_append(&buffer, " ");
+        string_buffer_append(&buffer, output_file_directory);
+        string_buffer_append(&buffer, output_file_name);
+        string_buffer_append(&buffer, ".o");
+
+        enter_region("linker");
+
+        if(system(buffer.data) != 0) {
+            return false;
+        }
+
+        leave_region();
     }
 
     leave_region();

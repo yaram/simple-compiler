@@ -53,7 +53,7 @@ static void generate_float_type(StringBuffer *source, RegisterSize size) {
     }
 }
 
-static bool generate_function_signature(StringBuffer *source, Function function) {
+static bool generate_function_signature(StringBuffer *source, const char *name, Function function) {
     if(function.has_return) {
         if(function.is_return_float) {
             generate_float_type(source, function.return_size);
@@ -66,7 +66,7 @@ static bool generate_function_signature(StringBuffer *source, Function function)
 
     string_buffer_append(source, " ");
 
-    string_buffer_append(source, function.name);
+    string_buffer_append(source, name);
 
     string_buffer_append(source, "(");
     
@@ -102,34 +102,132 @@ bool generate_c_object(
 ) {
     enter_function_region();
 
+    struct NameMapping {
+        RuntimeStatic *runtime_static;
+
+        const char *name;
+    };
+
+    List<NameMapping> name_mappings {};
+
+    for(auto runtime_static : statics) {
+        if(runtime_static->is_no_mangle) {
+            for(auto name_mapping : name_mappings) {
+                if(strcmp(name_mapping.name, runtime_static->name) == 0) {
+                    error(runtime_static->scope, runtime_static->range, "Conflicting no_mangle name '%s'", name_mapping.name);
+                    error(name_mapping.runtime_static->scope, name_mapping.runtime_static->range, "Conflicing declaration here");
+
+                    return false;
+                }
+            }
+
+            append(&name_mappings, {
+                runtime_static,
+                runtime_static->name
+            });
+        }
+    }
+
+    for(auto runtime_static : statics) {
+        if(!runtime_static->is_no_mangle) {
+            StringBuffer name_buffer {};
+
+            size_t number = 0;
+            while(true) {
+                string_buffer_append(&name_buffer, runtime_static->name);
+                if(number != 0) {
+                    string_buffer_append(&name_buffer, "_");
+                    string_buffer_append(&name_buffer, number);
+                }
+
+                auto name_taken = false;
+                for(auto name_mapping : name_mappings) {
+                    if(strcmp(name_mapping.name, name_buffer.data) == 0) {
+                        name_taken = true;
+                        break;
+                    }
+                }
+
+                if(name_taken) {
+                    name_buffer.length = 0;
+                    number += 1;
+                } else {
+                    append(&name_mappings, {
+                        runtime_static,
+                        name_buffer.data
+                    });
+
+                    break;
+                }
+            }
+        }
+    }
+
+    assert(name_mappings.count == statics.count);
+
     StringBuffer forward_declaration_source {};
     StringBuffer implementation_source {};
 
     auto register_sizes = get_register_sizes(architecture);
 
     for(auto runtime_static : statics) {
+        const char *file_path;
+        {
+            auto current_scope = runtime_static->scope;
+            while(!current_scope.is_top_level) {
+                current_scope = *current_scope.parent;
+            }
+            file_path = current_scope.file_path;
+        }
+
+        string_buffer_append(&forward_declaration_source, "#line ");
+        string_buffer_append(&forward_declaration_source, runtime_static->range.first_line);
+        string_buffer_append(&forward_declaration_source, " \"");
+        for(size_t i = 0; i < strlen(file_path); i += 1) {
+            auto character = file_path[i];
+
+            if(character == '\\') {
+                string_buffer_append(&forward_declaration_source, "\\\\");
+            } else {
+                string_buffer_append_character(&forward_declaration_source, character);
+            }
+        }
+        string_buffer_append(&forward_declaration_source, "\"\n");
+
+        string_buffer_append(&implementation_source, "#line ");
+        string_buffer_append(&implementation_source, runtime_static->range.first_line);
+        string_buffer_append(&implementation_source, " \"");
+        for(size_t i = 0; i < strlen(file_path); i += 1) {
+            auto character = file_path[i];
+
+            if(character == '\\') {
+                string_buffer_append(&implementation_source, "\\\\");
+            } else {
+                string_buffer_append_character(&implementation_source, character);
+            }
+        }
+        string_buffer_append(&implementation_source, "\"\n");
+
+        auto found = false;
+        const char *name;
+        for(auto name_mapping : name_mappings) {
+            if(name_mapping.runtime_static == runtime_static) {
+                found = true;
+                name = name_mapping.name;
+                break;
+            }
+        }
+
+        assert(found);
+
         if(runtime_static->kind == RuntimeStaticKind::Function) {
             auto function = (Function*)runtime_static;
 
-            generate_function_signature(&forward_declaration_source, *function);
+            generate_function_signature(&forward_declaration_source, name, *function);
             string_buffer_append(&forward_declaration_source, ";\n");
 
             if(!function->is_external) {
-                string_buffer_append(&implementation_source, "#line ");
-                string_buffer_append(&implementation_source, function->line);
-                string_buffer_append(&implementation_source, " \"");
-                for(size_t i = 0; i < strlen(function->file); i += 1) {
-                    auto character = function->file[i];
-
-                    if(character == '\\') {
-                        string_buffer_append(&implementation_source, "\\\\");
-                    } else {
-                        string_buffer_append_character(&implementation_source, character);
-                    }
-                }
-                string_buffer_append(&implementation_source, "\"\n");
-
-                generate_function_signature(&implementation_source, *function);
+                generate_function_signature(&implementation_source, name, *function);
 
                 string_buffer_append(&implementation_source, "{\n");
 
@@ -137,10 +235,11 @@ bool generate_c_object(
                     auto instruction = function->instructions[i];
 
                     string_buffer_append(&implementation_source, "#line ");
-                    string_buffer_append(&implementation_source, instruction->line);
+                    string_buffer_append(&implementation_source, instruction->range.first_line);
                     string_buffer_append(&implementation_source, "\n");
 
-                    string_buffer_append(&implementation_source, function->name);
+                    string_buffer_append(&implementation_source, "__goto_");
+                    string_buffer_append(&implementation_source, name);
                     string_buffer_append(&implementation_source, "_");
                     string_buffer_append(&implementation_source, i);
                     string_buffer_append(&implementation_source, ":;");
@@ -497,8 +596,8 @@ bool generate_c_object(
                     } else if(instruction->kind == InstructionKind::Jump) {
                         auto jump = (Jump*)instruction;
 
-                        string_buffer_append(&implementation_source, "goto ");
-                        string_buffer_append(&implementation_source, function->name);
+                        string_buffer_append(&implementation_source, "goto __goto_");
+                        string_buffer_append(&implementation_source, name);
                         string_buffer_append(&implementation_source, "_");
                         string_buffer_append(&implementation_source, jump->destination_instruction);
 
@@ -519,8 +618,8 @@ bool generate_c_object(
 
                         string_buffer_append(&implementation_source, "{");
 
-                        string_buffer_append(&implementation_source, "goto ");
-                        string_buffer_append(&implementation_source, function->name);
+                        string_buffer_append(&implementation_source, "goto __goto_");
+                        string_buffer_append(&implementation_source, name);
                         string_buffer_append(&implementation_source, "_");
                         string_buffer_append(&implementation_source, branch->destination_instruction);
                         string_buffer_append(&implementation_source, ";");
@@ -713,8 +812,20 @@ bool generate_c_object(
                         string_buffer_append(&implementation_source, reference_static->destination_register);
                         string_buffer_append(&implementation_source, "=");
 
+                        auto found = false;
+                        const char *name;
+                        for(auto name_mapping : name_mappings) {
+                            if(name_mapping.runtime_static == reference_static->runtime_static) {
+                                found = true;
+                                name = name_mapping.name;
+                                break;
+                            }
+                        }
+
+                        assert(found);
+
                         string_buffer_append(&implementation_source, "&");
-                        string_buffer_append(&implementation_source, reference_static->name);
+                        string_buffer_append(&implementation_source, name);
 
                         string_buffer_append(&implementation_source, ";");
                     } else if(instruction->kind == InstructionKind::CopyMemory) {
@@ -758,7 +869,7 @@ bool generate_c_object(
             string_buffer_append(&forward_declaration_source, " __attribute__((aligned(");
             string_buffer_append(&forward_declaration_source, constant->alignment);
             string_buffer_append(&forward_declaration_source, ")))");
-            string_buffer_append(&forward_declaration_source, constant->name);
+            string_buffer_append(&forward_declaration_source, name);
             string_buffer_append(&forward_declaration_source, "[]");
 
             string_buffer_append(&forward_declaration_source, "=");
@@ -785,7 +896,7 @@ bool generate_c_object(
             string_buffer_append(&forward_declaration_source, " __attribute__((aligned(");
             string_buffer_append(&forward_declaration_source, variable->alignment);
             string_buffer_append(&forward_declaration_source, ")))");
-            string_buffer_append(&forward_declaration_source, variable->name);
+            string_buffer_append(&forward_declaration_source, name);
             string_buffer_append(&forward_declaration_source, "[");
             string_buffer_append(&forward_declaration_source, variable->size);
             string_buffer_append(&forward_declaration_source, "]");
