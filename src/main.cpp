@@ -65,6 +65,8 @@ inline void append_builtin(List<GlobalConstant> *global_constants, const char *n
 bool cli_entry(Array<const char*> arguments) {
     enter_function_region();
 
+    auto start_time = get_timer_counts();
+
     const char *source_file_path = nullptr;
     const char *output_file_path = nullptr;
 
@@ -268,6 +270,9 @@ bool cli_entry(Array<const char*> arguments) {
     List<RuntimeStatic*> runtime_statics {};
     List<const char*> libraries {};
 
+    uint64_t total_parser_time = 0;
+    uint64_t total_generator_time = 0;
+
     while(true) {
         auto did_work = false;
         for(auto job : jobs) {
@@ -283,6 +288,8 @@ bool cli_entry(Array<const char*> arguments) {
                 switch(job->kind) {
                     case JobKind::ParseFile: {
                         auto parse_file = (ParseFile*)job;
+
+                        auto start_time = get_timer_counts();
 
                         expect(tokens, tokenize_source(parse_file->path));
 
@@ -427,10 +434,16 @@ bool cli_entry(Array<const char*> arguments) {
 
                         parse_file->statements = statements;
                         parse_file->done = true;
+
+                        auto end_time = get_timer_counts();
+
+                        total_parser_time += end_time - start_time;
                     } break;
 
                     case JobKind::ResolveFunctionDeclaration: {
                         auto resolve_function_declaration = (ResolveFunctionDeclaration*)job;
+
+                        auto start_time = get_timer_counts();
 
                         expect(delayed_value, do_resolve_function_declaration(
                             info,
@@ -446,10 +459,16 @@ bool cli_entry(Array<const char*> arguments) {
                         } else {
                             resolve_function_declaration->waiting_for = delayed_value.waiting_for;
                         }
+
+                        auto end_time = get_timer_counts();
+
+                        total_generator_time += end_time - start_time;
                     } break;
 
                     case JobKind::ResolveConstantDefinition: {
                         auto resolve_constant_definition = (ResolveConstantDefinition*)job;
+
+                        auto start_time = get_timer_counts();
 
                         expect(delayed_value, evaluate_constant_expression(
                             info,
@@ -465,10 +484,16 @@ bool cli_entry(Array<const char*> arguments) {
                         } else {
                             resolve_constant_definition->waiting_for = delayed_value.waiting_for;
                         }
+
+                        auto end_time = get_timer_counts();
+
+                        total_generator_time += end_time - start_time;
                     } break;
 
                     case JobKind::ResolveStructDefinition: {
                         auto resolve_struct_definition = (ResolveStructDefinition*)job;
+
+                        auto start_time = get_timer_counts();
 
                         expect(delayed_value, do_resolve_struct_definition(
                             info,
@@ -484,10 +509,16 @@ bool cli_entry(Array<const char*> arguments) {
                         } else {
                             resolve_struct_definition->waiting_for = delayed_value.waiting_for;
                         }
+
+                        auto end_time = get_timer_counts();
+
+                        total_generator_time += end_time - start_time;
                     } break;
 
                     case JobKind::GenerateFunction: {
                         auto generate_function = (GenerateFunction*)job;
+
+                        auto start_time = get_timer_counts();
 
                         expect(delayed_value, do_generate_function(
                             info,
@@ -542,10 +573,16 @@ bool cli_entry(Array<const char*> arguments) {
                         } else {
                             generate_function->waiting_for = delayed_value.waiting_for;
                         }
+
+                        auto end_time = get_timer_counts();
+
+                        total_generator_time += end_time - start_time;
                     } break;
 
                     case JobKind::GenerateStaticVariable: {
                         auto generate_static_variable = (GenerateStaticVariable*)job;
+
+                        auto start_time = get_timer_counts();
 
                         expect(delayed_value, do_generate_static_variable(
                             info,
@@ -574,6 +611,10 @@ bool cli_entry(Array<const char*> arguments) {
                         } else {
                             generate_static_variable->waiting_for = delayed_value.waiting_for;
                         }
+
+                        auto end_time = get_timer_counts();
+
+                        total_generator_time += end_time - start_time;
                     } break;
 
                     default: abort();
@@ -628,9 +669,21 @@ bool cli_entry(Array<const char*> arguments) {
 
     auto output_file_directory = path_get_directory_component(output_file_path);
 
-    generate_c_object(to_array(runtime_statics), architecture, os, config, output_file_directory, output_file_name);
-
+    uint64_t backend_time;
     {
+        auto start_time = get_timer_counts();
+
+        generate_c_object(to_array(runtime_statics), architecture, os, config, output_file_directory, output_file_name);
+
+        auto end_time = get_timer_counts();
+
+        backend_time = end_time - start_time;
+    }
+
+    uint64_t linker_time;
+    {
+        auto start_time = get_timer_counts();
+
         StringBuffer buffer {};
 
         const char *linker_options;
@@ -675,7 +728,23 @@ bool cli_entry(Array<const char*> arguments) {
         }
 
         leave_region();
+
+        auto end_time = get_timer_counts();
+
+        linker_time = end_time - start_time;
     }
+
+    auto end_time = get_timer_counts();
+
+    auto total_time = end_time - start_time;
+
+    auto counts_per_second = get_timer_counts_per_second();
+
+    printf("Total time: %.2fms\n", (double)total_time / counts_per_second * 1000);
+    printf("  Parser time: %.2fms\n", (double)total_parser_time / counts_per_second * 1000);
+    printf("  Generator time: %.2fms\n", (double)total_generator_time / counts_per_second * 1000);
+    printf("  C Backend time: %.2fms\n", (double)backend_time / counts_per_second * 1000);
+    printf("  Linker time: %.2fms\n", (double)linker_time / counts_per_second * 1000);
 
     leave_region();
 
