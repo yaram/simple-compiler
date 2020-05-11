@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdarg.h>
 #include <ctype.h>
+#include "profiler.h"
 #include "list.h"
 #include "util.h"
 
@@ -120,11 +121,15 @@ void append_double_character_token(unsigned int line, unsigned int first_charact
     append(tokens, token);
 }
 
-Result<Array<Token>> tokenize_source(const char *path) {
+profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (path)) {
+    enter_region("read source file");
+
     auto file = fopen(path, "rb");
 
     if(file == nullptr) {
         fprintf(stderr, "Error: Unable to read source file at '%s'\n", path);
+
+        leave_region();
 
         return { false };
     }
@@ -140,6 +145,8 @@ Result<Array<Token>> tokenize_source(const char *path) {
     fread(source, 1, length, file);
 
     source[length] = '\0';
+
+    leave_region();
 
     size_t index = 0;
 

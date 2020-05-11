@@ -3104,7 +3104,15 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
     };
 }
 
-bool process_scope(List<Job*> *jobs, ConstantScope *scope, List<ConstantScope*> *child_scopes) {
+profiled_function(bool, process_scope, (
+    List<Job*> *jobs,
+    ConstantScope *scope,
+    List<ConstantScope*> *child_scopes
+), (
+    jobs,
+    scope,
+    child_scopes
+)) {
     for(auto statement : scope->statements) {
         switch(statement->kind) {
             case StatementKind::FunctionDeclaration: {
