@@ -174,10 +174,10 @@ bool generate_c_object(
         const char *file_path;
         {
             auto current_scope = runtime_static->scope;
-            while(!current_scope.is_top_level) {
-                current_scope = *current_scope.parent;
+            while(!current_scope->is_top_level) {
+                current_scope = current_scope->parent;
             }
-            file_path = current_scope.file_path;
+            file_path = current_scope->file_path;
         }
 
         string_buffer_append(&forward_declaration_source, "#line ");

@@ -303,137 +303,18 @@ bool cli_entry(Array<const char*> arguments) {
                             }
                         }
 
-                        ConstantScope scope;
-                        scope.statements = statements;
-                        scope.constant_parameters = {};
-                        scope.is_top_level = true;
-                        scope.file_path = parse_file->path;
+                        auto scope = new ConstantScope;
+                        scope->statements = statements;
+                        scope->constant_parameters = {};
+                        scope->is_top_level = true;
+                        scope->file_path = parse_file->path;
 
-                        for(auto statement : statements) {
-                            switch(statement->kind) {
-                                case StatementKind::FunctionDeclaration: {
-                                    auto function_declaration = (FunctionDeclaration*)statement;
-
-                                    auto is_polymorphic = false;
-                                    for(auto parameter : function_declaration->parameters) {
-                                        if(parameter.is_polymorphic_determiner || parameter.is_constant) {
-                                            is_polymorphic = true;
-                                            break;
-                                        }
-                                    }
-
-                                    if(!is_polymorphic) {
-                                        auto resolve_function_declaration = new ResolveFunctionDeclaration;
-                                        resolve_function_declaration->done = false;
-                                        resolve_function_declaration->waiting_for = nullptr;
-                                        resolve_function_declaration->declaration = function_declaration;
-                                        resolve_function_declaration->scope = scope;
-
-                                        append(&jobs, (Job*)resolve_function_declaration);
-
-                                        auto generate_function = new GenerateFunction;
-                                        generate_function->done = false;
-                                        generate_function->waiting_for = nullptr;
-                                        generate_function->declaration = function_declaration;
-                                        generate_function->parameters = nullptr;
-                                        generate_function->scope = scope;
-
-                                        append(&jobs, (Job*)generate_function);
-                                    }
-                                } break;
-
-                                case StatementKind::ConstantDefinition: {
-                                    auto constant_definition = (ConstantDefinition*)statement;
-
-                                    auto resolve_constant_definition = new ResolveConstantDefinition;
-                                    resolve_constant_definition->done = false;
-                                    resolve_constant_definition->waiting_for = nullptr;
-                                    resolve_constant_definition->definition = constant_definition;
-                                    resolve_constant_definition->scope = scope;
-
-                                    append(&jobs, (Job*)resolve_constant_definition);
-                                } break;
-
-                                case StatementKind::StructDefinition: {
-                                    auto struct_definition = (StructDefinition*)statement;
-
-                                    auto resolve_struct_definition = new ResolveStructDefinition;
-                                    resolve_struct_definition->done = false;
-                                    resolve_struct_definition->waiting_for = nullptr;
-                                    resolve_struct_definition->definition = struct_definition;
-                                    resolve_struct_definition->parameters = nullptr;
-                                    resolve_struct_definition->scope = scope;
-
-                                    append(&jobs, (Job*)resolve_struct_definition);
-                                } break;
-
-                                case StatementKind::VariableDeclaration: {
-                                    auto variable_declaration = (VariableDeclaration*)statement;
-
-                                    auto generate_static_variable = new GenerateStaticVariable;
-                                    generate_static_variable->done = false;
-                                    generate_static_variable->waiting_for = false;
-                                    generate_static_variable->declaration = variable_declaration;
-                                    generate_static_variable->scope = scope;
-
-                                    append(&jobs, (Job*)generate_static_variable);
-                                } break;
-
-                                case StatementKind::ExpressionStatement:
-                                case StatementKind::Assignment:
-                                case StatementKind::BinaryOperationAssignment:
-                                case StatementKind::IfStatement:
-                                case StatementKind::WhileLoop:
-                                case StatementKind::ForLoop:
-                                case StatementKind::ReturnStatement:
-                                case StatementKind::BreakStatement: {
-                                    error(scope, statement->range, "This kind of statement cannot be top-level");
-
-                                    return false;
-                                } break;
-
-                                case StatementKind::Import: {
-                                    auto import = (Import*)statement;
-
-                                    auto source_file_directory = path_get_directory_component(scope.file_path);
-
-                                    StringBuffer import_file_path {};
-
-                                    string_buffer_append(&import_file_path, source_file_directory);
-                                    string_buffer_append(&import_file_path, import->path);
-
-                                    expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
-
-                                    auto job_already_added = false;
-                                    for(auto job : jobs) {
-                                        if(job->kind == JobKind::ParseFile) {
-                                            auto parse_file = (ParseFile*)job;
-
-                                            if(strcmp(parse_file->path, import_file_path_absolute) == 0) {
-                                                job_already_added = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if(!job_already_added) {
-                                        auto parse_file = new ParseFile;
-                                        parse_file->done = false;
-                                        parse_file->waiting_for = nullptr;
-                                        parse_file->path = import_file_path_absolute;
-
-                                        append(&jobs, (Job*)parse_file);
-                                    }
-                                } break;
-
-                                case StatementKind::UsingStatement: break;
-
-                                default: abort();
-                            }
-                        }
-
-                        parse_file->statements = statements;
+                        parse_file->scope = scope;
                         parse_file->done = true;
+
+                        if(!process_scope(&jobs, scope, nullptr)) {
+                            return false;
+                        }
 
                         auto end_time = get_timer_counts();
 
@@ -456,6 +337,21 @@ bool cli_entry(Array<const char*> arguments) {
                             resolve_function_declaration->done = true;
                             resolve_function_declaration->type = delayed_value.value.type;
                             resolve_function_declaration->value = delayed_value.value.value;
+                            resolve_function_declaration->body_scope = delayed_value.value.body_scope;
+                            resolve_function_declaration->child_scopes = delayed_value.value.child_scopes;
+
+                            if(delayed_value.value.type->kind == TypeKind::FunctionTypeType) {
+                                auto generate_function = new GenerateFunction;
+                                generate_function->done = false;
+                                generate_function->waiting_for = nullptr;
+                                generate_function->declaration = resolve_function_declaration->declaration;
+                                generate_function->parameters = nullptr;
+                                generate_function->scope = resolve_function_declaration->scope;
+                                generate_function->body_scope = delayed_value.value.body_scope;
+                                generate_function->child_scopes = delayed_value.value.child_scopes;
+
+                                append(&jobs, (Job*)generate_function);
+                            }
                         } else {
                             resolve_function_declaration->waiting_for = delayed_value.waiting_for;
                         }
@@ -525,7 +421,9 @@ bool cli_entry(Array<const char*> arguments) {
                             &jobs,
                             generate_function->declaration,
                             generate_function->parameters,
-                            generate_function->scope
+                            generate_function->scope,
+                            generate_function->body_scope,
+                            generate_function->child_scopes
                         ));
 
                         if(delayed_value.has_value) {
@@ -557,11 +455,11 @@ bool cli_entry(Array<const char*> arguments) {
 
                             if(print_ir) {
                                 auto current_scope = generate_function->scope;
-                                while(!current_scope.is_top_level) {
-                                    current_scope = *current_scope.parent;
+                                while(!current_scope->is_top_level) {
+                                    current_scope = current_scope->parent;
                                 }
 
-                                printf("%s:\n", current_scope.file_path);
+                                printf("%s:\n", current_scope->file_path);
                                 print_static(delayed_value.value.function);
                                 printf("\n");
 
@@ -600,11 +498,11 @@ bool cli_entry(Array<const char*> arguments) {
 
                             if(print_ir) {
                                 auto current_scope = generate_static_variable->scope;
-                                while(!current_scope.is_top_level) {
-                                    current_scope = *current_scope.parent;
+                                while(!current_scope->is_top_level) {
+                                    current_scope = current_scope->parent;
                                 }
 
-                                printf("%s:\n", current_scope.file_path);
+                                printf("%s:\n", current_scope->file_path);
                                 print_static(delayed_value.value.static_variable);
                                 printf("\n");
                             }

@@ -11,11 +11,11 @@
 
 ConstantValue void_constant_singleton { ConstantValueKind::VoidConstant };
 
-void error(ConstantScope scope, FileRange range, const char *format, ...) {
+void error(ConstantScope *scope, FileRange range, const char *format, ...) {
     va_list arguments;
     va_start(arguments, format);
 
-    auto current_scope = &scope;
+    auto current_scope = scope;
     while(!current_scope->is_top_level) {
         current_scope = current_scope->parent;
     }
@@ -120,7 +120,7 @@ void error(ConstantScope scope, FileRange range, const char *format, ...) {
     va_end(arguments);
 }
 
-bool check_undetermined_integer_to_integer_coercion(ConstantScope scope, FileRange range, Integer *target_type, int64_t value, bool probing) {
+bool check_undetermined_integer_to_integer_coercion(ConstantScope *scope, FileRange range, Integer *target_type, int64_t value, bool probing) {
     bool in_range;
     if(target_type->is_signed) {
         int64_t min;
@@ -195,7 +195,7 @@ bool check_undetermined_integer_to_integer_coercion(ConstantScope scope, FileRan
 }
 
 Result<IntegerConstant*> coerce_constant_to_integer_type(
-    ConstantScope scope,
+    ConstantScope *scope,
     FileRange range,
     Type *type,
     ConstantValue *value,
@@ -239,7 +239,7 @@ Result<IntegerConstant*> coerce_constant_to_integer_type(
 }
 
 static Result<IntegerConstant*> coerce_constant_to_undetermined_integer(
-    ConstantScope scope,
+    ConstantScope *scope,
     FileRange range,
     Type *type,
     ConstantValue *value,
@@ -307,7 +307,7 @@ static Result<IntegerConstant*> coerce_constant_to_undetermined_integer(
 }
 
 static Result<PointerConstant*> coerce_constant_to_pointer_type(
-    ConstantScope scope,
+    ConstantScope *scope,
     FileRange range,
     Type *type,
     ConstantValue *value,
@@ -345,7 +345,7 @@ static Result<PointerConstant*> coerce_constant_to_pointer_type(
 
 Result<ConstantValue*> coerce_constant_to_type(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     FileRange range,
     Type *type,
     ConstantValue *value,
@@ -507,7 +507,7 @@ Result<ConstantValue*> coerce_constant_to_type(
 
 Result<TypedConstantValue> evaluate_constant_index(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     Type *type,
     ConstantValue *value,
     FileRange range,
@@ -551,7 +551,7 @@ Result<TypedConstantValue> evaluate_constant_index(
     }
 }
 
-Result<Type*> determine_binary_operation_type(ConstantScope scope, FileRange range, Type *left, Type *right) {
+Result<Type*> determine_binary_operation_type(ConstantScope *scope, FileRange range, Type *left, Type *right) {
     if(left->kind == TypeKind::Boolean || right->kind == TypeKind::Boolean) {
         return {
             true,
@@ -643,7 +643,7 @@ Result<Type*> determine_binary_operation_type(ConstantScope scope, FileRange ran
 
 Result<TypedConstantValue> evaluate_constant_binary_operation(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     FileRange range,
     BinaryOperation::Operator binary_operator,
     FileRange left_range,
@@ -1181,7 +1181,7 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
 
 Result<ConstantValue*> evaluate_constant_cast(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     Type *type,
     ConstantValue *value,
     FileRange value_range,
@@ -1597,7 +1597,7 @@ Result<ConstantValue*> evaluate_constant_cast(
     }
 }
 
-Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope scope, FileRange range, Type *type) {
+Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope *scope, FileRange range, Type *type) {
     if(type->kind == TypeKind::UndeterminedInteger) {
         return {
             true,
@@ -1674,7 +1674,7 @@ bool match_declaration(Statement *statement, const char *name) {
 static Result<DelayedValue<Type*>> get_simple_resolved_struct_definition(
     GlobalInfo info,
     List<Job*> *jobs,
-    ConstantScope scope,
+    ConstantScope *scope,
     StructDefinition *definition
 ) {
     for(auto job : *jobs) {
@@ -1710,7 +1710,7 @@ static Result<DelayedValue<Type*>> get_simple_resolved_struct_definition(
 Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
-    ConstantScope scope,
+    ConstantScope *scope,
     Statement *declaration
 ) {
     switch(declaration->kind) {
@@ -1809,11 +1809,11 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
             auto import = (Import*)declaration;
 
             auto current_scope = scope;
-            while(!current_scope.is_top_level) {
-                current_scope = *current_scope.parent;
+            while(!current_scope->is_top_level) {
+                current_scope = current_scope->parent;
             }
 
-            auto source_file_directory = path_get_directory_component(current_scope.file_path);
+            auto source_file_directory = path_get_directory_component(current_scope->file_path);
 
             StringBuffer import_file_path {};
 
@@ -1836,8 +1836,7 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
                                     {
                                         &file_module_singleton,
                                         new FileModuleConstant {
-                                            parse_file->path,
-                                            parse_file->statements
+                                            parse_file->scope
                                         }
                                     }
                                 }
@@ -1976,7 +1975,7 @@ bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b) {
             auto file_module_value_a = extract_constant_value(FileModuleConstant, a);
             auto file_module_value_b = extract_constant_value(FileModuleConstant, b);
 
-            return strcmp(file_module_value_a->path, file_module_value_b->path) == 0;
+            return file_module_value_a == file_module_value_b;
         } break;
 
         default: abort();
@@ -1986,7 +1985,7 @@ bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b) {
 Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
     GlobalInfo info,
     List<Job*> *jobs,
-    ConstantScope scope,
+    ConstantScope *scope,
     Expression *expression
 ) {
     if(expression->kind == ExpressionKind::NamedReference) {
@@ -1994,7 +1993,7 @@ Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
 
         auto current_scope = scope;
         while(true) {
-            for(auto statement : current_scope.statements) {
+            for(auto statement : current_scope->statements) {
                 if(match_declaration(statement, named_reference->name.text)) {
                     expect_delayed(value, get_simple_resolved_declaration(info, jobs, current_scope, statement));
 
@@ -2019,15 +2018,9 @@ Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
                     auto file_module = (FileModuleConstant*)expression_value.value;
                     assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
 
-                    for(auto statement : file_module->statements) {
+                    for(auto statement : file_module->scope->statements) {
                         if(match_public_declaration(statement, named_reference->name.text)) {
-                            ConstantScope module_scope;
-                            module_scope.statements = file_module->statements;
-                            module_scope.constant_parameters = {};
-                            module_scope.is_top_level = true;
-                            module_scope.file_path = file_module->path;
-
-                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, module_scope, statement));
+                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module->scope, statement));
 
                             return {
                                 true,
@@ -2041,7 +2034,7 @@ Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
                 }
             }
 
-            for(auto constant_parameter : current_scope.constant_parameters) {
+            for(auto constant_parameter : current_scope->constant_parameters) {
                 if(strcmp(constant_parameter.name, named_reference->name.text) == 0) {
                     return {
                         true,
@@ -2056,10 +2049,10 @@ Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
                 }
             }
 
-            if(current_scope.is_top_level) {
+            if(current_scope->is_top_level) {
                 break;
             } else {
-                current_scope = *current_scope.parent;
+                current_scope = current_scope->parent;
             }
         }
 
@@ -2204,15 +2197,9 @@ Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
             auto file_module_value = (FileModuleConstant*)expression_value.value;
             assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
 
-            for(auto statement : file_module_value->statements) {
+            for(auto statement : file_module_value->scope->statements) {
                 if(match_public_declaration(statement, member_reference->name.text)) {
-                    ConstantScope module_scope;
-                    module_scope.statements = file_module_value->statements;
-                    module_scope.constant_parameters = {};
-                    module_scope.is_top_level = true;
-                    module_scope.file_path = file_module_value->path;
-
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, module_scope, statement));
+                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module_value->scope, statement));
 
                     return {
                         true,
@@ -2897,7 +2884,7 @@ Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
 Result<DelayedValue<Type*>> evaluate_type_expression(
     GlobalInfo info,
     List<Job*> *jobs,
-    ConstantScope scope,
+    ConstantScope *scope,
     Expression *expression
 ) {
     expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, expression));
@@ -2919,11 +2906,11 @@ Result<DelayedValue<Type*>> evaluate_type_expression(
     }
 }
 
-Result<DelayedValue<TypedConstantValue>> do_resolve_function_declaration(
+Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionDeclaration *function_declaration,
-    ConstantScope scope
+    ConstantScope *scope
 ) {
     auto is_polymorphic = false;
     for(auto parameter : function_declaration->parameters) {
@@ -2974,6 +2961,22 @@ Result<DelayedValue<TypedConstantValue>> do_resolve_function_declaration(
         return_type = &void_singleton;
     }
 
+    List<ConstantScope*> child_scopes {};
+    ConstantScope *body_scope;
+    if(function_declaration->is_external) {
+        body_scope = nullptr;
+    } else {
+        body_scope = new ConstantScope;
+        body_scope->statements = function_declaration->statements;
+        body_scope->constant_parameters = {};
+        body_scope->is_top_level = false;
+        body_scope->parent = scope;
+
+        if(!process_scope(jobs, body_scope, &child_scopes)) {
+            return { false };
+        }
+    }
+
     return {
         true,
         {
@@ -2989,7 +2992,9 @@ Result<DelayedValue<TypedConstantValue>> do_resolve_function_declaration(
                 new FunctionConstant {
                     function_declaration,
                     scope
-                }
+                },
+                body_scope,
+                to_array(child_scopes)
             }
         }
     };
@@ -3000,7 +3005,7 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
     List<Job*> *jobs,
     StructDefinition *struct_definition,
     ConstantValue **parameters,
-    ConstantScope scope
+    ConstantScope *scope
 ) {
     auto parameter_count = struct_definition->parameters.count;
 
@@ -3051,7 +3056,7 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
     member_scope.statements = {};
     member_scope.constant_parameters = { parameter_count, constant_parameters };
     member_scope.is_top_level = false;
-    member_scope.parent = heapify(scope);
+    member_scope.parent = scope;
 
     auto member_count = struct_definition->members.count;
 
@@ -3061,14 +3066,14 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
         expect_delayed(member_type, evaluate_type_expression(
             info,
             jobs,
-            member_scope,
+            &member_scope,
             struct_definition->members[i].type
         ));
 
-        expect(actual_member_type, coerce_to_default_type(info, member_scope, struct_definition->members[i].type->range, member_type));
+        expect(actual_member_type, coerce_to_default_type(info, &member_scope, struct_definition->members[i].type->range, member_type));
 
         if(!is_runtime_type(actual_member_type)) {
-            error(member_scope, struct_definition->members[i].type->range, "Struct members cannot be of type '%s'", type_description(actual_member_type));
+            error(&member_scope, struct_definition->members[i].type->range, "Struct members cannot be of type '%s'", type_description(actual_member_type));
 
             return { false };
         }
@@ -3092,4 +3097,197 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
             }
         }
     };
+}
+
+bool process_scope(List<Job*> *jobs, ConstantScope *scope, List<ConstantScope*> *child_scopes) {
+    for(auto statement : scope->statements) {
+        switch(statement->kind) {
+            case StatementKind::FunctionDeclaration: {
+                auto function_declaration = (FunctionDeclaration*)statement;
+
+                auto resolve_function_declaration = new ResolveFunctionDeclaration;
+                resolve_function_declaration->done = false;
+                resolve_function_declaration->waiting_for = nullptr;
+                resolve_function_declaration->declaration = function_declaration;
+                resolve_function_declaration->scope = scope;
+
+                append(jobs, (Job*)resolve_function_declaration);
+            } break;
+
+            case StatementKind::ConstantDefinition: {
+                auto constant_definition = (ConstantDefinition*)statement;
+
+                auto resolve_constant_definition = new ResolveConstantDefinition;
+                resolve_constant_definition->done = false;
+                resolve_constant_definition->waiting_for = nullptr;
+                resolve_constant_definition->definition = constant_definition;
+                resolve_constant_definition->scope = scope;
+
+                append(jobs, (Job*)resolve_constant_definition);
+            } break;
+
+            case StatementKind::StructDefinition: {
+                auto struct_definition = (StructDefinition*)statement;
+
+                auto resolve_struct_definition = new ResolveStructDefinition;
+                resolve_struct_definition->done = false;
+                resolve_struct_definition->waiting_for = nullptr;
+                resolve_struct_definition->definition = struct_definition;
+                resolve_struct_definition->parameters = nullptr;
+                resolve_struct_definition->scope = scope;
+
+                append(jobs, (Job*)resolve_struct_definition);
+            } break;
+
+            case StatementKind::VariableDeclaration: {
+                if(scope->is_top_level) {
+                    auto variable_declaration = (VariableDeclaration*)statement;
+
+                    auto generate_static_variable = new GenerateStaticVariable;
+                    generate_static_variable->done = false;
+                    generate_static_variable->waiting_for = false;
+                    generate_static_variable->declaration = variable_declaration;
+                    generate_static_variable->scope = scope;
+
+                    append(jobs, (Job*)generate_static_variable);
+                }
+            } break;
+
+            case StatementKind::IfStatement: {
+                if(scope->is_top_level) {
+                    error(scope, statement->range, "This kind of statement cannot be top-level");
+
+                    return false;
+                }
+
+                auto if_statement = (IfStatement*)statement;
+
+                auto if_scope = new ConstantScope;
+                if_scope->statements = if_statement->statements;
+                if_scope->constant_parameters = {};
+                if_scope->is_top_level = false;
+                if_scope->parent = scope;
+
+                append(child_scopes, if_scope);
+
+                process_scope(jobs, if_scope, child_scopes);
+
+                for(auto else_if : if_statement->else_ifs) {
+                    auto else_if_scope = new ConstantScope;
+                    else_if_scope->statements = else_if.statements;
+                    else_if_scope->constant_parameters = {};
+                    else_if_scope->is_top_level = false;
+                    else_if_scope->parent = scope;
+
+                    append(child_scopes, else_if_scope);
+
+                    process_scope(jobs, else_if_scope, child_scopes);
+                }
+
+                if(if_statement->else_statements.count != 0) {
+                    auto else_scope = new ConstantScope;
+                    else_scope->statements = if_statement->else_statements;
+                    else_scope->constant_parameters = {};
+                    else_scope->is_top_level = false;
+                    else_scope->parent = scope;
+
+                    append(child_scopes, else_scope);
+
+                    process_scope(jobs, else_scope, child_scopes);
+                }
+            } break;
+
+            case StatementKind::WhileLoop: {
+                if(scope->is_top_level) {
+                    error(scope, statement->range, "This kind of statement cannot be top-level");
+
+                    return false;
+                }
+
+                auto while_loop = (WhileLoop*)statement;
+
+                auto while_scope = new ConstantScope;
+                while_scope->statements = while_loop->statements;
+                while_scope->constant_parameters = {};
+                while_scope->is_top_level = false;
+                while_scope->parent = scope;
+
+                append(child_scopes, while_scope);
+
+                process_scope(jobs, while_scope, child_scopes);
+            } break;
+
+            case StatementKind::ForLoop: {
+                if(scope->is_top_level) {
+                    error(scope, statement->range, "This kind of statement cannot be top-level");
+
+                    return false;
+                }
+
+                auto for_loop = (ForLoop*)statement;
+
+                auto for_scope = new ConstantScope;
+                for_scope->statements = for_loop->statements;
+                for_scope->constant_parameters = {};
+                for_scope->is_top_level = false;
+                for_scope->parent = scope;
+
+                append(child_scopes, for_scope);
+
+                process_scope(jobs, for_scope, child_scopes);
+            } break;
+
+            case StatementKind::ExpressionStatement:
+            case StatementKind::Assignment:
+            case StatementKind::BinaryOperationAssignment:
+            case StatementKind::ReturnStatement:
+            case StatementKind::BreakStatement: {
+                if(scope->is_top_level) {
+                    error(scope, statement->range, "This kind of statement cannot be top-level");
+
+                    return false;
+                }
+            } break;
+
+            case StatementKind::Import: {
+                auto import = (Import*)statement;
+
+                auto source_file_directory = path_get_directory_component(scope->file_path);
+
+                StringBuffer import_file_path {};
+
+                string_buffer_append(&import_file_path, source_file_directory);
+                string_buffer_append(&import_file_path, import->path);
+
+                expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
+
+                auto job_already_added = false;
+                for(auto job : *jobs) {
+                    if(job->kind == JobKind::ParseFile) {
+                        auto parse_file = (ParseFile*)job;
+
+                        if(strcmp(parse_file->path, import_file_path_absolute) == 0) {
+                            job_already_added = true;
+                            break;
+                        }
+                    }
+                }
+
+                if(!job_already_added) {
+                    auto parse_file = new ParseFile;
+                    parse_file->done = false;
+                    parse_file->waiting_for = nullptr;
+                    parse_file->path = import_file_path_absolute;
+
+                    append(jobs, (Job*)parse_file);
+                }
+            } break;
+
+            case StatementKind::UsingStatement: break;
+
+            default: abort();
+        }
+    }
+
+    return true;
 }

@@ -315,7 +315,7 @@ struct RuntimeStatic {
     bool is_no_mangle;
 
     FileRange range;
-    ConstantScope scope;
+    ConstantScope *scope;
 };
 
 struct Function : RuntimeStatic {

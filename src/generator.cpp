@@ -23,7 +23,7 @@ struct Variable {
 };
 
 struct VariableScope {
-    ConstantScope constant_scope;
+    ConstantScope *constant_scope;
 
     List<Variable> variables;
 };
@@ -31,6 +31,9 @@ struct VariableScope {
 struct GenerationContext {
     Type *return_type;
     size_t return_parameter_register;
+
+    Array<ConstantScope*> child_scopes;
+    size_t next_child_scope_index;
 
     bool in_breakable_scope;
     List<Jump*> break_jumps;
@@ -300,7 +303,7 @@ static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *typ
 
 static StaticConstant *register_static_array_constant(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     FileRange range,
     Type* element_type,
@@ -329,7 +332,7 @@ static StaticConstant *register_static_array_constant(
 
 static StaticConstant *register_struct_constant(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     FileRange range,
     StructType struct_type,
@@ -846,7 +849,7 @@ static size_t generate_in_register_pointer_value(GlobalInfo info, GenerationCont
 }
 
 static Result<size_t> coerce_to_integer_register_value(
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
@@ -889,7 +892,7 @@ static Result<size_t> coerce_to_integer_register_value(
 }
 
 static Result<size_t> coerce_to_float_register_value(
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
@@ -955,7 +958,7 @@ static Result<size_t> coerce_to_float_register_value(
 
 static Result<size_t> coerce_to_pointer_register_value(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
@@ -1001,7 +1004,7 @@ static Result<size_t> coerce_to_pointer_register_value(
 
 static bool coerce_to_type_write(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
@@ -1013,7 +1016,7 @@ static bool coerce_to_type_write(
 
 static Result<size_t> coerce_to_type_register(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
@@ -1420,7 +1423,7 @@ static Result<size_t> coerce_to_type_register(
 
 static bool coerce_to_type_write(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
@@ -1894,7 +1897,7 @@ static bool coerce_to_type_write(
 static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
     GlobalInfo info,
     List<Job*> *jobs,
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
     Expression *expression
@@ -1903,7 +1906,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
 static Result<DelayedValue<Type*>> evaluate_type_expression_runtime(
     GlobalInfo info,
     List<Job*> *jobs,
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
     Expression *expression
@@ -1930,7 +1933,7 @@ static Result<DelayedValue<Type*>> evaluate_type_expression_runtime(
 static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
     GlobalInfo info,
     List<Job*> *jobs,
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
@@ -2417,7 +2420,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
 static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
     GlobalInfo info,
     List<Job*> *jobs,
-    ConstantScope scope,
+    ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
     Expression *expression
@@ -2447,7 +2450,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                 }
             }
 
-            for(auto statement : current_scope.constant_scope.statements) {
+            for(auto statement : current_scope.constant_scope->statements) {
                 if(match_declaration(statement, named_reference->name.text)) {
                     expect_delayed(value, get_simple_resolved_declaration(info, jobs, current_scope.constant_scope, statement));
 
@@ -2477,15 +2480,9 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                     auto file_module = (FileModuleConstant*)expression_value.value;
                     assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
 
-                    for(auto statement : file_module->statements) {
+                    for(auto statement : file_module->scope->statements) {
                         if(match_public_declaration(statement, named_reference->name.text)) {
-                            ConstantScope module_scope;
-                            module_scope.statements = file_module->statements;
-                            module_scope.constant_parameters = {};
-                            module_scope.is_top_level = true;
-                            module_scope.file_path = file_module->path;
-
-                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, module_scope, statement));
+                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module->scope, statement));
 
                             return {
                                 true,
@@ -2549,7 +2546,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                 }
             }
 
-            for(auto constant_parameter : current_scope.constant_scope.constant_parameters) {
+            for(auto constant_parameter : current_scope.constant_scope->constant_parameters) {
                 if(strcmp(constant_parameter.name, named_reference->name.text) == 0) {
                     return {
                         true,
@@ -2567,11 +2564,11 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
             }
         }
 
-        assert(!context->variable_scope_stack[0].constant_scope.is_top_level);
+        assert(!context->variable_scope_stack[0].constant_scope->is_top_level);
 
-        auto current_scope = *context->variable_scope_stack[0].constant_scope.parent;
+        auto current_scope = context->variable_scope_stack[0].constant_scope->parent;
         while(true) {
-            for(auto statement : current_scope.statements) {
+            for(auto statement : current_scope->statements) {
                 if(match_declaration(statement, named_reference->name.text)) {
                     expect_delayed(value, get_simple_resolved_declaration(info, jobs, current_scope, statement));
 
@@ -2601,15 +2598,9 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                     auto file_module = (FileModuleConstant*)expression_value.value;
                     assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
 
-                    for(auto statement : file_module->statements) {
+                    for(auto statement : file_module->scope->statements) {
                         if(match_public_declaration(statement, named_reference->name.text)) {
-                            ConstantScope module_scope;
-                            module_scope.statements = file_module->statements;
-                            module_scope.constant_parameters = {};
-                            module_scope.is_top_level = true;
-                            module_scope.file_path = file_module->path;
-
-                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, module_scope, statement));
+                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module->scope, statement));
 
                             return {
                                 true,
@@ -2718,7 +2709,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                 }
             }
 
-            for(auto constant_parameter : current_scope.constant_parameters) {
+            for(auto constant_parameter : current_scope->constant_parameters) {
                 if(strcmp(constant_parameter.name, named_reference->name.text) == 0) {
                     return {
                         true,
@@ -2735,10 +2726,10 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                 }
             }
 
-            if(current_scope.is_top_level) {
+            if(current_scope->is_top_level) {
                 break;
             } else {
-                current_scope = *current_scope.parent;
+                current_scope = current_scope->parent;
             }
         }
 
@@ -3298,15 +3289,9 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
         } else if(actual_type->kind == TypeKind::FileModule) {
             auto file_module_value = extract_constant_value(FileModuleConstant, actual_value);
 
-            for(auto statement : file_module_value->statements) {
+            for(auto statement : file_module_value->scope->statements) {
                 if(match_public_declaration(statement, member_reference->name.text)) {
-                    ConstantScope module_scope;
-                    module_scope.statements = file_module_value->statements;
-                    module_scope.constant_parameters = {};
-                    module_scope.is_top_level = true;
-                    module_scope.file_path = file_module_value->path;
-
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, module_scope, statement));
+                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module_value->scope, statement));
 
                     return {
                         true,
@@ -3849,7 +3834,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
             parameters_scope.statements = {};
             parameters_scope.constant_parameters = to_array(polymorphic_determiners);
             parameters_scope.is_top_level = false;
-            parameters_scope.parent = heapify(function_value->parent);
+            parameters_scope.parent = function_value->parent;
 
             List<ConstantParameter> constant_parameters {};
 
@@ -3863,7 +3848,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
 
                 if(declaration_parameter.is_constant) {
                     if(!declaration_parameter.is_polymorphic_determiner) {
-                        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, parameters_scope, declaration_parameter.type));
+                        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &parameters_scope, declaration_parameter.type));
 
                         parameter_types[i] = parameter_type;
                     }
@@ -3905,7 +3890,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
 
                 if(!declaration_parameter.is_constant) {
                     if(!declaration_parameter.is_polymorphic_determiner) {
-                        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, parameters_scope, declaration_parameter.type));
+                        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &parameters_scope, declaration_parameter.type));
 
                         if(!is_runtime_type(parameter_type)) {
                             error(function_value->parent, call_parameter->range, "Non-constant function parameters cannot be of type '%s'", type_description(parameter_type));
@@ -3926,7 +3911,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
             if(function_value->declaration->return_type) {
                 has_return = true;
 
-                expect_delayed(return_type_value, evaluate_type_expression(info, jobs, parameters_scope, function_value->declaration->return_type));
+                expect_delayed(return_type_value, evaluate_type_expression(info, jobs, &parameters_scope, function_value->declaration->return_type));
 
                 if(!is_runtime_type(return_type_value)) {
                     error(
@@ -4032,7 +4017,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                 if(job->kind == JobKind::GenerateFunction) {
                     auto generate_function = (GenerateFunction*)job;
 
-                    if(generate_function->declaration == function_value->declaration) {
+                    if(generate_function->declaration == function_value->declaration && generate_function->scope == function_value->parent) {
                         assert(generate_function->parameters != nullptr);
 
                         auto same_parameters = true;
@@ -4067,6 +4052,17 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
             }
 
             if(!found) {
+                auto body_scope = new ConstantScope;
+                body_scope->statements = function_value->declaration->statements;
+                body_scope->constant_parameters = to_array(constant_parameters);
+                body_scope->is_top_level = false;
+                body_scope->parent = function_value->parent;
+
+                List<ConstantScope*> child_scopes {};
+                if(!process_scope(jobs, body_scope, &child_scopes)) {
+                    return { false };
+                }
+
                 auto parameters = allocate<TypedConstantValue>(constant_parameters.count);
                 for(size_t i = 0; i < constant_parameters.count; i += 1) {
                     parameters[i] = {
@@ -4081,8 +4077,19 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
                 generate_function->declaration = function_value->declaration;
                 generate_function->parameters = parameters;
                 generate_function->scope = function_value->parent;
+                generate_function->body_scope = body_scope;
+                generate_function->child_scopes = to_array(child_scopes);
 
                 append(jobs, (Job*)generate_function);
+
+                return {
+                    true,
+                    {
+                        false,
+                        {},
+                        generate_function
+                    }
+                };
             }
 
             auto address_register = append_reference_static(context, instructions, function_call->range, runtime_function);
@@ -5306,7 +5313,14 @@ static bool is_statement_declaration(Statement *statement) {
         statement->kind == StatementKind::StructDefinition;
 }
 
-static Result<DelayedValue<void>> generate_statement(GlobalInfo info, List<Job*> *jobs, ConstantScope scope, GenerationContext *context, List<Instruction*> *instructions, Statement *statement) {
+static Result<DelayedValue<void>> generate_statement(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    ConstantScope *scope,
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    Statement *statement
+) {
     if(statement->kind == StatementKind::ExpressionStatement) {
         auto expression_statement = (ExpressionStatement*)statement;
 
@@ -5550,11 +5564,9 @@ static Result<DelayedValue<void>> generate_statement(GlobalInfo info, List<Job*>
 
         append(instructions, (Instruction*)first_jump);
 
-        ConstantScope if_scope;
-        if_scope.statements = if_statement->statements;
-        if_scope.constant_parameters = {};
-        if_scope.is_top_level = false;
-        if_scope.parent = heapify(scope);
+        auto if_scope = context->child_scopes[context->next_child_scope_index];
+        context->next_child_scope_index += 1;
+        assert(context->next_child_scope_index <= context->child_scopes.count);
 
         append(&context->variable_scope_stack, {
             if_scope,
@@ -5608,11 +5620,9 @@ static Result<DelayedValue<void>> generate_statement(GlobalInfo info, List<Job*>
 
             append(instructions, (Instruction*)jump);
 
-            ConstantScope else_if_scope;
-            else_if_scope.statements = if_statement->else_ifs[i].statements;
-            else_if_scope.constant_parameters = {};
-            else_if_scope.is_top_level = false;
-            else_if_scope.parent = heapify(scope);
+            auto else_if_scope = context->child_scopes[context->next_child_scope_index];
+            context->next_child_scope_index += 1;
+            assert(context->next_child_scope_index <= context->child_scopes.count);
 
             append(&context->variable_scope_stack, {
                 else_if_scope,
@@ -5637,24 +5647,24 @@ static Result<DelayedValue<void>> generate_statement(GlobalInfo info, List<Job*>
             jump->destination_instruction = instructions->count;
         }
 
-        ConstantScope else_scope;
-        else_scope.statements = if_statement->else_statements;
-        else_scope.constant_parameters = {};
-        else_scope.is_top_level = false;
-        else_scope.parent = heapify(scope);
+        if(if_statement->else_statements.count != 0) {
+            auto else_scope = context->child_scopes[context->next_child_scope_index];
+            context->next_child_scope_index += 1;
+            assert(context->next_child_scope_index <= context->child_scopes.count);
 
-        append(&context->variable_scope_stack, {
-            else_scope,
-            {}
-        });
+            append(&context->variable_scope_stack, {
+                else_scope,
+                {}
+            });
 
-        for(auto child_statement : if_statement->else_statements) {
-            if(!is_statement_declaration(child_statement)) {
-                expect_delayed_void_both(generate_statement(info, jobs, else_scope, context, instructions, child_statement));
+            for(auto child_statement : if_statement->else_statements) {
+                if(!is_statement_declaration(child_statement)) {
+                    expect_delayed_void_both(generate_statement(info, jobs, else_scope, context, instructions, child_statement));
+                }
             }
-        }
 
-        context->variable_scope_stack.count -= 1;
+            context->variable_scope_stack.count -= 1;
+        }
 
         for(size_t i = 0; i < end_jump_count; i += 1) {
             end_jumps[i]->destination_instruction = instructions->count;
@@ -5700,11 +5710,9 @@ static Result<DelayedValue<void>> generate_statement(GlobalInfo info, List<Job*>
 
         append(instructions, (Instruction*)jump_out);
 
-        ConstantScope while_scope;
-        while_scope.statements = while_loop->statements;
-        while_scope.constant_parameters = {};
-        while_scope.is_top_level = false;
-        while_scope.parent = heapify(scope);
+        auto while_scope = context->child_scopes[context->next_child_scope_index];
+        context->next_child_scope_index += 1;
+        assert(context->next_child_scope_index <= context->child_scopes.count);
 
         append(&context->variable_scope_stack, {
             while_scope,
@@ -5909,14 +5917,12 @@ static Result<DelayedValue<void>> generate_statement(GlobalInfo info, List<Job*>
 
         append(instructions, (Instruction*)branch);
 
-        ConstantScope body_scope;
-        body_scope.statements = for_loop->statements;
-        body_scope.constant_parameters = {};
-        body_scope.is_top_level = false;
-        body_scope.parent = heapify(scope);
+        auto for_scope = context->child_scopes[context->next_child_scope_index];
+        context->next_child_scope_index += 1;
+        assert(context->next_child_scope_index <= context->child_scopes.count);
 
         append(&context->variable_scope_stack, {
-            body_scope,
+            for_scope,
             {}
         });
 
@@ -5932,7 +5938,7 @@ static Result<DelayedValue<void>> generate_statement(GlobalInfo info, List<Job*>
 
         for(auto child_statement : for_loop->statements) {
             if(!is_statement_declaration(child_statement)) {
-                expect_delayed_void_both(generate_statement(info, jobs, body_scope, context, instructions, child_statement));
+                expect_delayed_void_both(generate_statement(info, jobs, for_scope, context, instructions, child_statement));
             }
         }
 
@@ -6063,7 +6069,9 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
     List<Job*> *jobs,
     FunctionDeclaration *declaration,
     TypedConstantValue *parameters,
-    ConstantScope scope
+    ConstantScope *scope,
+    ConstantScope *body_scope,
+    Array<ConstantScope*> child_scopes
 ) {
     GenerationContext context {};
 
@@ -6071,11 +6079,11 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
     {
         auto current_scope = scope;
 
-        while(!scope.is_top_level) {
-            current_scope = *scope.parent;
+        while(!current_scope->is_top_level) {
+            current_scope = scope->parent;
         }
 
-        file_path = current_scope.file_path;
+        file_path = current_scope->file_path;
     }
 
     size_t runtime_parmeter_count = 0;
@@ -6094,7 +6102,7 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
 
     ConstantParameter *constant_parameters;
     if(constant_parameter_count > 0) {
-        auto constant_parameters = allocate<ConstantParameter>(constant_parameter_count);
+        constant_parameters = allocate<ConstantParameter>(constant_parameter_count);
 
         size_t constant_parameter_index = 0;
 
@@ -6131,7 +6139,7 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
     parameters_scope.statements = {};
     parameters_scope.constant_parameters = { constant_parameter_count, constant_parameters };
     parameters_scope.is_top_level = false;
-    parameters_scope.parent = heapify(scope);
+    parameters_scope.parent = scope;
 
     auto ir_parameter_count = runtime_parmeter_count;
 
@@ -6140,7 +6148,7 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
     if(declaration->return_type == nullptr) {
         return_type = &void_singleton;
     } else {
-        expect_delayed(type, evaluate_type_expression(info, jobs, parameters_scope, declaration->return_type));
+        expect_delayed(type, evaluate_type_expression(info, jobs, &parameters_scope, declaration->return_type));
 
         return_representation = get_type_representation(info, type);
 
@@ -6155,15 +6163,15 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
     auto runtime_parameter_types = allocate<Type*>(runtime_parmeter_count);
 
     size_t runtime_parameter_index = 0;
-    size_t polymorphic_determined_index = 0;
+    size_t polymorphic_determiner_index = 0;
 
     for(auto parameter : declaration->parameters) {
         if(!parameter.is_constant)  {
             Type *parameter_type;
             if(parameter.is_polymorphic_determiner) {
-                parameter_type = constant_parameters[polymorphic_determined_index].type;
+                parameter_type = extract_constant_value(TypeConstant, constant_parameters[polymorphic_determiner_index].value)->type;
             } else {
-                expect_delayed(type, evaluate_type_expression(info, jobs, parameters_scope, parameter.type));
+                expect_delayed(type, evaluate_type_expression(info, jobs, &parameters_scope, parameter.type));
 
                 parameter_type = type;
             }
@@ -6188,7 +6196,7 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
         }
 
         if(parameter.is_polymorphic_determiner) {
-            polymorphic_determined_index += 1;
+            polymorphic_determiner_index += 1;
         }
     }
 
@@ -6229,16 +6237,12 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
 
         context.next_register = ir_parameter_count;
 
-        ConstantScope body_scope;
-        body_scope.statements = declaration->statements;
-        body_scope.constant_parameters = { constant_parameter_count, constant_parameters };
-        body_scope.is_top_level = false;
-        body_scope.parent = heapify(scope);
-
         append(&context.variable_scope_stack, {
             body_scope,
             {}
         });
+
+        context.child_scopes = child_scopes;
 
         List<Instruction*> instructions {};
 
@@ -6313,6 +6317,8 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
             }
         }
 
+        assert(context.next_child_scope_index == child_scopes.count);
+
         bool has_return_at_end;
         if(declaration->statements.count > 0) {
             auto last_statement = declaration->statements[declaration->statements.count - 1];
@@ -6356,7 +6362,7 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
     GlobalInfo info,
     List<Job*> *jobs,
     VariableDeclaration *declaration,
-    ConstantScope scope
+    ConstantScope *scope
 ) {
     if(declaration->is_external) {
         expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));

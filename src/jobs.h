@@ -27,24 +27,26 @@ struct Job {
 struct ParseFile : Job {
     const char *path;
 
-    Array<Statement*> statements;
+    ConstantScope *scope;
 
     ParseFile() : Job { JobKind::ParseFile } {}
 };
 
 struct ResolveFunctionDeclaration : Job {
     FunctionDeclaration *declaration;
-    ConstantScope scope;
+    ConstantScope *scope;
 
     Type *type;
     ConstantValue *value;
+    ConstantScope *body_scope;
+    Array<ConstantScope*> child_scopes;
 
     ResolveFunctionDeclaration() : Job { JobKind::ResolveFunctionDeclaration } {}
 };
 
 struct ResolveConstantDefinition : Job {
     ConstantDefinition *definition;
-    ConstantScope scope;
+    ConstantScope *scope;
 
     Type *type;
     ConstantValue *value;
@@ -55,7 +57,7 @@ struct ResolveConstantDefinition : Job {
 struct ResolveStructDefinition : Job {
     StructDefinition *definition;
     ConstantValue **parameters;
-    ConstantScope scope;
+    ConstantScope *scope;
 
     Type *type;
 
@@ -65,7 +67,9 @@ struct ResolveStructDefinition : Job {
 struct GenerateFunction : Job {
     FunctionDeclaration *declaration;
     TypedConstantValue *parameters;
-    ConstantScope scope;
+    ConstantScope *scope;
+    ConstantScope *body_scope;
+    Array<ConstantScope*> child_scopes;
 
     Function *function;
     Array<StaticConstant*> static_constants;
@@ -75,7 +79,7 @@ struct GenerateFunction : Job {
 
 struct GenerateStaticVariable : Job {
     VariableDeclaration *declaration;
-    ConstantScope scope;
+    ConstantScope *scope;
 
     StaticVariable *static_variable;
     Type *type;

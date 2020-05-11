@@ -141,12 +141,12 @@ struct PolymorphicStruct : Type {
 
     Type **parameter_types;
 
-    ConstantScope parent;
+    ConstantScope *parent;
 
     PolymorphicStruct(
         StructDefinition *definition,
         Type **parameter_types,
-        ConstantScope parent
+        ConstantScope *parent
     ) :
         Type { TypeKind::PolymorphicStruct },
         definition { definition },

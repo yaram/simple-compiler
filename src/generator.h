@@ -17,7 +17,9 @@ Result<DelayedValue<GeneratorResult>> do_generate_function(
     List<Job*> *jobs,
     FunctionDeclaration *declaration,
     TypedConstantValue *parameters,
-    ConstantScope scope
+    ConstantScope *scope,
+    ConstantScope *body_scope,
+    Array<ConstantScope*> child_scopes
 );
 
 struct StaticVariableResult {
@@ -30,5 +32,5 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
     GlobalInfo info,
     List<Job*> *jobs,
     VariableDeclaration *declaration,
-    ConstantScope scope
+    ConstantScope *scope
 );

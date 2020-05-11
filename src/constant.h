@@ -69,12 +69,11 @@ extern ConstantValue void_constant_singleton;
 
 struct FunctionConstant : ConstantValue {
     FunctionDeclaration *declaration;
-
-    ConstantScope parent;
+    ConstantScope *parent;
 
     FunctionConstant(
         FunctionDeclaration *declaration,
-        ConstantScope parent
+        ConstantScope *parent
     ) :
     ConstantValue { ConstantValueKind::FunctionConstant },
     declaration { declaration },
@@ -175,17 +174,13 @@ struct StructConstant : ConstantValue {
 };
 
 struct FileModuleConstant : ConstantValue {
-    const char *path;
-
-    Array<Statement*> statements;
+    ConstantScope *scope;
 
     FileModuleConstant(
-        const char *path,
-        Array<Statement*> statements
+        ConstantScope *scope
     ) :
         ConstantValue { ConstantValueKind::FileModuleConstant },
-        path { path },
-        statements { statements }
+        scope { scope }
     {}
 };
 
@@ -237,11 +232,11 @@ struct DelayedValue<void> {
 #define expect_delayed_void_val(expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,{},__##name##_delayed.waiting_for}}
 #define expect_delayed_void_both(expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,__##name##_delayed.waiting_for}}
 
-void error(ConstantScope scope, FileRange range, const char *format, ...);
+void error(ConstantScope *scope, FileRange range, const char *format, ...);
 
-bool check_undetermined_integer_to_integer_coercion(ConstantScope scope, FileRange range, Integer *target_type, int64_t value, bool probing);
+bool check_undetermined_integer_to_integer_coercion(ConstantScope *scope, FileRange range, Integer *target_type, int64_t value, bool probing);
 Result<IntegerConstant*> coerce_constant_to_integer_type(
-    ConstantScope scope,
+    ConstantScope *scope,
     FileRange range,
     Type *type,
     ConstantValue *value,
@@ -250,7 +245,7 @@ Result<IntegerConstant*> coerce_constant_to_integer_type(
 );
 Result<ConstantValue*> coerce_constant_to_type(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     FileRange range,
     Type *type,
     ConstantValue *value,
@@ -259,7 +254,7 @@ Result<ConstantValue*> coerce_constant_to_type(
 );
 Result<TypedConstantValue> evaluate_constant_index(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     Type *type,
     ConstantValue *value,
     FileRange range,
@@ -267,10 +262,10 @@ Result<TypedConstantValue> evaluate_constant_index(
     ConstantValue *index_value,
     FileRange index_range
 );
-Result<Type*> determine_binary_operation_type(ConstantScope scope, FileRange range, Type *left, Type *right);
+Result<Type*> determine_binary_operation_type(ConstantScope *scope, FileRange range, Type *left, Type *right);
 Result<TypedConstantValue> evaluate_constant_binary_operation(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     FileRange range,
     BinaryOperation::Operator binary_operator,
     FileRange left_range,
@@ -282,7 +277,7 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
 );
 Result<ConstantValue*> evaluate_constant_cast(
     GlobalInfo info,
-    ConstantScope scope,
+    ConstantScope *scope,
     Type *type,
     ConstantValue *value,
     FileRange value_range,
@@ -293,16 +288,16 @@ Result<ConstantValue*> evaluate_constant_cast(
 Result<DelayedValue<Type*>> evaluate_type_expression(
     GlobalInfo info,
     List<Job*> *jobs,
-    ConstantScope scope,
+    ConstantScope *scope,
     Expression *expression
 );
-Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope scope, FileRange range, Type *type);
+Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope *scope, FileRange range, Type *type);
 bool match_public_declaration(Statement *statement, const char *name);
 bool match_declaration(Statement *statement, const char *name);
 Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
-    ConstantScope scope,
+    ConstantScope *scope,
     Statement *declaration
 );
 bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b);
@@ -310,15 +305,23 @@ bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b);
 Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
     GlobalInfo info,
     List<Job*> *jobs,
-    ConstantScope scope,
+    ConstantScope *scope,
     Expression *expression
 );
 
-Result<DelayedValue<TypedConstantValue>> do_resolve_function_declaration(
+struct ResolveFunctionDeclarationResult {
+    Type *type;
+    ConstantValue *value;
+
+    ConstantScope *body_scope;
+    Array<ConstantScope*> child_scopes;
+};
+
+Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionDeclaration *function_declaration,
-    ConstantScope scope
+    ConstantScope *parent_scope
 );
 
 Result<DelayedValue<Type*>> do_resolve_struct_definition(
@@ -326,5 +329,7 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
     List<Job*> *jobs,
     StructDefinition *struct_definition,
     ConstantValue **parameters,
-    ConstantScope scope
+    ConstantScope *scope
 );
+
+bool process_scope(List<Job*> *jobs, ConstantScope *scope, List<ConstantScope*> *child_scopes);
