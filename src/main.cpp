@@ -30,9 +30,9 @@ static void print_help_message(FILE *file) {
 
     fprintf(file, "Options:\n");
     fprintf(file, "  -output <output file>  (default: %s) Specify executable file path\n", get_default_output_file(default_os));
+    fprintf(file, "  -config debug|release  (default: debug) Specify build configuration\n");
     fprintf(file, "  -arch x64  (default: %s) Specify CPU architecture to target\n", get_host_architecture());
     fprintf(file, "  -os windows|linux  (default: %s) Specify operating system to target\n", default_os);
-    fprintf(file, "  -config debug|release  (default: debug) Specify build configuration\n");
     fprintf(file, "  -print-ast  Print abstract syntax tree\n");
     fprintf(file, "  -print-ir  Print internal intermediate representation\n");
     fprintf(file, "  -help  Display this help message then exit\n");
