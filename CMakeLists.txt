@@ -8,7 +8,7 @@ set(sources
     src/array.h
     src/list.h
     src/result.h
-    src/register_size.h
+    src/jobs.h
 
     src/profiler.h
 
@@ -38,6 +38,15 @@ set(sources
 
     src/ir.h
     src/ir.cpp
+
+    src/register_size.h
+    src/register_size.cpp
+
+    src/types.h
+    src/types.cpp
+
+    src/constant.h
+    src/constant.cpp
 
     src/generator.h
     src/generator.cpp

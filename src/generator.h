@@ -4,19 +4,33 @@
 #include "ir.h"
 #include "result.h"
 
+struct Job;
+
 struct GeneratorResult {
-    Array<RuntimeStatic*> statics;
+    Function *function;
 
-    Array<const char*> libraries;
-
-    uint64_t generator_time;
-    uint64_t parser_time;
+    Array<StaticConstant*> static_constants;
 };
 
-Result<GeneratorResult> generate_ir(
-    const char *main_file_path,
-    Array<Statement*> main_file_statements,
-    RegisterSize address_size,
-    RegisterSize default_size,
-    bool print_ast
+Result<DelayedValue<GeneratorResult>> do_generate_function(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    FunctionDeclaration *declaration,
+    TypedConstantValue *parameters,
+    ConstantScope *scope,
+    ConstantScope *body_scope,
+    Array<ConstantScope*> child_scopes
+);
+
+struct StaticVariableResult {
+    StaticVariable *static_variable;
+
+    Type *type;
+};
+
+Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    VariableDeclaration *declaration,
+    ConstantScope *scope
 );

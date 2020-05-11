@@ -386,7 +386,7 @@ void print_instruction(Instruction *instruction, bool has_return) {
 
         printf(
             "STATIC %s r%zu",
-            reference_static->name,
+            reference_static->runtime_static->name,
             reference_static->destination_register
         );
     } else {
@@ -396,6 +396,10 @@ void print_instruction(Instruction *instruction, bool has_return) {
 
 void print_static(RuntimeStatic *runtime_static) {
     printf("%s", runtime_static->name);
+
+    if(runtime_static->is_no_mangle) {
+        printf(" (no_mangle)");
+    }
 
     if(runtime_static->kind == RuntimeStaticKind::Function) {
         auto function = (Function*)runtime_static;
