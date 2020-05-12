@@ -302,7 +302,8 @@ enum struct StatementKind {
     ReturnStatement,
     BreakStatement,
     Import,
-    UsingStatement
+    UsingStatement,
+    StaticIf
 };
 
 struct Statement {
@@ -610,6 +611,21 @@ struct UsingStatement : Statement {
     ) :
         Statement { StatementKind::UsingStatement, range },
         module { module }
+    {}
+};
+
+struct StaticIf : Statement {
+    Expression *condition;
+    Array<Statement*> statements;
+
+    StaticIf(
+        FileRange range,
+        Expression *condition,
+        Array<Statement*> statements
+    ) :
+        Statement { StatementKind::StaticIf, range },
+        statements { statements },
+        condition { condition }
     {}
 };
 

@@ -1600,6 +1600,42 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     true,
                     import
                 };
+            } else if(strcmp(token.identifier, "if") == 0) {
+                expect(expression, parse_expression(context, OperatorPrecedence::None));
+
+                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
+                    return { false };
+                }
+
+                List<Statement*> statements{};
+
+                FileRange last_range;
+                while(true) {
+                    expect(token, peek_token(*context));
+
+                    if(token.type == TokenType::CloseCurlyBracket) {
+                        consume_token(context);
+
+                        last_range = token_range(*context, token);
+
+                        break;
+                    } else {
+                        expect(statement, parse_statement(context));
+
+                        append(&statements, statement);
+                    }
+                }
+
+                auto static_if = new StaticIf {
+                    span_range(first_range, last_range),
+                    expression,
+                    to_array(statements)
+                };
+
+                return {
+                    true,
+                    static_if
+                };
             } else {
                 error(*context, "Expected 'import' or 'library', got '%s'", get_token_text(token));
 

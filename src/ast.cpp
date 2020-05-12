@@ -797,6 +797,32 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
 
         printf("UsingStatement: ");
         print_expression_internal(using_statement->module, indentation_level);
+    } else if(statement->kind == StatementKind::StaticIf) {
+        auto static_if = (StaticIf*)statement;
+
+        printf("StaticIf: {\n");
+
+        indent(indentation_level + 1);
+        printf("condition: ");
+        print_expression_internal(static_if->condition, indentation_level + 1);
+        printf("\n");
+
+        indent(indentation_level + 1);
+        printf("statements: [");
+
+        if(static_if->statements.count != 0) {
+            printf("\n");
+
+            for(auto statement : static_if->statements) {
+                indent(indentation_level + 2);
+                print_statement_internal(statement, indentation_level + 2);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
+        }
+
+        printf("}");
     } else {
         abort();
     }
