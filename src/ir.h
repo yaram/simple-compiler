@@ -25,7 +25,7 @@ enum struct InstructionKind {
     StoreInteger,
     LoadFloat,
     StoreFloat,
-    CopyMemory,
+    CopyMemoryInstruction,
     ReferenceStatic
 };
 
@@ -278,7 +278,7 @@ struct StoreFloat : Instruction {
     StoreFloat() : Instruction { InstructionKind::StoreFloat } {}
 };
 
-struct CopyMemory : Instruction {
+struct CopyMemoryInstruction : Instruction {
     size_t length_register;
 
     size_t source_address_register;
@@ -287,7 +287,7 @@ struct CopyMemory : Instruction {
 
     size_t alignment;
 
-    CopyMemory() : Instruction { InstructionKind::CopyMemory } {}
+    CopyMemoryInstruction() : Instruction { InstructionKind::CopyMemoryInstruction } {}
 };
 
 struct RuntimeStatic;

@@ -155,7 +155,7 @@ static void consume_token(Context *context) {
     context->next_token_index += 1;
 }
 
-static bool expect_basic_token(Context *context, TokenType type) {
+static bool expect_basic_token(Context *context, TokenTypeKind type) {
     expect(token, peek_token(*context));
 
     if(token.type != type) {
@@ -172,7 +172,7 @@ static bool expect_basic_token(Context *context, TokenType type) {
     return true;
 }
 
-static Result<FileRange> expect_basic_token_with_range(Context *context, TokenType type) {
+static Result<FileRange> expect_basic_token_with_range(Context *context, TokenTypeKind type) {
     expect(token, peek_token(*context));
 
     if(token.type != type) {
@@ -197,7 +197,7 @@ static Result<FileRange> expect_basic_token_with_range(Context *context, TokenTy
 static Result<Array<char>> expect_string(Context *context) {
     expect(token, peek_token(*context));
 
-    if(token.type != TokenType::String) {
+    if(token.type != TokenTypeKind::String) {
         error(*context, "Expected a string, got '%s'", get_token_text(token));
 
         return { false };
@@ -214,7 +214,7 @@ static Result<Array<char>> expect_string(Context *context) {
 static Result<Identifier> expect_identifier(Context *context) {
     expect(token, peek_token(*context));
 
-    if(token.type != TokenType::Identifier) {
+    if(token.type != TokenTypeKind::Identifier) {
         error(*context, "Expected an identifier, got '%s'", get_token_text(token));
 
         return { false };
@@ -271,7 +271,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
     // Parse atomic & prefix-unary expressions (non-left-recursive)
     switch(token.type) {
-        case TokenType::Identifier: {
+        case TokenTypeKind::Identifier: {
             consume_token(context);
 
             auto identifier = identifier_from_token(*context, token);
@@ -279,7 +279,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             left_expression = named_reference_from_identifier(identifier);
         } break;
 
-        case TokenType::Integer: {
+        case TokenTypeKind::Integer: {
             consume_token(context);
 
             left_expression = new IntegerLiteral {
@@ -288,7 +288,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::FloatingPoint: {
+        case TokenTypeKind::FloatingPoint: {
             consume_token(context);
 
             left_expression = new FloatLiteral {
@@ -297,7 +297,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::Asterisk: {
+        case TokenTypeKind::Asterisk: {
             consume_token(context);
 
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
@@ -309,7 +309,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::Bang: {
+        case TokenTypeKind::Bang: {
             consume_token(context);
 
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
@@ -321,7 +321,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::Dash: {
+        case TokenTypeKind::Dash: {
             consume_token(context);
 
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
@@ -333,7 +333,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::String: {
+        case TokenTypeKind::String: {
             consume_token(context);
 
             left_expression = new StringLiteral {
@@ -342,7 +342,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::OpenRoundBracket: {
+        case TokenTypeKind::OpenRoundBracket: {
             consume_token(context);
 
             auto first_range = token_range(*context, token);
@@ -350,7 +350,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             expect(token, peek_token(*context));
 
             switch(token.type) {
-                case TokenType::Dollar: {
+                case TokenTypeKind::Dollar: {
                     consume_token(context);
 
                     List<FunctionParameter> parameters{};
@@ -365,14 +365,14 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                     FileRange last_range;
                     switch(token.type) {
-                        case TokenType::Comma: {
+                        case TokenTypeKind::Comma: {
                             consume_token(context);
 
                             while(true) {
                                 expect(pre_token, peek_token(*context));
 
                                 bool is_constant;
-                                if(pre_token.type == TokenType::Dollar) {
+                                if(pre_token.type == TokenTypeKind::Dollar) {
                                     consume_token(context);
 
                                     is_constant = true;
@@ -390,11 +390,11 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                                 auto done = false;
                                 switch(token.type) {
-                                    case TokenType::Comma: {
+                                    case TokenTypeKind::Comma: {
                                         consume_token(context);
                                     } break;
 
-                                    case TokenType::CloseRoundBracket: {
+                                    case TokenTypeKind::CloseRoundBracket: {
                                         consume_token(context);
 
                                         done = true;
@@ -415,7 +415,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                             }
                         } break;
 
-                        case TokenType::CloseRoundBracket: {
+                        case TokenTypeKind::CloseRoundBracket: {
                             consume_token(context);
 
                             last_range = token_range(*context, token);
@@ -431,7 +431,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     expect(post_token, peek_token(*context));
 
                     Expression *return_type;
-                    if(post_token.type == TokenType::Arrow) {
+                    if(post_token.type == TokenTypeKind::Arrow) {
                         consume_token(context);
 
                         expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -449,7 +449,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     };
                 } break;
 
-                case TokenType::CloseRoundBracket: {
+                case TokenTypeKind::CloseRoundBracket: {
                     consume_token(context);
 
                     auto last_range = token_range(*context, token);
@@ -457,7 +457,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     expect(token, peek_token(*context));
 
                     Expression* return_type;
-                    if(token.type == TokenType::Arrow) {
+                    if(token.type == TokenTypeKind::Arrow) {
                         consume_token(context);
 
                         expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -475,14 +475,14 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     };
                 } break;
 
-                case TokenType::Identifier: {
+                case TokenTypeKind::Identifier: {
                     consume_token(context);
 
                     auto identifier = identifier_from_token(*context, token);
 
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::Colon) {
+                    if(token.type == TokenTypeKind::Colon) {
                         List<FunctionParameter> parameters{};
 
                         expect(parameter, parse_function_parameter_second_half(context, identifier, false));
@@ -493,14 +493,14 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                         FileRange last_range;
                         switch(token.type) {
-                            case TokenType::Comma: {
+                            case TokenTypeKind::Comma: {
                                 consume_token(context);
 
                                 while(true) {
                                     expect(pre_token, peek_token(*context));
 
                                     bool is_constant;
-                                    if(pre_token.type == TokenType::Dollar) {
+                                    if(pre_token.type == TokenTypeKind::Dollar) {
                                         consume_token(context);
 
                                         is_constant = true;
@@ -518,11 +518,11 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                                     auto done = false;
                                     switch(token.type) {
-                                        case TokenType::Comma: {
+                                        case TokenTypeKind::Comma: {
                                             consume_token(context);
                                         } break;
 
-                                        case TokenType::CloseRoundBracket: {
+                                        case TokenTypeKind::CloseRoundBracket: {
                                             consume_token(context);
 
                                             done = true;
@@ -543,7 +543,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                 }
                             } break;
 
-                            case TokenType::CloseRoundBracket: {
+                            case TokenTypeKind::CloseRoundBracket: {
                                 consume_token(context);
 
                                 last_range = token_range(*context, token);
@@ -559,7 +559,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                         expect(post_token, peek_token(*context));
 
                         Expression *return_type;
-                        if(post_token.type == TokenType::Arrow) {
+                        if(post_token.type == TokenTypeKind::Arrow) {
                             consume_token(context);
 
                             expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -580,7 +580,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                         expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
-                        if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
+                        if(!expect_basic_token(context, TokenTypeKind::CloseRoundBracket)) {
                             return { false };
                         }
 
@@ -591,7 +591,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                 default: {
                     expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                    if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
+                    if(!expect_basic_token(context, TokenTypeKind::CloseRoundBracket)) {
                         return { false };
                     }
 
@@ -600,7 +600,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             }
         } break;
 
-        case TokenType::OpenCurlyBracket: {
+        case TokenTypeKind::OpenCurlyBracket: {
             consume_token(context);
 
             auto first_range = token_range(*context, token);
@@ -608,7 +608,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             expect(token, peek_token(*context));
 
             switch(token.type) {
-                case TokenType::CloseCurlyBracket: {
+                case TokenTypeKind::CloseCurlyBracket: {
                     consume_token(context);
 
                     left_expression = new ArrayLiteral {
@@ -617,7 +617,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     };
                 } break;
 
-                case TokenType::Identifier: {
+                case TokenTypeKind::Identifier: {
                     consume_token(context);
 
                     auto identifier = identifier_from_token(*context, token);
@@ -625,7 +625,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     expect(token, peek_token(*context));
 
                     switch(token.type) {
-                        case TokenType::Equals: {
+                        case TokenTypeKind::Equals: {
                             consume_token(context);
 
                             expect(first_expression, parse_expression(context, OperatorPrecedence::None));
@@ -641,13 +641,13 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                             FileRange last_range;
                             switch(token.type) {
-                                case TokenType::Comma: {
+                                case TokenTypeKind::Comma: {
                                     consume_token(context);
 
                                     while(true) {
                                         expect(identifier, expect_identifier(context));
 
-                                        if(!expect_basic_token(context, TokenType::Equals)) {
+                                        if(!expect_basic_token(context, TokenTypeKind::Equals)) {
                                             return { false };
                                         }
 
@@ -662,11 +662,11 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                                         auto done = false;
                                         switch(token.type) {
-                                            case TokenType::Comma: {
+                                            case TokenTypeKind::Comma: {
                                                 consume_token(context);
                                             } break;
 
-                                            case TokenType::CloseCurlyBracket: {
+                                            case TokenTypeKind::CloseCurlyBracket: {
                                                 consume_token(context);
 
                                                 done = true;
@@ -687,7 +687,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                     }
                                 } break;
 
-                                case TokenType::CloseCurlyBracket: {
+                                case TokenTypeKind::CloseCurlyBracket: {
                                     consume_token(context);
 
                                     last_range = token_range(*context, token);
@@ -706,7 +706,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                             };
                         } break;
 
-                        case TokenType::CloseCurlyBracket: {
+                        case TokenTypeKind::CloseCurlyBracket: {
                             consume_token(context);
 
                             auto first_element = named_reference_from_identifier(identifier);
@@ -733,7 +733,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                             FileRange last_range;
                             switch(token.type) {
-                                case TokenType::Comma: {
+                                case TokenTypeKind::Comma: {
                                     consume_token(context);
 
                                     while(true) {
@@ -745,11 +745,11 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                                         auto done = false;
                                         switch(token.type) {
-                                            case TokenType::Comma: {
+                                            case TokenTypeKind::Comma: {
                                                 consume_token(context);
                                             } break;
 
-                                            case TokenType::CloseCurlyBracket: {
+                                            case TokenTypeKind::CloseCurlyBracket: {
                                                 consume_token(context);
 
                                                 done = true;
@@ -770,7 +770,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                     }
                                 } break;
 
-                                case TokenType::CloseCurlyBracket: {
+                                case TokenTypeKind::CloseCurlyBracket: {
                                     consume_token(context);
 
                                     last_range = token_range(*context, token);
@@ -802,7 +802,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                     FileRange last_range;
                     switch(token.type) {
-                        case TokenType::Comma: {
+                        case TokenTypeKind::Comma: {
                             consume_token(context);
 
                             while(true) {
@@ -814,11 +814,11 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                                 auto done = false;
                                 switch(token.type) {
-                                    case TokenType::Comma: {
+                                    case TokenTypeKind::Comma: {
                                         consume_token(context);
                                     } break;
 
-                                    case TokenType::CloseCurlyBracket: {
+                                    case TokenTypeKind::CloseCurlyBracket: {
                                         consume_token(context);
 
                                         done = true;
@@ -839,7 +839,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                             }
                         } break;
 
-                        case TokenType::CloseCurlyBracket: {
+                        case TokenTypeKind::CloseCurlyBracket: {
                             consume_token(context);
 
                             last_range = token_range(*context, token);
@@ -854,14 +854,14 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             }
         } break;
 
-        case TokenType::OpenSquareBracket: {
+        case TokenTypeKind::OpenSquareBracket: {
             consume_token(context);
 
             expect(token, peek_token(*context));
 
             Expression *index;
             FileRange last_range;
-            if(token.type == TokenType::CloseSquareBracket) {
+            if(token.type == TokenTypeKind::CloseSquareBracket) {
                 consume_token(context);
 
                 index = nullptr;
@@ -869,7 +869,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             } else {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                expect(range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
+                expect(range, expect_basic_token_with_range(context, TokenTypeKind::CloseSquareBracket));
 
                 index = expression;
                 last_range = range;
@@ -916,7 +916,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
 
         auto done = false;
         switch(token.type) {
-            case TokenType::Dot: {
+            case TokenTypeKind::Dot: {
                 if(OperatorPrecedence::PostfixUnary <= minimum_precedence) {
                     done = true;
 
@@ -934,7 +934,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Plus: {
+            case TokenTypeKind::Plus: {
                 if(OperatorPrecedence::Additive <= minimum_precedence) {
                     done = true;
 
@@ -953,7 +953,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Dash: {
+            case TokenTypeKind::Dash: {
                 if(OperatorPrecedence::Additive <= minimum_precedence) {
                     done = true;
 
@@ -972,7 +972,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Asterisk: {
+            case TokenTypeKind::Asterisk: {
                 if(OperatorPrecedence::Multiplicitive <= minimum_precedence) {
                     done = true;
 
@@ -991,7 +991,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::ForwardSlash: {
+            case TokenTypeKind::ForwardSlash: {
                 if(OperatorPrecedence::Multiplicitive <= minimum_precedence) {
                     done = true;
 
@@ -1010,7 +1010,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Percent: {
+            case TokenTypeKind::Percent: {
                 if(OperatorPrecedence::Multiplicitive <= minimum_precedence) {
                     done = true;
 
@@ -1029,7 +1029,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Ampersand: {
+            case TokenTypeKind::Ampersand: {
                 if(OperatorPrecedence::BitwiseAnd <= minimum_precedence) {
                     done = true;
 
@@ -1048,7 +1048,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::DoubleAmpersand: {
+            case TokenTypeKind::DoubleAmpersand: {
                 if(OperatorPrecedence::BooleanAnd <= minimum_precedence) {
                     done = true;
 
@@ -1067,7 +1067,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Pipe: {
+            case TokenTypeKind::Pipe: {
                 if(OperatorPrecedence::BitwiseOr <= minimum_precedence) {
                     done = true;
 
@@ -1086,7 +1086,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::DoublePipe: {
+            case TokenTypeKind::DoublePipe: {
                 if(OperatorPrecedence::BooleanOr <= minimum_precedence) {
                     done = true;
 
@@ -1105,7 +1105,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::DoubleEquals: {
+            case TokenTypeKind::DoubleEquals: {
                 if(OperatorPrecedence::Comparison <= minimum_precedence) {
                     done = true;
 
@@ -1124,7 +1124,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::BangEquals: {
+            case TokenTypeKind::BangEquals: {
                 if(OperatorPrecedence::Comparison <= minimum_precedence) {
                     done = true;
 
@@ -1143,7 +1143,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::LeftArrow: {
+            case TokenTypeKind::LeftArrow: {
                 if(OperatorPrecedence::Comparison <= minimum_precedence) {
                     done = true;
 
@@ -1162,7 +1162,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::RightArrow: {
+            case TokenTypeKind::RightArrow: {
                 if(OperatorPrecedence::Comparison <= minimum_precedence) {
                     done = true;
 
@@ -1181,7 +1181,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::OpenRoundBracket: {
+            case TokenTypeKind::OpenRoundBracket: {
                 if(OperatorPrecedence::PostfixUnary <= minimum_precedence) {
                     done = true;
 
@@ -1195,7 +1195,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 expect(token, peek_token(*context));
 
                 FileRange last_range;
-                if(token.type == TokenType::CloseRoundBracket) {
+                if(token.type == TokenTypeKind::CloseRoundBracket) {
                     consume_token(context);
 
                     last_range = token_range(*context, token);
@@ -1209,11 +1209,11 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
 
                         auto done = false;
                         switch(token.type) {
-                            case TokenType::Comma: {
+                            case TokenTypeKind::Comma: {
                                 consume_token(context);
                             } break;
 
-                            case TokenType::CloseRoundBracket: {
+                            case TokenTypeKind::CloseRoundBracket: {
                                 consume_token(context);
 
                                 done = true;
@@ -1241,7 +1241,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::OpenSquareBracket: {
+            case TokenTypeKind::OpenSquareBracket: {
                 if(OperatorPrecedence::PostfixUnary <= minimum_precedence) {
                     done = true;
 
@@ -1256,7 +1256,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
 
                 Expression *index;
                 FileRange last_range;
-                if(token.type == TokenType::CloseSquareBracket) {
+                if(token.type == TokenTypeKind::CloseSquareBracket) {
                     consume_token(context);
 
                     index = nullptr;
@@ -1264,7 +1264,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 } else {
                     expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                    expect(range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
+                    expect(range, expect_basic_token_with_range(context, TokenTypeKind::CloseSquareBracket));
 
                     index = expression;
                     last_range = range;
@@ -1277,7 +1277,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Identifier: {
+            case TokenTypeKind::Identifier: {
                 if(strcmp(token.identifier, "as") == 0) {
                     if(OperatorPrecedence::Cast <= minimum_precedence) {
                         done = true;
@@ -1316,7 +1316,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
 }
 
 static Result<FunctionParameter> parse_function_parameter_second_half(Context *context, Identifier name, bool is_constant) {
-    if(!expect_basic_token(context, TokenType::Colon)) {
+    if(!expect_basic_token(context, TokenTypeKind::Colon)) {
         return { false };
     }
 
@@ -1327,7 +1327,7 @@ static Result<FunctionParameter> parse_function_parameter_second_half(Context *c
     expect(token, peek_token(*context));
 
     switch(token.type) {
-        case TokenType::Dollar: {
+        case TokenTypeKind::Dollar: {
             consume_token(context);
 
             expect(name, expect_identifier(context));
@@ -1359,7 +1359,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
 
     Expression *return_type;
     switch(pre_token.type) {
-        case TokenType::Arrow: {
+        case TokenTypeKind::Arrow: {
             consume_token(context);
 
             last_range = token_range(*context, pre_token);
@@ -1377,7 +1377,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
     expect(token, peek_token(*context));
 
     switch(token.type) {
-        case TokenType::OpenCurlyBracket: {
+        case TokenTypeKind::OpenCurlyBracket: {
             consume_token(context);
 
             List<Statement*> statements{};
@@ -1385,7 +1385,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
             while(true) {
                 expect(token, peek_token(*context));
 
-                if(token.type == TokenType::CloseCurlyBracket) {
+                if(token.type == TokenTypeKind::CloseCurlyBracket) {
                     consume_token(context);
 
                     last_range = token_range(*context, token);
@@ -1413,7 +1413,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
             };
         } break;
 
-        case TokenType::Semicolon: {
+        case TokenTypeKind::Semicolon: {
             consume_token(context);
 
             auto function_type = new FunctionType {
@@ -1434,7 +1434,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
             };
         } break;
 
-        case TokenType::Identifier: {
+        case TokenTypeKind::Identifier: {
             if(strcmp(token.identifier, "extern") == 0) {
                 consume_token(context);
 
@@ -1444,13 +1444,13 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
 
                 FileRange last_range;
                 switch(token.type) {
-                    case TokenType::Semicolon: {
+                    case TokenTypeKind::Semicolon: {
                         consume_token(context);
 
                         last_range = token_range(*context, token);
                     } break;
 
-                    case TokenType::String: {
+                    case TokenTypeKind::String: {
                         while(true) {
                             expect(string, expect_string(context));
 
@@ -1464,11 +1464,11 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
 
                             auto done = false;
                             switch(token.type) {
-                                case TokenType::Comma: {
+                                case TokenTypeKind::Comma: {
                                     consume_token(context);
                                 } break;
 
-                                case TokenType::Semicolon: {
+                                case TokenTypeKind::Semicolon: {
                                     consume_token(context);
 
                                     done = true;
@@ -1511,7 +1511,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
             } else if(strcmp(token.identifier, "no_mangle") == 0) {
                 consume_token(context);
 
-                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
+                if(!expect_basic_token(context, TokenTypeKind::OpenCurlyBracket)) {
                     return { false };
                 }
 
@@ -1520,7 +1520,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                 while(true) {
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::CloseCurlyBracket) {
+                    if(token.type == TokenTypeKind::CloseCurlyBracket) {
                         consume_token(context);
 
                         last_range = token_range(*context, token);
@@ -1569,12 +1569,12 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
     auto first_range = token_range(*context, token);
 
     switch(token.type) {
-        case TokenType::Hash: {
+        case TokenTypeKind::Hash: {
             consume_token(context);
 
             expect(token, peek_token(*context));
 
-            if(token.type != TokenType::Identifier) {
+            if(token.type != TokenTypeKind::Identifier) {
                 error(*context, "Expected 'import', got '%s'", get_token_text(token));
 
                 return { false };
@@ -1585,7 +1585,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
             if(strcmp(token.identifier, "import") == 0) {
                 expect(string, expect_string(context));
 
-                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                expect(last_range, expect_basic_token_with_range(context, TokenTypeKind::Semicolon));
 
                 auto import_path = allocate<char>(string.count + 1);
                 memcpy(import_path, string.elements, string.count);
@@ -1607,13 +1607,13 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
             }
         } break;
 
-        case TokenType::Identifier: {
+        case TokenTypeKind::Identifier: {
             consume_token(context);
 
             if(strcmp(token.identifier, "if") == 0) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
+                if(!expect_basic_token(context, TokenTypeKind::OpenCurlyBracket)) {
                     return { false };
                 }
 
@@ -1623,7 +1623,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 while(true) {
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::CloseCurlyBracket) {
+                    if(token.type == TokenTypeKind::CloseCurlyBracket) {
                         consume_token(context);
 
                         last_range = token_range(*context, token);
@@ -1643,19 +1643,19 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 while(true) {
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::Identifier && strcmp(token.identifier, "else") == 0) {
+                    if(token.type == TokenTypeKind::Identifier && strcmp(token.identifier, "else") == 0) {
                         consume_token(context);
 
                         expect(token, peek_token(*context));
 
                         switch(token.type) {
-                            case TokenType::OpenCurlyBracket: {
+                            case TokenTypeKind::OpenCurlyBracket: {
                                 consume_token(context);
 
                                 while(true) {
                                     expect(token, peek_token(*context));
 
-                                    if(token.type == TokenType::CloseCurlyBracket) {
+                                    if(token.type == TokenTypeKind::CloseCurlyBracket) {
                                         consume_token(context);
 
                                         last_range = token_range(*context, token);
@@ -1669,7 +1669,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                 }
                             } break;
 
-                            case TokenType::Identifier: {
+                            case TokenTypeKind::Identifier: {
                                 if(strcmp(token.identifier, "if") != 0) {
                                     error(*context, "Expected '{' or 'if', got '%s'", get_token_text(token));
 
@@ -1680,7 +1680,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
+                                if(!expect_basic_token(context, TokenTypeKind::OpenCurlyBracket)) {
                                     return { false };
                                 }
                                 
@@ -1689,7 +1689,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                 while(true) {
                                     expect(token, peek_token(*context));
 
-                                    if(token.type == TokenType::CloseCurlyBracket) {
+                                    if(token.type == TokenTypeKind::CloseCurlyBracket) {
                                         consume_token(context);
 
                                         last_range = token_range(*context, token);
@@ -1738,7 +1738,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
             } else if(strcmp(token.identifier, "while") == 0) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
+                if(!expect_basic_token(context, TokenTypeKind::OpenCurlyBracket)) {
                     return { false };
                 }
 
@@ -1748,7 +1748,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 while(true) {
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::CloseCurlyBracket) {
+                    if(token.type == TokenTypeKind::CloseCurlyBracket) {
                         consume_token(context);
 
                         last_range = token_range(*context, token);
@@ -1777,14 +1777,14 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 bool has_index_name;
                 Identifier index_name;
                 Expression *from;
-                if(token.type == TokenType::Identifier) {
+                if(token.type == TokenTypeKind::Identifier) {
                     consume_token(context);
 
                     auto identifier = identifier_from_token(*context, token);
 
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::Colon) {
+                    if(token.type == TokenTypeKind::Colon) {
                         consume_token(context);
 
                         expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -1810,13 +1810,13 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     from = expression;
                 }
 
-                if(!expect_basic_token(context, TokenType::DoubleDot)) {
+                if(!expect_basic_token(context, TokenTypeKind::DoubleDot)) {
                     return { false };
                 }
 
                 expect(to, parse_expression(context, OperatorPrecedence::None));
 
-                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
+                if(!expect_basic_token(context, TokenTypeKind::OpenCurlyBracket)) {
                     return { false };
                 }
 
@@ -1826,7 +1826,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 while(true) {
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::CloseCurlyBracket) {
+                    if(token.type == TokenTypeKind::CloseCurlyBracket) {
                         consume_token(context);
 
                         last_range = token_range(*context, token);
@@ -1866,7 +1866,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                 Expression *value;
                 FileRange last_range;
-                if(token.type == TokenType::Semicolon) {
+                if(token.type == TokenTypeKind::Semicolon) {
                     consume_token(context);
 
                     last_range = token_range(*context, token);
@@ -1875,7 +1875,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 } else {
                     expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                    expect(range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                    expect(range, expect_basic_token_with_range(context, TokenTypeKind::Semicolon));
 
                     last_range = range;
 
@@ -1892,7 +1892,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     return_statement
                 };
             } else if(strcmp(token.identifier, "break") == 0) {
-                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                expect(last_range, expect_basic_token_with_range(context, TokenTypeKind::Semicolon));
 
                 auto break_statement = new BreakStatement {
                     span_range(first_range, last_range)
@@ -1905,7 +1905,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
             } else if(strcmp(token.identifier, "using") == 0) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                expect(last_range, expect_basic_token_with_range(context, TokenTypeKind::Semicolon));
 
                 auto using_statement = new UsingStatement {
                     span_range(first_range, last_range),
@@ -1921,26 +1921,26 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                 expect(token, peek_token(*context));
 
-                if(token.type == TokenType::Colon) {
+                if(token.type == TokenTypeKind::Colon) {
                     consume_token(context);
 
                     expect(token, peek_token(*context));
 
                     switch(token.type) {
-                        case TokenType::Colon: {
+                        case TokenTypeKind::Colon: {
                             consume_token(context);
 
                             expect(token, peek_token(*context));
 
                             switch(token.type) {
-                                case TokenType::OpenRoundBracket: {
+                                case TokenTypeKind::OpenRoundBracket: {
                                     consume_token(context);
 
                                     auto parameters_first_range = token_range(*context, token);
 
                                     expect(token, peek_token(*context));
 
-                                    if(token.type == TokenType::Dollar) {
+                                    if(token.type == TokenTypeKind::Dollar) {
                                         consume_token(context);
 
                                         expect(name, expect_identifier(context));
@@ -1955,14 +1955,14 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                         FileRange last_range;
                                         switch(token.type) {
-                                            case TokenType::Comma: {
+                                            case TokenTypeKind::Comma: {
                                                 consume_token(context);
 
                                                 while(true) {
                                                     expect(pre_token, peek_token(*context));
 
                                                     bool is_constant;
-                                                    if(pre_token.type == TokenType::Dollar) {
+                                                    if(pre_token.type == TokenTypeKind::Dollar) {
                                                         consume_token(context);
 
                                                         is_constant = true;
@@ -1980,11 +1980,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                                     auto done = false;
                                                     switch(token.type) {
-                                                        case TokenType::Comma: {
+                                                        case TokenTypeKind::Comma: {
                                                             consume_token(context);
                                                         } break;
 
-                                                        case TokenType::CloseRoundBracket: {
+                                                        case TokenTypeKind::CloseRoundBracket: {
                                                             consume_token(context);
 
                                                             done = true;
@@ -2005,7 +2005,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                 }
                                             } break;
 
-                                            case TokenType::CloseRoundBracket: {
+                                            case TokenTypeKind::CloseRoundBracket: {
                                                 consume_token(context);
 
                                                 last_range = token_range(*context, token);
@@ -2029,7 +2029,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             true,
                                             statement
                                         };
-                                    } else if(token.type == TokenType::CloseRoundBracket) {
+                                    } else if(token.type == TokenTypeKind::CloseRoundBracket) {
                                         consume_token(context);
 
                                         expect(statement, continue_parsing_function_declaration_or_function_type_constant(
@@ -2043,14 +2043,14 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             true,
                                             statement
                                         };
-                                    } else if(token.type == TokenType::Identifier) {
+                                    } else if(token.type == TokenTypeKind::Identifier) {
                                         consume_token(context);
 
                                         auto first_identifier = identifier_from_token(*context, token);
 
                                         expect(token, peek_token(*context));
 
-                                        if(token.type == TokenType::Colon) {
+                                        if(token.type == TokenTypeKind::Colon) {
                                             List<FunctionParameter> parameters{};
 
                                             expect(parameter, parse_function_parameter_second_half(context, first_identifier, false));
@@ -2061,14 +2061,14 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                             FileRange last_range;
                                             switch(token.type) {
-                                                case TokenType::Comma: {
+                                                case TokenTypeKind::Comma: {
                                                     consume_token(context);
 
                                                     while(true) {
                                                         expect(pre_token, peek_token(*context));
 
                                                         bool is_constant;
-                                                        if(pre_token.type == TokenType::Dollar) {
+                                                        if(pre_token.type == TokenTypeKind::Dollar) {
                                                             consume_token(context);
 
                                                             is_constant = true;
@@ -2086,11 +2086,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                                         auto done = false;
                                                         switch(token.type) {
-                                                            case TokenType::Comma: {
+                                                            case TokenTypeKind::Comma: {
                                                                 consume_token(context);
                                                             } break;
 
-                                                            case TokenType::CloseRoundBracket: {
+                                                            case TokenTypeKind::CloseRoundBracket: {
                                                                 consume_token(context);
 
                                                                 done = true;
@@ -2111,7 +2111,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                     }
                                                 } break;
 
-                                                case TokenType::CloseRoundBracket: {
+                                                case TokenTypeKind::CloseRoundBracket: {
                                                     consume_token(context);
 
                                                     last_range = token_range(*context, token);
@@ -2140,13 +2140,13 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                             expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
-                                            if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
+                                            if(!expect_basic_token(context, TokenTypeKind::CloseRoundBracket)) {
                                                 return { false };
                                             }
 
                                             expect(outer_right_expression, parse_expression_continuation(context, OperatorPrecedence::None, right_expression));
 
-                                            expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                                            expect(last_range, expect_basic_token_with_range(context, TokenTypeKind::Semicolon));
 
                                             auto constant_definition = new ConstantDefinition {
                                                 span_range(first_range, last_range),
@@ -2162,13 +2162,13 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                     } else {
                                         expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                        if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
+                                        if(!expect_basic_token(context, TokenTypeKind::CloseRoundBracket)) {
                                             return { false };
                                         }
 
                                         expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
-                                        expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                                        expect(last_range, expect_basic_token_with_range(context, TokenTypeKind::Semicolon));
 
                                         auto constant_definition = new ConstantDefinition {
                                             span_range(first_range, last_range),
@@ -2183,14 +2183,14 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                     }
                                 } break;
 
-                                case TokenType::Identifier: {
+                                case TokenTypeKind::Identifier: {
                                     consume_token(context);
 
                                     if(strcmp(token.identifier, "struct") == 0) {
                                         expect(maybe_union_token, peek_token(*context));
 
                                         auto is_union = false;
-                                        if(maybe_union_token.type == TokenType::Identifier && strcmp(maybe_union_token.identifier, "union") == 0) {
+                                        if(maybe_union_token.type == TokenTypeKind::Identifier && strcmp(maybe_union_token.identifier, "union") == 0) {
                                             consume_token(context);
 
                                             is_union = true;
@@ -2200,18 +2200,18 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                         List<StructDefinition::Parameter> parameters{};
 
-                                        if(maybe_parameter_token.type == TokenType::OpenRoundBracket) {
+                                        if(maybe_parameter_token.type == TokenTypeKind::OpenRoundBracket) {
                                             consume_token(context);
 
                                             expect(token, peek_token(*context));
 
-                                            if(token.type == TokenType::CloseRoundBracket) {
+                                            if(token.type == TokenTypeKind::CloseRoundBracket) {
                                                 consume_token(context);
                                             } else {
                                                 while(true) {
                                                     expect(name, expect_identifier(context));
 
-                                                    if(!expect_basic_token(context, TokenType::Colon)) {
+                                                    if(!expect_basic_token(context, TokenTypeKind::Colon)) {
                                                         return { false };
                                                     }
 
@@ -2226,11 +2226,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                                     auto done = false;
                                                     switch(token.type) {
-                                                        case TokenType::Comma: {
+                                                        case TokenTypeKind::Comma: {
                                                             consume_token(context);
                                                         } break;
 
-                                                        case TokenType::CloseRoundBracket: {
+                                                        case TokenTypeKind::CloseRoundBracket: {
                                                             consume_token(context);
 
                                                             done = true;
@@ -2248,7 +2248,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             }
                                         }
 
-                                        if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
+                                        if(!expect_basic_token(context, TokenTypeKind::OpenCurlyBracket)) {
                                             return { false };
                                         }
 
@@ -2257,7 +2257,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                         expect(token, peek_token(*context));
 
                                         FileRange last_range;
-                                        if(token.type == TokenType::CloseCurlyBracket) {
+                                        if(token.type == TokenTypeKind::CloseCurlyBracket) {
                                             consume_token(context);
 
                                             last_range = token_range(*context, token);
@@ -2265,7 +2265,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             while(true) {
                                                 expect(identifier, expect_identifier(context));
 
-                                                if(!expect_basic_token(context, TokenType::Colon)) {
+                                                if(!expect_basic_token(context, TokenTypeKind::Colon)) {
                                                     return { false };
                                                 }
 
@@ -2280,11 +2280,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                                 auto done = false;
                                                 switch(token.type) {
-                                                    case TokenType::Comma: {
+                                                    case TokenTypeKind::Comma: {
                                                         consume_token(context);
                                                     } break;
 
-                                                    case TokenType::CloseCurlyBracket: {
+                                                    case TokenTypeKind::CloseCurlyBracket: {
                                                         consume_token(context);
 
                                                         done = true;
@@ -2324,7 +2324,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                         expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
-                                        expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                                        expect(last_range, expect_basic_token_with_range(context, TokenTypeKind::Semicolon));
 
                                         auto constant_definition = new ConstantDefinition {
                                             span_range(first_range, last_range),
@@ -2342,7 +2342,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                 default: {
                                     expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                    expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                                    expect(last_range, expect_basic_token_with_range(context, TokenTypeKind::Semicolon));
 
                                     auto constant_definition = new ConstantDefinition {
                                         span_range(first_range, last_range),
@@ -2360,7 +2360,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                         default: {
                             Expression *type = nullptr;
-                            if(token.type != TokenType::Equals) {
+                            if(token.type != TokenTypeKind::Equals) {
                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                                 type = expression;
@@ -2369,8 +2369,8 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                             expect(pre_token, peek_token(*context));
 
                             Expression *initializer = nullptr;
-                            if(pre_token.type == TokenType::Equals || !type) {
-                                if(!expect_basic_token(context, TokenType::Equals)) {
+                            if(pre_token.type == TokenTypeKind::Equals || !type) {
+                                if(!expect_basic_token(context, TokenTypeKind::Equals)) {
                                     return { false };
                                 }
 
@@ -2384,11 +2384,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                             auto is_external = false;
                             auto is_no_mangle = false;
                             switch(token.type) {
-                                case TokenType::Semicolon: {
+                                case TokenTypeKind::Semicolon: {
                                     consume_token(context);
                                 } break;
 
-                                case TokenType::Identifier: {
+                                case TokenTypeKind::Identifier: {
                                     if(strcmp(token.identifier, "extern") == 0) {
                                         consume_token(context);
 
@@ -2434,7 +2434,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     expect(token, peek_token(*context));
 
                     switch(token.type) {
-                        case TokenType::Semicolon: {
+                        case TokenTypeKind::Semicolon: {
                             consume_token(context);
 
                             auto expression_statement = new ExpressionStatement {
@@ -2452,41 +2452,41 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                             bool is_binary_operation_assignment;
                             BinaryOperation::Operator binary_operator;
                             switch(token.type) {
-                                case TokenType::Equals: {
+                                case TokenTypeKind::Equals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = false;
                                 } break;
 
-                                case TokenType::PlusEquals: {
+                                case TokenTypeKind::PlusEquals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Addition;
                                 } break;
 
-                                case TokenType::DashEquals: {
+                                case TokenTypeKind::DashEquals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Subtraction;
                                 } break;
 
-                                case TokenType::AsteriskEquals: {
+                                case TokenTypeKind::AsteriskEquals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Multiplication;
                                 } break;
 
-                                case TokenType::ForwardSlashEquals: {
+                                case TokenTypeKind::ForwardSlashEquals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Division;
                                 } break;
 
-                                case TokenType::PercentEquals: {
+                                case TokenTypeKind::PercentEquals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = true;
@@ -2502,7 +2502,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                             expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                            expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                            expect(last_range, expect_basic_token_with_range(context, TokenTypeKind::Semicolon));
 
                             if(is_binary_operation_assignment) {
                                 auto assignment = new BinaryOperationAssignment {
@@ -2540,7 +2540,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
             expect(token, peek_token(*context));
 
             switch(token.type) {
-                case TokenType::Semicolon: {
+                case TokenTypeKind::Semicolon: {
                     consume_token(context);
 
                     auto expression_statement = new ExpressionStatement {
@@ -2554,12 +2554,12 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     };
                 } break;
 
-                case TokenType::Equals: {
+                case TokenTypeKind::Equals: {
                     consume_token(context);
 
                     expect(value_expression, parse_expression(context, OperatorPrecedence::None));
 
-                    expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                    expect(last_range, expect_basic_token_with_range(context, TokenTypeKind::Semicolon));
 
                     auto assignment = new Assignment {
                         span_range(first_range, last_range),

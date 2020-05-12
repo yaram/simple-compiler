@@ -833,8 +833,8 @@ profiled_function(bool, generate_c_object,(
                         string_buffer_append(&implementation_source, name);
 
                         string_buffer_append(&implementation_source, ";");
-                    } else if(instruction->kind == InstructionKind::CopyMemory) {
-                        auto copy_memory = (CopyMemory*)instruction;
+                    } else if(instruction->kind == InstructionKind::CopyMemoryInstruction) {
+                        auto copy_memory = (CopyMemoryInstruction*)instruction;
 
                         string_buffer_append(&implementation_source, "for(");
                         generate_integer_type(&implementation_source, register_sizes.address_size, false);

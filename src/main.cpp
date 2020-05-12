@@ -14,6 +14,7 @@
 #include "jobs.h"
 #include "generator.h"
 #include "types.h"
+#include "threading.h"
 
 static const char *get_default_output_file(const char *os) {
     if(strcmp(os, "windows") == 0) {
@@ -62,8 +63,349 @@ inline void append_builtin(List<GlobalConstant> *global_constants, const char *n
     });
 }
 
+static void exit_error() {
+#if defined(PROFILING)
+    dump_profile();
+#endif
+
+    exit(1);
+}
+
+auto print_ast = false;
+auto print_ir = false;
+
+GlobalInfo info;
+
+List<Job*> jobs {};
+Mutex jobs_mutex;
+
+List<RuntimeStatic*> runtime_statics {};
+Mutex runtime_statics_mutex;
+
+List<const char*> libraries {};
+Mutex libraries_mutex;
+
+uint64_t total_parser_time;
+uint64_t total_generator_time;
+
+static bool worker_thread() {
+    while(true) {
+        auto doing_work = false;
+        auto done_work = false;
+        lock_mutex(&jobs_mutex);
+        for(auto job : jobs) {
+            if(!job->done) {
+                if(job->being_worked_on) {
+                    doing_work = true;
+                    continue;
+                }
+
+                if(job->waiting_for != nullptr) {
+                    if(!job->waiting_for->done) {
+                        continue;
+                    }
+
+                    job->waiting_for = nullptr;
+                }
+
+                done_work = true;
+
+                job->being_worked_on = true;
+
+                release_mutex(&jobs_mutex);
+
+                switch(job->kind) {
+                    case JobKind::ParseFile: {
+                        auto parse_file = (ParseFile*)job;
+
+                        auto start_time = get_timer_counts();
+
+                        expect(tokens, tokenize_source(parse_file->path));
+
+                        expect(statements, parse_tokens(parse_file->path, tokens));
+
+                        if(print_ast) {
+                            printf("%s:\n", parse_file->path);
+                            for(auto statement : statements) {
+                                print_statement(statement);
+                                printf("\n");
+                            }
+                        }
+
+                        auto scope = new ConstantScope;
+                        scope->statements = statements;
+                        scope->constant_parameters = {};
+                        scope->is_top_level = true;
+                        scope->file_path = parse_file->path;
+
+                        lock_mutex(&jobs_mutex);
+                        parse_file->scope = scope;
+                        parse_file->done = true;
+
+                        if(!process_scope(&jobs, &jobs_mutex, scope, nullptr)) {
+                            release_mutex(&jobs_mutex);
+
+                            return false;
+                        }
+                        release_mutex(&jobs_mutex);
+
+                        auto end_time = get_timer_counts();
+
+                        interlocked_add(&total_parser_time, end_time - start_time);
+                    } break;
+
+                    case JobKind::ResolveFunctionDeclaration: {
+                        auto resolve_function_declaration = (ResolveFunctionDeclaration*)job;
+
+                        auto start_time = get_timer_counts();
+
+                        expect(delayed_value, do_resolve_function_declaration(
+                            info,
+                            &jobs,
+                            &jobs_mutex,
+                            resolve_function_declaration->declaration,
+                            resolve_function_declaration->scope
+                        ));
+
+                        lock_mutex(&jobs_mutex);
+                        if(delayed_value.has_value) {
+                            resolve_function_declaration->done = true;
+                            resolve_function_declaration->type = delayed_value.value.type;
+                            resolve_function_declaration->value = delayed_value.value.value;
+                            resolve_function_declaration->body_scope = delayed_value.value.body_scope;
+                            resolve_function_declaration->child_scopes = delayed_value.value.child_scopes;
+
+                            if(delayed_value.value.type->kind == TypeKind::FunctionTypeType) {
+                                auto generate_function = new GenerateFunction;
+                                generate_function->done = false;
+                                generate_function->waiting_for = nullptr;
+                                generate_function->being_worked_on = false;
+                                generate_function->declaration = resolve_function_declaration->declaration;
+                                generate_function->parameters = nullptr;
+                                generate_function->scope = resolve_function_declaration->scope;
+                                generate_function->body_scope = delayed_value.value.body_scope;
+                                generate_function->child_scopes = delayed_value.value.child_scopes;
+
+                                append(&jobs, (Job*)generate_function);
+                            }
+                        } else {
+                            resolve_function_declaration->waiting_for = delayed_value.waiting_for;
+                        }
+                        release_mutex(&jobs_mutex);
+
+                        auto end_time = get_timer_counts();
+
+                        interlocked_add(&total_generator_time, end_time - start_time);
+                    } break;
+
+                    case JobKind::ResolveConstantDefinition: {
+                        auto resolve_constant_definition = (ResolveConstantDefinition*)job;
+
+                        auto start_time = get_timer_counts();
+
+                        expect(delayed_value, evaluate_constant_expression(
+                            info,
+                            &jobs,
+                            &jobs_mutex,
+                            resolve_constant_definition->scope,
+                            resolve_constant_definition->definition->expression
+                        ));
+
+                        lock_mutex(&jobs_mutex);
+                        if(delayed_value.has_value) {
+                            resolve_constant_definition->done = true;
+                            resolve_constant_definition->type = delayed_value.value.type;
+                            resolve_constant_definition->value = delayed_value.value.value;
+                        } else {
+                            resolve_constant_definition->waiting_for = delayed_value.waiting_for;
+                        }
+                        release_mutex(&jobs_mutex);
+
+                        auto end_time = get_timer_counts();
+
+                        interlocked_add(&total_generator_time, end_time - start_time);
+                    } break;
+
+                    case JobKind::ResolveStructDefinition: {
+                        auto resolve_struct_definition = (ResolveStructDefinition*)job;
+
+                        auto start_time = get_timer_counts();
+
+                        expect(delayed_value, do_resolve_struct_definition(
+                            info,
+                            &jobs,
+                            &jobs_mutex,
+                            resolve_struct_definition->definition,
+                            resolve_struct_definition->parameters,
+                            resolve_struct_definition->scope
+                        ));
+
+                        lock_mutex(&jobs_mutex);
+                        if(delayed_value.has_value) {
+                            resolve_struct_definition->done = true;
+                            resolve_struct_definition->type = delayed_value.value;
+                        } else {
+                            resolve_struct_definition->waiting_for = delayed_value.waiting_for;
+                        }
+                        release_mutex(&jobs_mutex);
+
+                        auto end_time = get_timer_counts();
+
+                        interlocked_add(&total_generator_time, end_time - start_time);
+                    } break;
+
+                    case JobKind::GenerateFunction: {
+                        auto generate_function = (GenerateFunction*)job;
+
+                        auto start_time = get_timer_counts();
+
+                        expect(delayed_value, do_generate_function(
+                            info,
+                            &jobs,
+                            &jobs_mutex,
+                            generate_function->declaration,
+                            generate_function->parameters,
+                            generate_function->scope,
+                            generate_function->body_scope,
+                            generate_function->child_scopes
+                        ));
+
+                        lock_mutex(&jobs_mutex);
+                        if(delayed_value.has_value) {
+                            generate_function->done = true;
+                            generate_function->function = delayed_value.value.function;
+                            generate_function->static_constants = delayed_value.value.static_constants;
+                            release_mutex(&jobs_mutex);
+
+                            lock_mutex(&runtime_statics_mutex);
+                            append(&runtime_statics, (RuntimeStatic*)delayed_value.value.function);
+
+                            for(auto static_constant : delayed_value.value.static_constants) {
+                                append(&runtime_statics, (RuntimeStatic*)static_constant);
+                            }
+                            release_mutex(&runtime_statics_mutex);
+
+                            if(delayed_value.value.function->is_external) {
+                                lock_mutex(&libraries_mutex);
+                                for(auto library : delayed_value.value.function->libraries) {
+                                    auto already_registered = false;
+                                    for(auto registered_library : libraries) {
+                                        if(strcmp(registered_library, library) == 0) {
+                                            already_registered = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if(!already_registered) {
+                                        append(&libraries, library);
+                                    }
+                                }
+                                release_mutex(&libraries_mutex);
+                            }
+
+                            if(print_ir) {
+                                auto current_scope = generate_function->scope;
+                                while(!current_scope->is_top_level) {
+                                    current_scope = current_scope->parent;
+                                }
+
+                                printf("%s:\n", current_scope->file_path);
+                                print_static(delayed_value.value.function);
+                                printf("\n");
+
+                                for(auto static_constant : delayed_value.value.static_constants) {
+                                    print_static(static_constant);
+                                    printf("\n");
+                                }
+                            }
+                        } else {
+                            generate_function->waiting_for = delayed_value.waiting_for;
+                            release_mutex(&jobs_mutex);
+                        }
+
+                        auto end_time = get_timer_counts();
+
+                        interlocked_add(&total_generator_time, end_time - start_time);
+                    } break;
+
+                    case JobKind::GenerateStaticVariable: {
+                        auto generate_static_variable = (GenerateStaticVariable*)job;
+
+                        auto start_time = get_timer_counts();
+
+                        expect(delayed_value, do_generate_static_variable(
+                            info,
+                            &jobs,
+                            &jobs_mutex,
+                            generate_static_variable->declaration,
+                            generate_static_variable->scope
+                        ));
+
+                        lock_mutex(&jobs_mutex);
+                        if(delayed_value.has_value) {
+                            generate_static_variable->done = true;
+                            generate_static_variable->static_variable = delayed_value.value.static_variable;
+                            generate_static_variable->type = delayed_value.value.type;
+
+                            lock_mutex(&runtime_statics_mutex);
+                            append(&runtime_statics, (RuntimeStatic*)delayed_value.value.static_variable);
+                            release_mutex(&runtime_statics_mutex);
+
+                            if(print_ir) {
+                                auto current_scope = generate_static_variable->scope;
+                                while(!current_scope->is_top_level) {
+                                    current_scope = current_scope->parent;
+                                }
+
+                                printf("%s:\n", current_scope->file_path);
+                                print_static(delayed_value.value.static_variable);
+                                printf("\n");
+                            }
+                        } else {
+                            generate_static_variable->waiting_for = delayed_value.waiting_for;
+                        }
+                        release_mutex(&jobs_mutex);
+
+                        auto end_time = get_timer_counts();
+
+                        interlocked_add(&total_generator_time, end_time - start_time);
+                    } break;
+
+                    default: abort();
+                }
+
+                lock_mutex(&jobs_mutex);
+                job->being_worked_on = false;
+                release_mutex(&jobs_mutex);
+
+                break;
+            }
+        }
+
+        if(!done_work) {
+            release_mutex(&jobs_mutex);
+        }
+
+        if(!doing_work && !done_work) {
+            break;
+        }
+    }
+
+    return true;
+}
+
+static void worker_thread_entry() {
+    if(!worker_thread()) {
+        exit_error();
+    }
+}
+
 static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (arguments)) {
     auto start_time = get_timer_counts();
+
+    jobs_mutex = create_mutex();
+    runtime_statics_mutex = create_mutex();
+    libraries_mutex = create_mutex();
 
     const char *source_file_path = nullptr;
     const char *output_file_path = nullptr;
@@ -73,9 +415,6 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     auto os = get_host_os();
 
     auto config = "debug";
-
-    auto print_ast = false;
-    auto print_ir = false;
 
     int argument_index = 1;
     while(argument_index < arguments.count) {
@@ -182,15 +521,6 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         output_file_path = get_default_output_file(os);
     }
 
-    List<Job*> jobs {};
-
-    auto main_file_parse_job = new ParseFile;
-    main_file_parse_job->done = false;
-    main_file_parse_job->waiting_for = nullptr;
-    main_file_parse_job->path = absolute_source_file_path;
-
-    append(&jobs, (Job*)main_file_parse_job);
-
     auto regsiter_sizes = get_register_sizes(architecture);
 
     List<GlobalConstant> global_constants{};
@@ -259,271 +589,26 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
     append_builtin(&global_constants, "memcpy");
 
-    GlobalInfo info {
+    info = {
         to_array(global_constants),
         regsiter_sizes.address_size,
         regsiter_sizes.default_size
     };
 
-    List<RuntimeStatic*> runtime_statics {};
-    List<const char*> libraries {};
+    auto main_file_parse_job = new ParseFile;
+    main_file_parse_job->done = false;
+    main_file_parse_job->waiting_for = nullptr;
+    main_file_parse_job->being_worked_on = false;
+    main_file_parse_job->path = absolute_source_file_path;
 
-    uint64_t total_parser_time = 0;
-    uint64_t total_generator_time = 0;
+    append(&jobs, (Job*)main_file_parse_job);
 
-    while(true) {
-        auto did_work = false;
-        for(auto job : jobs) {
-            if(!job->done) {
-                if(job->waiting_for != nullptr) {
-                    if(!job->waiting_for->done) {
-                        continue;
-                    }
+    for(auto i = 0; i < get_processor_count() - 1; i += 1) {
+        create_thread(&worker_thread_entry);
+    }
 
-                    job->waiting_for = nullptr;
-                }
-
-                switch(job->kind) {
-                    case JobKind::ParseFile: {
-                        auto parse_file = (ParseFile*)job;
-
-                        auto start_time = get_timer_counts();
-
-                        expect(tokens, tokenize_source(parse_file->path));
-
-                        expect(statements, parse_tokens(parse_file->path, tokens));
-
-                        if(print_ast) {
-                            printf("%s:\n", parse_file->path);
-                            for(auto statement : statements) {
-                                print_statement(statement);
-                                printf("\n");
-                            }
-                        }
-
-                        auto scope = new ConstantScope;
-                        scope->statements = statements;
-                        scope->constant_parameters = {};
-                        scope->is_top_level = true;
-                        scope->file_path = parse_file->path;
-
-                        parse_file->scope = scope;
-                        parse_file->done = true;
-
-                        if(!process_scope(&jobs, scope, nullptr)) {
-                            return false;
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_parser_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::ResolveFunctionDeclaration: {
-                        auto resolve_function_declaration = (ResolveFunctionDeclaration*)job;
-
-                        auto start_time = get_timer_counts();
-
-                        expect(delayed_value, do_resolve_function_declaration(
-                            info,
-                            &jobs,
-                            resolve_function_declaration->declaration,
-                            resolve_function_declaration->scope
-                        ));
-
-                        if(delayed_value.has_value) {
-                            resolve_function_declaration->done = true;
-                            resolve_function_declaration->type = delayed_value.value.type;
-                            resolve_function_declaration->value = delayed_value.value.value;
-                            resolve_function_declaration->body_scope = delayed_value.value.body_scope;
-                            resolve_function_declaration->child_scopes = delayed_value.value.child_scopes;
-
-                            if(delayed_value.value.type->kind == TypeKind::FunctionTypeType) {
-                                auto generate_function = new GenerateFunction;
-                                generate_function->done = false;
-                                generate_function->waiting_for = nullptr;
-                                generate_function->declaration = resolve_function_declaration->declaration;
-                                generate_function->parameters = nullptr;
-                                generate_function->scope = resolve_function_declaration->scope;
-                                generate_function->body_scope = delayed_value.value.body_scope;
-                                generate_function->child_scopes = delayed_value.value.child_scopes;
-
-                                append(&jobs, (Job*)generate_function);
-                            }
-                        } else {
-                            resolve_function_declaration->waiting_for = delayed_value.waiting_for;
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::ResolveConstantDefinition: {
-                        auto resolve_constant_definition = (ResolveConstantDefinition*)job;
-
-                        auto start_time = get_timer_counts();
-
-                        expect(delayed_value, evaluate_constant_expression(
-                            info,
-                            &jobs,
-                            resolve_constant_definition->scope,
-                            resolve_constant_definition->definition->expression
-                        ));
-
-                        if(delayed_value.has_value) {
-                            resolve_constant_definition->done = true;
-                            resolve_constant_definition->type = delayed_value.value.type;
-                            resolve_constant_definition->value = delayed_value.value.value;
-                        } else {
-                            resolve_constant_definition->waiting_for = delayed_value.waiting_for;
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::ResolveStructDefinition: {
-                        auto resolve_struct_definition = (ResolveStructDefinition*)job;
-
-                        auto start_time = get_timer_counts();
-
-                        expect(delayed_value, do_resolve_struct_definition(
-                            info,
-                            &jobs,
-                            resolve_struct_definition->definition,
-                            resolve_struct_definition->parameters,
-                            resolve_struct_definition->scope
-                        ));
-
-                        if(delayed_value.has_value) {
-                            resolve_struct_definition->done = true;
-                            resolve_struct_definition->type = delayed_value.value;
-                        } else {
-                            resolve_struct_definition->waiting_for = delayed_value.waiting_for;
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::GenerateFunction: {
-                        auto generate_function = (GenerateFunction*)job;
-
-                        auto start_time = get_timer_counts();
-
-                        expect(delayed_value, do_generate_function(
-                            info,
-                            &jobs,
-                            generate_function->declaration,
-                            generate_function->parameters,
-                            generate_function->scope,
-                            generate_function->body_scope,
-                            generate_function->child_scopes
-                        ));
-
-                        if(delayed_value.has_value) {
-                            generate_function->done = true;
-                            generate_function->function = delayed_value.value.function;
-                            generate_function->static_constants = delayed_value.value.static_constants;
-
-                            append(&runtime_statics, (RuntimeStatic*)delayed_value.value.function);
-
-                            for(auto static_constant : delayed_value.value.static_constants) {
-                                append(&runtime_statics, (RuntimeStatic*)static_constant);
-                            }
-
-                            if(delayed_value.value.function->is_external) {
-                                for(auto library : delayed_value.value.function->libraries) {
-                                    auto already_registered = false;
-                                    for(auto registered_library : libraries) {
-                                        if(strcmp(registered_library, library) == 0) {
-                                            already_registered = true;
-                                            break;
-                                        }
-                                    }
-
-                                    if(!already_registered) {
-                                        append(&libraries, library);
-                                    }
-                                }
-                            }
-
-                            if(print_ir) {
-                                auto current_scope = generate_function->scope;
-                                while(!current_scope->is_top_level) {
-                                    current_scope = current_scope->parent;
-                                }
-
-                                printf("%s:\n", current_scope->file_path);
-                                print_static(delayed_value.value.function);
-                                printf("\n");
-
-                                for(auto static_constant : delayed_value.value.static_constants) {
-                                    print_static(static_constant);
-                                    printf("\n");
-                                }
-                            }
-                        } else {
-                            generate_function->waiting_for = delayed_value.waiting_for;
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::GenerateStaticVariable: {
-                        auto generate_static_variable = (GenerateStaticVariable*)job;
-
-                        auto start_time = get_timer_counts();
-
-                        expect(delayed_value, do_generate_static_variable(
-                            info,
-                            &jobs,
-                            generate_static_variable->declaration,
-                            generate_static_variable->scope
-                        ));
-
-                        if(delayed_value.has_value) {
-                            generate_static_variable->done = true;
-                            generate_static_variable->static_variable = delayed_value.value.static_variable;
-                            generate_static_variable->type = delayed_value.value.type;
-
-                            append(&runtime_statics, (RuntimeStatic*)delayed_value.value.static_variable);
-
-                            if(print_ir) {
-                                auto current_scope = generate_static_variable->scope;
-                                while(!current_scope->is_top_level) {
-                                    current_scope = current_scope->parent;
-                                }
-
-                                printf("%s:\n", current_scope->file_path);
-                                print_static(delayed_value.value.static_variable);
-                                printf("\n");
-                            }
-                        } else {
-                            generate_static_variable->waiting_for = delayed_value.waiting_for;
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    default: abort();
-                }
-
-                did_work = true;
-                break;
-            }
-        }
-
-        if(!did_work) {
-            break;
-        }
+    if(!worker_thread()) {
+        return false;
     }
 
     auto all_jobs_done = true;
@@ -657,10 +742,6 @@ int main(int argument_count, const char *arguments[]) {
 
         return 0;
     } else {
-#if defined(PROFILING)
-        dump_profile();
-#endif
-
-        return 1;
+        exit_error();
     }
 }

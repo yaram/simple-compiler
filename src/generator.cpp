@@ -634,7 +634,7 @@ static void append_copy_memory(
     size_t destination_address_register,
     size_t alignment
 ) {
-    auto copy_memory = new CopyMemory;
+    auto copy_memory = new CopyMemoryInstruction;
     copy_memory->range = range;
     copy_memory->length_register = length_register;
     copy_memory->source_address_register = source_address_register;
@@ -1897,6 +1897,7 @@ static bool coerce_to_type_write(
 static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -1906,12 +1907,13 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
 static Result<DelayedValue<Type*>> evaluate_type_expression_runtime(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
     Expression *expression
 ) {
-    expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, expression));
+    expect_delayed(expression_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, expression));
 
     if(expression_value.type->kind == TypeKind::TypeType) {
         auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
@@ -1933,6 +1935,7 @@ static Result<DelayedValue<Type*>> evaluate_type_expression_runtime(
 static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -1941,9 +1944,9 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
     Expression *right_expression,
     BinaryOperation::Operator binary_operator
 ) {
-    expect_delayed(left, generate_expression(info, jobs, scope, context, instructions, left_expression));
+    expect_delayed(left, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, left_expression));
 
-    expect_delayed(right, generate_expression(info, jobs, scope, context, instructions, right_expression));
+    expect_delayed(right, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, right_expression));
 
     if(left.value->kind == RuntimeValueKind::RuntimeConstantValue && right.value->kind == RuntimeValueKind::RuntimeConstantValue) {
         auto left_value = ((RuntimeConstantValue*)left.value)->value;
@@ -2420,6 +2423,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
 static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expression, (
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -2427,6 +2431,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 ), (
     info,
     jobs,
+    jobs_mutex,
     scope,
     context,
     instructions,
@@ -2459,7 +2464,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
             for(auto statement : current_scope.constant_scope->statements) {
                 if(match_declaration(statement, named_reference->name.text)) {
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, current_scope.constant_scope, statement));
+                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, jobs_mutex, current_scope.constant_scope, statement));
 
                     return {
                         true,
@@ -2476,7 +2481,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 } else if(statement->kind == StatementKind::UsingStatement) {
                     auto using_statement = (UsingStatement*)statement;
 
-                    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, current_scope.constant_scope, using_statement->module));
+                    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, jobs_mutex, current_scope.constant_scope, using_statement->module));
 
                     if(expression_value.type->kind != TypeKind::FileModule) {
                         error(current_scope.constant_scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
@@ -2489,7 +2494,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                     for(auto statement : file_module->scope->statements) {
                         if(match_public_declaration(statement, named_reference->name.text)) {
-                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module->scope, statement));
+                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, jobs_mutex, file_module->scope, statement));
 
                             return {
                                 true,
@@ -2507,11 +2512,14 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                             auto variable_declaration = (VariableDeclaration*)statement;
 
                             if(strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
+                                lock_mutex(jobs_mutex);
                                 for(auto job : *jobs) {
                                     if(job->kind == JobKind::GenerateStaticVariable) {
                                         auto generate_static_variable = (GenerateStaticVariable*)job;
 
                                         if(generate_static_variable->declaration == variable_declaration) {
+                                            release_mutex(jobs_mutex);
+
                                             if(generate_static_variable->done) {
                                                 auto address_register = append_reference_static(
                                                     context,
@@ -2577,7 +2585,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
         while(true) {
             for(auto statement : current_scope->statements) {
                 if(match_declaration(statement, named_reference->name.text)) {
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, current_scope, statement));
+                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, jobs_mutex, current_scope, statement));
 
                     return {
                         true,
@@ -2594,7 +2602,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 } else if(statement->kind == StatementKind::UsingStatement) {
                     auto using_statement = (UsingStatement*)statement;
 
-                    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, current_scope, using_statement->module));
+                    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, jobs_mutex, current_scope, using_statement->module));
 
                     if(expression_value.type->kind != TypeKind::FileModule) {
                         error(current_scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
@@ -2607,7 +2615,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                     for(auto statement : file_module->scope->statements) {
                         if(match_public_declaration(statement, named_reference->name.text)) {
-                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module->scope, statement));
+                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, jobs_mutex, file_module->scope, statement));
 
                             return {
                                 true,
@@ -2625,11 +2633,14 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                             auto variable_declaration = (VariableDeclaration*)statement;
 
                             if(strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
+                                lock_mutex(jobs_mutex);
                                 for(auto job : *jobs) {
                                     if(job->kind == JobKind::GenerateStaticVariable) {
                                         auto generate_static_variable = (GenerateStaticVariable*)job;
 
                                         if(generate_static_variable->declaration == variable_declaration) {
+                                            release_mutex(jobs_mutex);
+
                                             if(generate_static_variable->done) {
                                                 auto address_register = append_reference_static(
                                                     context,
@@ -2672,11 +2683,14 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     auto variable_declaration = (VariableDeclaration*)statement;
 
                     if(strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
+                        lock_mutex(jobs_mutex);
                         for(auto job : *jobs) {
                             if(job->kind == JobKind::GenerateStaticVariable) {
                                 auto generate_static_variable = (GenerateStaticVariable*)job;
 
                                 if(generate_static_variable->declaration == variable_declaration) {
+                                    release_mutex(jobs_mutex);
+
                                     if(generate_static_variable->done) {
                                         auto address_register = append_reference_static(
                                             context,
@@ -2763,9 +2777,9 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
     } else if(expression->kind == ExpressionKind::IndexReference) {
         auto index_reference = (IndexReference*)expression;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, index_reference->expression));
+        expect_delayed(expression_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, index_reference->expression));
 
-        expect_delayed(index, generate_expression(info, jobs, scope, context, instructions, index_reference->index));
+        expect_delayed(index, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, index_reference->index));
 
         if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue && index.value->kind == RuntimeValueKind::RuntimeConstantValue) {
             auto expression_constant = ((RuntimeConstantValue*)expression_value.value)->value;
@@ -2928,7 +2942,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
     } else if(expression->kind == ExpressionKind::MemberReference) {
         auto member_reference = (MemberReference*)expression;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, member_reference->expression));
+        expect_delayed(expression_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, member_reference->expression));
 
         Type *actual_type;
         RuntimeValue *actual_value;
@@ -3298,7 +3312,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
             for(auto statement : file_module_value->scope->statements) {
                 if(match_public_declaration(statement, member_reference->name.text)) {
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module_value->scope, statement));
+                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, jobs_mutex, file_module_value->scope, statement));
 
                     return {
                         true,
@@ -3316,11 +3330,14 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     auto variable_declaration = (VariableDeclaration*)statement;
 
                     if(strcmp(variable_declaration->name.text, member_reference->name.text) == 0) {
+                        lock_mutex(jobs_mutex);
                         for(auto job : *jobs) {
                             if(job->kind == JobKind::GenerateStaticVariable) {
                                 auto generate_static_variable = (GenerateStaticVariable*)job;
 
                                 if(generate_static_variable->declaration == variable_declaration) {
+                                    release_mutex(jobs_mutex);
+
                                     if(generate_static_variable->done) {
                                         auto address_register = append_reference_static(
                                             context,
@@ -3446,7 +3463,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             return { false };
         }
 
-        expect_delayed(first_element, generate_expression(info, jobs, scope, context, instructions, array_literal->elements[0]));
+        expect_delayed(first_element, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, array_literal->elements[0]));
 
         expect(determined_element_type, coerce_to_default_type(info, scope, array_literal->elements[0]->range, first_element.type));
 
@@ -3461,7 +3478,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
         auto all_constant = true;
         for(size_t i = 1; i < element_count; i += 1) {
-            expect_delayed(element, generate_expression(info, jobs, scope, context, instructions, array_literal->elements[i]));
+            expect_delayed(element, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, array_literal->elements[i]));
 
             elements[i] = element;
 
@@ -3585,7 +3602,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 }
             }
 
-            expect_delayed(member, generate_expression(info, jobs, scope, context, instructions, struct_literal->members[i].value));
+            expect_delayed(member, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, struct_literal->members[i].value));
 
             type_members[i] = {
                 struct_literal->members[i].name.text,
@@ -3638,7 +3655,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
     } else if(expression->kind == ExpressionKind::FunctionCall) {
         auto function_call = (FunctionCall*)expression;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, function_call->expression));
+        expect_delayed(expression_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, function_call->expression));
 
         if(expression_value.type->kind == TypeKind::FunctionTypeType) {
             auto function = (FunctionTypeType*)expression_value.type;
@@ -3671,7 +3688,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(instruction_parameter_count);
 
             for(size_t i = 0; i < parameter_count; i += 1) {
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[i]));
+                expect_delayed(parameter_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, function_call->parameters[i]));
 
                 expect(parameter_register, coerce_to_type_register(
                     info,
@@ -3721,11 +3738,14 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
             auto found = false;
             Function *runtime_function;
+            lock_mutex(jobs_mutex);
             for(auto job : *jobs) {
                 if(job->kind == JobKind::GenerateFunction) {
                     auto generate_function = (GenerateFunction*)job;
 
                     if(generate_function->declaration == function_value->declaration) {
+                        release_mutex(jobs_mutex);
+
                         assert(generate_function->parameters == nullptr);
 
                         if(generate_function->done) {
@@ -3817,7 +3837,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 auto declaration_parameter = function_value->declaration->parameters[i];
 
                 if(declaration_parameter.is_polymorphic_determiner) {
-                    expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[i]));
+                    expect_delayed(parameter_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, function_call->parameters[i]));
 
                     expect(determined_type, coerce_to_default_type(info, scope, function_call->parameters[i]->range, parameter_value.type));
 
@@ -3855,12 +3875,12 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                 if(declaration_parameter.is_constant) {
                     if(!declaration_parameter.is_polymorphic_determiner) {
-                        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &parameters_scope, declaration_parameter.type));
+                        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, jobs_mutex, &parameters_scope, declaration_parameter.type));
 
                         parameter_types[i] = parameter_type;
                     }
 
-                    expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, call_parameter));
+                    expect_delayed(parameter_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, call_parameter));
 
                     if(parameter_value.value->kind != RuntimeValueKind::RuntimeConstantValue) {
                         error(scope, call_parameter->range, "Expected a constant value");
@@ -3897,7 +3917,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                 if(!declaration_parameter.is_constant) {
                     if(!declaration_parameter.is_polymorphic_determiner) {
-                        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &parameters_scope, declaration_parameter.type));
+                        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, jobs_mutex, &parameters_scope, declaration_parameter.type));
 
                         if(!is_runtime_type(parameter_type)) {
                             error(function_value->parent, call_parameter->range, "Non-constant function parameters cannot be of type '%s'", type_description(parameter_type));
@@ -3918,7 +3938,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             if(function_value->declaration->return_type) {
                 has_return = true;
 
-                expect_delayed(return_type_value, evaluate_type_expression(info, jobs, &parameters_scope, function_value->declaration->return_type));
+                expect_delayed(return_type_value, evaluate_type_expression(info, jobs, jobs_mutex, &parameters_scope, function_value->declaration->return_type));
 
                 if(!is_runtime_type(return_type_value)) {
                     error(
@@ -3963,7 +3983,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                             polymorphic_parameter_index += 1;
                         } else {
-                            expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[i]));
+                            expect_delayed(parameter_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, function_call->parameters[i]));
 
                             type = parameter_value.type;
                             value = parameter_value.value;
@@ -4020,6 +4040,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
             auto found = false;
             Function *runtime_function;
+            lock_mutex(jobs_mutex);
             for(auto job : *jobs) {
                 if(job->kind == JobKind::GenerateFunction) {
                     auto generate_function = (GenerateFunction*)job;
@@ -4037,6 +4058,8 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                                 break;
                             }
                         }
+
+                        release_mutex(jobs_mutex);
 
                         if(same_parameters) {
                             if(generate_function->done) {
@@ -4059,6 +4082,8 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             }
 
             if(!found) {
+                release_mutex(jobs_mutex);
+
                 auto body_scope = new ConstantScope;
                 body_scope->statements = function_value->declaration->statements;
                 body_scope->constant_parameters = to_array(constant_parameters);
@@ -4066,7 +4091,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 body_scope->parent = function_value->parent;
 
                 List<ConstantScope*> child_scopes {};
-                if(!process_scope(jobs, body_scope, &child_scopes)) {
+                if(!process_scope(jobs, jobs_mutex, body_scope, &child_scopes)) {
                     return { false };
                 }
 
@@ -4081,13 +4106,16 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 auto generate_function = new GenerateFunction;
                 generate_function->done = false;
                 generate_function->waiting_for = nullptr;
+                generate_function->being_worked_on = false;
                 generate_function->declaration = function_value->declaration;
                 generate_function->parameters = parameters;
                 generate_function->scope = function_value->parent;
                 generate_function->body_scope = body_scope;
                 generate_function->child_scopes = to_array(child_scopes);
 
+                lock_mutex(jobs_mutex);
                 append(jobs, (Job*)generate_function);
+                release_mutex(jobs_mutex);
 
                 return {
                     true,
@@ -4151,7 +4179,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     return { false };
                 }
 
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
+                expect_delayed(parameter_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, function_call->parameters[0]));
 
                 Type *type;
                 if(parameter_value.type->kind == TypeKind::TypeType) {
@@ -4192,7 +4220,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     return { false };
                 }
 
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
+                expect_delayed(parameter_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, function_call->parameters[0]));
 
                 return {
                     true,
@@ -4218,7 +4246,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 Integer u8_type { RegisterSize::Size8, false };
                 Pointer u8_pointer_type { &u8_type };
 
-                expect_delayed(destination_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
+                expect_delayed(destination_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, function_call->parameters[0]));
 
                 if(!types_equal(destination_value.type, &u8_pointer_type)) {
                     error(
@@ -4232,7 +4260,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     return { false };
                 }
 
-                expect_delayed(source_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[1]));
+                expect_delayed(source_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, function_call->parameters[1]));
 
                 if(!types_equal(source_value.type, &u8_pointer_type)) {
                     error(
@@ -4248,7 +4276,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                 Integer usize_type { info.address_integer_size, false };
 
-                expect_delayed(size_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[2]));
+                expect_delayed(size_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, function_call->parameters[2]));
 
                 if(!types_equal(size_value.type, &usize_type)) {
                     error(
@@ -4353,7 +4381,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(instruction_parameter_count);
 
             for(size_t i = 0; i < parameter_count; i += 1) {
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[i]));
+                expect_delayed(parameter_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, function_call->parameters[i]));
 
                 expect(parameter_register, coerce_to_type_register(
                     info,
@@ -4458,7 +4486,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 auto parameters = allocate<ConstantValue*>(parameter_count);
 
                 for(size_t i = 0; i < parameter_count; i += 1) {
-                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, function_call->parameters[i]));
+                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, jobs_mutex, scope, function_call->parameters[i]));
 
                     expect(parameter_value, coerce_constant_to_type(
                         info,
@@ -4475,6 +4503,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     };
                 }
 
+                lock_mutex(jobs_mutex);
                 for(auto job : *jobs) {
                     if(job->kind == JobKind::ResolveStructDefinition) {
                         auto resolve_struct_definition = (ResolveStructDefinition*)job;
@@ -4489,6 +4518,8 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                             }
 
                             if(same_parameters) {
+                                release_mutex(jobs_mutex);
+
                                 if(resolve_struct_definition->done) {
                                     return {
                                         true,
@@ -4518,15 +4549,19 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                         }
                     }
                 }
+                release_mutex(jobs_mutex);
 
                 auto resolve_struct_definition = new ResolveStructDefinition;
                 resolve_struct_definition->done = false;
                 resolve_struct_definition->waiting_for = nullptr;
+                resolve_struct_definition->being_worked_on = false;
                 resolve_struct_definition->definition = definition;
                 resolve_struct_definition->parameters = parameters;
                 resolve_struct_definition->scope = polymorphic_struct->parent;
 
+                lock_mutex(jobs_mutex);
                 append(jobs, (Job*)resolve_struct_definition);
+                release_mutex(jobs_mutex);
 
                 return {
                     true,
@@ -4552,6 +4587,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
         expect_delayed(result_value, generate_binary_operation(
             info,
             jobs,
+            jobs_mutex,
             scope,
             context,
             instructions,
@@ -4571,7 +4607,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
     } else if(expression->kind == ExpressionKind::UnaryOperation) {
         auto unary_operation = (UnaryOperation*)expression;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, unary_operation->expression));
+        expect_delayed(expression_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, unary_operation->expression));
 
         switch(unary_operation->unary_operator) {
             case UnaryOperation::Operator::Pointer: {
@@ -4586,11 +4622,14 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                         auto found = false;
                         Function *runtime_function;
+                        lock_mutex(jobs_mutex);
                         for(auto job : *jobs) {
                             if(job->kind == JobKind::GenerateFunction) {
                                 auto generate_function = (GenerateFunction*)job;
 
                                 if(generate_function->declaration == function_value->declaration) {
+                                    release_mutex(jobs_mutex);
+
                                     assert(generate_function->parameters == nullptr);
 
                                     if(generate_function->done) {
@@ -4609,6 +4648,8 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                                 }
                             }
                         }
+
+                        assert(found);
 
                         address_register = append_reference_static(
                             context,
@@ -4909,9 +4950,9 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
     } else if(expression->kind == ExpressionKind::Cast) {
         auto cast = (Cast*)expression;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, cast->expression));
+        expect_delayed(expression_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, cast->expression));
 
-        expect_delayed(target_type, evaluate_type_expression_runtime(info, jobs, scope, context, instructions, cast->type));
+        expect_delayed(target_type, evaluate_type_expression_runtime(info, jobs, jobs_mutex, scope, context, instructions, cast->type));
 
         if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
             auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
@@ -5191,7 +5232,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
     } else if(expression->kind == ExpressionKind::ArrayType) {
         auto array_type = (ArrayType*)expression;
 
-        expect_delayed(type, evaluate_type_expression_runtime(info, jobs, scope, context, instructions, array_type->expression));
+        expect_delayed(type, evaluate_type_expression_runtime(info, jobs, jobs_mutex, scope, context, instructions, array_type->expression));
 
         if(!is_runtime_type(type)) {
             error(scope, array_type->expression->range, "Cannot have arrays of type '%s'", type_description(type));
@@ -5200,7 +5241,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
         }
 
         if(array_type->index != nullptr) {
-            expect_delayed(index_value, evaluate_constant_expression(info, jobs, scope, array_type->index));
+            expect_delayed(index_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, array_type->index));
 
             expect(length, coerce_constant_to_integer_type(
                 scope,
@@ -5265,7 +5306,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 return { false };
             }
 
-            expect_delayed(type, evaluate_type_expression_runtime(info, jobs, scope, context, instructions, parameter.type));
+            expect_delayed(type, evaluate_type_expression_runtime(info, jobs, jobs_mutex, scope, context, instructions, parameter.type));
 
             if(!is_runtime_type(type)) {
                 error(scope, function_type->parameters[i].type->range, "Function parameters cannot be of type '%s'", type_description(type));
@@ -5280,7 +5321,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
         if(function_type->return_type == nullptr) {
             return_type = &void_singleton;
         } else {
-            expect_delayed(return_type_value, evaluate_type_expression_runtime(info, jobs, scope, context, instructions, function_type->return_type));
+            expect_delayed(return_type_value, evaluate_type_expression_runtime(info, jobs, jobs_mutex, scope, context, instructions, function_type->return_type));
 
             if(!is_runtime_type(return_type_value)) {
                 error(scope, function_type->return_type->range, "Function returns cannot be of type '%s'", type_description(return_type_value));
@@ -5323,6 +5364,7 @@ static bool is_statement_declaration(Statement *statement) {
 static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -5330,6 +5372,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 ), (
     info,
     jobs,
+    jobs_mutex,
     scope,
     context,
     instructions,
@@ -5338,7 +5381,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
     if(statement->kind == StatementKind::ExpressionStatement) {
         auto expression_statement = (ExpressionStatement*)statement;
 
-        expect_delayed_void_ret(value, generate_expression(info, jobs, scope, context, instructions, expression_statement->expression));
+        expect_delayed_void_ret(value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, expression_statement->expression));
 
         return {
             true,
@@ -5365,7 +5408,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
         }
 
         if(variable_declaration->type != nullptr && variable_declaration->initializer != nullptr) {
-            expect_delayed_void_ret(type_value, evaluate_type_expression_runtime(info, jobs, scope, context, instructions, variable_declaration->type));
+            expect_delayed_void_ret(type_value, evaluate_type_expression_runtime(info, jobs, jobs_mutex, scope, context, instructions, variable_declaration->type));
             
             if(!is_runtime_type(type_value)) {
                 error(scope, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type_value));
@@ -5375,7 +5418,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
             type = type_value;
 
-            expect_delayed_void_ret(initializer_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->initializer));
+            expect_delayed_void_ret(initializer_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, variable_declaration->initializer));
 
             address_register = append_allocate_local(
                 context,
@@ -5399,7 +5442,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
                 return { false };
             }
         } else if(variable_declaration->type != nullptr) {
-            expect_delayed_void_ret(type_value, evaluate_type_expression_runtime(info, jobs, scope, context, instructions, variable_declaration->type));
+            expect_delayed_void_ret(type_value, evaluate_type_expression_runtime(info, jobs, jobs_mutex, scope, context, instructions, variable_declaration->type));
 
             if(!is_runtime_type(type_value)) {
                 error(scope, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type_value));
@@ -5417,7 +5460,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
                 get_type_alignment(info, type)
             );
         } else if(variable_declaration->initializer != nullptr) {
-            expect_delayed_void_ret(initializer_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->initializer));
+            expect_delayed_void_ret(initializer_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, variable_declaration->initializer));
 
             expect(actual_type, coerce_to_default_type(info, scope, variable_declaration->initializer->range, initializer_value.type));
             
@@ -5472,7 +5515,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
     } else if(statement->kind == StatementKind::Assignment) {
         auto assignment = (Assignment*)statement;
 
-        expect_delayed_void_ret(target, generate_expression(info, jobs, scope, context, instructions, assignment->target));
+        expect_delayed_void_ret(target, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, assignment->target));
 
         size_t address_register;
         if(target.value->kind == RuntimeValueKind::AddressValue){
@@ -5485,7 +5528,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             return { false };
         }
 
-        expect_delayed_void_ret(value, generate_expression(info, jobs, scope, context, instructions, assignment->value));
+        expect_delayed_void_ret(value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, assignment->value));
 
         if(!coerce_to_type_write(
             info,
@@ -5510,7 +5553,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
     } else if(statement->kind == StatementKind::BinaryOperationAssignment) {
         auto binary_operation_assignment = (BinaryOperationAssignment*)statement;
 
-        expect_delayed_void_ret(target, generate_expression(info, jobs, scope, context, instructions, binary_operation_assignment->target));
+        expect_delayed_void_ret(target, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, binary_operation_assignment->target));
 
         size_t address_register;
         if(target.value->kind == RuntimeValueKind::AddressValue){
@@ -5526,6 +5569,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
         expect_delayed_void_ret(value, generate_binary_operation(
             info,
             jobs,
+            jobs_mutex,
             scope,
             context,
             instructions,
@@ -5561,7 +5605,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
         auto end_jump_count = 1 + if_statement->else_ifs.count;
         auto end_jumps = allocate<Jump*>(end_jump_count);
 
-        expect_delayed_void_ret(condition, generate_expression(info, jobs, scope, context, instructions, if_statement->condition));
+        expect_delayed_void_ret(condition, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, if_statement->condition));
 
         if(condition.type->kind != TypeKind::Boolean) {
             error(scope, if_statement->condition->range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
@@ -5589,7 +5633,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
         for(auto child_statement : if_statement->statements) {
             if(!is_statement_declaration(child_statement)) {
-                expect_delayed_void_both(generate_statement(info, jobs, if_scope, context, instructions, child_statement));
+                expect_delayed_void_both(generate_statement(info, jobs, jobs_mutex, if_scope, context, instructions, child_statement));
             }
         }
 
@@ -5605,7 +5649,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
         first_jump->destination_instruction = instructions->count;
 
         for(size_t i = 0; i < if_statement->else_ifs.count; i += 1) {
-            expect_delayed_void_ret(condition, generate_expression(info, jobs, scope, context, instructions, if_statement->else_ifs[i].condition));
+            expect_delayed_void_ret(condition, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, if_statement->else_ifs[i].condition));
 
             if(condition.type->kind != TypeKind::Boolean) {
                 error(scope, if_statement->else_ifs[i].condition->range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
@@ -5645,7 +5689,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
             for(auto child_statement : if_statement->else_ifs[i].statements) {
                 if(!is_statement_declaration(child_statement)) {
-                    expect_delayed_void_both(generate_statement(info, jobs, else_if_scope, context, instructions, child_statement));
+                    expect_delayed_void_both(generate_statement(info, jobs, jobs_mutex, else_if_scope, context, instructions, child_statement));
                 }
             }
 
@@ -5673,7 +5717,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
             for(auto child_statement : if_statement->else_statements) {
                 if(!is_statement_declaration(child_statement)) {
-                    expect_delayed_void_both(generate_statement(info, jobs, else_scope, context, instructions, child_statement));
+                    expect_delayed_void_both(generate_statement(info, jobs, jobs_mutex, else_scope, context, instructions, child_statement));
                 }
             }
 
@@ -5695,7 +5739,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
         auto condition_index = instructions->count;
 
-        expect_delayed_void_ret(condition, generate_expression(info, jobs, scope, context, instructions, while_loop->condition));
+        expect_delayed_void_ret(condition, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, while_loop->condition));
 
         if(condition.type->kind != TypeKind::Boolean) {
             error(scope, while_loop->condition->range, "Non-boolean while loop condition. Got %s", type_description(condition.type));
@@ -5741,7 +5785,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
         for(auto child_statement : while_loop->statements) {
             if(!is_statement_declaration(child_statement)) {
-                expect_delayed_void_both(generate_statement(info, jobs, while_scope, context, instructions, child_statement));
+                expect_delayed_void_both(generate_statement(info, jobs, jobs_mutex, while_scope, context, instructions, child_statement));
             }
         }
 
@@ -5784,7 +5828,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             };
         }
 
-        expect_delayed_void_ret(from_value, generate_expression(info, jobs, scope, context, instructions, for_loop->from));
+        expect_delayed_void_ret(from_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, for_loop->from));
 
         auto index_address_register = allocate_register(context);
 
@@ -5818,7 +5862,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
             condition_index = instructions->count;
 
-            expect_delayed_void_ret(to_value, generate_expression(info, jobs, scope, context, instructions, for_loop->to));
+            expect_delayed_void_ret(to_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, for_loop->to));
 
             expect(determined_index_type, coerce_to_default_type(info, scope, for_loop->range, to_value.type));
 
@@ -5878,7 +5922,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
                 condition_index = instructions->count;
 
-                expect_delayed_void_ret(to_value, generate_expression(info, jobs, scope, context, instructions, for_loop->to));
+                expect_delayed_void_ret(to_value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, for_loop->to));
 
                 expect(to_register_index, coerce_to_integer_register_value(
                     scope,
@@ -5952,7 +5996,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
         for(auto child_statement : for_loop->statements) {
             if(!is_statement_declaration(child_statement)) {
-                expect_delayed_void_both(generate_statement(info, jobs, for_scope, context, instructions, child_statement));
+                expect_delayed_void_both(generate_statement(info, jobs, jobs_mutex, for_scope, context, instructions, child_statement));
             }
         }
 
@@ -6003,7 +6047,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
                 return { false };
             } else {
-                expect_delayed_void_ret(value, generate_expression(info, jobs, scope, context, instructions, return_statement->value));
+                expect_delayed_void_ret(value, generate_expression(info, jobs, jobs_mutex, scope, context, instructions, return_statement->value));
 
                 auto representation = get_type_representation(info, context->return_type);
 
@@ -6081,6 +6125,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 profiled_function(Result<DelayedValue<GeneratorResult>>, do_generate_function, (
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     FunctionDeclaration *declaration,
     TypedConstantValue *parameters,
     ConstantScope *scope,
@@ -6089,6 +6134,7 @@ profiled_function(Result<DelayedValue<GeneratorResult>>, do_generate_function, (
 ), (
     info,
     jobs,
+    jobs_mutex,
     declaration,
     parameters,
     scope,
@@ -6170,7 +6216,7 @@ profiled_function(Result<DelayedValue<GeneratorResult>>, do_generate_function, (
     if(declaration->return_type == nullptr) {
         return_type = &void_singleton;
     } else {
-        expect_delayed(type, evaluate_type_expression(info, jobs, &parameters_scope, declaration->return_type));
+        expect_delayed(type, evaluate_type_expression(info, jobs, jobs_mutex, &parameters_scope, declaration->return_type));
 
         return_representation = get_type_representation(info, type);
 
@@ -6193,7 +6239,7 @@ profiled_function(Result<DelayedValue<GeneratorResult>>, do_generate_function, (
             if(parameter.is_polymorphic_determiner) {
                 parameter_type = extract_constant_value(TypeConstant, constant_parameters[polymorphic_determiner_index].value)->type;
             } else {
-                expect_delayed(type, evaluate_type_expression(info, jobs, &parameters_scope, parameter.type));
+                expect_delayed(type, evaluate_type_expression(info, jobs, jobs_mutex, &parameters_scope, parameter.type));
 
                 parameter_type = type;
             }
@@ -6335,7 +6381,7 @@ profiled_function(Result<DelayedValue<GeneratorResult>>, do_generate_function, (
 
         for(auto statement : declaration->statements) {
             if(!is_statement_declaration(statement)) {
-                expect_delayed_void_val(generate_statement(info, jobs, body_scope, &context, &instructions, statement));
+                expect_delayed_void_val(generate_statement(info, jobs, jobs_mutex, body_scope, &context, &instructions, statement));
             }
         }
 
@@ -6383,11 +6429,12 @@ profiled_function(Result<DelayedValue<GeneratorResult>>, do_generate_function, (
 Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     VariableDeclaration *declaration,
     ConstantScope *scope
 ) {
     if(declaration->is_external) {
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));
+        expect_delayed(type, evaluate_type_expression(info, jobs, jobs_mutex, scope, declaration->type));
 
         if(!is_runtime_type(type)) {
             error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
@@ -6419,7 +6466,7 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
         };
     } else {
         if(declaration->type != nullptr && declaration->initializer != nullptr) {
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));
+            expect_delayed(type, evaluate_type_expression(info, jobs, jobs_mutex, scope, declaration->type));
 
             if(!is_runtime_type(type)) {
                 error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
@@ -6427,7 +6474,7 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
                 return { false };
             }
 
-            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, declaration->initializer));
+            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, declaration->initializer));
 
             expect(coerced_initial_value, coerce_constant_to_type(
                 info,
@@ -6467,7 +6514,7 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
                 }
             };
         } else if(declaration->type != nullptr) {
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));
+            expect_delayed(type, evaluate_type_expression(info, jobs, jobs_mutex, scope, declaration->type));
 
             if(!is_runtime_type(type)) {
                 error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
@@ -6497,7 +6544,7 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
                 }
             };
         } else if(declaration->initializer != nullptr) {
-            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, declaration->initializer));
+            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, declaration->initializer));
 
             expect(type, coerce_to_default_type(info, scope, declaration->initializer->range, initial_value.type));
 

@@ -1674,14 +1674,18 @@ bool match_declaration(Statement *statement, const char *name) {
 static Result<DelayedValue<Type*>> get_simple_resolved_struct_definition(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     StructDefinition *definition
 ) {
+    lock_mutex(jobs_mutex);
     for(auto job : *jobs) {
         if(job->kind == JobKind::ResolveStructDefinition) {
             auto resolve_struct_definition = (ResolveStructDefinition*)job;
 
             if(resolve_struct_definition->definition == definition && resolve_struct_definition->parameters == nullptr) {
+                release_mutex(jobs_mutex);
+
                 if(resolve_struct_definition->done) {
                     return {
                         true,
@@ -1710,6 +1714,7 @@ static Result<DelayedValue<Type*>> get_simple_resolved_struct_definition(
 Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     Statement *declaration
 ) {
@@ -1717,11 +1722,14 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
         case StatementKind::FunctionDeclaration: {
             auto function_declaration = (FunctionDeclaration*)declaration;
 
+            lock_mutex(jobs_mutex);
             for(auto job : *jobs) {
                 if(job->kind == JobKind::ResolveFunctionDeclaration) {
                     auto resolve_function_declaration = (ResolveFunctionDeclaration*)job;
 
                     if(resolve_function_declaration->declaration == function_declaration) {
+                        release_mutex(jobs_mutex);
+
                         if(resolve_function_declaration->done) {
                             return {
                                 true,
@@ -1753,11 +1761,14 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
         case StatementKind::ConstantDefinition: {
             auto constant_definition = (ConstantDefinition*)declaration;
 
+            lock_mutex(jobs_mutex);
             for(auto job : *jobs) {
                 if(job->kind == JobKind::ResolveConstantDefinition) {
                     auto resolve_constant_definition = (ResolveConstantDefinition*)job;
 
                     if(resolve_constant_definition->definition == constant_definition) {
+                        release_mutex(jobs_mutex);
+
                         if(resolve_constant_definition->done) {
                             return {
                                 true,
@@ -1789,7 +1800,7 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
         case StatementKind::StructDefinition: {
             auto struct_definition = (StructDefinition*)declaration;
 
-            expect_delayed(type, get_simple_resolved_struct_definition(info, jobs, scope, struct_definition));
+            expect_delayed(type, get_simple_resolved_struct_definition(info, jobs, jobs_mutex, scope, struct_definition));
 
             return {
                 true,
@@ -1823,11 +1834,14 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
             expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
 
             auto job_already_added = false;
+            lock_mutex(jobs_mutex);
             for(auto job : *jobs) {
                 if(job->kind == JobKind::ParseFile) {
                     auto parse_file = (ParseFile*)job;
 
                     if(strcmp(parse_file->path, import_file_path_absolute) == 0) {
+                        release_mutex(jobs_mutex);
+
                         if(parse_file->done) {
                             return {
                                 true,
@@ -1985,11 +1999,13 @@ bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b) {
 profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_expression, (
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     Expression *expression
 ), (
     info,
     jobs,
+    jobs_mutex,
     scope,
     expression
 )) {
@@ -2000,7 +2016,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
         while(true) {
             for(auto statement : current_scope->statements) {
                 if(match_declaration(statement, named_reference->name.text)) {
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, current_scope, statement));
+                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, jobs_mutex, current_scope, statement));
 
                     return {
                         true,
@@ -2012,7 +2028,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                 } else if(statement->kind == StatementKind::UsingStatement) {
                     auto using_statement = (UsingStatement*)statement;
 
-                    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, current_scope, using_statement->module));
+                    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, jobs_mutex, current_scope, using_statement->module));
 
                     if(expression_value.type->kind != TypeKind::FileModule) {
                         error(current_scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
@@ -2025,7 +2041,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
 
                     for(auto statement : file_module->scope->statements) {
                         if(match_public_declaration(statement, named_reference->name.text)) {
-                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module->scope, statement));
+                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, jobs_mutex, file_module->scope, statement));
 
                             return {
                                 true,
@@ -2082,7 +2098,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
     } else if(expression->kind == ExpressionKind::MemberReference) {
         auto member_reference = (MemberReference*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, member_reference->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, member_reference->expression));
 
         if(expression_value.type->kind == TypeKind::ArrayTypeType) {
             auto array_type = (ArrayTypeType*)expression_value.type;
@@ -2204,7 +2220,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
 
             for(auto statement : file_module_value->scope->statements) {
                 if(match_public_declaration(statement, member_reference->name.text)) {
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module_value->scope, statement));
+                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, jobs_mutex, file_module_value->scope, statement));
 
                     return {
                         true,
@@ -2227,9 +2243,9 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
     } else if(expression->kind == ExpressionKind::IndexReference) {
         auto index_reference = (IndexReference*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, index_reference->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, index_reference->expression));
 
-        expect_delayed(index, evaluate_constant_expression(info, jobs, scope, index_reference->index));
+        expect_delayed(index, evaluate_constant_expression(info, jobs, jobs_mutex, scope, index_reference->index));
 
         expect(value, evaluate_constant_index(
             info,
@@ -2321,7 +2337,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
             return { false };
         }
 
-        expect_delayed(first_element, evaluate_constant_expression(info, jobs, scope, array_literal->elements[0]));
+        expect_delayed(first_element, evaluate_constant_expression(info, jobs, jobs_mutex, scope, array_literal->elements[0]));
 
         expect(determined_element_type, coerce_to_default_type(info, scope, array_literal->elements[0]->range, first_element.type));
 
@@ -2335,7 +2351,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
         elements[0] = first_element.value;
 
         for(size_t i = 1; i < element_count; i += 1) {
-            expect_delayed(element, evaluate_constant_expression(info, jobs, scope, array_literal->elements[i]));
+            expect_delayed(element, evaluate_constant_expression(info, jobs, jobs_mutex, scope, array_literal->elements[i]));
 
             expect(element_value, coerce_constant_to_type(
                 info,
@@ -2390,7 +2406,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                 }
             }
 
-            expect_delayed(member, evaluate_constant_expression(info, jobs, scope, struct_literal->members[i].value));
+            expect_delayed(member, evaluate_constant_expression(info, jobs, jobs_mutex, scope, struct_literal->members[i].value));
 
             members[i] = {
                 member_name.text,
@@ -2420,7 +2436,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
     } else if(expression->kind == ExpressionKind::FunctionCall) {
         auto function_call = (FunctionCall*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, function_call->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, function_call->expression));
 
         if(expression_value.type->kind == TypeKind::FunctionTypeType) {
             auto function = (FunctionTypeType*)expression_value.type;
@@ -2438,7 +2454,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                     return { false };
                 }
 
-                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, function_call->parameters[0]));
+                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, function_call->parameters[0]));
 
                 Type *type;
                 if(parameter_value.type->kind == TypeKind::TypeType) {
@@ -2477,7 +2493,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                     return { false };
                 }
 
-                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, function_call->parameters[0]));
+                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, function_call->parameters[0]));
 
                 return {
                     true,
@@ -2514,7 +2530,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                 auto parameters = allocate<ConstantValue*>(parameter_count);
 
                 for(size_t i = 0; i < parameter_count; i += 1) {
-                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, function_call->parameters[i]));
+                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, jobs_mutex, scope, function_call->parameters[i]));
 
                     expect(parameter_value, coerce_constant_to_type(
                         info,
@@ -2531,6 +2547,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                     };
                 }
 
+                lock_mutex(jobs_mutex);
                 for(auto job : *jobs) {
                     if(job->kind == JobKind::ResolveStructDefinition) {
                         auto resolve_struct_definition = (ResolveStructDefinition*)job;
@@ -2545,6 +2562,8 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                             }
 
                             if(same_parameters) {
+                                release_mutex(jobs_mutex);
+
                                 if(resolve_struct_definition->done) {
                                     return {
                                         true,
@@ -2572,15 +2591,19 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                         }
                     }
                 }
+                release_mutex(jobs_mutex);
 
                 auto resolve_struct_definition = new ResolveStructDefinition;
                 resolve_struct_definition->done = false;
                 resolve_struct_definition->waiting_for = nullptr;
+                resolve_struct_definition->being_worked_on = false;
                 resolve_struct_definition->definition = definition;
                 resolve_struct_definition->parameters = parameters;
                 resolve_struct_definition->scope = polymorphic_struct->parent;
 
+                lock_mutex(jobs_mutex);
                 append(jobs, (Job*)resolve_struct_definition);
+                release_mutex(jobs_mutex);
 
                 return {
                     true,
@@ -2603,9 +2626,9 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
     } else if(expression->kind == ExpressionKind::BinaryOperation) {
         auto binary_operation = (BinaryOperation*)expression;
 
-        expect_delayed(left, evaluate_constant_expression(info, jobs, scope, binary_operation->left));
+        expect_delayed(left, evaluate_constant_expression(info, jobs, jobs_mutex, scope, binary_operation->left));
 
-        expect_delayed(right, evaluate_constant_expression(info, jobs, scope, binary_operation->right));
+        expect_delayed(right, evaluate_constant_expression(info, jobs, jobs_mutex, scope, binary_operation->right));
 
         expect(value, evaluate_constant_binary_operation(
             info,
@@ -2630,7 +2653,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
     } else if(expression->kind == ExpressionKind::UnaryOperation) {
         auto unary_operation = (UnaryOperation*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, unary_operation->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, unary_operation->expression));
 
         switch(unary_operation->unary_operator) {
             case UnaryOperation::Operator::Pointer: {
@@ -2739,9 +2762,9 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
     } else if(expression->kind == ExpressionKind::Cast) {
         auto cast = (Cast*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, cast->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, cast->expression));
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, cast->type));
+        expect_delayed(type, evaluate_type_expression(info, jobs, jobs_mutex, scope, cast->type));
 
         expect(value, evaluate_constant_cast(
             info,
@@ -2767,7 +2790,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
     } else if(expression->kind == ExpressionKind::ArrayType) {
         auto array_type = (ArrayType*)expression;
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, array_type->expression));
+        expect_delayed(type, evaluate_type_expression(info, jobs, jobs_mutex, scope, array_type->expression));
 
         if(!is_runtime_type(type)) {
             error(scope, array_type->expression->range, "Cannot have arrays of type '%s'", type_description(type));
@@ -2776,7 +2799,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
         }
 
         if(array_type->index != nullptr) {
-            expect_delayed(index_value, evaluate_constant_expression(info, jobs, scope, array_type->index));
+            expect_delayed(index_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, array_type->index));
 
             expect(length, coerce_constant_to_integer_type(
                 scope,
@@ -2837,7 +2860,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                 return { false };
             }
 
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, parameter.type));
+            expect_delayed(type, evaluate_type_expression(info, jobs, jobs_mutex, scope, parameter.type));
 
             if(!is_runtime_type(type)) {
                 error(scope, parameter.type->range, "Function parameters cannot be of type '%s'", type_description(type));
@@ -2852,7 +2875,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
         if(function_type->return_type == nullptr) {
             return_type = &void_singleton;
         } else {
-            expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, function_type->return_type));
+            expect_delayed(return_type_value, evaluate_type_expression(info, jobs, jobs_mutex, scope, function_type->return_type));
 
             if(!is_runtime_type(return_type_value)) {
                 error(scope, function_type->return_type->range, "Function returns cannot be of type '%s'", type_description(return_type_value));
@@ -2889,10 +2912,11 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
 Result<DelayedValue<Type*>> evaluate_type_expression(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     Expression *expression
 ) {
-    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, expression));
+    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, jobs_mutex, scope, expression));
 
     if(expression_value.type->kind == TypeKind::TypeType) {
         auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
@@ -2914,6 +2938,7 @@ Result<DelayedValue<Type*>> evaluate_type_expression(
 Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     FunctionDeclaration *function_declaration,
     ConstantScope *scope
 ) {
@@ -2940,7 +2965,7 @@ Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_decla
 
     auto parameter_types = allocate<Type*>(parameter_count);
     for(size_t i = 0; i < parameter_count; i += 1) {
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, function_declaration->parameters[i].type));
+        expect_delayed(type, evaluate_type_expression(info, jobs, jobs_mutex, scope, function_declaration->parameters[i].type));
 
         if(!is_runtime_type(type)) {
             error(scope, function_declaration->parameters[i].type->range, "Function parameters cannot be of type '%s'", type_description(type));
@@ -2953,7 +2978,7 @@ Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_decla
 
     Type *return_type;
     if(function_declaration->return_type) {
-        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, function_declaration->return_type));
+        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, jobs_mutex, scope, function_declaration->return_type));
 
         if(!is_runtime_type(return_type_value)) {
             error(scope, function_declaration->return_type->range, "Function parameters cannot be of type '%s'", type_description(return_type_value));
@@ -2977,7 +3002,7 @@ Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_decla
         body_scope->is_top_level = false;
         body_scope->parent = scope;
 
-        if(!process_scope(jobs, body_scope, &child_scopes)) {
+        if(!process_scope(jobs, jobs_mutex, body_scope, &child_scopes)) {
             return { false };
         }
     }
@@ -3008,6 +3033,7 @@ Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_decla
 Result<DelayedValue<Type*>> do_resolve_struct_definition(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     StructDefinition *struct_definition,
     ConstantValue **parameters,
     ConstantScope *scope
@@ -3020,7 +3046,7 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
             auto parameter_types = allocate<Type*>(parameter_count);
 
             for(size_t i = 0; i < parameter_count; i += 1) {
-                expect_delayed(type, evaluate_type_expression(info, jobs, scope, struct_definition->parameters[i].type));
+                expect_delayed(type, evaluate_type_expression(info, jobs, jobs_mutex, scope, struct_definition->parameters[i].type));
 
                 parameter_types[i] = type;
             }
@@ -3037,7 +3063,7 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
                 }
             };
         } else {
-            expect_delayed(polymorphic_type, get_simple_resolved_struct_definition(info, jobs, scope, struct_definition));
+            expect_delayed(polymorphic_type, get_simple_resolved_struct_definition(info, jobs, jobs_mutex, scope, struct_definition));
             assert(polymorphic_type->kind == TypeKind::PolymorphicStruct);
             auto polymorphic_struct = (PolymorphicStruct*)polymorphic_type;
 
@@ -3071,6 +3097,7 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
         expect_delayed(member_type, evaluate_type_expression(
             info,
             jobs,
+            jobs_mutex,
             &member_scope,
             struct_definition->members[i].type
         ));
@@ -3106,10 +3133,12 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
 
 profiled_function(bool, process_scope, (
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     List<ConstantScope*> *child_scopes
 ), (
     jobs,
+    jobs_mutex,
     scope,
     child_scopes
 )) {
@@ -3121,10 +3150,13 @@ profiled_function(bool, process_scope, (
                 auto resolve_function_declaration = new ResolveFunctionDeclaration;
                 resolve_function_declaration->done = false;
                 resolve_function_declaration->waiting_for = nullptr;
+                resolve_function_declaration->being_worked_on = false;
                 resolve_function_declaration->declaration = function_declaration;
                 resolve_function_declaration->scope = scope;
 
+                lock_mutex(jobs_mutex);
                 append(jobs, (Job*)resolve_function_declaration);
+                release_mutex(jobs_mutex);
             } break;
 
             case StatementKind::ConstantDefinition: {
@@ -3133,10 +3165,13 @@ profiled_function(bool, process_scope, (
                 auto resolve_constant_definition = new ResolveConstantDefinition;
                 resolve_constant_definition->done = false;
                 resolve_constant_definition->waiting_for = nullptr;
+                resolve_constant_definition->being_worked_on = false;
                 resolve_constant_definition->definition = constant_definition;
                 resolve_constant_definition->scope = scope;
 
+                lock_mutex(jobs_mutex);
                 append(jobs, (Job*)resolve_constant_definition);
+                release_mutex(jobs_mutex);
             } break;
 
             case StatementKind::StructDefinition: {
@@ -3145,11 +3180,14 @@ profiled_function(bool, process_scope, (
                 auto resolve_struct_definition = new ResolveStructDefinition;
                 resolve_struct_definition->done = false;
                 resolve_struct_definition->waiting_for = nullptr;
+                resolve_struct_definition->being_worked_on = false;
                 resolve_struct_definition->definition = struct_definition;
                 resolve_struct_definition->parameters = nullptr;
                 resolve_struct_definition->scope = scope;
 
+                lock_mutex(jobs_mutex);
                 append(jobs, (Job*)resolve_struct_definition);
+                release_mutex(jobs_mutex);
             } break;
 
             case StatementKind::VariableDeclaration: {
@@ -3159,10 +3197,13 @@ profiled_function(bool, process_scope, (
                     auto generate_static_variable = new GenerateStaticVariable;
                     generate_static_variable->done = false;
                     generate_static_variable->waiting_for = false;
+                    generate_static_variable->being_worked_on = false;
                     generate_static_variable->declaration = variable_declaration;
                     generate_static_variable->scope = scope;
 
+                    lock_mutex(jobs_mutex);
                     append(jobs, (Job*)generate_static_variable);
+                    release_mutex(jobs_mutex);
                 }
             } break;
 
@@ -3183,7 +3224,7 @@ profiled_function(bool, process_scope, (
 
                 append(child_scopes, if_scope);
 
-                process_scope(jobs, if_scope, child_scopes);
+                process_scope(jobs, jobs_mutex, if_scope, child_scopes);
 
                 for(auto else_if : if_statement->else_ifs) {
                     auto else_if_scope = new ConstantScope;
@@ -3194,7 +3235,7 @@ profiled_function(bool, process_scope, (
 
                     append(child_scopes, else_if_scope);
 
-                    process_scope(jobs, else_if_scope, child_scopes);
+                    process_scope(jobs, jobs_mutex, else_if_scope, child_scopes);
                 }
 
                 if(if_statement->else_statements.count != 0) {
@@ -3206,7 +3247,7 @@ profiled_function(bool, process_scope, (
 
                     append(child_scopes, else_scope);
 
-                    process_scope(jobs, else_scope, child_scopes);
+                    process_scope(jobs, jobs_mutex, else_scope, child_scopes);
                 }
             } break;
 
@@ -3227,7 +3268,7 @@ profiled_function(bool, process_scope, (
 
                 append(child_scopes, while_scope);
 
-                process_scope(jobs, while_scope, child_scopes);
+                process_scope(jobs, jobs_mutex, while_scope, child_scopes);
             } break;
 
             case StatementKind::ForLoop: {
@@ -3247,7 +3288,7 @@ profiled_function(bool, process_scope, (
 
                 append(child_scopes, for_scope);
 
-                process_scope(jobs, for_scope, child_scopes);
+                process_scope(jobs, jobs_mutex, for_scope, child_scopes);
             } break;
 
             case StatementKind::ExpressionStatement:
@@ -3274,6 +3315,7 @@ profiled_function(bool, process_scope, (
 
                 expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
 
+                lock_mutex(jobs_mutex);
                 auto job_already_added = false;
                 for(auto job : *jobs) {
                     if(job->kind == JobKind::ParseFile) {
@@ -3285,14 +3327,18 @@ profiled_function(bool, process_scope, (
                         }
                     }
                 }
+                release_mutex(jobs_mutex);
 
                 if(!job_already_added) {
                     auto parse_file = new ParseFile;
                     parse_file->done = false;
                     parse_file->waiting_for = nullptr;
+                    parse_file->being_worked_on = false;
                     parse_file->path = import_file_path_absolute;
 
+                    lock_mutex(jobs_mutex);
                     append(jobs, (Job*)parse_file);
+                    release_mutex(jobs_mutex);
                 }
             } break;
 

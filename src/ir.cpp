@@ -371,8 +371,8 @@ void print_instruction(Instruction *instruction, bool has_return) {
             store_float->source_register,
             store_float->address_register
         );
-    } else if(instruction->kind == InstructionKind::CopyMemory) {
-        auto copy_memory = (CopyMemory*)instruction;
+    } else if(instruction->kind == InstructionKind::CopyMemoryInstruction) {
+        auto copy_memory = (CopyMemoryInstruction*)instruction;
 
         printf(
             "COPY r%zu (%zu), r%zu, r%zu",

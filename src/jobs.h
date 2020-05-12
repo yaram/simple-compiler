@@ -21,7 +21,10 @@ struct Job {
     JobKind kind;
 
     bool done;
+
     Job* waiting_for;
+
+    bool being_worked_on;
 };
 
 struct ParseFile : Job {

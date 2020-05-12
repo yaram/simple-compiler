@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "array.h"
 
-enum struct TokenType {
+enum struct TokenTypeKind {
     Dot,
     DoubleDot,
     Comma,
@@ -45,7 +45,7 @@ enum struct TokenType {
 };
 
 struct Token {
-    TokenType type;
+    TokenTypeKind type;
 
     unsigned int line;
     unsigned int first_character;

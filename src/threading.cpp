@@ -26,6 +26,8 @@ static DWORD WINAPI thread_thunk(LPVOID parameter) {
     auto entry = (void (*)())(parameter);
 
     entry();
+
+    return 0;
 }
 
 void create_thread(void (*entry)()) {

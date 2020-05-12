@@ -101,7 +101,7 @@ static void error(const char *path, unsigned int line, unsigned int character, c
     va_end(arguments);
 }
 
-void append_single_character_token(unsigned int line, unsigned int character, List<Token> *tokens, TokenType type) {
+void append_single_character_token(unsigned int line, unsigned int character, List<Token> *tokens, TokenTypeKind type) {
     Token token;
     token.type = type;
     token.line = line;
@@ -111,7 +111,7 @@ void append_single_character_token(unsigned int line, unsigned int character, Li
     append(tokens, token);
 }
 
-void append_double_character_token(unsigned int line, unsigned int first_character, List<Token> *tokens, TokenType type) {
+void append_double_character_token(unsigned int line, unsigned int first_character, List<Token> *tokens, TokenTypeKind type) {
     Token token;
     token.type = type;
     token.line = line;
@@ -182,7 +182,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             character += 1;
 
             if(index == length) {
-                append_single_character_token(line, first_character, &tokens, TokenType::ForwardSlash);
+                append_single_character_token(line, first_character, &tokens, TokenTypeKind::ForwardSlash);
             } else if(source[index] == '/') {
                 index += 2;
 
@@ -268,13 +268,13 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
                     }
                 }
             } else if(source[index + 1] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::ForwardSlashEquals);
+                append_double_character_token(line, first_character, &tokens, TokenTypeKind::ForwardSlashEquals);
 
                 index += 1;
 
                 character += 1;
             } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::ForwardSlash);
+                append_single_character_token(line, first_character, &tokens, TokenTypeKind::ForwardSlash);
             }
         } else if(source[index] == '.') {
             auto first_character = character;
@@ -284,28 +284,28 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             character += 1;
 
             if(index != length && source[index] == '.') {
-                append_double_character_token(line, first_character, &tokens, TokenType::DoubleDot);
+                append_double_character_token(line, first_character, &tokens, TokenTypeKind::DoubleDot);
 
                 index += 1;
 
                 character += 1;
             } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Dot);
+                append_single_character_token(line, first_character, &tokens, TokenTypeKind::Dot);
             }
         } else if(source[index] == ',') {
-            append_single_character_token(line, character, &tokens, TokenType::Comma);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::Comma);
 
             index += 1;
 
             character += 1;
         } else if(source[index] == ':') {
-            append_single_character_token(line, character, &tokens, TokenType::Colon);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::Colon);
 
             index += 1;
 
             character += 1;
         } else if(source[index] == ';') {
-            append_single_character_token(line, character, &tokens, TokenType::Semicolon);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::Semicolon);
 
             index += 1;
 
@@ -318,13 +318,13 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             character += 1;
 
             if(index != length && source[index] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::PlusEquals);
+                append_double_character_token(line, first_character, &tokens, TokenTypeKind::PlusEquals);
 
                 index += 1;
 
                 character += 1;
             } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Plus);
+                append_single_character_token(line, first_character, &tokens, TokenTypeKind::Plus);
             }
         } else if(source[index] == '-') {
             auto first_character = character;
@@ -336,7 +336,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             if(index != length) {
                 switch(source[index]) {
                     case '>': {
-                        append_double_character_token(line, first_character, &tokens, TokenType::Arrow);
+                        append_double_character_token(line, first_character, &tokens, TokenTypeKind::Arrow);
 
                         index += 1;
 
@@ -344,7 +344,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
                     } break;
 
                     case '=': {
-                        append_double_character_token(line, first_character, &tokens, TokenType::DashEquals);
+                        append_double_character_token(line, first_character, &tokens, TokenTypeKind::DashEquals);
 
                         index += 1;
 
@@ -352,11 +352,11 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
                     } break;
 
                     default: {
-                        append_single_character_token(line, first_character, &tokens, TokenType::Dash);
+                        append_single_character_token(line, first_character, &tokens, TokenTypeKind::Dash);
                     } break;
                 }
             } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Dash);
+                append_single_character_token(line, first_character, &tokens, TokenTypeKind::Dash);
             }
         } else if(source[index] == '*') {
             auto first_character = character;
@@ -366,13 +366,13 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             character += 1;
 
             if(index != length && source[index] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::AsteriskEquals);
+                append_double_character_token(line, first_character, &tokens, TokenTypeKind::AsteriskEquals);
 
                 index += 1;
 
                 character += 1;
             } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Asterisk);
+                append_single_character_token(line, first_character, &tokens, TokenTypeKind::Asterisk);
             }
         } else if(source[index] == '%') {
             auto first_character = character;
@@ -382,13 +382,13 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             character += 1;
 
             if(index != length && source[index] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::PercentEquals);
+                append_double_character_token(line, first_character, &tokens, TokenTypeKind::PercentEquals);
 
                 index += 1;
 
                 character += 1;
             } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Percent);
+                append_single_character_token(line, first_character, &tokens, TokenTypeKind::Percent);
             }
         } else if(source[index] == '=') {
             auto first_character = character;
@@ -398,22 +398,22 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             character += 1;
 
             if(index != length && source[index] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::DoubleEquals);
+                append_double_character_token(line, first_character, &tokens, TokenTypeKind::DoubleEquals);
 
                 index += 1;
 
                 character += 1;
             } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Equals);
+                append_single_character_token(line, first_character, &tokens, TokenTypeKind::Equals);
             }
         } else if(source[index] == '<') {
-            append_single_character_token(line, character, &tokens, TokenType::LeftArrow);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::LeftArrow);
 
             index += 1;
 
             character += 1;
         } else if(source[index] == '>') {
-            append_single_character_token(line, character, &tokens, TokenType::RightArrow);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::RightArrow);
 
             index += 1;
 
@@ -426,13 +426,13 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             character += 1;
 
             if(index != length && source[index] == '&') {
-                append_double_character_token(line, first_character, &tokens, TokenType::DoubleAmpersand);
+                append_double_character_token(line, first_character, &tokens, TokenTypeKind::DoubleAmpersand);
 
                 index += 1;
 
                 character += 1;
             } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Ampersand);
+                append_single_character_token(line, first_character, &tokens, TokenTypeKind::Ampersand);
             }
         } else if(source[index] == '|') {
             auto first_character = character;
@@ -442,16 +442,16 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             character += 1;
 
             if(index != length && source[index] == '|') {
-                append_double_character_token(line, first_character, &tokens, TokenType::DoublePipe);
+                append_double_character_token(line, first_character, &tokens, TokenTypeKind::DoublePipe);
 
                 index += 1;
 
                 character += 1;
             } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Pipe);
+                append_single_character_token(line, first_character, &tokens, TokenTypeKind::Pipe);
             }
         } else if(source[index] == '#') {
-            append_single_character_token(line, character, &tokens, TokenType::Hash);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::Hash);
 
             index += 1;
 
@@ -464,52 +464,52 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             character += 1;
 
             if(index != length && source[index] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::BangEquals);
+                append_double_character_token(line, first_character, &tokens, TokenTypeKind::BangEquals);
 
                 index += 1;
 
                 character += 1;
             } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Bang);
+                append_single_character_token(line, first_character, &tokens, TokenTypeKind::Bang);
             }
         } else if(source[index] == '$') {
-            append_single_character_token(line, character, &tokens, TokenType::Dollar);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::Dollar);
 
             index += 1;
 
             character += 1;
         } else if(source[index] == '(') {
-            append_single_character_token(line, character, &tokens, TokenType::OpenRoundBracket);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::OpenRoundBracket);
 
             index += 1;
 
             character += 1;
         } else if(source[index] == ')') {
-            append_single_character_token(line, character, &tokens, TokenType::CloseRoundBracket);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::CloseRoundBracket);
 
             index += 1;
 
             character += 1;
         } else if(source[index] == '{') {
-            append_single_character_token(line, character, &tokens, TokenType::OpenCurlyBracket);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::OpenCurlyBracket);
 
             index += 1;
 
             character += 1;
         } else if(source[index] == '}') {
-            append_single_character_token(line, character, &tokens, TokenType::CloseCurlyBracket);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::CloseCurlyBracket);
 
             index += 1;
 
             character += 1;
         } else if(source[index] == '[') {
-            append_single_character_token(line, character, &tokens, TokenType::OpenSquareBracket);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::OpenSquareBracket);
 
             index += 1;
 
             character += 1;
         } else if(source[index] == ']') {
-            append_single_character_token(line, character, &tokens, TokenType::CloseSquareBracket);
+            append_single_character_token(line, character, &tokens, TokenTypeKind::CloseSquareBracket);
 
             index += 1;
 
@@ -580,7 +580,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             }
 
             Token token;
-            token.type = TokenType::String;
+            token.type = TokenTypeKind::String;
             token.line = line;
             token.first_character = first_character;
             token.last_character = character - 2;
@@ -621,7 +621,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
             append(&buffer, '\0');
 
             Token token;
-            token.type = TokenType::Identifier;
+            token.type = TokenTypeKind::Identifier;
             token.line = line;
             token.first_character = first_character;
             token.last_character = character - 1;
@@ -748,7 +748,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
                     place_offset *= radix;
                 }
 
-                token.type = TokenType::Integer;
+                token.type = TokenTypeKind::Integer;
                 token.integer = value;
 
                 append(&tokens, token);
@@ -761,7 +761,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
 
                 buffer[count] = '\0';
 
-                token.type = TokenType::FloatingPoint;
+                token.type = TokenTypeKind::FloatingPoint;
                 token.floating_point = atof(buffer);
 
                 append(&tokens, token);

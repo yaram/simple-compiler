@@ -5,6 +5,7 @@
 #include "ast.h"
 #include "register_size.h"
 #include "list.h"
+#include "threading.h"
 
 struct Job;
 struct Type;
@@ -288,6 +289,7 @@ Result<ConstantValue*> evaluate_constant_cast(
 Result<DelayedValue<Type*>> evaluate_type_expression(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     Expression *expression
 );
@@ -297,6 +299,7 @@ bool match_declaration(Statement *statement, const char *name);
 Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     Statement *declaration
 );
@@ -305,6 +308,7 @@ bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b);
 Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     ConstantScope *scope,
     Expression *expression
 );
@@ -320,6 +324,7 @@ struct ResolveFunctionDeclarationResult {
 Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     FunctionDeclaration *function_declaration,
     ConstantScope *parent_scope
 );
@@ -327,9 +332,10 @@ Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_decla
 Result<DelayedValue<Type*>> do_resolve_struct_definition(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     StructDefinition *struct_definition,
     ConstantValue **parameters,
     ConstantScope *scope
 );
 
-bool process_scope(List<Job*> *jobs, ConstantScope *scope, List<ConstantScope*> *child_scopes);
+bool process_scope(List<Job*> *jobs, Mutex *jobs_mutex, ConstantScope *scope, List<ConstantScope*> *child_scopes);

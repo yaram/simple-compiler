@@ -15,6 +15,7 @@ struct GeneratorResult {
 Result<DelayedValue<GeneratorResult>> do_generate_function(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     FunctionDeclaration *declaration,
     TypedConstantValue *parameters,
     ConstantScope *scope,
@@ -31,6 +32,7 @@ struct StaticVariableResult {
 Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
     GlobalInfo info,
     List<Job*> *jobs,
+    Mutex *jobs_mutex,
     VariableDeclaration *declaration,
     ConstantScope *scope
 );
