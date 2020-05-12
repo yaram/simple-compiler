@@ -45,6 +45,9 @@ set(sources
     src/types.h
     src/types.cpp
 
+    src/threading.h
+    src/threading.cpp
+
     src/constant.h
     src/constant.cpp
 
