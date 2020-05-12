@@ -18,6 +18,10 @@ void release_mutex(Mutex *mutex) {
     LeaveCriticalSection(mutex);
 }
 
+void interlocked_add(uint64_t volatile *destination, uint64_t source) {
+    InterlockedExchangeAdd64((volatile LONG64*)destination, source);
+}
+
 static DWORD WINAPI thread_thunk(LPVOID parameter) {
     auto entry = (void (*)())(parameter);
 
