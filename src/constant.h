@@ -12,8 +12,9 @@ struct Type;
 struct FunctionTypeType;
 struct Integer;
 struct ConstantValue;
+struct FunctionConstant;
 
-struct ConstantParameter {
+struct ScopeConstant {
     const char *name;
 
     Type *type;
@@ -24,7 +25,7 @@ struct ConstantParameter {
 struct ConstantScope {
     Array<Statement*> statements;
 
-    Array<ConstantParameter> constant_parameters;
+    Array<ScopeConstant> scope_constants;
 
     bool is_top_level;
 
@@ -51,6 +52,7 @@ struct GlobalInfo {
 enum struct ConstantValueKind {
     FunctionConstant,
     BuiltinFunctionConstant,
+    PolymorphicFunctionConstant,
     IntegerConstant,
     FloatConstant,
     BooleanConstant,
@@ -71,15 +73,32 @@ extern ConstantValue void_constant_singleton;
 
 struct FunctionConstant : ConstantValue {
     FunctionDeclaration *declaration;
-    ConstantScope *parent;
+    ConstantScope *body_scope;
+    Array<ConstantScope*> child_scopes;
 
     FunctionConstant(
         FunctionDeclaration *declaration,
-        ConstantScope *parent
+        ConstantScope *body_scope,
+        Array<ConstantScope*> child_scopes
     ) :
     ConstantValue { ConstantValueKind::FunctionConstant },
     declaration { declaration },
-    parent { parent }
+    body_scope { body_scope },
+    child_scopes { child_scopes }
+    {}
+};
+
+struct PolymorphicFunctionConstant : ConstantValue {
+    FunctionDeclaration *declaration;
+    ConstantScope *scope;
+
+    PolymorphicFunctionConstant(
+        FunctionDeclaration *declaration,
+        ConstantScope *scope
+    ) :
+    ConstantValue { ConstantValueKind::PolymorphicFunctionConstant },
+    declaration { declaration },
+    scope { scope }
     {}
 };
 
@@ -313,32 +332,22 @@ Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
 
 Result<DelayedValue<ConstantScope*>> do_resolve_file(List<Job*> *jobs, ParseFile *parse_file);
 
-struct ResolveFunctionDeclarationResult {
-    Type *type;
-    ConstantValue *value;
-
-    ConstantScope *body_scope;
-    Array<ConstantScope*> child_scopes;
+struct FunctionResolutionValue {
+    FunctionTypeType *type;
+    FunctionConstant *value;
 };
 
-Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_declaration(
+Result<DelayedValue<FunctionResolutionValue>> do_resolve_function_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
-    FunctionDeclaration *function_declaration,
+    FunctionDeclaration *declaration,
     ConstantScope *scope
 );
 
-struct ResolvePolymorphicFunctionResult {
-    FunctionTypeType *type;
-
-    ConstantScope *body_scope;
-    Array<ConstantScope*> child_scopes;
-};
-
-Result<DelayedValue<ResolvePolymorphicFunctionResult>> do_resolve_polymorphic_function(
+Result<DelayedValue<FunctionResolutionValue>> do_resolve_polymorphic_function(
     GlobalInfo info,
     List<Job*> *jobs,
-    FunctionDeclaration *function_declaration,
+    FunctionDeclaration *declaration,
     TypedConstantValue *parameters,
     ConstantScope *scope,
     ConstantScope *call_scope,

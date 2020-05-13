@@ -354,8 +354,32 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             resolve_function_declaration->done = true;
                             resolve_function_declaration->type = delayed_value.value.type;
                             resolve_function_declaration->value = delayed_value.value.value;
-                            resolve_function_declaration->body_scope = delayed_value.value.body_scope;
-                            resolve_function_declaration->child_scopes = delayed_value.value.child_scopes;
+
+                            auto found = false;
+                            for(auto job : jobs) {
+                                if(job->kind == JobKind::GenerateFunction) { 
+                                    auto generate_function = (GenerateFunction*)job;
+
+                                    if(
+                                        generate_function->value->declaration == resolve_function_declaration->declaration &&
+                                        generate_function->value->body_scope == resolve_function_declaration->value->body_scope
+                                    ) {
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if(!found) {
+                                auto generate_function = new GenerateFunction;
+                                generate_function->done = false;
+                                generate_function->waiting_for = resolve_function_declaration;
+                                generate_function->type = delayed_value.value.type;
+                                generate_function->value = delayed_value.value.value;
+                                generate_function->function = new Function;
+
+                                append(&jobs, (Job*)generate_function);
+                            }
                         } else {
                             resolve_function_declaration->waiting_for = delayed_value.waiting_for;
                         }
@@ -383,8 +407,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         if(delayed_value.has_value) {
                             resolve_polymorphic_function->done = true;
                             resolve_polymorphic_function->type = delayed_value.value.type;
-                            resolve_polymorphic_function->body_scope = delayed_value.value.body_scope;
-                            resolve_polymorphic_function->child_scopes = delayed_value.value.child_scopes;
+                            resolve_polymorphic_function->value = delayed_value.value.value;
                         } else {
                             resolve_polymorphic_function->waiting_for = delayed_value.waiting_for;
                         }
@@ -476,7 +499,8 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         expect(delayed_value, do_generate_function(
                             info,
                             &jobs,
-                            generate_function->resolve_function,
+                            generate_function->type,
+                            generate_function->value,
                             generate_function->function
                         ));
 

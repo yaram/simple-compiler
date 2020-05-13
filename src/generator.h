@@ -9,7 +9,8 @@ struct Job;
 Result<DelayedValue<Array<StaticConstant*>>> do_generate_function(
     GlobalInfo info,
     List<Job*> *jobs,
-    Job *resolve_function,
+    FunctionTypeType *type,
+    FunctionConstant *value,
     Function *function
 );
 

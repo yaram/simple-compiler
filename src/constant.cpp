@@ -1586,6 +1586,24 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
         case StatementKind::FunctionDeclaration: {
             auto function_declaration = (FunctionDeclaration*)declaration;
 
+            for(auto parameter : function_declaration->parameters) {
+                if(parameter.is_constant || parameter.is_polymorphic_determiner) {
+                    return {
+                        true,
+                        {
+                            true,
+                            {
+                                &polymorphic_function_singleton,
+                                new PolymorphicFunctionConstant {
+                                    function_declaration,
+                                    scope
+                                }
+                            }
+                        }
+                    };
+                }
+            }
+
             for(auto job : *jobs) {
                 if(job->kind == JobKind::ResolveFunctionDeclaration) {
                     auto resolve_function_declaration = (ResolveFunctionDeclaration*)job;
@@ -1927,15 +1945,15 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                 }
             }
 
-            for(auto constant_parameter : current_scope->constant_parameters) {
-                if(strcmp(constant_parameter.name, named_reference->name.text) == 0) {
+            for(auto scope_constant : current_scope->scope_constants) {
+                if(strcmp(scope_constant.name, named_reference->name.text) == 0) {
                     return {
                         true,
                         {
                             true,
                             {
-                                constant_parameter.type,
-                                constant_parameter.value
+                                scope_constant.type,
+                                scope_constant.value
                             }
                         }
                     };
@@ -2804,7 +2822,7 @@ Result<DelayedValue<ConstantScope*>> do_resolve_file(List<Job*> *jobs, ParseFile
 
     auto scope = new ConstantScope;
     scope->statements = parse_file->statements;
-    scope->constant_parameters = {};
+    scope->scope_constants = {};
     scope->is_top_level = true;
     scope->file_path = parse_file->path;
 
@@ -2821,39 +2839,23 @@ Result<DelayedValue<ConstantScope*>> do_resolve_file(List<Job*> *jobs, ParseFile
     };
 }
 
-Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_declaration(
+Result<DelayedValue<FunctionResolutionValue>> do_resolve_function_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
-    FunctionDeclaration *function_declaration,
+    FunctionDeclaration *declaration,
     ConstantScope *scope
 ) {
-    auto is_polymorphic = false;
-    for(auto parameter : function_declaration->parameters) {
-        if(parameter.is_polymorphic_determiner || parameter.is_constant) {
-            return {
-                true,
-                {
-                    true,
-                    {
-                        &polymorphic_function_singleton,
-                        new FunctionConstant {
-                            function_declaration,
-                            scope
-                        }
-                    }
-                }
-            };
-        }
-    }
-
-    auto parameter_count = function_declaration->parameters.count;
+    auto parameter_count = declaration->parameters.count;
 
     auto parameter_types = allocate<Type*>(parameter_count);
     for(size_t i = 0; i < parameter_count; i += 1) {
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, function_declaration->parameters[i].type));
+        assert(!declaration->parameters[i].is_constant);
+        assert(!declaration->parameters[i].is_polymorphic_determiner);
+
+        expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->parameters[i].type));
 
         if(!is_runtime_type(type)) {
-            error(scope, function_declaration->parameters[i].type->range, "Function parameters cannot be of type '%s'", type_description(type));
+            error(scope, declaration->parameters[i].type->range, "Function parameters cannot be of type '%s'", type_description(type));
 
             return { false };
         }
@@ -2862,11 +2864,11 @@ Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_decla
     }
 
     Type *return_type;
-    if(function_declaration->return_type) {
-        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, function_declaration->return_type));
+    if(declaration->return_type) {
+        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, declaration->return_type));
 
         if(!is_runtime_type(return_type_value)) {
-            error(scope, function_declaration->return_type->range, "Function parameters cannot be of type '%s'", type_description(return_type_value));
+            error(scope, declaration->return_type->range, "Function parameters cannot be of type '%s'", type_description(return_type_value));
 
             return { false };
         }
@@ -2878,13 +2880,13 @@ Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_decla
     
     auto body_scope = new ConstantScope;
     body_scope->statements = {};
-    body_scope->constant_parameters = {};
+    body_scope->scope_constants = {};
     body_scope->is_top_level = false;
     body_scope->parent = scope;
 
     List<ConstantScope*> child_scopes {};
-    if(!function_declaration->is_external) {
-        body_scope->statements = function_declaration->statements;
+    if(!declaration->is_external) {
+        body_scope->statements = declaration->statements;
 
         if(!process_scope(jobs, body_scope, &child_scopes)) {
             return { false };
@@ -2904,81 +2906,77 @@ Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_decla
                     return_type
                 },
                 new FunctionConstant {
-                    function_declaration,
-                    scope
-                },
-                body_scope,
-                to_array(child_scopes)
+                    declaration,
+                    body_scope,
+                    to_array(child_scopes)
+                }
             }
         }
     };
 }
 
-Result<DelayedValue<ResolvePolymorphicFunctionResult>> do_resolve_polymorphic_function(
+Result<DelayedValue<FunctionResolutionValue>> do_resolve_polymorphic_function(
     GlobalInfo info,
     List<Job*> *jobs,
-    FunctionDeclaration *function_declaration,
+    FunctionDeclaration *declaration,
     TypedConstantValue *parameters,
     ConstantScope *scope,
     ConstantScope *call_scope,
     FileRange *call_parameter_ranges
 ) {
-    auto original_parameter_count = function_declaration->parameters.count;
+    auto original_parameter_count = declaration->parameters.count;
 
     auto parameter_types = allocate<Type*>(original_parameter_count);
 
-    List<ConstantParameter> polymorphic_determiners {};
+    List<ScopeConstant> polymorphic_determiners {};
 
+    size_t polymorphic_determiner_index = 0;
     size_t runtime_parameter_count = 0;
     for(size_t i = 0; i < original_parameter_count; i += 1) {
-        auto declaration_parameter = function_declaration->parameters[i];
+        auto declaration_parameter = declaration->parameters[i];
 
-        if(declaration_parameter.is_constant) {
-            if(parameters[i].value == nullptr) {
-                error(call_scope, call_parameter_ranges[i], "Expected a constant parameter");
-
-                return { false };
-            }
-        } else {
+        if(!declaration_parameter.is_constant) {
             runtime_parameter_count += 1;
         }
 
         if(declaration_parameter.is_polymorphic_determiner) {
             Type *type;
-            if(!declaration_parameter.is_constant && !is_runtime_type(parameters[i].type)) {
-                expect(determined_type, coerce_to_default_type(info, scope, call_parameter_ranges[i], parameters[i].type));
+            if(declaration_parameter.is_constant) {
+                type = parameters[i].type;
+            } else {
+                expect(determined_type, coerce_to_default_type(info, call_scope, call_parameter_ranges[i], parameters[i].type));
 
                 type = determined_type;
-            } else {
-                type = parameters[i].type;
             }
 
             parameter_types[i] = type;
 
             append(&polymorphic_determiners, {
-                function_declaration->parameters[i].polymorphic_determiner.text,
+                declaration->parameters[i].polymorphic_determiner.text,
                 &type_type_singleton,
                 new TypeConstant {
                     type
                 }
             });
+
+            polymorphic_determiner_index += 1;
         }
     }
 
     ConstantScope signature_scope;
     signature_scope.statements = {};
-    signature_scope.constant_parameters = to_array(polymorphic_determiners);
+    signature_scope.scope_constants = to_array(polymorphic_determiners);
     signature_scope.is_top_level = false;
     signature_scope.parent = scope;
 
-    List<ConstantParameter> constant_parameters {};
+    List<ScopeConstant> scope_constants {};
 
     for(auto polymorphic_determiner : polymorphic_determiners) {
-        append(&constant_parameters, polymorphic_determiner);
+        append(&scope_constants, polymorphic_determiner);
     }
 
     for(size_t i = 0; i < original_parameter_count; i += 1) {
-        auto declaration_parameter = function_declaration->parameters[i];
+        auto declaration_parameter = declaration->parameters[i];
         auto call_parameter = parameters[i];
 
         if(declaration_parameter.is_constant) {
@@ -2998,7 +2996,7 @@ Result<DelayedValue<ResolvePolymorphicFunctionResult>> do_resolve_polymorphic_fu
                 false
             ));
 
-            append(&constant_parameters, {
+            append(&scope_constants, {
                 declaration_parameter.name.text,
                 parameter_types[i],
                 coerced_constant_value
@@ -3006,13 +3004,13 @@ Result<DelayedValue<ResolvePolymorphicFunctionResult>> do_resolve_polymorphic_fu
         }
     }
 
-    signature_scope.constant_parameters = to_array(constant_parameters);
+    signature_scope.scope_constants = to_array(scope_constants);
 
     auto runtime_parameter_types = allocate<Type*>(runtime_parameter_count);
 
     size_t runtime_parameter_index = 0;
     for(size_t i = 0; i < original_parameter_count; i += 1) {
-        auto declaration_parameter = function_declaration->parameters[i];
+        auto declaration_parameter = declaration->parameters[i];
 
         if(!declaration_parameter.is_constant) {
             if(!declaration_parameter.is_polymorphic_determiner) {
@@ -3042,13 +3040,13 @@ Result<DelayedValue<ResolvePolymorphicFunctionResult>> do_resolve_polymorphic_fu
     assert(runtime_parameter_index == runtime_parameter_count);
 
     Type *return_type;
-    if(function_declaration->return_type) {
-        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, &signature_scope, function_declaration->return_type));
+    if(declaration->return_type) {
+        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, &signature_scope, declaration->return_type));
 
         if(!is_runtime_type(return_type_value)) {
             error(
                 scope,
-                function_declaration->return_type->range,
+                declaration->return_type->range,
                 "Function returns cannot be of type '%s'",
                 type_description(return_type_value)
             );
@@ -3063,12 +3061,12 @@ Result<DelayedValue<ResolvePolymorphicFunctionResult>> do_resolve_polymorphic_fu
 
     List<ConstantScope*> child_scopes {};
     ConstantScope *body_scope;
-    if(function_declaration->is_external) {
+    if(declaration->is_external) {
         body_scope = nullptr;
     } else {
         body_scope = new ConstantScope;
-        body_scope->statements = function_declaration->statements;
-        body_scope->constant_parameters = to_array(constant_parameters);
+        body_scope->statements = declaration->statements;
+        body_scope->scope_constants = to_array(scope_constants);
         body_scope->is_top_level = false;
         body_scope->parent = scope;
 
@@ -3089,8 +3087,11 @@ Result<DelayedValue<ResolvePolymorphicFunctionResult>> do_resolve_polymorphic_fu
                     },
                     return_type
                 },
-                body_scope,
-                to_array(child_scopes)
+                new FunctionConstant {
+                    declaration,
+                    body_scope,
+                    to_array(child_scopes)
+                }
             }
         }
     };
@@ -3128,7 +3129,7 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
 
     ConstantScope member_scope;
     member_scope.statements = {};
-    member_scope.constant_parameters = {};
+    member_scope.scope_constants = {};
     member_scope.is_top_level = false;
     member_scope.parent = scope;
 
@@ -3183,7 +3184,7 @@ Result<DelayedValue<Type*>> do_resolve_polymorphic_struct(
     auto parameter_count = struct_definition->parameters.count;
     assert(parameter_count > 0);
 
-    auto constant_parameters = allocate<ConstantParameter>(parameter_count);
+    auto constant_parameters = allocate<ScopeConstant>(parameter_count);
 
     for(size_t i = 0; i < parameter_count; i += 1) {
         expect_delayed(parameter_type, evaluate_type_expression(info, jobs, scope, struct_definition->parameters[i].type));
@@ -3197,7 +3198,7 @@ Result<DelayedValue<Type*>> do_resolve_polymorphic_struct(
 
     ConstantScope member_scope;
     member_scope.statements = {};
-    member_scope.constant_parameters = { parameter_count, constant_parameters };
+    member_scope.scope_constants = { parameter_count, constant_parameters };
     member_scope.is_top_level = false;
     member_scope.parent = scope;
 
@@ -3256,14 +3257,6 @@ profiled_function(bool, process_scope, (
             case StatementKind::FunctionDeclaration: {
                 auto function_declaration = (FunctionDeclaration*)statement;
 
-                auto resolve_function_declaration = new ResolveFunctionDeclaration;
-                resolve_function_declaration->done = false;
-                resolve_function_declaration->waiting_for = nullptr;
-                resolve_function_declaration->declaration = function_declaration;
-                resolve_function_declaration->scope = scope;
-
-                append(jobs, (Job*)resolve_function_declaration);
-
                 auto is_polymorphic = false;
                 for(auto parameter : function_declaration->parameters) {
                     if(parameter.is_constant || parameter.is_polymorphic_determiner) {
@@ -3273,13 +3266,13 @@ profiled_function(bool, process_scope, (
                 }
 
                 if(!is_polymorphic) {
-                    auto generate_function = new GenerateFunction;
-                    generate_function->done = false;
-                    generate_function->waiting_for = resolve_function_declaration;
-                    generate_function->resolve_function = resolve_function_declaration;
-                    generate_function->function = new Function;
+                    auto resolve_function_declaration = new ResolveFunctionDeclaration;
+                    resolve_function_declaration->done = false;
+                    resolve_function_declaration->waiting_for = nullptr;
+                    resolve_function_declaration->declaration = function_declaration;
+                    resolve_function_declaration->scope = scope;
 
-                    append(jobs, (Job*)generate_function);
+                    append(jobs, (Job*)resolve_function_declaration);
                 }
             } break;
 
@@ -3332,7 +3325,7 @@ profiled_function(bool, process_scope, (
 
                 auto if_scope = new ConstantScope;
                 if_scope->statements = if_statement->statements;
-                if_scope->constant_parameters = {};
+                if_scope->scope_constants = {};
                 if_scope->is_top_level = false;
                 if_scope->parent = scope;
 
@@ -3343,7 +3336,7 @@ profiled_function(bool, process_scope, (
                 for(auto else_if : if_statement->else_ifs) {
                     auto else_if_scope = new ConstantScope;
                     else_if_scope->statements = else_if.statements;
-                    else_if_scope->constant_parameters = {};
+                    else_if_scope->scope_constants = {};
                     else_if_scope->is_top_level = false;
                     else_if_scope->parent = scope;
 
@@ -3355,7 +3348,7 @@ profiled_function(bool, process_scope, (
                 if(if_statement->else_statements.count != 0) {
                     auto else_scope = new ConstantScope;
                     else_scope->statements = if_statement->else_statements;
-                    else_scope->constant_parameters = {};
+                    else_scope->scope_constants = {};
                     else_scope->is_top_level = false;
                     else_scope->parent = scope;
 
@@ -3376,7 +3369,7 @@ profiled_function(bool, process_scope, (
 
                 auto while_scope = new ConstantScope;
                 while_scope->statements = while_loop->statements;
-                while_scope->constant_parameters = {};
+                while_scope->scope_constants = {};
                 while_scope->is_top_level = false;
                 while_scope->parent = scope;
 
@@ -3396,7 +3389,7 @@ profiled_function(bool, process_scope, (
 
                 auto for_scope = new ConstantScope;
                 for_scope->statements = for_loop->statements;
-                for_scope->constant_parameters = {};
+                for_scope->scope_constants = {};
                 for_scope->is_top_level = false;
                 for_scope->parent = scope;
 

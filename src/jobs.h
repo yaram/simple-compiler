@@ -1,6 +1,5 @@
 #pragma once
 
-#include "list.h"
 #include "ast.h"
 #include "constant.h"
 #include "ir.h"
@@ -8,6 +7,7 @@
 struct Type;
 struct FunctionTypeType;
 struct ConstantValue;
+struct FunctionConstant;
 
 enum struct JobKind {
     ParseFile,
@@ -49,10 +49,8 @@ struct ResolveFunctionDeclaration : Job {
     FunctionDeclaration *declaration;
     ConstantScope *scope;
 
-    Type *type;
-    ConstantValue *value;
-    ConstantScope *body_scope;
-    Array<ConstantScope*> child_scopes;
+    FunctionTypeType *type;
+    FunctionConstant *value;
 
     ResolveFunctionDeclaration() : Job { JobKind::ResolveFunctionDeclaration } {}
 };
@@ -65,8 +63,7 @@ struct ResolvePolymorphicFunction : Job {
     FileRange *call_parameter_ranges;
 
     FunctionTypeType *type;
-    ConstantScope *body_scope;
-    Array<ConstantScope*> child_scopes;
+    FunctionConstant *value;
 
     ResolvePolymorphicFunction() : Job { JobKind::ResolvePolymorphicFunction } {}
 };
@@ -101,23 +98,13 @@ struct ResolvePolymorphicStruct : Job {
 };
 
 struct GenerateFunction : Job {
-    Job *resolve_function;
+    FunctionTypeType *type;
+    FunctionConstant *value;
 
     Function *function;
     Array<StaticConstant*> static_constants;
 
     GenerateFunction() : Job { JobKind::GenerateFunction } {}
-};
-
-struct GeneratePolymorphicFunction : Job {
-    FunctionDeclaration *declaration;
-    TypedConstantValue *parameters;
-    ConstantScope *scope;
-
-    Function *function;
-    Array<StaticConstant*> static_constants;
-
-    GeneratePolymorphicFunction() : Job { JobKind::GeneratePolymorphicFunction } {}
 };
 
 struct GenerateStaticVariable : Job {
