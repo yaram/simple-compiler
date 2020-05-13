@@ -2670,6 +2670,161 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                 }
             }
         };
+    } else if(expression->kind == ExpressionKind::Bake) {
+        auto bake = (Bake*)expression;
+
+        auto function_call = bake->function_call;
+
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, function_call->expression));
+
+        auto call_parameter_count = function_call->parameters.count;
+
+        auto parameters = allocate<TypedConstantValue>(call_parameter_count);
+        for(size_t i = 0; i < call_parameter_count; i += 1) {
+            expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, function_call->parameters[i]));
+
+            parameters[i] = parameter_value;
+        }
+
+        if(expression_value.type->kind == TypeKind::PolymorphicFunction) {
+            auto polymorphic_function_value = extract_constant_value(PolymorphicFunctionConstant, expression_value.value);
+
+            auto declaration_parameters = polymorphic_function_value->declaration->parameters;
+            auto declaration_parameter_count = declaration_parameters.count;
+
+            if(call_parameter_count != declaration_parameter_count) {
+                error(
+                    scope,
+                    function_call->range,
+                    "Incorrect number of parameters. Expected %zu, got %zu",
+                    declaration_parameter_count,
+                    call_parameter_count
+                );
+
+                return { false };
+            }
+
+            auto found = false;
+            for(auto job : *jobs) {
+                if(job->kind == JobKind::ResolvePolymorphicFunction) {
+                    auto resolve_polymorphic_function = (ResolvePolymorphicFunction*)job;
+
+                    if(
+                        resolve_polymorphic_function->declaration == polymorphic_function_value->declaration &&
+                        resolve_polymorphic_function->scope == polymorphic_function_value->scope
+                    ) {
+                        auto matching_polymorphic_parameters = true;
+                        for(size_t i = 0; i < declaration_parameter_count; i += 1) {
+                            auto declaration_parameter = declaration_parameters[i];
+                            auto call_parameter = parameters[i];
+                            auto job_parameter = resolve_polymorphic_function->parameters[i];
+
+                            if(
+                                (declaration_parameter.is_polymorphic_determiner || declaration_parameter.is_constant) &&
+                                !types_equal(job_parameter.type, call_parameter.type)
+                            ) {
+                                matching_polymorphic_parameters = false;
+                                break;
+                            }
+
+                            if(
+                                declaration_parameter.is_constant &&
+                                !constant_values_equal( call_parameter.type, call_parameter.value, job_parameter.value)
+                            ) {
+                                matching_polymorphic_parameters = false;
+                                break;
+                            }
+                        }
+
+                        if(!matching_polymorphic_parameters) {
+                            continue;
+                        }
+
+                        if(resolve_polymorphic_function->done) {
+                            found = true;
+
+                            return {
+                                true,
+                                {
+                                    true,
+                                    {
+                                        resolve_polymorphic_function->type,
+                                        resolve_polymorphic_function->value
+                                    }
+                                }
+                            };
+                        } else {
+                            return {
+                                true,
+                                {
+                                    false,
+                                    {},
+                                    resolve_polymorphic_function
+                                }
+                            };
+                        }  
+                    }
+                }
+            }
+
+            if(!found) {
+                auto call_parameter_ranges = allocate<FileRange>(declaration_parameter_count);
+
+                for(size_t i = 0; i < declaration_parameter_count; i += 1) {
+                    call_parameter_ranges[i] = function_call->parameters[i]->range;
+                }
+
+                auto resolve_polymorphic_function = new ResolvePolymorphicFunction;
+                resolve_polymorphic_function->done = false;
+                resolve_polymorphic_function->waiting_for = nullptr;
+                resolve_polymorphic_function->declaration = polymorphic_function_value->declaration;
+                resolve_polymorphic_function->parameters = parameters;
+                resolve_polymorphic_function->scope = polymorphic_function_value->scope;
+                resolve_polymorphic_function->call_scope = scope;
+                resolve_polymorphic_function->call_parameter_ranges = call_parameter_ranges;
+
+                append(jobs, (Job*)resolve_polymorphic_function);
+
+                return {
+                    true,
+                    {
+                        false,
+                        {},
+                        resolve_polymorphic_function
+                    }
+                };
+            }
+        } else if(expression_value.type->kind == TypeKind::FunctionTypeType) {
+            auto function_type = (FunctionTypeType*)expression_value.type;
+            auto function_value = extract_constant_value(FunctionConstant, expression_value.value);
+
+            if(call_parameter_count != function_type->parameters.count) {
+                error(
+                    scope,
+                    function_call->range,
+                    "Incorrect number of parameters. Expected %zu, got %zu",
+                    function_type->parameters.count,
+                    call_parameter_count
+                );
+
+                return { false };
+            }
+
+            return {
+                true,
+                {
+                    true,
+                    {
+                        function_type,
+                        function_value
+                    }
+                }
+            };
+        } else {
+            error(scope, function_call->expression->range, "Expected a function, got '%s'", type_description(expression_value.type));
+
+            return { false };
+        }
     } else if(expression->kind == ExpressionKind::ArrayType) {
         auto array_type = (ArrayType*)expression;
 
