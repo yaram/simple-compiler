@@ -7,7 +7,9 @@
 #include "list.h"
 
 struct Job;
+struct ParseFile;
 struct Type;
+struct FunctionTypeType;
 struct Integer;
 struct ConstantValue;
 
@@ -309,6 +311,8 @@ Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
     Expression *expression
 );
 
+Result<DelayedValue<ConstantScope*>> do_resolve_file(List<Job*> *jobs, ParseFile *parse_file);
+
 struct ResolveFunctionDeclarationResult {
     Type *type;
     ConstantValue *value;
@@ -321,10 +325,34 @@ Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_decla
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionDeclaration *function_declaration,
-    ConstantScope *parent_scope
+    ConstantScope *scope
+);
+
+struct ResolvePolymorphicFunctionResult {
+    FunctionTypeType *type;
+
+    ConstantScope *body_scope;
+    Array<ConstantScope*> child_scopes;
+};
+
+Result<DelayedValue<ResolvePolymorphicFunctionResult>> do_resolve_polymorphic_function(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    FunctionDeclaration *function_declaration,
+    TypedConstantValue *parameters,
+    ConstantScope *scope,
+    ConstantScope *call_scope,
+    FileRange *call_parameter_ranges
 );
 
 Result<DelayedValue<Type*>> do_resolve_struct_definition(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    StructDefinition *struct_definition,
+    ConstantScope *scope
+);
+
+Result<DelayedValue<Type*>> do_resolve_polymorphic_struct(
     GlobalInfo info,
     List<Job*> *jobs,
     StructDefinition *struct_definition,

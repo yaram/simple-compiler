@@ -1671,42 +1671,6 @@ bool match_declaration(Statement *statement, const char *name) {
     return strcmp(declaration_name, name) == 0;
 }
 
-static Result<DelayedValue<Type*>> get_simple_resolved_struct_definition(
-    GlobalInfo info,
-    List<Job*> *jobs,
-    ConstantScope *scope,
-    StructDefinition *definition
-) {
-    for(auto job : *jobs) {
-        if(job->kind == JobKind::ResolveStructDefinition) {
-            auto resolve_struct_definition = (ResolveStructDefinition*)job;
-
-            if(resolve_struct_definition->definition == definition && resolve_struct_definition->parameters == nullptr) {
-                if(resolve_struct_definition->done) {
-                    return {
-                        true,
-                        {
-                            true,
-                            resolve_struct_definition->type,
-                        }
-                    };
-                } else {
-                    return {
-                        true,
-                        {
-                            false,
-                            {},
-                            resolve_struct_definition
-                        }
-                    };
-                }
-            }
-        }
-    }
-
-    abort();
-}
-
 Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
@@ -1789,20 +1753,39 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
         case StatementKind::StructDefinition: {
             auto struct_definition = (StructDefinition*)declaration;
 
-            expect_delayed(type, get_simple_resolved_struct_definition(info, jobs, scope, struct_definition));
+            for(auto job : *jobs) {
+                if(job->kind == JobKind::ResolveStructDefinition) {
+                    auto resolve_struct_definition = (ResolveStructDefinition*)job;
 
-            return {
-                true,
-                {
-                    true,
-                    {
-                        &type_type_singleton,
-                        new TypeConstant {
-                            type
+                    if(resolve_struct_definition->definition == struct_definition) {
+                        if(resolve_struct_definition->done) {
+                            return {
+                                true,
+                                {
+                                    true,
+                                    {
+                                        &type_type_singleton,
+                                        new TypeConstant {
+                                            resolve_struct_definition->type,
+                                        }
+                                    }
+                                }
+                            };
+                        } else {
+                            return {
+                                true,
+                                {
+                                    false,
+                                    {},
+                                    resolve_struct_definition
+                                }
+                            };
                         }
                     }
                 }
-            };
+            }
+
+            abort();
         } break;
 
         case StatementKind::Import: {
@@ -1824,11 +1807,11 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
 
             auto job_already_added = false;
             for(auto job : *jobs) {
-                if(job->kind == JobKind::ParseFile) {
-                    auto parse_file = (ParseFile*)job;
+                if(job->kind == JobKind::ResolveFile) {
+                    auto resolve_file = (ResolveFile*)job;
 
-                    if(strcmp(parse_file->path, import_file_path_absolute) == 0) {
-                        if(parse_file->done) {
+                    if(strcmp(resolve_file->parse_file->path, import_file_path_absolute) == 0) {
+                        if(resolve_file->done) {
                             return {
                                 true,
                                 {
@@ -1836,7 +1819,7 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
                                     {
                                         &file_module_singleton,
                                         new FileModuleConstant {
-                                            parse_file->scope
+                                            resolve_file->scope
                                         }
                                     }
                                 }
@@ -1847,7 +1830,7 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
                                 {
                                     false,
                                     {},
-                                    parse_file
+                                    resolve_file
                                 }
                             };
                         }
@@ -2532,20 +2515,20 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                 }
 
                 for(auto job : *jobs) {
-                    if(job->kind == JobKind::ResolveStructDefinition) {
-                        auto resolve_struct_definition = (ResolveStructDefinition*)job;
+                    if(job->kind == JobKind::ResolvePolymorphicStruct) {
+                        auto resolve_polymorphic_struct = (ResolvePolymorphicStruct*)job;
 
-                        if(resolve_struct_definition->definition == definition && resolve_struct_definition->parameters != nullptr) {
+                        if(resolve_polymorphic_struct->definition == definition) {
                             auto same_parameters = true;
                             for(size_t i = 0; i < parameter_count; i += 1) {
-                                if(!constant_values_equal(polymorphic_struct->parameter_types[i], parameters[i], resolve_struct_definition->parameters[i])) {
+                                if(!constant_values_equal(polymorphic_struct->parameter_types[i], parameters[i], resolve_polymorphic_struct->parameters[i])) {
                                     same_parameters = false;
                                     break;
                                 }
                             }
 
                             if(same_parameters) {
-                                if(resolve_struct_definition->done) {
+                                if(resolve_polymorphic_struct->done) {
                                     return {
                                         true,
                                         {
@@ -2553,7 +2536,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                                             {
                                                 &type_type_singleton,
                                                 new TypeConstant {
-                                                    resolve_struct_definition->type
+                                                    resolve_polymorphic_struct->type
                                                 }
                                             }
                                         }
@@ -2564,7 +2547,7 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                                         {
                                             false,
                                             {},
-                                            resolve_struct_definition
+                                            resolve_polymorphic_struct
                                         }
                                     };
                                 }
@@ -2573,21 +2556,21 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
                     }
                 }
 
-                auto resolve_struct_definition = new ResolveStructDefinition;
-                resolve_struct_definition->done = false;
-                resolve_struct_definition->waiting_for = nullptr;
-                resolve_struct_definition->definition = definition;
-                resolve_struct_definition->parameters = parameters;
-                resolve_struct_definition->scope = polymorphic_struct->parent;
+                auto resolve_polymorphic_struct = new ResolvePolymorphicStruct;
+                resolve_polymorphic_struct->done = false;
+                resolve_polymorphic_struct->waiting_for = nullptr;
+                resolve_polymorphic_struct->definition = definition;
+                resolve_polymorphic_struct->parameters = parameters;
+                resolve_polymorphic_struct->scope = polymorphic_struct->parent;
 
-                append(jobs, (Job*)resolve_struct_definition);
+                append(jobs, (Job*)resolve_polymorphic_struct);
 
                 return {
                     true,
                     {
                         false,
                         {},
-                        resolve_struct_definition
+                        resolve_polymorphic_struct
                     }
                 };
             } else {
@@ -2911,6 +2894,28 @@ Result<DelayedValue<Type*>> evaluate_type_expression(
     }
 }
 
+Result<DelayedValue<ConstantScope*>> do_resolve_file(List<Job*> *jobs, ParseFile *parse_file) {
+    assert(parse_file->done);
+
+    auto scope = new ConstantScope;
+    scope->statements = parse_file->statements;
+    scope->constant_parameters = {};
+    scope->is_top_level = true;
+    scope->file_path = parse_file->path;
+
+    if(!process_scope(jobs, scope, nullptr)) {
+        return { false };
+    }
+
+    return {
+        true,
+        {
+            true,
+            scope
+        }
+    };
+}
+
 Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
@@ -2965,17 +2970,16 @@ Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_decla
     } else {
         return_type = &void_singleton;
     }
+    
+    auto body_scope = new ConstantScope;
+    body_scope->statements = {};
+    body_scope->constant_parameters = {};
+    body_scope->is_top_level = false;
+    body_scope->parent = scope;
 
     List<ConstantScope*> child_scopes {};
-    ConstantScope *body_scope;
-    if(function_declaration->is_external) {
-        body_scope = nullptr;
-    } else {
-        body_scope = new ConstantScope;
+    if(!function_declaration->is_external) {
         body_scope->statements = function_declaration->statements;
-        body_scope->constant_parameters = {};
-        body_scope->is_top_level = false;
-        body_scope->parent = scope;
 
         if(!process_scope(jobs, body_scope, &child_scopes)) {
             return { false };
@@ -3005,7 +3009,266 @@ Result<DelayedValue<ResolveFunctionDeclarationResult>> do_resolve_function_decla
     };
 }
 
+Result<DelayedValue<ResolvePolymorphicFunctionResult>> do_resolve_polymorphic_function(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    FunctionDeclaration *function_declaration,
+    TypedConstantValue *parameters,
+    ConstantScope *scope,
+    ConstantScope *call_scope,
+    FileRange *call_parameter_ranges
+) {
+    auto original_parameter_count = function_declaration->parameters.count;
+
+    auto parameter_types = allocate<Type*>(original_parameter_count);
+
+    List<ConstantParameter> polymorphic_determiners {};
+
+    size_t runtime_parameter_count = 0;
+    for(size_t i = 0; i < original_parameter_count; i += 1) {
+        auto declaration_parameter = function_declaration->parameters[i];
+
+        if(declaration_parameter.is_constant) {
+            if(parameters[i].value == nullptr) {
+                error(call_scope, call_parameter_ranges[i], "Expected a constant parameter");
+
+                return { false };
+            }
+        } else {
+            runtime_parameter_count += 1;
+        }
+
+        if(declaration_parameter.is_polymorphic_determiner) {
+            Type *type;
+            if(!declaration_parameter.is_constant && !is_runtime_type(parameters[i].type)) {
+                expect(determined_type, coerce_to_default_type(info, scope, call_parameter_ranges[i], parameters[i].type));
+
+                type = determined_type;
+            } else {
+                type = parameters[i].type;
+            }
+
+            parameter_types[i] = type;
+
+            append(&polymorphic_determiners, {
+                function_declaration->parameters[i].polymorphic_determiner.text,
+                &type_type_singleton,
+                new TypeConstant {
+                    type
+                }
+            });
+        }
+    }
+
+    ConstantScope signature_scope;
+    signature_scope.statements = {};
+    signature_scope.constant_parameters = to_array(polymorphic_determiners);
+    signature_scope.is_top_level = false;
+    signature_scope.parent = scope;
+
+    List<ConstantParameter> constant_parameters {};
+
+    for(auto polymorphic_determiner : polymorphic_determiners) {
+        append(&constant_parameters, polymorphic_determiner);
+    }
+
+    for(size_t i = 0; i < original_parameter_count; i += 1) {
+        auto declaration_parameter = function_declaration->parameters[i];
+        auto call_parameter = parameters[i];
+
+        if(declaration_parameter.is_constant) {
+            if(!declaration_parameter.is_polymorphic_determiner) {
+                expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &signature_scope, declaration_parameter.type));
+
+                parameter_types[i] = parameter_type;
+            }
+
+            expect(coerced_constant_value, coerce_constant_to_type(
+                info,
+                call_scope,
+                call_parameter_ranges[i],
+                call_parameter.type,
+                call_parameter.value,
+                parameter_types[i],
+                false
+            ));
+
+            append(&constant_parameters, {
+                declaration_parameter.name.text,
+                parameter_types[i],
+                coerced_constant_value
+            });
+        }
+    }
+
+    signature_scope.constant_parameters = to_array(constant_parameters);
+
+    auto runtime_parameter_types = allocate<Type*>(runtime_parameter_count);
+
+    size_t runtime_parameter_index = 0;
+    for(size_t i = 0; i < original_parameter_count; i += 1) {
+        auto declaration_parameter = function_declaration->parameters[i];
+
+        if(!declaration_parameter.is_constant) {
+            if(!declaration_parameter.is_polymorphic_determiner) {
+                expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &signature_scope, declaration_parameter.type));
+
+                if(!is_runtime_type(parameter_type)) {
+                    error(scope,
+                        declaration_parameter.type->range,
+                        "Non-constant function parameters cannot be of type '%s'",
+                        type_description(parameter_type)
+                    );
+
+                    error(call_scope, call_parameter_ranges[i], "Polymorphic function paremter here");
+
+                    return { false };
+                }
+
+                parameter_types[i] = parameter_type;
+            }
+
+            runtime_parameter_types[runtime_parameter_index] = parameter_types[i];
+
+            runtime_parameter_index += 1;
+        }
+    }
+
+    assert(runtime_parameter_index == runtime_parameter_count);
+
+    Type *return_type;
+    if(function_declaration->return_type) {
+        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, &signature_scope, function_declaration->return_type));
+
+        if(!is_runtime_type(return_type_value)) {
+            error(
+                scope,
+                function_declaration->return_type->range,
+                "Function returns cannot be of type '%s'",
+                type_description(return_type_value)
+            );
+
+            return { false };
+        }
+
+        return_type = return_type_value;
+    } else {
+        return_type = &void_singleton;
+    }
+
+    List<ConstantScope*> child_scopes {};
+    ConstantScope *body_scope;
+    if(function_declaration->is_external) {
+        body_scope = nullptr;
+    } else {
+        body_scope = new ConstantScope;
+        body_scope->statements = function_declaration->statements;
+        body_scope->constant_parameters = to_array(constant_parameters);
+        body_scope->is_top_level = false;
+        body_scope->parent = scope;
+
+        if(!process_scope(jobs, body_scope, &child_scopes)) {
+            return { false };
+        }
+    }
+
+    return {
+        true,
+        {
+            true,
+            {
+                new FunctionTypeType {
+                    {
+                        runtime_parameter_count,
+                        runtime_parameter_types
+                    },
+                    return_type
+                },
+                body_scope,
+                to_array(child_scopes)
+            }
+        }
+    };
+}
+
 Result<DelayedValue<Type*>> do_resolve_struct_definition(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    StructDefinition *struct_definition,
+    ConstantScope *scope
+) {
+    auto parameter_count = struct_definition->parameters.count;
+
+    if(struct_definition->parameters.count > 0) {
+        auto parameter_types = allocate<Type*>(parameter_count);
+
+        for(size_t i = 0; i < parameter_count; i += 1) {
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, struct_definition->parameters[i].type));
+
+            parameter_types[i] = type;
+        }
+
+        return {
+            true,
+            {
+                true,
+                new PolymorphicStruct {
+                    struct_definition,
+                    parameter_types,
+                    scope
+                }
+            }
+        };
+    }
+
+    ConstantScope member_scope;
+    member_scope.statements = {};
+    member_scope.constant_parameters = {};
+    member_scope.is_top_level = false;
+    member_scope.parent = scope;
+
+    auto member_count = struct_definition->members.count;
+
+    auto members = allocate<StructType::Member>(member_count);
+
+    for(size_t i = 0; i < member_count; i += 1) {
+        expect_delayed(member_type, evaluate_type_expression(
+            info,
+            jobs,
+            &member_scope,
+            struct_definition->members[i].type
+        ));
+
+        expect(actual_member_type, coerce_to_default_type(info, &member_scope, struct_definition->members[i].type->range, member_type));
+
+        if(!is_runtime_type(actual_member_type)) {
+            error(&member_scope, struct_definition->members[i].type->range, "Struct members cannot be of type '%s'", type_description(actual_member_type));
+
+            return { false };
+        }
+
+        members[i] = {
+            struct_definition->members[i].name.text,
+            actual_member_type
+        };
+    }
+
+    return {
+        true,
+        {
+            true,
+            new StructType {
+                struct_definition,
+                {
+                    member_count,
+                    members
+                }
+            }
+        }
+    };
+}
+
+Result<DelayedValue<Type*>> do_resolve_polymorphic_struct(
     GlobalInfo info,
     List<Job*> *jobs,
     StructDefinition *struct_definition,
@@ -3013,48 +3276,18 @@ Result<DelayedValue<Type*>> do_resolve_struct_definition(
     ConstantScope *scope
 ) {
     auto parameter_count = struct_definition->parameters.count;
+    assert(parameter_count > 0);
 
-    ConstantParameter *constant_parameters;
-    if(parameter_count > 0) {
-        if(parameters == nullptr) {
-            auto parameter_types = allocate<Type*>(parameter_count);
+    auto constant_parameters = allocate<ConstantParameter>(parameter_count);
 
-            for(size_t i = 0; i < parameter_count; i += 1) {
-                expect_delayed(type, evaluate_type_expression(info, jobs, scope, struct_definition->parameters[i].type));
+    for(size_t i = 0; i < parameter_count; i += 1) {
+        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, scope, struct_definition->parameters[i].type));
 
-                parameter_types[i] = type;
-            }
-
-            return {
-                true,
-                {
-                    true,
-                    new PolymorphicStruct {
-                        struct_definition,
-                        parameter_types,
-                        scope
-                    }
-                }
-            };
-        } else {
-            expect_delayed(polymorphic_type, get_simple_resolved_struct_definition(info, jobs, scope, struct_definition));
-            assert(polymorphic_type->kind == TypeKind::PolymorphicStruct);
-            auto polymorphic_struct = (PolymorphicStruct*)polymorphic_type;
-
-            constant_parameters = allocate<ConstantParameter>(parameter_count);
-
-            for(size_t i = 0; i < parameter_count; i += 1) {
-                constant_parameters[i] = {
-                    struct_definition->parameters[i].name.text,
-                    polymorphic_struct->parameter_types[i],
-                    parameters[i]
-                };
-            }
-        }
-    } else {
-        assert(parameters == nullptr);
-
-        constant_parameters = nullptr;
+        constant_parameters[i] = {
+            struct_definition->parameters[i].name.text,
+            parameter_type,
+            parameters[i]
+        };
     }
 
     ConstantScope member_scope;
@@ -3125,6 +3358,24 @@ profiled_function(bool, process_scope, (
                 resolve_function_declaration->scope = scope;
 
                 append(jobs, (Job*)resolve_function_declaration);
+
+                auto is_polymorphic = false;
+                for(auto parameter : function_declaration->parameters) {
+                    if(parameter.is_constant || parameter.is_polymorphic_determiner) {
+                        is_polymorphic = true;
+                        break;
+                    }
+                }
+
+                if(!is_polymorphic) {
+                    auto generate_function = new GenerateFunction;
+                    generate_function->done = false;
+                    generate_function->waiting_for = resolve_function_declaration;
+                    generate_function->resolve_function = resolve_function_declaration;
+                    generate_function->function = new Function;
+
+                    append(jobs, (Job*)generate_function);
+                }
             } break;
 
             case StatementKind::ConstantDefinition: {
@@ -3146,7 +3397,6 @@ profiled_function(bool, process_scope, (
                 resolve_struct_definition->done = false;
                 resolve_struct_definition->waiting_for = nullptr;
                 resolve_struct_definition->definition = struct_definition;
-                resolve_struct_definition->parameters = nullptr;
                 resolve_struct_definition->scope = scope;
 
                 append(jobs, (Job*)resolve_struct_definition);
@@ -3250,18 +3500,6 @@ profiled_function(bool, process_scope, (
                 process_scope(jobs, for_scope, child_scopes);
             } break;
 
-            case StatementKind::ExpressionStatement:
-            case StatementKind::Assignment:
-            case StatementKind::BinaryOperationAssignment:
-            case StatementKind::ReturnStatement:
-            case StatementKind::BreakStatement: {
-                if(scope->is_top_level) {
-                    error(scope, statement->range, "This kind of statement cannot be top-level");
-
-                    return false;
-                }
-            } break;
-
             case StatementKind::Import: {
                 auto import = (Import*)statement;
 
@@ -3276,10 +3514,10 @@ profiled_function(bool, process_scope, (
 
                 auto job_already_added = false;
                 for(auto job : *jobs) {
-                    if(job->kind == JobKind::ParseFile) {
-                        auto parse_file = (ParseFile*)job;
+                    if(job->kind == JobKind::ResolveFile) {
+                        auto resolve_file = (ResolveFile*)job;
 
-                        if(strcmp(parse_file->path, import_file_path_absolute) == 0) {
+                        if(strcmp(resolve_file->parse_file->path, import_file_path_absolute) == 0) {
                             job_already_added = true;
                             break;
                         }
@@ -3293,12 +3531,25 @@ profiled_function(bool, process_scope, (
                     parse_file->path = import_file_path_absolute;
 
                     append(jobs, (Job*)parse_file);
+
+                    auto resolve_file = new ResolveFile;
+                    resolve_file->done = false;
+                    resolve_file->waiting_for = parse_file;
+                    resolve_file->parse_file = parse_file;
+
+                    append(jobs, (Job*)resolve_file);
                 }
             } break;
 
             case StatementKind::UsingStatement: break;
 
-            default: abort();
+            default: {
+                if(scope->is_top_level) {
+                    error(scope, statement->range, "This kind of statement cannot be top-level");
+
+                    return false;
+                }
+            } break;
         }
     }
 

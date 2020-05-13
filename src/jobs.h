@@ -6,14 +6,19 @@
 #include "ir.h"
 
 struct Type;
+struct FunctionTypeType;
 struct ConstantValue;
 
 enum struct JobKind {
     ParseFile,
+    ResolveFile,
     ResolveFunctionDeclaration,
+    ResolvePolymorphicFunction,
     ResolveConstantDefinition,
     ResolveStructDefinition,
+    ResolvePolymorphicStruct,
     GenerateFunction,
+    GeneratePolymorphicFunction,
     GenerateStaticVariable
 };
 
@@ -27,9 +32,17 @@ struct Job {
 struct ParseFile : Job {
     const char *path;
 
-    ConstantScope *scope;
+    Array<Statement*> statements;
 
     ParseFile() : Job { JobKind::ParseFile } {}
+};
+
+struct ResolveFile : Job {
+    ParseFile *parse_file;
+
+    ConstantScope *scope;
+
+    ResolveFile() : Job { JobKind::ResolveFile } {}
 };
 
 struct ResolveFunctionDeclaration : Job {
@@ -44,6 +57,20 @@ struct ResolveFunctionDeclaration : Job {
     ResolveFunctionDeclaration() : Job { JobKind::ResolveFunctionDeclaration } {}
 };
 
+struct ResolvePolymorphicFunction : Job {
+    FunctionDeclaration *declaration;
+    TypedConstantValue *parameters;
+    ConstantScope *scope;
+    ConstantScope *call_scope;
+    FileRange *call_parameter_ranges;
+
+    FunctionTypeType *type;
+    ConstantScope *body_scope;
+    Array<ConstantScope*> child_scopes;
+
+    ResolvePolymorphicFunction() : Job { JobKind::ResolvePolymorphicFunction } {}
+};
+
 struct ResolveConstantDefinition : Job {
     ConstantDefinition *definition;
     ConstantScope *scope;
@@ -56,7 +83,6 @@ struct ResolveConstantDefinition : Job {
 
 struct ResolveStructDefinition : Job {
     StructDefinition *definition;
-    ConstantValue **parameters;
     ConstantScope *scope;
 
     Type *type;
@@ -64,17 +90,34 @@ struct ResolveStructDefinition : Job {
     ResolveStructDefinition() : Job { JobKind::ResolveStructDefinition } {}
 };
 
-struct GenerateFunction : Job {
-    FunctionDeclaration *declaration;
-    TypedConstantValue *parameters;
+struct ResolvePolymorphicStruct : Job {
+    StructDefinition *definition;
+    ConstantValue **parameters;
     ConstantScope *scope;
-    ConstantScope *body_scope;
-    Array<ConstantScope*> child_scopes;
+
+    Type *type;
+
+    ResolvePolymorphicStruct() : Job { JobKind::ResolvePolymorphicStruct } {}
+};
+
+struct GenerateFunction : Job {
+    Job *resolve_function;
 
     Function *function;
     Array<StaticConstant*> static_constants;
 
     GenerateFunction() : Job { JobKind::GenerateFunction } {}
+};
+
+struct GeneratePolymorphicFunction : Job {
+    FunctionDeclaration *declaration;
+    TypedConstantValue *parameters;
+    ConstantScope *scope;
+
+    Function *function;
+    Array<StaticConstant*> static_constants;
+
+    GeneratePolymorphicFunction() : Job { JobKind::GeneratePolymorphicFunction } {}
 };
 
 struct GenerateStaticVariable : Job {

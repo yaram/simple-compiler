@@ -6,20 +6,11 @@
 
 struct Job;
 
-struct GeneratorResult {
-    Function *function;
-
-    Array<StaticConstant*> static_constants;
-};
-
-Result<DelayedValue<GeneratorResult>> do_generate_function(
+Result<DelayedValue<Array<StaticConstant*>>> do_generate_function(
     GlobalInfo info,
     List<Job*> *jobs,
-    FunctionDeclaration *declaration,
-    TypedConstantValue *parameters,
-    ConstantScope *scope,
-    ConstantScope *body_scope,
-    Array<ConstantScope*> child_scopes
+    Job *resolve_function,
+    Function *function
 );
 
 struct StaticVariableResult {
