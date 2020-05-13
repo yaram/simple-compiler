@@ -14,117 +14,22 @@ struct Context {
     size_t next_token_index;
 };
 
-static void error(Context context, const char *format, ...) {
-    auto token = context.tokens[context.next_token_index];
-
-    va_list arguments;
-    va_start(arguments, format);
-
-    fprintf(stderr, "Error: %s(%d,%d): ", context.path, token.line, token.first_character);
-    vfprintf(stderr, format, arguments);
-    fprintf(stderr, "\n");
-
-    auto file = fopen(context.path, "rb");
-
-    if(file != nullptr) {
-        unsigned int current_line = 1;
-
-        while(current_line != token.line) {
-            auto character = fgetc(file);
-
-            switch(character) {
-                case '\r': {
-                    auto character = fgetc(file);
-
-                    if(character == '\n') {
-                        current_line += 1;
-                    } else {
-                        ungetc(character, file);
-
-                        current_line += 1;
-                    }
-                } break;
-
-                case '\n': {
-                    current_line += 1;
-                } break;
-
-                case EOF: {
-                    fclose(file);
-
-                    va_end(arguments);
-
-                    return;
-                } break;
-            }
-        }
-
-        unsigned int skipped_spaces = 0;
-        auto done_skipping_spaces = false;
-
-        auto done = false;
-        while(!done) {
-            auto character = fgetc(file);
-
-            switch(character) {
-                case '\r':
-                case '\n': {
-                    done = true;
-                } break;
-
-                case ' ': {
-                    if(!done_skipping_spaces) {
-                        skipped_spaces += 1;
-                    } else {
-                        fprintf(stderr, "%c", character);
-                    }
-                } break;
-
-                case EOF: {
-                    fclose(file);
-
-                    va_end(arguments);
-
-                    return;
-                } break;
-
-                default: {
-                    fprintf(stderr, "%c", character);
-
-                    done_skipping_spaces = true;
-                } break;
-            }
-        }
-
-        fprintf(stderr, "\n");
-
-        for(unsigned int i = 1; i < token.first_character - skipped_spaces; i += 1) {
-            fprintf(stderr, " ");
-        }
-
-        if(token.last_character - token.first_character == 0) {
-            fprintf(stderr, "^");
-        } else {
-            for(unsigned int i = token.first_character; i <= token.last_character; i += 1) {
-                fprintf(stderr, "-");
-            }
-        }
-
-        fprintf(stderr, "\n");
-
-        fclose(file);
-    }
-
-    va_end(arguments);
-}
-
-static FileRange token_range(Context context, Token token) {
+static FileRange token_range(Token token) {
     return {
         token.line,
         token.first_character,
         token.line,
         token.last_character
     };
+}
+
+static void error(Context context, const char *format, ...) {
+    va_list arguments;
+    va_start(arguments, format);
+
+    error(context.path, token_range(context.tokens[context.next_token_index]), format, arguments);
+
+    va_end(arguments);
 }
 
 static FileRange span_range(FileRange first, FileRange last) {
@@ -186,7 +91,7 @@ static Result<FileRange> expect_basic_token_with_range(Context *context, TokenTy
 
     consume_token(context);
 
-    auto range = token_range(*context, token);
+    auto range = token_range(token);
 
     return {
         true,
@@ -226,7 +131,7 @@ static Result<Identifier> expect_identifier(Context *context) {
         true,
         {
             token.identifier,
-            token_range(*context, token)
+            token_range(token)
         }
     };
 }
@@ -234,7 +139,7 @@ static Result<Identifier> expect_identifier(Context *context) {
 static Identifier identifier_from_token(Context context, Token token) {
     return {
         token.identifier,
-        token_range(context, token)
+        token_range(token)
     };
 }
 
@@ -283,7 +188,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             consume_token(context);
 
             left_expression = new IntegerLiteral {
-                token_range(*context, token),
+                token_range(token),
                 token.integer
             };
         } break;
@@ -292,7 +197,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             consume_token(context);
 
             left_expression = new FloatLiteral {
-                token_range(*context, token),
+                token_range(token),
                 token.floating_point
             };
         } break;
@@ -303,10 +208,37 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
             left_expression = new UnaryOperation {
-                span_range(token_range(*context, token), expression->range),
+                span_range(token_range(token), expression->range),
                 UnaryOperation::Operator::Pointer,
                 expression
             };
+        } break;
+
+        case TokenType::Hash: {
+            consume_token(context);
+
+            expect(identifier, expect_identifier(context));
+
+            if(strcmp(identifier.text, "bake") == 0) {
+                expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
+
+                if(expression->kind != ExpressionKind::FunctionCall) {
+                    error(context->path, expression->range, "Expected a function call");
+
+                    return { false };
+                }
+
+                auto function_call = (FunctionCall*)expression;
+
+                left_expression = new Bake {
+                    span_range(token_range(token), function_call->range),
+                    function_call
+                };
+            } else {
+                error(context->path, identifier.range, "Expected 'bake', got '%s'", identifier.text);
+
+                return { false };
+            }
         } break;
 
         case TokenType::Bang: {
@@ -315,7 +247,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
             left_expression = new UnaryOperation {
-                span_range(token_range(*context, token), expression->range),
+                span_range(token_range(token), expression->range),
                 UnaryOperation::Operator::BooleanInvert,
                 expression
             };
@@ -327,7 +259,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
             left_expression = new UnaryOperation {
-                span_range(token_range(*context, token), expression->range),
+                span_range(token_range(token), expression->range),
                 UnaryOperation::Operator::Negation,
                 expression
             };
@@ -337,7 +269,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             consume_token(context);
 
             left_expression = new StringLiteral {
-                token_range(*context, token),
+                token_range(token),
                 token.string
             };
         } break;
@@ -345,7 +277,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
         case TokenType::OpenRoundBracket: {
             consume_token(context);
 
-            auto first_range = token_range(*context, token);
+            auto first_range = token_range(token);
 
             expect(token, peek_token(*context));
 
@@ -408,7 +340,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                 }
 
                                 if(done) {
-                                    last_range = token_range(*context, token);
+                                    last_range = token_range(token);
 
                                     break;
                                 }
@@ -418,7 +350,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                         case TokenType::CloseRoundBracket: {
                             consume_token(context);
 
-                            last_range = token_range(*context, token);
+                            last_range = token_range(token);
                         } break;
 
                         default: {
@@ -452,7 +384,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                 case TokenType::CloseRoundBracket: {
                     consume_token(context);
 
-                    auto last_range = token_range(*context, token);
+                    auto last_range = token_range(token);
 
                     expect(token, peek_token(*context));
 
@@ -536,7 +468,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                     }
 
                                     if(done) {
-                                        last_range = token_range(*context, token);
+                                        last_range = token_range(token);
 
                                         break;
                                     }
@@ -546,7 +478,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                             case TokenType::CloseRoundBracket: {
                                 consume_token(context);
 
-                                last_range = token_range(*context, token);
+                                last_range = token_range(token);
                             } break;
 
                             default: {
@@ -603,7 +535,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
         case TokenType::OpenCurlyBracket: {
             consume_token(context);
 
-            auto first_range = token_range(*context, token);
+            auto first_range = token_range(token);
 
             expect(token, peek_token(*context));
 
@@ -612,7 +544,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     consume_token(context);
 
                     left_expression = new ArrayLiteral {
-                        span_range(first_range, token_range(*context, token)),
+                        span_range(first_range, token_range(token)),
                         {}
                     };
                 } break;
@@ -680,7 +612,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                         }
 
                                         if(done) {
-                                            last_range = token_range(*context, token);
+                                            last_range = token_range(token);
 
                                             break;
                                         }
@@ -690,7 +622,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                 case TokenType::CloseCurlyBracket: {
                                     consume_token(context);
 
-                                    last_range = token_range(*context, token);
+                                    last_range = token_range(token);
                                 } break;
 
                                 default: {
@@ -712,7 +644,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                             auto first_element = named_reference_from_identifier(identifier);
 
                             left_expression = new ArrayLiteral {
-                                span_range(first_range, token_range(*context, token)),
+                                span_range(first_range, token_range(token)),
                                 {
                                     1,
                                     heapify(first_element)
@@ -763,7 +695,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                         }
 
                                         if(done) {
-                                            last_range = token_range(*context, token);
+                                            last_range = token_range(token);
 
                                             break;
                                         }
@@ -773,7 +705,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                 case TokenType::CloseCurlyBracket: {
                                     consume_token(context);
 
-                                    last_range = token_range(*context, token);
+                                    last_range = token_range(token);
                                 } break;
 
                                 default: {
@@ -832,7 +764,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                 }
 
                                 if(done) {
-                                    last_range = token_range(*context, token);
+                                    last_range = token_range(token);
 
                                     break;
                                 }
@@ -842,7 +774,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                         case TokenType::CloseCurlyBracket: {
                             consume_token(context);
 
-                            last_range = token_range(*context, token);
+                            last_range = token_range(token);
                         } break;
                     }
 
@@ -865,7 +797,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                 consume_token(context);
 
                 index = nullptr;
-                last_range = token_range(*context, token);
+                last_range = token_range(token);
             } else {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
@@ -878,7 +810,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
             left_expression = new ArrayType {
-                span_range(token_range(*context, token), expression->range),
+                span_range(token_range(token), expression->range),
                 expression,
                 index
             };
@@ -1198,7 +1130,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 if(token.type == TokenType::CloseRoundBracket) {
                     consume_token(context);
 
-                    last_range = token_range(*context, token);
+                    last_range = token_range(token);
                 } else {
                     while(true) {
                         expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -1227,7 +1159,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                         }
 
                         if(done) {
-                            last_range = token_range(*context, token);
+                            last_range = token_range(token);
 
                             break;
                         }
@@ -1250,7 +1182,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
 
                 consume_token(context);
 
-                auto first_range = token_range(*context, token);
+                auto first_range = token_range(token);
 
                 expect(token, peek_token(*context));
 
@@ -1260,7 +1192,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                     consume_token(context);
 
                     index = nullptr;
-                    last_range = token_range(*context, token);
+                    last_range = token_range(token);
                 } else {
                     expect(expression, parse_expression(context, OperatorPrecedence::None));
 
@@ -1362,7 +1294,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
         case TokenType::Arrow: {
             consume_token(context);
 
-            last_range = token_range(*context, pre_token);
+            last_range = token_range(pre_token);
 
             expect(expression, parse_expression(context, OperatorPrecedence::None));
 
@@ -1388,7 +1320,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                 if(token.type == TokenType::CloseCurlyBracket) {
                     consume_token(context);
 
-                    last_range = token_range(*context, token);
+                    last_range = token_range(token);
 
                     break;
                 } else {
@@ -1423,7 +1355,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
             };
 
             auto constant_definition = new ConstantDefinition {
-                span_range(parameters_range, token_range(*context, token)),
+                span_range(parameters_range, token_range(token)),
                 name,
                 function_type
             };
@@ -1447,7 +1379,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                     case TokenType::Semicolon: {
                         consume_token(context);
 
-                        last_range = token_range(*context, token);
+                        last_range = token_range(token);
                     } break;
 
                     case TokenType::String: {
@@ -1482,7 +1414,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                             }
 
                             if(done) {
-                                last_range = token_range(*context, token);
+                                last_range = token_range(token);
 
                                 break;
                             }
@@ -1523,7 +1455,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                     if(token.type == TokenType::CloseCurlyBracket) {
                         consume_token(context);
 
-                        last_range = token_range(*context, token);
+                        last_range = token_range(token);
 
                         break;
                     } else {
@@ -1566,7 +1498,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
 static_profiled_function(Result<Statement*>, parse_statement, (Context *context), (context)) {
     expect(token, peek_token(*context));
 
-    auto first_range = token_range(*context, token);
+    auto first_range = token_range(token);
 
     switch(token.type) {
         case TokenType::Hash: {
@@ -1616,7 +1548,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     if(token.type == TokenType::CloseCurlyBracket) {
                         consume_token(context);
 
-                        last_range = token_range(*context, token);
+                        last_range = token_range(token);
 
                         break;
                     } else {
@@ -1635,6 +1567,33 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 return {
                     true,
                     static_if
+                };
+            } else if(strcmp(token.identifier, "bake") == 0) {
+                expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
+
+                if(expression->kind != ExpressionKind::FunctionCall) {
+                    error(context->path, expression->range, "Expected a function call");
+
+                    return { false };
+                }
+
+                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+
+                auto function_call = (FunctionCall*)expression;
+
+                auto bake = new Bake {
+                    span_range(first_range, function_call->range),
+                    function_call
+                };
+
+                auto expression_statement = new ExpressionStatement {
+                    span_range(first_range, last_range),
+                    bake
+                };
+
+                return {
+                    true,
+                    expression_statement
                 };
             } else {
                 error(*context, "Expected 'import' or 'library', got '%s'", get_token_text(token));
@@ -1662,7 +1621,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     if(token.type == TokenType::CloseCurlyBracket) {
                         consume_token(context);
 
-                        last_range = token_range(*context, token);
+                        last_range = token_range(token);
 
                         break;
                     } else {
@@ -1694,7 +1653,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                     if(token.type == TokenType::CloseCurlyBracket) {
                                         consume_token(context);
 
-                                        last_range = token_range(*context, token);
+                                        last_range = token_range(token);
 
                                         break;
                                     } else {
@@ -1728,7 +1687,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                     if(token.type == TokenType::CloseCurlyBracket) {
                                         consume_token(context);
 
-                                        last_range = token_range(*context, token);
+                                        last_range = token_range(token);
 
                                         break;
                                     } else {
@@ -1787,7 +1746,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     if(token.type == TokenType::CloseCurlyBracket) {
                         consume_token(context);
 
-                        last_range = token_range(*context, token);
+                        last_range = token_range(token);
 
                         break;
                     } else {
@@ -1865,7 +1824,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     if(token.type == TokenType::CloseCurlyBracket) {
                         consume_token(context);
 
-                        last_range = token_range(*context, token);
+                        last_range = token_range(token);
 
                         break;
                     } else {
@@ -1905,7 +1864,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 if(token.type == TokenType::Semicolon) {
                     consume_token(context);
 
-                    last_range = token_range(*context, token);
+                    last_range = token_range(token);
 
                     value = nullptr;
                 } else {
@@ -1972,7 +1931,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                 case TokenType::OpenRoundBracket: {
                                     consume_token(context);
 
-                                    auto parameters_first_range = token_range(*context, token);
+                                    auto parameters_first_range = token_range(token);
 
                                     expect(token, peek_token(*context));
 
@@ -2034,7 +1993,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                     }
 
                                                     if(done) {
-                                                        last_range = token_range(*context, token);
+                                                        last_range = token_range(token);
 
                                                         break;
                                                     }
@@ -2044,7 +2003,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             case TokenType::CloseRoundBracket: {
                                                 consume_token(context);
 
-                                                last_range = token_range(*context, token);
+                                                last_range = token_range(token);
                                             } break;
 
                                             default: {
@@ -2072,7 +2031,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             context,
                                             identifier,
                                             {},
-                                            span_range(parameters_first_range, token_range(*context, token)))
+                                            span_range(parameters_first_range, token_range(token)))
                                         );
 
                                         return {
@@ -2140,7 +2099,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                         }
 
                                                         if(done) {
-                                                            last_range = token_range(*context, token);
+                                                            last_range = token_range(token);
 
                                                             break;
                                                         }
@@ -2150,7 +2109,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                 case TokenType::CloseRoundBracket: {
                                                     consume_token(context);
 
-                                                    last_range = token_range(*context, token);
+                                                    last_range = token_range(token);
                                                 } break;
 
                                                 default: {
@@ -2296,7 +2255,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                         if(token.type == TokenType::CloseCurlyBracket) {
                                             consume_token(context);
 
-                                            last_range = token_range(*context, token);
+                                            last_range = token_range(token);
                                         } else {
                                             while(true) {
                                                 expect(identifier, expect_identifier(context));
@@ -2334,7 +2293,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                 }
 
                                                 if(done) {
-                                                    last_range = token_range(*context, token);
+                                                    last_range = token_range(token);
 
                                                     break;
                                                 }
@@ -2342,7 +2301,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                         }
 
                                         auto struct_definition = new StructDefinition {
-                                            span_range(first_range, token_range(*context, token)),
+                                            span_range(first_range, token_range(token)),
                                             identifier,
                                             is_union,
                                             to_array(parameters),
@@ -2448,7 +2407,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                             }
 
                             auto variable_declaration = new VariableDeclaration {
-                                span_range(first_range, token_range(*context, token)),
+                                span_range(first_range, token_range(token)),
                                 identifier,
                                 type,
                                 initializer,
@@ -2474,7 +2433,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                             consume_token(context);
 
                             auto expression_statement = new ExpressionStatement {
-                                span_range(first_range, token_range(*context, token)),
+                                span_range(first_range, token_range(token)),
                                 right_expression
                             };
 
@@ -2580,7 +2539,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     consume_token(context);
 
                     auto expression_statement = new ExpressionStatement {
-                        span_range(first_range, token_range(*context, token)),
+                        span_range(first_range, token_range(token)),
                         expression
                     };
 

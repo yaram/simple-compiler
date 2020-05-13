@@ -2,14 +2,7 @@
 
 #include <stdint.h>
 #include "array.h"
-
-struct FileRange {
-    unsigned int first_line;
-    unsigned int first_character;
-
-    unsigned int last_line;
-    unsigned int last_character;
-};
+#include "util.h"
 
 struct Identifier {
     const char *text;
@@ -44,6 +37,7 @@ enum struct ExpressionKind {
     BinaryOperation,
     UnaryOperation,
     Cast,
+    Bake,
     ArrayType,
     FunctionType
 };
@@ -251,6 +245,18 @@ struct Cast : Expression {
         Expression { ExpressionKind::Cast, range },
         expression { expression },
         type { type }
+    {}
+};
+
+struct Bake : Expression {
+    FunctionCall *function_call;
+
+    Bake(
+        FileRange range,
+        FunctionCall *function_call
+    ) :
+        Expression { ExpressionKind::Bake, range },
+        function_call { function_call }
     {}
 };
 

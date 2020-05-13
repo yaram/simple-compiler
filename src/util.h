@@ -3,6 +3,14 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+struct FileRange {
+    unsigned int first_line;
+    unsigned int first_character;
+
+    unsigned int last_line;
+    unsigned int last_character;
+};
+
 template <typename T>
 inline T *heapify(T value) {
     auto pointer = (T*)malloc(sizeof(T));
@@ -27,3 +35,6 @@ struct StringBuffer {
 void string_buffer_append(StringBuffer *string_buffer, const char *string);
 void string_buffer_append(StringBuffer *string_buffer, size_t number);
 void string_buffer_append_character(StringBuffer *string_buffer, char character);
+
+void error(const char *path, FileRange range, const char *format, va_list arguments);
+void error(const char *path, FileRange range, const char *format, ...);

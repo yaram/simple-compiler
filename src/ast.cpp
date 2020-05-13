@@ -270,6 +270,11 @@ static void print_expression_internal(Expression *expression, unsigned int inden
 
         indent(indentation_level);
         printf("}");
+    } else if(expression->kind == ExpressionKind::Bake) {
+        auto bake = (Bake*)expression;
+
+        printf("Bake: ");
+        print_expression_internal(bake->function_call, indentation_level + 1);
     } else if(expression->kind == ExpressionKind::ArrayType) {
         auto array_type = (ArrayType*)expression;
 
