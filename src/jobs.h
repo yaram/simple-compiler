@@ -11,7 +11,6 @@ struct FunctionConstant;
 
 enum struct JobKind {
     ParseFile,
-    ResolveFile,
     ResolveFunctionDeclaration,
     ResolvePolymorphicFunction,
     ResolveConstantDefinition,
@@ -32,17 +31,9 @@ struct Job {
 struct ParseFile : Job {
     const char *path;
 
-    Array<Statement*> statements;
-
-    ParseFile() : Job { JobKind::ParseFile } {}
-};
-
-struct ResolveFile : Job {
-    ParseFile *parse_file;
-
     ConstantScope *scope;
 
-    ResolveFile() : Job { JobKind::ResolveFile } {}
+    ParseFile() : Job { JobKind::ParseFile } {}
 };
 
 struct ResolveFunctionDeclaration : Job {

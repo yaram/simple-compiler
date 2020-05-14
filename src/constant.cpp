@@ -1730,11 +1730,11 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
 
             auto job_already_added = false;
             for(auto job : *jobs) {
-                if(job->kind == JobKind::ResolveFile) {
-                    auto resolve_file = (ResolveFile*)job;
+                if(job->kind == JobKind::ParseFile) {
+                    auto parse_file = (ParseFile*)job;
 
-                    if(strcmp(resolve_file->parse_file->path, import_file_path_absolute) == 0) {
-                        if(resolve_file->done) {
+                    if(strcmp(parse_file->path, import_file_path_absolute) == 0) {
+                        if(parse_file->done) {
                             return {
                                 true,
                                 {
@@ -1742,7 +1742,7 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
                                     {
                                         &file_module_singleton,
                                         new FileModuleConstant {
-                                            resolve_file->scope
+                                            parse_file->scope
                                         }
                                     }
                                 }
@@ -1753,7 +1753,7 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
                                 {
                                     false,
                                     {},
-                                    resolve_file
+                                    parse_file
                                 }
                             };
                         }
@@ -2972,28 +2972,6 @@ Result<DelayedValue<Type*>> evaluate_type_expression(
     }
 }
 
-Result<DelayedValue<ConstantScope*>> do_resolve_file(List<Job*> *jobs, ParseFile *parse_file) {
-    assert(parse_file->done);
-
-    auto scope = new ConstantScope;
-    scope->statements = parse_file->statements;
-    scope->scope_constants = {};
-    scope->is_top_level = true;
-    scope->file_path = parse_file->path;
-
-    if(!process_scope(jobs, scope, nullptr)) {
-        return { false };
-    }
-
-    return {
-        true,
-        {
-            true,
-            scope
-        }
-    };
-}
-
 Result<DelayedValue<FunctionResolutionValue>> do_resolve_function_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
@@ -3567,10 +3545,10 @@ profiled_function(bool, process_scope, (
 
                 auto job_already_added = false;
                 for(auto job : *jobs) {
-                    if(job->kind == JobKind::ResolveFile) {
-                        auto resolve_file = (ResolveFile*)job;
+                    if(job->kind == JobKind::ParseFile) {
+                        auto parse_file = (ParseFile*)job;
 
-                        if(strcmp(resolve_file->parse_file->path, import_file_path_absolute) == 0) {
+                        if(strcmp(parse_file->path, import_file_path_absolute) == 0) {
                             job_already_added = true;
                             break;
                         }
@@ -3584,13 +3562,6 @@ profiled_function(bool, process_scope, (
                     parse_file->path = import_file_path_absolute;
 
                     append(jobs, (Job*)parse_file);
-
-                    auto resolve_file = new ResolveFile;
-                    resolve_file->done = false;
-                    resolve_file->waiting_for = parse_file;
-                    resolve_file->parse_file = parse_file;
-
-                    append(jobs, (Job*)resolve_file);
                 }
             } break;
 

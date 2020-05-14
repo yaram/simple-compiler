@@ -265,13 +265,6 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
     append(&jobs, (Job*)main_file_parse_job);
 
-    auto main_file_resolve_job = new ResolveFile;
-    main_file_resolve_job->done = false;
-    main_file_resolve_job->waiting_for = main_file_parse_job;
-    main_file_resolve_job->parse_file = main_file_parse_job;
-
-    append(&jobs, (Job*)main_file_resolve_job);
-
     List<RuntimeStatic*> runtime_statics {};
     List<const char*> libraries {};
 
@@ -308,34 +301,22 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             }
                         }
 
-                        parse_file->statements = statements;
+                        auto scope = new ConstantScope;
+                        scope->statements = statements;
+                        scope->scope_constants = {};
+                        scope->is_top_level = true;
+                        scope->file_path = parse_file->path;
+
+                        parse_file->scope = scope;
                         parse_file->done = true;
 
-                        auto end_time = get_timer_counts();
-
-                        total_parser_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::ResolveFile: {
-                        auto resolve_file = (ResolveFile*)job;
-
-                        auto start_time = get_timer_counts();
-
-                        expect(delayed_value, do_resolve_file(
-                            &jobs,
-                            resolve_file->parse_file
-                        ));
-
-                        if(delayed_value.has_value) {
-                            resolve_file->done = true;
-                            resolve_file->scope = delayed_value.value;
-                        } else {
-                            resolve_file->waiting_for = delayed_value.waiting_for;
+                        if(!process_scope(&jobs, scope, nullptr)) {
+                            return { false };
                         }
 
                         auto end_time = get_timer_counts();
 
-                        total_generator_time += end_time - start_time;
+                        total_parser_time += end_time - start_time;
                     } break;
 
                     case JobKind::ResolveFunctionDeclaration: {

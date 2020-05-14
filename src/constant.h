@@ -7,7 +7,6 @@
 #include "list.h"
 
 struct Job;
-struct ParseFile;
 struct Type;
 struct FunctionTypeType;
 struct Integer;
@@ -329,8 +328,6 @@ Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
     ConstantScope *scope,
     Expression *expression
 );
-
-Result<DelayedValue<ConstantScope*>> do_resolve_file(List<Job*> *jobs, ParseFile *parse_file);
 
 struct FunctionResolutionValue {
     FunctionTypeType *type;
