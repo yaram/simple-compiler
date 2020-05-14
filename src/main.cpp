@@ -310,13 +310,32 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         parse_file->scope = scope;
                         parse_file->done = true;
 
-                        if(!process_scope(&jobs, scope, nullptr)) {
+                        if(!process_scope(&jobs, scope, nullptr, true)) {
                             return { false };
                         }
 
                         auto end_time = get_timer_counts();
 
                         total_parser_time += end_time - start_time;
+                    } break;
+
+                    case JobKind::ResolveStaticIf: {
+                        auto resolve_static_if = (ResolveStaticIf*)job;
+
+                        auto start_time = get_timer_counts();
+
+                        expect(delayed_value, do_resolve_static_if(info, &jobs, resolve_static_if->static_if, resolve_static_if->scope));
+
+                        if(delayed_value.has_value) {
+                            resolve_static_if->done = true;
+                            resolve_static_if->condition = delayed_value.value;
+                        } else {
+                            resolve_static_if->waiting_for = delayed_value.waiting_for;
+                        }
+
+                        auto end_time = get_timer_counts();
+
+                        total_generator_time += end_time - start_time;
                     } break;
 
                     case JobKind::ResolveFunctionDeclaration: {
@@ -510,22 +529,6 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                                     }
                                 }
                             }
-
-                            if(print_ir) {
-                                auto current_scope = generate_function->function->scope;
-                                while(!current_scope->is_top_level) {
-                                    current_scope = current_scope->parent;
-                                }
-
-                                printf("%s:\n", current_scope->file_path);
-                                print_static(generate_function->function);
-                                printf("\n");
-
-                                for(auto static_constant : delayed_value.value) {
-                                    print_static(static_constant);
-                                    printf("\n");
-                                }
-                            }
                         } else {
                             generate_function->waiting_for = delayed_value.waiting_for;
                         }
@@ -533,6 +536,22 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         auto end_time = get_timer_counts();
 
                         total_generator_time += end_time - start_time;
+
+                        if(generate_function->done && print_ir) {
+                            auto current_scope = generate_function->function->scope;
+                            while(!current_scope->is_top_level) {
+                                current_scope = current_scope->parent;
+                            }
+
+                            printf("%s:\n", current_scope->file_path);
+                            print_static(generate_function->function);
+                            printf("\n");
+
+                            for(auto static_constant : delayed_value.value) {
+                                print_static(static_constant);
+                                printf("\n");
+                            }
+                        }
                     } break;
 
                     case JobKind::GenerateStaticVariable: {

@@ -2417,6 +2417,251 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
     }
 }
 
+struct DeclarationSearchValue {
+    bool found;
+
+    Type *type;
+    RuntimeValue *value;
+};
+
+static Result<DelayedValue<DeclarationSearchValue>> search_for_declaration(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    ConstantScope *scope,
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    const char *name,
+    ConstantScope *name_scope,
+    FileRange name_range,
+    Array<Statement*> statements,
+    bool external
+) {
+    for(auto statement : statements) {
+        bool matching;
+        if(external) {
+            matching = match_public_declaration(statement, name);
+        } else {
+            matching = match_declaration(statement, name);
+        }
+
+        if(matching) {
+            expect_delayed(value, get_simple_resolved_declaration(info, jobs, scope, statement));
+
+            return {
+                true,
+                {
+                    true,
+                    {
+                        true,
+                        value.type,
+                        new RuntimeConstantValue {
+                            value.value
+                        }
+                    }
+                }
+            };
+        } else if(statement->kind == StatementKind::UsingStatement) {
+            if(!external) {
+                auto using_statement = (UsingStatement*)statement;
+
+                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, using_statement->module));
+
+                if(expression_value.type->kind != TypeKind::FileModule) {
+                    error(scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
+
+                    return { false };
+                }
+
+                auto file_module = (FileModuleConstant*)expression_value.value;
+                assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
+
+                expect_delayed(search_value, search_for_declaration(
+                    info,
+                    jobs,
+                    file_module->scope,
+                    context,
+                    instructions,
+                    name,
+                    name_scope,
+                    name_range,
+                    file_module->scope->statements,
+                    true
+                ));
+
+                if(search_value.found) {
+                    return {
+                        true,
+                        {
+                            true,
+                            {
+                                true,
+                                search_value.type,
+                                search_value.value
+                            }
+                        }
+                    };
+                }
+            }
+        } else if(statement->kind == StatementKind::StaticIf) {
+            auto static_if = (StaticIf*)statement;
+
+            auto found = false;
+            for(auto job : *jobs) {
+                if(job->kind == JobKind::ResolveStaticIf) {
+                    auto resolve_static_if = (ResolveStaticIf*)job;
+
+                    if(
+                        resolve_static_if->static_if == static_if &&
+                        resolve_static_if->scope == scope
+                    ) {
+                        found = true;
+
+                        if(resolve_static_if->done) {
+                            if(resolve_static_if->condition) {
+                                expect_delayed(search_value, search_for_declaration(
+                                    info,
+                                    jobs,
+                                    scope,
+                                    context,
+                                    instructions,
+                                    name,
+                                    name_scope,
+                                    name_range,
+                                    static_if->statements,
+                                    false
+                                ));
+
+                                if(search_value.found) {
+                                    return {
+                                        true,
+                                        {
+                                            true,
+                                            {
+                                                true,
+                                                search_value.type,
+                                                search_value.value
+                                            }
+                                        }
+                                    };
+                                }
+                            }
+                        } else {
+                            auto have_to_wait = false;
+                            for(auto statement : static_if->statements) {
+                                bool matching;
+                                if(external) {
+                                    matching = match_public_declaration(statement, name);
+                                } else {
+                                    matching = match_declaration(statement, name);
+                                }
+
+                                if(matching) {
+                                    have_to_wait = true;
+                                } else if(statement->kind == StatementKind::UsingStatement) {
+                                    if(!external) {
+                                        have_to_wait = true;
+                                    }
+                                } else if(statement->kind == StatementKind::StaticIf) {
+                                    have_to_wait = true;
+                                }
+                            }
+
+                            if(have_to_wait) {
+                                return {
+                                    true,
+                                    {
+                                        false,
+                                        {},
+                                        resolve_static_if
+                                    }
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+
+            assert(found);
+        } else if(statement->kind == StatementKind::VariableDeclaration) {
+            if(scope->is_top_level) {
+                auto variable_declaration = (VariableDeclaration*)statement;
+
+                if(strcmp(variable_declaration->name.text, name) == 0) {
+                    for(auto job : *jobs) {
+                        if(job->kind == JobKind::GenerateStaticVariable) {
+                            auto generate_static_variable = (GenerateStaticVariable*)job;
+
+                            if(generate_static_variable->declaration == variable_declaration) {
+                                if(generate_static_variable->done) {
+                                    auto address_register = append_reference_static(
+                                        context,
+                                        instructions,
+                                        name_range,
+                                        generate_static_variable->static_variable
+                                    );
+
+                                    return {
+                                        true,
+                                        {
+                                            true,
+                                            {
+                                                true,
+                                                generate_static_variable->type,
+                                                new AddressValue {
+                                                    address_register
+                                                }
+                                            }
+                                        }
+                                    };
+                                } else {
+                                    return {
+                                        true,
+                                        {
+                                            false,
+                                            {},
+                                            generate_static_variable
+                                        }
+                                    };
+                                }
+                            }
+                        }
+                    }
+
+                    abort();
+                }
+            }
+        }
+    }
+
+    for(auto scope_constant : scope->scope_constants) {
+        if(strcmp(scope_constant.name, name) == 0) {
+            return {
+                true,
+                {
+                    true,
+                    {
+                        true,
+                        scope_constant.type,
+                        new RuntimeConstantValue {
+                            scope_constant.value
+                        }
+                    }
+                }
+            };
+        }
+    }
+
+    return {
+        true,
+        {
+            true,
+            {
+                false
+            }
+        }
+    };
+}
+
 static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expression, (
     GlobalInfo info,
     List<Job*> *jobs,
@@ -2457,117 +2702,30 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 }
             }
 
-            for(auto statement : current_scope.constant_scope->statements) {
-                if(match_declaration(statement, named_reference->name.text)) {
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, current_scope.constant_scope, statement));
+            expect_delayed(search_value, search_for_declaration(
+                info,
+                jobs,
+                current_scope.constant_scope,
+                context,
+                instructions,
+                named_reference->name.text,
+                scope,
+                named_reference->name.range,
+                current_scope.constant_scope->statements,
+                false
+            ));
 
-                    return {
+            if(search_value.found) {
+                return {
+                    true,
+                    {
                         true,
                         {
-                            true,
-                            {
-                                value.type,
-                                new RuntimeConstantValue {
-                                    value.value
-                                }
-                            }
-                        }
-                    };
-                } else if(statement->kind == StatementKind::UsingStatement) {
-                    auto using_statement = (UsingStatement*)statement;
-
-                    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, current_scope.constant_scope, using_statement->module));
-
-                    if(expression_value.type->kind != TypeKind::FileModule) {
-                        error(current_scope.constant_scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
-
-                        return { false };
-                    }
-
-                    auto file_module = (FileModuleConstant*)expression_value.value;
-                    assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
-
-                    for(auto statement : file_module->scope->statements) {
-                        if(match_public_declaration(statement, named_reference->name.text)) {
-                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module->scope, statement));
-
-                            return {
-                                true,
-                                {
-                                    true,
-                                    {
-                                        value.type,
-                                        new RuntimeConstantValue {
-                                            value.value
-                                        }
-                                    }
-                                }
-                            };
-                        } else if(statement->kind == StatementKind::VariableDeclaration) {
-                            auto variable_declaration = (VariableDeclaration*)statement;
-
-                            if(strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
-                                for(auto job : *jobs) {
-                                    if(job->kind == JobKind::GenerateStaticVariable) {
-                                        auto generate_static_variable = (GenerateStaticVariable*)job;
-
-                                        if(generate_static_variable->declaration == variable_declaration) {
-                                            if(generate_static_variable->done) {
-                                                auto address_register = append_reference_static(
-                                                    context,
-                                                    instructions,
-                                                    named_reference->range,
-                                                    generate_static_variable->static_variable
-                                                );
-
-                                                return {
-                                                    true,
-                                                    {
-                                                        true,
-                                                        {
-                                                            generate_static_variable->type,
-                                                            new AddressValue {
-                                                                address_register
-                                                            }
-                                                        }
-                                                    }
-                                                };
-                                            } else {
-                                                return {
-                                                    true,
-                                                    {
-                                                        false,
-                                                        {},
-                                                        generate_static_variable
-                                                    }
-                                                };
-                                            }
-                                        }
-                                    }
-                                }
-
-                                abort();
-                            }
+                            search_value.type,
+                            search_value.value
                         }
                     }
-                }
-            }
-
-            for(auto scope_constant : current_scope.constant_scope->scope_constants) {
-                if(strcmp(scope_constant.name, named_reference->name.text) == 0) {
-                    return {
-                        true,
-                        {
-                            true,
-                            {
-                                scope_constant.type,
-                                new RuntimeConstantValue {
-                                    scope_constant.value
-                                }
-                            }
-                        }
-                    };
-                }
+                };
             }
         }
 
@@ -2575,162 +2733,30 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
         auto current_scope = context->variable_scope_stack[0].constant_scope->parent;
         while(true) {
-            for(auto statement : current_scope->statements) {
-                if(match_declaration(statement, named_reference->name.text)) {
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, current_scope, statement));
+            expect_delayed(search_value, search_for_declaration(
+                info,
+                jobs,
+                current_scope,
+                context,
+                instructions,
+                named_reference->name.text,
+                scope,
+                named_reference->name.range,
+                current_scope->statements,
+                false
+            ));
 
-                    return {
+            if(search_value.found) {
+                return {
+                    true,
+                    {
                         true,
                         {
-                            true,
-                            {
-                                value.type,
-                                new RuntimeConstantValue {
-                                    value.value
-                                }
-                            }
-                        }
-                    };
-                } else if(statement->kind == StatementKind::UsingStatement) {
-                    auto using_statement = (UsingStatement*)statement;
-
-                    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, current_scope, using_statement->module));
-
-                    if(expression_value.type->kind != TypeKind::FileModule) {
-                        error(current_scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
-
-                        return { false };
-                    }
-
-                    auto file_module = (FileModuleConstant*)expression_value.value;
-                    assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
-
-                    for(auto statement : file_module->scope->statements) {
-                        if(match_public_declaration(statement, named_reference->name.text)) {
-                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module->scope, statement));
-
-                            return {
-                                true,
-                                {
-                                    true,
-                                    {
-                                        value.type,
-                                        new RuntimeConstantValue {
-                                            value.value
-                                        }
-                                    }
-                                }
-                            };
-                        } else if(statement->kind == StatementKind::VariableDeclaration) {
-                            auto variable_declaration = (VariableDeclaration*)statement;
-
-                            if(strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
-                                for(auto job : *jobs) {
-                                    if(job->kind == JobKind::GenerateStaticVariable) {
-                                        auto generate_static_variable = (GenerateStaticVariable*)job;
-
-                                        if(generate_static_variable->declaration == variable_declaration) {
-                                            if(generate_static_variable->done) {
-                                                auto address_register = append_reference_static(
-                                                    context,
-                                                    instructions,
-                                                    named_reference->range,
-                                                    generate_static_variable->static_variable
-                                                );
-
-                                                return {
-                                                    true,
-                                                    {
-                                                        true,
-                                                        {
-                                                            generate_static_variable->type,
-                                                            new AddressValue {
-                                                                address_register
-                                                            }
-                                                        }
-                                                    }
-                                                };
-                                            } else {
-                                                return {
-                                                    true,
-                                                    {
-                                                        false,
-                                                        {},
-                                                        generate_static_variable
-                                                    }
-                                                };
-                                            }
-                                        }
-                                    }
-                                }
-
-                                abort();
-                            }
+                            search_value.type,
+                            search_value.value
                         }
                     }
-                } else if(statement->kind == StatementKind::VariableDeclaration) {
-                    auto variable_declaration = (VariableDeclaration*)statement;
-
-                    if(strcmp(variable_declaration->name.text, named_reference->name.text) == 0) {
-                        for(auto job : *jobs) {
-                            if(job->kind == JobKind::GenerateStaticVariable) {
-                                auto generate_static_variable = (GenerateStaticVariable*)job;
-
-                                if(generate_static_variable->declaration == variable_declaration) {
-                                    if(generate_static_variable->done) {
-                                        auto address_register = append_reference_static(
-                                            context,
-                                            instructions,
-                                            named_reference->range,
-                                            generate_static_variable->static_variable
-                                        );
-
-                                        return {
-                                            true,
-                                            {
-                                                true,
-                                                {
-                                                    generate_static_variable->type,
-                                                    new AddressValue {
-                                                        address_register
-                                                    }
-                                                }
-                                            }
-                                        };
-                                    } else {
-                                        return {
-                                            true,
-                                            {
-                                                false,
-                                                {},
-                                                generate_static_variable
-                                            }
-                                        };
-                                    }
-                                }
-                            }
-                        }
-
-                        abort();
-                    }
-                }
-            }
-
-            for(auto scope_constant : current_scope->scope_constants) {
-                if(strcmp(scope_constant.name, named_reference->name.text) == 0) {
-                    return {
-                        true,
-                        {
-                            true,
-                            {
-                                scope_constant.type,
-                                new RuntimeConstantValue {
-                                    scope_constant.value
-                                }
-                            }
-                        }
-                    };
-                }
+                };
             }
 
             if(current_scope->is_top_level) {
@@ -3296,68 +3322,30 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
         } else if(actual_type->kind == TypeKind::FileModule) {
             auto file_module_value = extract_constant_value(FileModuleConstant, actual_value);
 
-            for(auto statement : file_module_value->scope->statements) {
-                if(match_public_declaration(statement, member_reference->name.text)) {
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module_value->scope, statement));
+            expect_delayed(search_value, search_for_declaration(
+                info,
+                jobs,
+                file_module_value->scope,
+                context,
+                instructions,
+                member_reference->name.text,
+                scope,
+                member_reference->name.range,
+                file_module_value->scope->statements,
+                true
+            ));
 
-                    return {
+            if(search_value.found) {
+                return {
+                    true,
+                    {
                         true,
                         {
-                            true,
-                            {
-                                value.type,
-                                new RuntimeConstantValue {
-                                    value.value
-                                }
-                            }
+                            search_value.type,
+                            search_value.value
                         }
-                    };
-                } else if(statement->kind == StatementKind::VariableDeclaration) {
-                    auto variable_declaration = (VariableDeclaration*)statement;
-
-                    if(strcmp(variable_declaration->name.text, member_reference->name.text) == 0) {
-                        for(auto job : *jobs) {
-                            if(job->kind == JobKind::GenerateStaticVariable) {
-                                auto generate_static_variable = (GenerateStaticVariable*)job;
-
-                                if(generate_static_variable->declaration == variable_declaration) {
-                                    if(generate_static_variable->done) {
-                                        auto address_register = append_reference_static(
-                                            context,
-                                            instructions,
-                                            member_reference->range,
-                                            generate_static_variable->static_variable
-                                        );
-
-                                        return {
-                                            true,
-                                            {
-                                                true,
-                                                {
-                                                    generate_static_variable->type,
-                                                    new AddressValue {
-                                                        address_register
-                                                    }
-                                                }
-                                            }
-                                        };
-                                    } else {
-                                        return {
-                                            true,
-                                            {
-                                                false,
-                                                {},
-                                                generate_static_variable
-                                            }
-                                        };
-                                    }
-                                }
-                            }
-                        }
-
-                        abort();
                     }
-                }
+                };
             }
 
             error(scope, member_reference->name.range, "No member with name '%s'", member_reference->name.text);

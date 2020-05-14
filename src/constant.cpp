@@ -1888,6 +1888,166 @@ bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b) {
     }
 }
 
+struct DeclarationSearchValue {
+    bool found;
+
+    Type *type;
+    ConstantValue *value;
+};
+
+static Result<DelayedValue<DeclarationSearchValue>> search_for_declaration(GlobalInfo info, List<Job*> *jobs, const char *name, ConstantScope *scope, Array<Statement*> statements, bool external) {
+    for(auto statement : statements) {
+        bool matching;
+        if(external) {
+            matching = match_public_declaration(statement, name);
+        } else {
+            matching = match_declaration(statement, name);
+        }
+
+        if(matching) {
+            expect_delayed(value, get_simple_resolved_declaration(info, jobs, scope, statement));
+
+            return {
+                true,
+                {
+                    true,
+                    {
+                        true,
+                        value.type,
+                        value.value
+                    }
+                }
+            };
+        } else if(statement->kind == StatementKind::UsingStatement) {
+            if(!external) {
+                auto using_statement = (UsingStatement*)statement;
+
+                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, using_statement->module));
+
+                if(expression_value.type->kind != TypeKind::FileModule) {
+                    error(scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
+
+                    return { false };
+                }
+
+                auto file_module = (FileModuleConstant*)expression_value.value;
+                assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
+
+                expect_delayed(search_value, search_for_declaration(info, jobs, name, file_module->scope, file_module->scope->statements, true));
+
+                if(search_value.found) {
+                    return {
+                        true,
+                        {
+                            true,
+                            {
+                                true,
+                                search_value.type,
+                                search_value.value
+                            }
+                        }
+                    };
+                }
+            }
+        } else if(statement->kind == StatementKind::StaticIf) {
+            auto static_if = (StaticIf*)statement;
+
+            auto found = false;
+            for(auto job : *jobs) {
+                if(job->kind == JobKind::ResolveStaticIf) {
+                    auto resolve_static_if = (ResolveStaticIf*)job;
+
+                    if(
+                        resolve_static_if->static_if == static_if &&
+                        resolve_static_if->scope == scope
+                    ) {
+                        found = true;
+
+                        if(resolve_static_if->done) {
+                            if(resolve_static_if->condition) {
+                                expect_delayed(search_value, search_for_declaration(info, jobs, name, scope, static_if->statements, false));
+
+                                if(search_value.found) {
+                                    return {
+                                        true,
+                                        {
+                                            true,
+                                            {
+                                                true,
+                                                search_value.type,
+                                                search_value.value
+                                            }
+                                        }
+                                    };
+                                }
+                            }
+                        } else {
+                            auto have_to_wait = false;
+                            for(auto statement : static_if->statements) {
+                                bool matching;
+                                if(external) {
+                                    matching = match_public_declaration(statement, name);
+                                } else {
+                                    matching = match_declaration(statement, name);
+                                }
+
+                                if(matching) {
+                                    have_to_wait = true;
+                                } else if(statement->kind == StatementKind::UsingStatement) {
+                                    if(!external) {
+                                        have_to_wait = true;
+                                    }
+                                } else if(statement->kind == StatementKind::StaticIf) {
+                                    have_to_wait = true;
+                                }
+                            }
+
+                            if(have_to_wait) {
+                                return {
+                                    true,
+                                    {
+                                        false,
+                                        {},
+                                        resolve_static_if
+                                    }
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+
+            assert(found);
+        }
+    }
+
+    for(auto scope_constant : scope->scope_constants) {
+        if(strcmp(scope_constant.name, name) == 0) {
+            return {
+                true,
+                {
+                    true,
+                    {
+                        true,
+                        scope_constant.type,
+                        scope_constant.value
+                    }
+                }
+            };
+        }
+    }
+
+    return {
+        true,
+        {
+            true,
+            {
+                false
+            }
+        }
+    };
+}
+
 profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_expression, (
     GlobalInfo info,
     List<Job*> *jobs,
@@ -1904,60 +2064,19 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
 
         auto current_scope = scope;
         while(true) {
-            for(auto statement : current_scope->statements) {
-                if(match_declaration(statement, named_reference->name.text)) {
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, current_scope, statement));
+            expect_delayed(search_value, search_for_declaration(info, jobs, named_reference->name.text, current_scope, current_scope->statements, false));
 
-                    return {
+            if(search_value.found) {
+                return {
+                    true,
+                    {
                         true,
                         {
-                            true,
-                            value
-                        }
-                    };
-                } else if(statement->kind == StatementKind::UsingStatement) {
-                    auto using_statement = (UsingStatement*)statement;
-
-                    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, current_scope, using_statement->module));
-
-                    if(expression_value.type->kind != TypeKind::FileModule) {
-                        error(current_scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
-
-                        return { false };
-                    }
-
-                    auto file_module = (FileModuleConstant*)expression_value.value;
-                    assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
-
-                    for(auto statement : file_module->scope->statements) {
-                        if(match_public_declaration(statement, named_reference->name.text)) {
-                            expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module->scope, statement));
-
-                            return {
-                                true,
-                                {
-                                    true,
-                                    value
-                                }
-                            };
+                            search_value.type,
+                            search_value.value
                         }
                     }
-                }
-            }
-
-            for(auto scope_constant : current_scope->scope_constants) {
-                if(strcmp(scope_constant.name, named_reference->name.text) == 0) {
-                    return {
-                        true,
-                        {
-                            true,
-                            {
-                                scope_constant.type,
-                                scope_constant.value
-                            }
-                        }
-                    };
-                }
+                };
             }
 
             if(current_scope->is_top_level) {
@@ -2108,18 +2227,26 @@ profiled_function(Result<DelayedValue<TypedConstantValue>>, evaluate_constant_ex
             auto file_module_value = (FileModuleConstant*)expression_value.value;
             assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
 
-            for(auto statement : file_module_value->scope->statements) {
-                if(match_public_declaration(statement, member_reference->name.text)) {
-                    expect_delayed(value, get_simple_resolved_declaration(info, jobs, file_module_value->scope, statement));
+            expect_delayed(search_value, search_for_declaration(
+                info,
+                jobs,
+                member_reference->name.text,
+                file_module_value->scope,
+                file_module_value->scope->statements,
+                true
+            ));
 
-                    return {
+            if(search_value.found) {
+                return {
+                    true,
+                    {
                         true,
                         {
-                            true,
-                            value
+                            search_value.type,
+                            search_value.value
                         }
-                    };
-                }
+                    }
+                };
             }
 
             error(scope, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
@@ -2972,6 +3099,38 @@ Result<DelayedValue<Type*>> evaluate_type_expression(
     }
 }
 
+Result<DelayedValue<bool>> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope) {
+    expect_delayed(condition, evaluate_constant_expression(info, jobs, scope, static_if->condition));
+
+    if(condition.type->kind != TypeKind::Boolean) {
+        error(scope, static_if->condition->range, "Expected a boolean, got '%s'", type_description(condition.type));
+
+        return { false };
+    }
+
+    auto condition_value = extract_constant_value(BooleanConstant, condition.value)->value;
+
+    if(condition_value) {
+        auto body_scope = new ConstantScope;
+        body_scope->statements = static_if->statements;
+        body_scope->scope_constants = {};
+        body_scope->is_top_level = false;
+        body_scope->parent = scope;
+
+        if(!process_scope(jobs, body_scope, nullptr, true)) {
+            return { false };
+        }
+    }
+
+    return {
+        true,
+        {
+            true,
+            condition_value
+        }
+    };
+}
+
 Result<DelayedValue<FunctionResolutionValue>> do_resolve_function_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
@@ -3021,7 +3180,7 @@ Result<DelayedValue<FunctionResolutionValue>> do_resolve_function_declaration(
     if(!declaration->is_external) {
         body_scope->statements = declaration->statements;
 
-        if(!process_scope(jobs, body_scope, &child_scopes)) {
+        if(!process_scope(jobs, body_scope, &child_scopes, false)) {
             return { false };
         }
     }
@@ -3203,7 +3362,7 @@ Result<DelayedValue<FunctionResolutionValue>> do_resolve_polymorphic_function(
         body_scope->is_top_level = false;
         body_scope->parent = scope;
 
-        if(!process_scope(jobs, body_scope, &child_scopes)) {
+        if(!process_scope(jobs, body_scope, &child_scopes, false)) {
             return { false };
         }
     }
@@ -3379,11 +3538,13 @@ Result<DelayedValue<Type*>> do_resolve_polymorphic_struct(
 profiled_function(bool, process_scope, (
     List<Job*> *jobs,
     ConstantScope *scope,
-    List<ConstantScope*> *child_scopes
+    List<ConstantScope*> *child_scopes,
+    bool is_top_level
 ), (
     jobs,
     scope,
-    child_scopes
+    child_scopes,
+    is_top_level
 )) {
     for(auto statement : scope->statements) {
         switch(statement->kind) {
@@ -3434,7 +3595,7 @@ profiled_function(bool, process_scope, (
             } break;
 
             case StatementKind::VariableDeclaration: {
-                if(scope->is_top_level) {
+                if(is_top_level) {
                     auto variable_declaration = (VariableDeclaration*)statement;
 
                     auto generate_static_variable = new GenerateStaticVariable;
@@ -3448,7 +3609,7 @@ profiled_function(bool, process_scope, (
             } break;
 
             case StatementKind::IfStatement: {
-                if(scope->is_top_level) {
+                if(is_top_level) {
                     error(scope, statement->range, "This kind of statement cannot be top-level");
 
                     return false;
@@ -3464,7 +3625,7 @@ profiled_function(bool, process_scope, (
 
                 append(child_scopes, if_scope);
 
-                process_scope(jobs, if_scope, child_scopes);
+                process_scope(jobs, if_scope, child_scopes, false);
 
                 for(auto else_if : if_statement->else_ifs) {
                     auto else_if_scope = new ConstantScope;
@@ -3475,7 +3636,7 @@ profiled_function(bool, process_scope, (
 
                     append(child_scopes, else_if_scope);
 
-                    process_scope(jobs, else_if_scope, child_scopes);
+                    process_scope(jobs, else_if_scope, child_scopes, false);
                 }
 
                 if(if_statement->else_statements.count != 0) {
@@ -3487,12 +3648,12 @@ profiled_function(bool, process_scope, (
 
                     append(child_scopes, else_scope);
 
-                    process_scope(jobs, else_scope, child_scopes);
+                    process_scope(jobs, else_scope, child_scopes, false);
                 }
             } break;
 
             case StatementKind::WhileLoop: {
-                if(scope->is_top_level) {
+                if(is_top_level) {
                     error(scope, statement->range, "This kind of statement cannot be top-level");
 
                     return false;
@@ -3508,11 +3669,11 @@ profiled_function(bool, process_scope, (
 
                 append(child_scopes, while_scope);
 
-                process_scope(jobs, while_scope, child_scopes);
+                process_scope(jobs, while_scope, child_scopes, false);
             } break;
 
             case StatementKind::ForLoop: {
-                if(scope->is_top_level) {
+                if(is_top_level) {
                     error(scope, statement->range, "This kind of statement cannot be top-level");
 
                     return false;
@@ -3528,7 +3689,7 @@ profiled_function(bool, process_scope, (
 
                 append(child_scopes, for_scope);
 
-                process_scope(jobs, for_scope, child_scopes);
+                process_scope(jobs, for_scope, child_scopes, false);
             } break;
 
             case StatementKind::Import: {
@@ -3567,8 +3728,20 @@ profiled_function(bool, process_scope, (
 
             case StatementKind::UsingStatement: break;
 
+            case StatementKind::StaticIf: {
+                auto static_if = (StaticIf*)statement;
+
+                auto resolve_static_if = new ResolveStaticIf;
+                resolve_static_if->done = false;
+                resolve_static_if->waiting_for = nullptr;
+                resolve_static_if->static_if = static_if;
+                resolve_static_if->scope = scope;
+
+                append(jobs, (Job*)resolve_static_if);
+            } break;
+
             default: {
-                if(scope->is_top_level) {
+                if(is_top_level) {
                     error(scope, statement->range, "This kind of statement cannot be top-level");
 
                     return false;

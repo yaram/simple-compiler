@@ -322,12 +322,16 @@ Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
 );
 bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b);
 
+bool static_if_may_have_declaration(const char *name, bool external, StaticIf *static_if);
+
 Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
     Expression *expression
 );
+
+Result<DelayedValue<bool>> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope);
 
 struct FunctionResolutionValue {
     FunctionTypeType *type;
@@ -366,4 +370,4 @@ Result<DelayedValue<Type*>> do_resolve_polymorphic_struct(
     ConstantScope *scope
 );
 
-bool process_scope(List<Job*> *jobs, ConstantScope *scope, List<ConstantScope*> *child_scopes);
+bool process_scope(List<Job*> *jobs, ConstantScope *scope, List<ConstantScope*> *child_scopes, bool is_top_level);

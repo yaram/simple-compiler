@@ -11,6 +11,7 @@ struct FunctionConstant;
 
 enum struct JobKind {
     ParseFile,
+    ResolveStaticIf,
     ResolveFunctionDeclaration,
     ResolvePolymorphicFunction,
     ResolveConstantDefinition,
@@ -34,6 +35,15 @@ struct ParseFile : Job {
     ConstantScope *scope;
 
     ParseFile() : Job { JobKind::ParseFile } {}
+};
+
+struct ResolveStaticIf : Job {
+    StaticIf *static_if;
+    ConstantScope *scope;
+
+    bool condition;
+
+    ResolveStaticIf() : Job { JobKind::ResolveStaticIf } {}
 };
 
 struct ResolveFunctionDeclaration : Job {
