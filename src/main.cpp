@@ -250,6 +250,46 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
     append_builtin(&global_constants, "memcpy");
 
+    append(&global_constants, GlobalConstant {
+        "X64",
+        &boolean_singleton,
+        new BooleanConstant {
+            strcmp(architecture, "x64") == 0
+        }
+    });
+
+    append(&global_constants, GlobalConstant {
+        "WINDOWS",
+        &boolean_singleton,
+        new BooleanConstant {
+            strcmp(os, "windows") == 0
+        }
+    });
+
+    append(&global_constants, GlobalConstant {
+        "LINUX",
+        &boolean_singleton,
+        new BooleanConstant {
+            strcmp(os, "linux") == 0
+        }
+    });
+
+    append(&global_constants, GlobalConstant {
+        "DEBUG",
+        &boolean_singleton,
+        new BooleanConstant {
+            strcmp(config, "debug") == 0
+        }
+    });
+
+    append(&global_constants, GlobalConstant {
+        "RELEASE",
+        &boolean_singleton,
+        new BooleanConstant {
+            strcmp(config, "release") == 0
+        }
+    });
+
     GlobalInfo info {
         to_array(global_constants),
         regsiter_sizes.address_size,
