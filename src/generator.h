@@ -6,7 +6,7 @@
 
 struct Job;
 
-Result<DelayedValue<Array<StaticConstant*>>> do_generate_function(
+DelayedResult<Array<StaticConstant*>> do_generate_function(
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionTypeType *type,
@@ -20,7 +20,7 @@ struct StaticVariableResult {
     Type *type;
 };
 
-Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
+DelayedResult<StaticVariableResult> do_generate_static_variable(
     GlobalInfo info,
     List<Job*> *jobs,
     VariableDeclaration *declaration,

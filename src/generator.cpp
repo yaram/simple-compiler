@@ -864,31 +864,25 @@ static Result<size_t> coerce_to_integer_register_value(
         if(integer->size == target_type->size && integer->is_signed == target_type->is_signed) {
             auto register_index = generate_in_register_integer_value(context, instructions, range, *target_type, value);
 
-            return {
-                true,
-                register_index
-            };
+            return ok(register_index);
         }
     } else if(type->kind == TypeKind::UndeterminedInteger) {
         auto integer_value = extract_constant_value(IntegerConstant, value);
 
         if(!check_undetermined_integer_to_integer_coercion(scope, range, target_type, (int64_t)integer_value->value, probing)) {
-            return { false };
+            return err;
         }
 
         auto regsiter_index = append_integer_constant(context, instructions, range, target_type->size, integer_value->value);
 
-        return {
-            true,
-            regsiter_index
-        };
+        return ok(regsiter_index);
     }
 
     if(!probing) {
         error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(target_type));
     }
 
-    return { false };
+    return err;
 }
 
 static Result<size_t> coerce_to_float_register_value(
@@ -906,10 +900,7 @@ static Result<size_t> coerce_to_float_register_value(
 
         auto register_index = append_float_constant(context, instructions, range, target_type.size, (double)integer_value->value);
 
-        return {
-            true,
-            register_index
-        };
+        return ok(register_index);
     } else if(type->kind == TypeKind::FloatType) {
         auto float_type = (FloatType*)type;
 
@@ -917,7 +908,6 @@ static Result<size_t> coerce_to_float_register_value(
             size_t register_index;
             if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
                 auto float_value = extract_constant_value(FloatConstant, value);
-;
 
                 register_index = append_float_constant(context, instructions, range, float_type->size, float_value->value);
             } else if(value->kind == RuntimeValueKind::RegisterValue) {
@@ -932,28 +922,21 @@ static Result<size_t> coerce_to_float_register_value(
                 abort();
             }
 
-            return {
-                true,
-                register_index
-            };
+            return ok(register_index);
         }
     } else if(type->kind == TypeKind::UndeterminedFloat) {
         auto float_value = extract_constant_value(FloatConstant, value);
-;
 
         auto register_index = append_float_constant(context, instructions, range, target_type.size, float_value->value);
 
-        return {
-            true,
-            register_index
-        };
+        return ok(register_index);
     }
 
     if(!probing) {
         error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
     }
 
-    return { false };
+    return err;
 }
 
 static Result<size_t> coerce_to_pointer_register_value(
@@ -978,20 +961,14 @@ static Result<size_t> coerce_to_pointer_register_value(
             integer_value->value
         );
 
-        return {
-            true,
-            register_index
-        };
+        return ok(register_index);
     } else if(type->kind == TypeKind::Pointer) {
         auto pointer = (Pointer*)type;
 
         if(types_equal(pointer->type, target_type.type)) {
             auto register_index = generate_in_register_pointer_value(info, context, instructions, range, value);
 
-            return {
-                true,
-                register_index
-            };
+            return ok(register_index);
         }
     }
 
@@ -999,7 +976,7 @@ static Result<size_t> coerce_to_pointer_register_value(
         error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
     }
 
-    return { false };
+    return err;
 }
 
 static bool coerce_to_type_write(
@@ -1039,18 +1016,12 @@ static Result<size_t> coerce_to_type_register(
             probing
         ));
 
-        return {
-            true,
-            register_index
-        };
+        return ok(register_index);
     } else if(target_type->kind == TypeKind::Boolean) {
         if(type->kind == TypeKind::Boolean) {
             auto register_index = generate_in_register_boolean_value(info, context, instructions, range, value);
 
-            return {
-                true,
-                register_index
-            };
+            return ok(register_index);
         }
     } else if(target_type->kind == TypeKind::FloatType) {
         auto float_type = (FloatType*)target_type;
@@ -1066,10 +1037,7 @@ static Result<size_t> coerce_to_type_register(
             probing
         ));
 
-        return {
-            true,
-            register_index
-        };
+        return ok(register_index);
     } else if(target_type->kind == TypeKind::Pointer) {
         auto pointer = (Pointer*)target_type;
 
@@ -1085,10 +1053,7 @@ static Result<size_t> coerce_to_type_register(
             probing
         ));
 
-        return {
-            true,
-            register_index
-        };
+        return ok(register_index);
     } else if(target_type->kind == TypeKind::ArrayTypeType) {
         auto target_array = (ArrayTypeType*)target_type;
 
@@ -1108,10 +1073,7 @@ static Result<size_t> coerce_to_type_register(
                     abort();
                 }
 
-                return {
-                    true,
-                    register_index
-                };
+                return ok(register_index);
             }
         } else if(type->kind == TypeKind::StaticArray) {
             auto static_array = (StaticArray*)type;
@@ -1166,10 +1128,7 @@ static Result<size_t> coerce_to_type_register(
 
                 append_store_integer(context, instructions, range, info.address_integer_size, length_register, length_address_register);
 
-                return {
-                    true,
-                    address_register
-                };
+                return ok(address_register);
             }
         } else if(type->kind == TypeKind::UndeterminedStruct) {
             auto undetermined_struct = (UndeterminedStruct*)type;
@@ -1240,10 +1199,7 @@ static Result<size_t> coerce_to_type_register(
                             length_address_register
                         );
 
-                        return {
-                            true,
-                            address_register
-                        };
+                        return ok(address_register);
                     }
                 }
             }
@@ -1268,10 +1224,7 @@ static Result<size_t> coerce_to_type_register(
                     abort();
                 }
 
-                return {
-                    true,
-                    register_index
-                };
+                return ok(register_index);
             }
         }
     } else if(target_type->kind == TypeKind::StructType) {
@@ -1307,10 +1260,7 @@ static Result<size_t> coerce_to_type_register(
                         abort();
                     }
 
-                    return {
-                        true,
-                        register_index
-                    };
+                    return ok(register_index);
                 }
             }
         } else if(type->kind == TypeKind::UndeterminedStruct) {
@@ -1342,10 +1292,7 @@ static Result<size_t> coerce_to_type_register(
                                 target_struct_type->members[i].type,
                                 address_register
                             )) {
-                                return {
-                                    true,
-                                    address_register
-                                };
+                                return ok(address_register);
                             } else {
                                 break;
                             }
@@ -1401,10 +1348,7 @@ static Result<size_t> coerce_to_type_register(
                         }
 
                         if(success) {
-                            return {
-                                true,
-                                address_register
-                            };
+                            return ok(address_register);
                         }
                     }
                 }
@@ -1418,7 +1362,7 @@ static Result<size_t> coerce_to_type_register(
         error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(target_type));
     }
 
-    return { false };
+    return err;
 }
 
 static bool coerce_to_type_write(
@@ -1891,10 +1835,10 @@ static bool coerce_to_type_write(
 
     error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(target_type));
 
-    return { false };
+    return err;
 }
 
-static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
+static DelayedResult<TypedRuntimeValue> generate_expression(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
@@ -1903,7 +1847,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_expression(
     Expression *expression
 );
 
-static Result<DelayedValue<Type*>> evaluate_type_expression_runtime(
+static DelayedResult<Type*> evaluate_type_expression_runtime(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
@@ -1916,21 +1860,15 @@ static Result<DelayedValue<Type*>> evaluate_type_expression_runtime(
     if(expression_value.type->kind == TypeKind::TypeType) {
         auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
 
-        return {
-            true,
-            {
-                true,
-                type
-            }
-        };
+        return has(type);
     } else {
         error(scope, expression->range, "Expected a type, got %s", type_description(expression_value.type));
 
-        return { false };
+        return err;
     }
 }
 
-static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
+static DelayedResult<TypedRuntimeValue> generate_binary_operation(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
@@ -1963,18 +1901,12 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
             right_value
         ));
 
-        return {
-            true,
-            {
-                true,
-                {
-                    constant.type,
-                    new RuntimeConstantValue {
-                        constant.value
-                    }
-                }
+        return has({
+            constant.type,
+            new RuntimeConstantValue {
+                constant.value
             }
-        };
+        });
     }
 
     expect(type, determine_binary_operation_type(scope, range, left.type, right.type));
@@ -2096,7 +2028,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
                 default: {
                     error(scope, range, "Cannot perform that operation on integers");
 
-                    return { false };
+                    return err;
                 } break;
             }
 
@@ -2117,23 +2049,17 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
             result_type = &boolean_singleton;
         }
 
-        return {
-            true,
-            {
-                true,
-                {
-                    result_type,
-                    new RegisterValue {
-                        result_register
-                    }
-                }
+        return has({
+            result_type,
+            new RegisterValue {
+                result_register
             }
-        };
+        });
     } else if(determined_type->kind == TypeKind::Boolean) {
         if(left.type->kind != TypeKind::Boolean) {
             error(scope, left_expression->range, "Expected 'bool', got '%s'", type_description(left.type));
 
-            return { false };
+            return err;
         }
 
         auto left_register = generate_in_register_boolean_value(info, context, instructions, left_expression->range, left.value);
@@ -2141,7 +2067,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
         if(right.type->kind != TypeKind::Boolean) {
             error(scope, right_expression->range, "Expected 'bool', got '%s'", type_description(right.type));
 
-            return { false };
+            return err;
         }
 
         auto right_register = generate_in_register_boolean_value(info, context, instructions, right_expression->range, right.value);
@@ -2189,7 +2115,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
                 default: {
                     error(scope, range, "Cannot perform that operation on 'bool'");
 
-                    return { false };
+                    return err;
                 } break;
             }
 
@@ -2208,18 +2134,12 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
             }
         }
 
-        return {
-            true,
-            {
-                true,
-                {
-                    &boolean_singleton,
-                    new RegisterValue {
-                        result_register
-                    }
-                }
+        return has({
+            &boolean_singleton,
+            new RegisterValue {
+                result_register
             }
-        };
+        });
     } else if(determined_type->kind == TypeKind::FloatType) {
         auto float_type = (FloatType*)determined_type;
 
@@ -2307,7 +2227,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
                 default: {
                     error(scope, range, "Cannot perform that operation on floats");
 
-                    return { false };
+                    return err;
                 } break;
             }
 
@@ -2328,18 +2248,12 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
             result_type = &boolean_singleton;
         }
 
-        return {
-            true,
-            {
-                true,
-                {
-                    result_type,
-                    new RegisterValue {
-                        result_register
-                    }
-                }
+        return has({
+            result_type,
+            new RegisterValue {
+                result_register
             }
-        };
+        });
     } else if(determined_type->kind == TypeKind::Pointer) {
         auto pointer = (Pointer*)determined_type;
 
@@ -2382,7 +2296,7 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
             default: {
                 error(scope, range, "Cannot perform that operation on '%s'", type_description(pointer));
 
-                return { false };
+                return err;
             } break;
         }
 
@@ -2400,18 +2314,12 @@ static Result<DelayedValue<TypedRuntimeValue>> generate_binary_operation(
             result_register = generate_boolean_invert(info, context, instructions, range, result_register);
         }
 
-        return {
-            true,
-            {
-                true,
-                {
-                    &boolean_singleton,
-                    new RegisterValue {
-                        result_register
-                    }
-                }
+        return has({
+            &boolean_singleton,
+            new RegisterValue {
+                result_register
             }
-        };
+        });
     } else {
         abort();
     }
@@ -2424,7 +2332,7 @@ struct DeclarationSearchValue {
     RuntimeValue *value;
 };
 
-static Result<DelayedValue<DeclarationSearchValue>> search_for_declaration(
+static DelayedResult<DeclarationSearchValue> search_for_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
@@ -2447,19 +2355,13 @@ static Result<DelayedValue<DeclarationSearchValue>> search_for_declaration(
         if(matching) {
             expect_delayed(value, get_simple_resolved_declaration(info, jobs, scope, statement));
 
-            return {
+            return has({
                 true,
-                {
-                    true,
-                    {
-                        true,
-                        value.type,
-                        new RuntimeConstantValue {
-                            value.value
-                        }
-                    }
+                value.type,
+                new RuntimeConstantValue {
+                    value.value
                 }
-            };
+            });
         } else if(statement->kind == StatementKind::UsingStatement) {
             if(!external) {
                 auto using_statement = (UsingStatement*)statement;
@@ -2469,7 +2371,7 @@ static Result<DelayedValue<DeclarationSearchValue>> search_for_declaration(
                 if(expression_value.type->kind != TypeKind::FileModule) {
                     error(scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
 
-                    return { false };
+                    return err;
                 }
 
                 auto file_module = (FileModuleConstant*)expression_value.value;
@@ -2489,17 +2391,11 @@ static Result<DelayedValue<DeclarationSearchValue>> search_for_declaration(
                 ));
 
                 if(search_value.found) {
-                    return {
+                    return has({
                         true,
-                        {
-                            true,
-                            {
-                                true,
-                                search_value.type,
-                                search_value.value
-                            }
-                        }
-                    };
+                        search_value.type,
+                        search_value.value
+                    });
                 }
             }
         } else if(statement->kind == StatementKind::StaticIf) {
@@ -2532,17 +2428,11 @@ static Result<DelayedValue<DeclarationSearchValue>> search_for_declaration(
                                 ));
 
                                 if(search_value.found) {
-                                    return {
+                                    return has({
                                         true,
-                                        {
-                                            true,
-                                            {
-                                                true,
-                                                search_value.type,
-                                                search_value.value
-                                            }
-                                        }
-                                    };
+                                        search_value.type,
+                                        search_value.value
+                                    });
                                 }
                             }
                         } else {
@@ -2567,14 +2457,7 @@ static Result<DelayedValue<DeclarationSearchValue>> search_for_declaration(
                             }
 
                             if(have_to_wait) {
-                                return {
-                                    true,
-                                    {
-                                        false,
-                                        {},
-                                        resolve_static_if
-                                    }
-                                };
+                                return wait(resolve_static_if);
                             }
                         }
                     }
@@ -2600,28 +2483,15 @@ static Result<DelayedValue<DeclarationSearchValue>> search_for_declaration(
                                         generate_static_variable->static_variable
                                     );
 
-                                    return {
+                                    return has({
                                         true,
-                                        {
-                                            true,
-                                            {
-                                                true,
-                                                generate_static_variable->type,
-                                                new AddressValue {
-                                                    address_register
-                                                }
-                                            }
+                                        generate_static_variable->type,
+                                        new AddressValue {
+                                            address_register
                                         }
-                                    };
+                                    });
                                 } else {
-                                    return {
-                                        true,
-                                        {
-                                            false,
-                                            {},
-                                            generate_static_variable
-                                        }
-                                    };
+                                    return wait(generate_static_variable);
                                 }
                             }
                         }
@@ -2635,34 +2505,20 @@ static Result<DelayedValue<DeclarationSearchValue>> search_for_declaration(
 
     for(auto scope_constant : scope->scope_constants) {
         if(strcmp(scope_constant.name, name) == 0) {
-            return {
+            return has({
                 true,
-                {
-                    true,
-                    {
-                        true,
-                        scope_constant.type,
-                        new RuntimeConstantValue {
-                            scope_constant.value
-                        }
-                    }
+                scope_constant.type,
+                new RuntimeConstantValue {
+                    scope_constant.value
                 }
-            };
+            });
         }
     }
 
-    return {
-        true,
-        {
-            true,
-            {
-                false
-            }
-        }
-    };
+    return has({false});
 }
 
-static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expression, (
+static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, (
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
@@ -2687,18 +2543,12 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
             for(auto variable : current_scope.variables) {
                 if(strcmp(variable.name.text, named_reference->name.text) == 0) {
-                    return {
-                        true,
-                        {
-                            true,
-                            {
-                                variable.type,
-                                new AddressValue {
-                                    variable.address_register
-                                }
-                            }
+                    return has({
+                        variable.type,
+                        new AddressValue {
+                            variable.address_register
                         }
-                    };
+                    });
                 }
             }
 
@@ -2716,16 +2566,10 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             ));
 
             if(search_value.found) {
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            search_value.type,
-                            search_value.value
-                        }
-                    }
-                };
+                return has({
+                    search_value.type,
+                    search_value.value
+                });
             }
         }
 
@@ -2747,16 +2591,10 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             ));
 
             if(search_value.found) {
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            search_value.type,
-                            search_value.value
-                        }
-                    }
-                };
+                return has({
+                    search_value.type,
+                    search_value.value
+                });
             }
 
             if(current_scope->is_top_level) {
@@ -2768,24 +2606,18 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
         for(auto global_constant : info.global_constants) {
             if(strcmp(named_reference->name.text, global_constant.name) == 0) {
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            global_constant.type,
-                            new RuntimeConstantValue {
-                                global_constant.value
-                            }
-                        }
+                return has({
+                    global_constant.type,
+                    new RuntimeConstantValue {
+                        global_constant.value
                     }
-                };
+                });
             }
         }
 
         error(scope, named_reference->name.range, "Cannot find named reference %s", named_reference->name.text);
 
-        return { false };
+        return err;
     } else if(expression->kind == ExpressionKind::IndexReference) {
         auto index_reference = (IndexReference*)expression;
 
@@ -2809,18 +2641,12 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 index_reference->index->range
             ));
 
-            return {
-                true,
-                {
-                    true,
-                    {
-                        constant.type,
-                        new RuntimeConstantValue {
-                            constant.value
-                        }
-                    }
+            return has({
+                constant.type,
+                new RuntimeConstantValue {
+                    constant.value
                 }
-            };
+            });
         }
 
         expect(index_register, coerce_to_integer_register_value(
@@ -2939,18 +2765,12 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             offset
         );
 
-        return {
-            true,
-            {
-                true,
-                {
-                    element_type,
-                    new AddressValue {
-                        address_register
-                    }
-                }
+        return has({
+            element_type,
+            new AddressValue {
+                address_register
             }
-        };
+        });
     } else if(expression->kind == ExpressionKind::MemberReference) {
         auto member_reference = (MemberReference*)expression;
 
@@ -3059,19 +2879,13 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     abort();
                 }
 
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            new Integer {
-                                info.address_integer_size,
-                                false
-                            },
-                            value
-                        }
-                    }
-                };
+                return has({
+                    new Integer {
+                        info.address_integer_size,
+                        false
+                    },
+                    value
+                });
             } else if(strcmp(member_reference->name.text, "pointer") == 0) {
                 RuntimeValue *value;
                 if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
@@ -3106,44 +2920,32 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     abort();
                 }
 
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            new Pointer {
-                                array_type->element_type
-                            },
-                            value
-                        }
-                    }
-                };
+                return has({
+                    new Pointer {
+                        array_type->element_type
+                    },
+                    value
+                });
             } else {
                 error(scope, member_reference->name.range, "No member with name %s", member_reference->name.text);
 
-                return { false };
+                return err;
             }
         } else if(actual_type->kind == TypeKind::StaticArray) {
             auto static_array = (StaticArray*)actual_type;
 
             if(strcmp(member_reference->name.text, "length") == 0) {
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            new Integer {
-                                info.address_integer_size,
-                                false
-                            },
-                            new RuntimeConstantValue {
-                                new IntegerConstant {
-                                    static_array->length
-                                }
-                            }
+                return has({
+                    new Integer {
+                        info.address_integer_size,
+                        false
+                    },
+                    new RuntimeConstantValue {
+                        new IntegerConstant {
+                            static_array->length
                         }
                     }
-                };
+                });
             } else if(strcmp(member_reference->name.text, "pointer") == 0) {
                 size_t address_regsiter;
                 if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
@@ -3171,24 +2973,18 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     abort();
                 }
 
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            new Pointer {
-                                static_array->element_type
-                            },
-                            new RegisterValue {
-                                address_regsiter
-                            }
-                        }
+                return has({
+                    new Pointer {
+                        static_array->element_type
+                    },
+                    new RegisterValue {
+                        address_regsiter
                     }
-                };
+                });
             } else {
                 error(scope, member_reference->name.range, "No member with name %s", member_reference->name.text);
 
-                return { false };
+                return err;
             }
         } else if(actual_type->kind == TypeKind::StructType) {
             auto struct_type = (StructType*)actual_type;
@@ -3202,18 +2998,12 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                         assert(!struct_type->definition->is_union);
 
-                        return {
-                            true,
-                            {
-                                true,
-                                {
-                                    member_type,
-                                    new RuntimeConstantValue {
-                                        struct_value->members[i]
-                                    }
-                                }
+                        return has({
+                            member_type,
+                            new RuntimeConstantValue {
+                                struct_value->members[i]
                             }
-                        };
+                        });
                     } else if(actual_value->kind == RuntimeValueKind::RegisterValue) {
                         auto register_value = (RegisterValue*)actual_value;
 
@@ -3251,18 +3041,12 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                             register_index = address_register;
                         }
 
-                        return {
-                            true,
-                            {
-                                true,
-                                {
-                                    member_type,
-                                    new RegisterValue {
-                                        register_index
-                                    }
-                                }
+                        return has({
+                            member_type,
+                            new RegisterValue {
+                                register_index
                             }
-                        };
+                        });
                     } else if(actual_value->kind == RuntimeValueKind::AddressValue) {
                         auto address_value = (AddressValue*)actual_value;
 
@@ -3275,18 +3059,12 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                             get_struct_member_offset(info, *struct_type, i)
                         );
 
-                        return {
-                            true,
-                            {
-                                true,
-                                {
-                                    member_type,
-                                    new AddressValue {
-                                        address_register
-                                    }
-                                }
+                        return has({
+                            member_type,
+                            new AddressValue {
+                                address_register
                             }
-                        };
+                        });
                     } else {
                         abort();
                     }
@@ -3295,7 +3073,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
             error(scope, member_reference->name.range, "No member with name %s", member_reference->name.text);
 
-            return { false };
+            return err;
         } else if(actual_type->kind == TypeKind::UndeterminedStruct) {
             auto undetermined_struct = (UndeterminedStruct*)actual_type;
 
@@ -3303,22 +3081,16 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
             for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
                 if(strcmp(undetermined_struct->members[i].name, member_reference->name.text) == 0) {
-                    return {
-                        true,
-                        {
-                            true,
-                            {
-                                undetermined_struct->members[i].type,
-                                undetermined_struct_value->members[i]
-                            }
-                        }
-                    };
+                    return has({
+                        undetermined_struct->members[i].type,
+                        undetermined_struct_value->members[i]
+                    });
                 }
             }
 
             error(scope, member_reference->name.range, "No member with name %s", member_reference->name.text);
 
-            return { false };
+            return err;
         } else if(actual_type->kind == TypeKind::FileModule) {
             auto file_module_value = extract_constant_value(FileModuleConstant, actual_value);
 
@@ -3336,60 +3108,42 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             ));
 
             if(search_value.found) {
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            search_value.type,
-                            search_value.value
-                        }
-                    }
-                };
+                return has({
+                    search_value.type,
+                    search_value.value
+                });
             }
 
             error(scope, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
 
-            return { false };
+            return err;
         } else {
             error(scope, member_reference->expression->range, "Type %s has no members", type_description(actual_type));
 
-            return { false };
+            return err;
         }
     } else if(expression->kind == ExpressionKind::IntegerLiteral) {
         auto integer_literal = (IntegerLiteral*)expression;
 
-        return {
-            true,
-            {
-                true,
-                {
-                    &undetermined_integer_singleton,
-                    new RuntimeConstantValue {
-                        new IntegerConstant {
-                            integer_literal->value
-                        }
-                    }
+        return has({
+            &undetermined_integer_singleton,
+            new RuntimeConstantValue {
+                new IntegerConstant {
+                    integer_literal->value
                 }
             }
-        };
+        });
     } else if(expression->kind == ExpressionKind::FloatLiteral) {
         auto float_literal = (FloatLiteral*)expression;
 
-        return {
-            true,
-            {
-                true,
-                {
-                    &undetermined_float_singleton,
-                    new RuntimeConstantValue {
-                        new FloatConstant {
-                            float_literal->value
-                        }
-                    }
+        return has({
+            &undetermined_float_singleton,
+            new RuntimeConstantValue {
+                new FloatConstant {
+                    float_literal->value
                 }
             }
-        };
+        });
     } else if(expression->kind == ExpressionKind::StringLiteral) {
         auto string_literal = (StringLiteral*)expression;
 
@@ -3403,26 +3157,20 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             };
         }
 
-        return {
-            true,
-            {
-                true,
-                {
-                    new StaticArray {
-                        character_count,
-                        new Integer {
-                            RegisterSize::Size8,
-                            false
-                        }
-                    },
-                    new RuntimeConstantValue {
-                        new StaticArrayConstant {
-                            characters
-                        }
-                    }
+        return has({
+            new StaticArray {
+                character_count,
+                new Integer {
+                    RegisterSize::Size8,
+                    false
+                }
+            },
+            new RuntimeConstantValue {
+                new StaticArrayConstant {
+                    characters
                 }
             }
-        };
+        });
     } else if(expression->kind == ExpressionKind::ArrayLiteral) {
         auto array_literal = (ArrayLiteral*)expression;
 
@@ -3431,7 +3179,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
         if(element_count == 0) {
             error(scope, array_literal->range, "Empty array literal");
 
-            return { false };
+            return err;
         }
 
         expect_delayed(first_element, generate_expression(info, jobs, scope, context, instructions, array_literal->elements[0]));
@@ -3441,7 +3189,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
         if(!is_runtime_type(determined_element_type)) {
             error(scope, array_literal->range, "Arrays cannot be of type '%s'", type_description(determined_element_type));
 
-            return { false };
+            return err;
         }
 
         auto elements = allocate<TypedRuntimeValue>(element_count);
@@ -3515,7 +3263,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     determined_element_type,
                     element_address_register
                 )) {
-                    return { false };
+                    return err;
                 }
 
                 if(i != element_count - 1) {
@@ -3536,26 +3284,20 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             };
         }
 
-        return {
-            true,
-            {
-                true,
-                {
-                    new StaticArray {
-                        element_count,
-                        determined_element_type
-                    },
-                    value
-                }
-            }
-        };
+        return has({
+            new StaticArray {
+                element_count,
+                determined_element_type
+            },
+            value
+        });
     } else if(expression->kind == ExpressionKind::StructLiteral) {
         auto struct_literal = (StructLiteral*)expression;
 
         if(struct_literal->members.count == 0) {
             error(scope, struct_literal->range, "Empty struct literal");
 
-            return { false };
+            return err;
         }
 
         auto member_count = struct_literal->members.count;
@@ -3569,7 +3311,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 if(strcmp(struct_literal->members[i].name.text, type_members[j].name) == 0) {
                     error(scope, struct_literal->members[i].name.range, "Duplicate struct member %s", struct_literal->members[i].name.text);
 
-                    return { false };
+                    return err;
                 }
             }
 
@@ -3608,21 +3350,15 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             };
         }
 
-        return {
-            true,
-            {
-                true,
+        return has({
+            new UndeterminedStruct {
                 {
-                    new UndeterminedStruct {
-                        {
-                            member_count,
-                            type_members
-                        }
-                    },
-                    value
+                    member_count,
+                    type_members
                 }
-            }
-        };
+            },
+            value
+        });
     } else if(expression->kind == ExpressionKind::FunctionCall) {
         auto function_call = (FunctionCall*)expression;
 
@@ -3655,7 +3391,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                         call_parameter_count
                     );
 
-                    return { false };
+                    return err;
                 }
 
                 auto polymorphic_parameters = allocate<TypedConstantValue>(declaration_parameter_count);
@@ -3676,7 +3412,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                                 declaration_parameter.name.text
                             );
 
-                            return { false };
+                            return err;
                         }
 
                         auto constant_value = ((RuntimeConstantValue*)call_parameters[i].value)->value;
@@ -3732,14 +3468,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                                 break;
                             } else {
-                                return {
-                                    true,
-                                    {
-                                        false,
-                                        {},
-                                        resolve_polymorphic_function
-                                    }
-                                };
+                                return wait(resolve_polymorphic_function);
                             }  
                         }
                     }
@@ -3763,14 +3492,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                     append(jobs, (Job*)resolve_polymorphic_function);
 
-                    return {
-                        true,
-                        {
-                            false,
-                            {},
-                            resolve_polymorphic_function
-                        }
-                    };
+                    return wait(resolve_polymorphic_function);
                 }
             } else {
                 function_type = (FunctionTypeType*)expression_value.type;
@@ -3785,7 +3507,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                         call_parameter_count
                     );
 
-                    return { false };
+                    return err;
                 }
             }
 
@@ -3922,16 +3644,10 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
             append(instructions, (Instruction*)function_call_instruction);
 
-            return {
-                true,
-                {
-                    true,
-                    {
-                        function_type->return_type,
-                        value
-                    }
-                }
-            };
+            return has({
+                function_type->return_type,
+                value
+            });
         } else if(expression_value.type->kind == TypeKind::BuiltinFunction) {
             auto builtin_function_value = extract_constant_value(BuiltinFunctionConstant, expression_value.value);
 
@@ -3939,7 +3655,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 if(function_call->parameters.count != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
-                    return { false };
+                    return err;
                 }
 
                 expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
@@ -3954,56 +3670,44 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 if(!is_runtime_type(type)) {
                     error(scope, function_call->parameters[0]->range, "'%s'' has no size", type_description(parameter_value.type));
 
-                    return { false };
+                    return err;
                 }
 
                 auto size = get_type_size(info, type);
 
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            new Integer {
-                                info.address_integer_size,
-                                false
-                            },
-                            new RuntimeConstantValue {
-                                new IntegerConstant {
-                                    size
-                                }
-                            }
+                return has({
+                    new Integer {
+                        info.address_integer_size,
+                        false
+                    },
+                    new RuntimeConstantValue {
+                        new IntegerConstant {
+                            size
                         }
                     }
-                };
+                });
             } else if(strcmp(builtin_function_value->name, "type_of") == 0) {
                 if(function_call->parameters.count != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
-                    return { false };
+                    return err;
                 }
 
                 expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
 
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            &type_type_singleton,
-                            new RuntimeConstantValue {
-                                new TypeConstant {
-                                    parameter_value.type
-                                }
-                            }
+                return has({
+                    &type_type_singleton,
+                    new RuntimeConstantValue {
+                        new TypeConstant {
+                            parameter_value.type
                         }
                     }
-                };
+                });
             } else if(strcmp(builtin_function_value->name, "memcpy") == 0) {
                 if(function_call->parameters.count != 3) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 3 got %zu", function_call->parameters.count);
 
-                    return { false };
+                    return err;
                 }
 
                 Integer u8_type { RegisterSize::Size8, false };
@@ -4020,7 +3724,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                         type_description(destination_value.type)
                     );
 
-                    return { false };
+                    return err;
                 }
 
                 expect_delayed(source_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[1]));
@@ -4034,7 +3738,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                         type_description(source_value.type)
                     );
 
-                    return { false };
+                    return err;
                 }
 
                 Integer usize_type { info.address_integer_size, false };
@@ -4050,7 +3754,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                         type_description(size_value.type)
                     );
 
-                    return { false };
+                    return err;
                 }
 
                 auto destination_address_register = generate_in_register_pointer_value(
@@ -4087,18 +3791,12 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     1
                 );
 
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            &void_singleton,
-                            new RuntimeConstantValue {
-                                &void_constant_singleton
-                            }
-                        }
+                return has({
+                    &void_singleton,
+                    new RuntimeConstantValue {
+                        &void_constant_singleton
                     }
-                };
+                });
             } else {
                 abort();
             }
@@ -4108,7 +3806,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             if(pointer->type->kind != TypeKind::FunctionTypeType) {
                 error(scope, function_call->expression->range, "Cannot call '%s'", type_description(expression_value.type));
 
-                return { false };
+                return err;
             }
 
             auto function = (FunctionTypeType*)pointer->type;
@@ -4126,7 +3824,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     function_call->parameters.count
                 );
 
-                return { false };
+                return err;
             }
 
             auto has_return = function->return_type->kind != TypeKind::Void;
@@ -4221,16 +3919,10 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
             append(instructions, (Instruction*)function_call_instruction);
 
-            return {
-                true,
-                {
-                    true,
-                    {
-                        function->return_type,
-                        value
-                    }
-                }
-            };
+            return has({
+                function->return_type,
+                value
+            });
         } else if(expression_value.type->kind == TypeKind::TypeType) {
             auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
 
@@ -4243,7 +3935,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 if(function_call->parameters.count != parameter_count) {
                     error(scope, function_call->range, "Incorrect struct parameter count: expected %zu, got %zu", parameter_count, function_call->parameters.count);
 
-                    return { false };
+                    return err;
                 }
 
                 auto parameters = allocate<ConstantValue*>(parameter_count);
@@ -4281,29 +3973,16 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                             if(same_parameters) {
                                 if(resolve_polymorphic_struct->done) {
-                                    return {
-                                        true,
-                                        {
-                                            true,
-                                            {
-                                                &type_type_singleton,
-                                                new RuntimeConstantValue {
-                                                    new TypeConstant {
-                                                        resolve_polymorphic_struct->type
-                                                    }
-                                                }
+                                    return has({
+                                        &type_type_singleton,
+                                        new RuntimeConstantValue {
+                                            new TypeConstant {
+                                                resolve_polymorphic_struct->type
                                             }
                                         }
-                                    };
+                                    });
                                 } else {
-                                    return {
-                                        true,
-                                        {
-                                            false,
-                                            {},
-                                            resolve_polymorphic_struct
-                                        }
-                                    };
+                                    return wait(resolve_polymorphic_struct);
                                 }
                             }
                         }
@@ -4319,23 +3998,16 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                 append(jobs, (Job*)resolve_polymorphic_struct);
 
-                return {
-                    true,
-                    {
-                        false,
-                        {},
-                        resolve_polymorphic_struct
-                    }
-                };
+                return wait(resolve_polymorphic_struct);
             } else {
                 error(scope, function_call->expression->range, "Type '%s' is not polymorphic", type_description(type));
 
-                return { false };
+                return err;
             }
         } else {
             error(scope, function_call->expression->range, "Cannot call '%s'", type_description(expression_value.type));
 
-            return { false };
+            return err;
         }
     } else if(expression->kind == ExpressionKind::BinaryOperation) {
         auto binary_operation = (BinaryOperation*)expression;
@@ -4352,13 +4024,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             binary_operation->binary_operator
         ));
 
-        return {
-            true,
-            {
-                true,
-                result_value
-            }
-        };
+        return has(result_value);
     } else if(expression->kind == ExpressionKind::UnaryOperation) {
         auto unary_operation = (UnaryOperation*)expression;
 
@@ -4425,29 +4091,23 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                         ) {
                             error(scope, unary_operation->expression->range, "Cannot create pointers to type '%s'", type_description(type));
 
-                            return { false };
+                            return err;
                         }
 
-                        return {
-                            true,
-                            {
-                                true,
-                                {
-                                    &type_type_singleton,
-                                    new RuntimeConstantValue {
-                                        new TypeConstant {
-                                            new Pointer {
-                                                type
-                                            }
-                                        }
+                        return has({
+                            &type_type_singleton,
+                            new RuntimeConstantValue {
+                                new TypeConstant {
+                                    new Pointer {
+                                        type
                                     }
                                 }
                             }
-                        };
+                        });
                     } else {
                         error(scope, unary_operation->expression->range, "Cannot take pointers to constants of type '%s'", type_description(expression_value.type));
 
-                        return { false };
+                        return err;
                     }
                 } else if(
                     expression_value.value->kind == RuntimeValueKind::RegisterValue ||
@@ -4455,7 +4115,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 ) {
                     error(scope, unary_operation->expression->range, "Cannot take pointers to anonymous values");
 
-                    return { false };
+                    return err;
                 } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
                     auto address_value = (AddressValue*)expression_value.value;
 
@@ -4464,47 +4124,35 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     abort();
                 }
 
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            new Pointer {
-                                expression_value.type
-                            },
-                            new RegisterValue {
-                                address_register
-                            }
-                        }
+                return has({
+                    new Pointer {
+                        expression_value.type
+                    },
+                    new RegisterValue {
+                        address_register
                     }
-                };
+                });
             } break;
 
             case UnaryOperation::Operator::BooleanInvert: {
                 if(expression_value.type->kind != TypeKind::Boolean) {
                     error(scope, unary_operation->expression->range, "Expected bool, got '%s'", type_description(expression_value.type));
 
-                    return { false };
+                    return err;
                 }
 
                 size_t register_index;
                 if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
                     auto boolean_value = extract_constant_value(BooleanConstant, expression_value.value);
 
-                    return {
-                        true,
-                        {
-                            true,
-                            {
-                                &boolean_singleton,
-                                new RuntimeConstantValue {
-                                        new BooleanConstant {
-                                        !boolean_value->value
-                                    }
-                                }
+                    return has({
+                        &boolean_singleton,
+                        new RuntimeConstantValue {
+                                new BooleanConstant {
+                                !boolean_value->value
                             }
                         }
-                    };
+                    });
                 } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = (RegisterValue*)expression_value.value;
 
@@ -4523,38 +4171,26 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                 auto result_register = generate_boolean_invert(info, context, instructions, unary_operation->expression->range, register_index);
 
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            &boolean_singleton,
-                            new RegisterValue {
-                                result_register
-                            }
-                        }
+                return has({
+                    &boolean_singleton,
+                    new RegisterValue {
+                        result_register
                     }
-                };
+                });
             } break;
 
             case UnaryOperation::Operator::Negation: {
                 if(expression_value.type->kind == TypeKind::UndeterminedInteger) {
                     auto integer_value = extract_constant_value(IntegerConstant, expression_value.value);
 
-                    return {
-                        true,
-                        {
-                            true,
-                            {
-                                &undetermined_integer_singleton,
-                                new RuntimeConstantValue {
-                                        new IntegerConstant {
-                                        -integer_value->value
-                                    }
-                                }
+                    return has({
+                        &undetermined_integer_singleton,
+                        new RuntimeConstantValue {
+                                new IntegerConstant {
+                                -integer_value->value
                             }
                         }
-                    };
+                    });
                 } else if(expression_value.type->kind == TypeKind::Integer) {
                     auto integer = (Integer*)expression_value.type;
 
@@ -4562,20 +4198,14 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
                         auto integer_value = extract_constant_value(IntegerConstant, expression_value.value);
 
-                        return {
-                            true,
-                            {
-                                true,
-                                {
-                                    &undetermined_integer_singleton,
-                                    new RuntimeConstantValue {
-                                        new IntegerConstant {
-                                            -integer_value->value
-                                        }
-                                    }
+                        return has({
+                            &undetermined_integer_singleton,
+                            new RuntimeConstantValue {
+                                new IntegerConstant {
+                                    -integer_value->value
                                 }
                             }
-                        };
+                        });
                     } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
                         auto register_value = (RegisterValue*)expression_value.value;
 
@@ -4604,18 +4234,12 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                         register_index
                     );
 
-                    return {
-                        true,
-                        {
-                            true,
-                            {
-                                integer,
-                                new RegisterValue {
-                                    result_register
-                                }
-                            }
+                    return has({
+                        integer,
+                        new RegisterValue {
+                            result_register
                         }
-                    };
+                    });
                 } else if(expression_value.type->kind == TypeKind::FloatType) {
                     auto float_type = (FloatType*)expression_value.type;
 
@@ -4623,20 +4247,14 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
                         auto float_value = extract_constant_value(FloatConstant, expression_value.value);
 
-                        return {
-                            true,
-                            {
-                                true,
-                                {
-                                    float_type,
-                                    new RuntimeConstantValue {
-                                        new FloatConstant {
-                                            -float_value->value
-                                        }
-                                    }
+                        return has({
+                            float_type,
+                            new RuntimeConstantValue {
+                                new FloatConstant {
+                                    -float_value->value
                                 }
                             }
-                        };
+                        });
                     } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
                         auto register_value = (RegisterValue*)expression_value.value;
 
@@ -4665,39 +4283,27 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                         register_index
                     );
 
-                    return {
-                        true,
-                        {
-                            true,
-                            {
-                                float_type,
-                                new RegisterValue {
-                                    result_register
-                                }
-                            }
+                    return has({
+                        float_type,
+                        new RegisterValue {
+                            result_register
                         }
-                    };
+                    });
                 } else if(expression_value.type->kind == TypeKind::UndeterminedFloat) {
                     auto float_value = extract_constant_value(FloatConstant, expression_value.value);
 
-                    return {
-                        true,
-                        {
-                            true,
-                            {
-                                &undetermined_float_singleton,
-                                new RuntimeConstantValue {
-                                    new FloatConstant {
-                                        -float_value->value
-                                    }
-                                }
+                    return has({
+                        &undetermined_float_singleton,
+                        new RuntimeConstantValue {
+                            new FloatConstant {
+                                -float_value->value
                             }
                         }
-                    };
+                    });
                 } else {
                     error(scope, unary_operation->expression->range, "Cannot negate '%s'", type_description(expression_value.type));
 
-                    return { false };
+                    return err;
                 }
             } break;
 
@@ -4727,18 +4333,12 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             );
 
             if(constant_cast_result.status) {
-                return {
-                    true,
-                    {
-                        true,
-                        {
-                            target_type,
-                            new RuntimeConstantValue {
-                                constant_cast_result.value
-                            }
-                        }
+                return has({
+                    target_type,
+                    new RuntimeConstantValue {
+                        constant_cast_result.value
                     }
-                };
+                });
             }
         }
 
@@ -4970,22 +4570,16 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
         }
 
         if(has_cast) {
-            return {
-                true,
-                {
-                    true,
-                    {
-                        target_type,
-                        new RegisterValue {
-                            register_index
-                        }
-                    }
+            return has({
+                target_type,
+                new RegisterValue {
+                    register_index
                 }
-            };
+            });
         } else {
             error(scope, cast->range, "Cannot cast from '%s' to '%s'", type_description(expression_value.type), type_description(target_type));
 
-            return { false };
+            return err;
         }
     } else if(expression->kind == ExpressionKind::Bake) {
         auto bake = (Bake*)expression;
@@ -5018,7 +4612,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     call_parameter_count
                 );
 
-                return { false };
+                return err;
             }
 
             auto polymorphic_parameters = allocate<TypedConstantValue>(declaration_parameter_count);
@@ -5039,7 +4633,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                             declaration_parameter.name.text
                         );
 
-                        return { false };
+                        return err;
                     }
 
                     auto constant_value = ((RuntimeConstantValue*)call_parameters[i].value)->value;
@@ -5090,27 +4684,14 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                         if(resolve_polymorphic_function->done) {
                             found = true;
 
-                            return {
-                                true,
-                                {
-                                    true,
-                                    {
-                                        resolve_polymorphic_function->type,
-                                        new RuntimeConstantValue {
-                                            resolve_polymorphic_function->value
-                                        }
-                                    }
+                            return has({
+                                resolve_polymorphic_function->type,
+                                new RuntimeConstantValue {
+                                    resolve_polymorphic_function->value
                                 }
-                            };
+                            });
                         } else {
-                            return {
-                                true,
-                                {
-                                    false,
-                                    {},
-                                    resolve_polymorphic_function
-                                }
-                            };
+                            return wait(resolve_polymorphic_function);
                         }  
                     }
                 }
@@ -5134,14 +4715,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
 
                 append(jobs, (Job*)resolve_polymorphic_function);
 
-                return {
-                    true,
-                    {
-                        false,
-                        {},
-                        resolve_polymorphic_function
-                    }
-                };
+                return wait(resolve_polymorphic_function);
             }
         } else if(expression_value.type->kind == TypeKind::FunctionTypeType) {
             auto function_type = (FunctionTypeType*)expression_value.type;
@@ -5156,25 +4730,19 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                     call_parameter_count
                 );
 
-                return { false };
+                return err;
             }
 
-            return {
-                true,
-                {
-                    true,
-                    {
-                        function_type,
-                        new RuntimeConstantValue {
-                            function_value
-                        }
-                    }
+            return has({
+                function_type,
+                new RuntimeConstantValue {
+                    function_value
                 }
-            };
+            });
         } else {
             error(scope, function_call->expression->range, "Expected a function, got '%s'", type_description(expression_value.type));
 
-            return { false };
+            return err;
         }
     } else if(expression->kind == ExpressionKind::ArrayType) {
         auto array_type = (ArrayType*)expression;
@@ -5184,7 +4752,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
         if(!is_runtime_type(type)) {
             error(scope, array_type->expression->range, "Cannot have arrays of type '%s'", type_description(type));
 
-            return { false };
+            return err;
         }
 
         if(array_type->index != nullptr) {
@@ -5202,40 +4770,28 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
                 false
             ));
 
-            return {
-                true,
-                {
-                    true,
-                    {
-                        &type_type_singleton,
-                        new RuntimeConstantValue {
-                            new TypeConstant {
-                                new StaticArray {
-                                    length->value,
-                                    type
-                                }
-                            }
+            return has({
+                &type_type_singleton,
+                new RuntimeConstantValue {
+                    new TypeConstant {
+                        new StaticArray {
+                            length->value,
+                            type
                         }
                     }
                 }
-            };
+            });
         } else {
-            return {
-                true,
-                {
-                    true,
-                    {
-                        &type_type_singleton,
-                        new RuntimeConstantValue {
-                            new TypeConstant {
-                                new ArrayTypeType {
-                                    type
-                                }
-                            }
+            return has({
+                &type_type_singleton,
+                new RuntimeConstantValue {
+                    new TypeConstant {
+                        new ArrayTypeType {
+                            type
                         }
                     }
                 }
-            };
+            });
         }
     } else if(expression->kind == ExpressionKind::FunctionType) {
         auto function_type = (FunctionType*)expression;
@@ -5250,7 +4806,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             if(parameter.is_polymorphic_determiner) {
                 error(scope, parameter.polymorphic_determiner.range, "Function types cannot be polymorphic");
 
-                return { false };
+                return err;
             }
 
             expect_delayed(type, evaluate_type_expression_runtime(info, jobs, scope, context, instructions, parameter.type));
@@ -5258,7 +4814,7 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             if(!is_runtime_type(type)) {
                 error(scope, function_type->parameters[i].type->range, "Function parameters cannot be of type '%s'", type_description(type));
 
-                return { false };
+                return err;
             }
 
             parameters[i] = type;
@@ -5273,29 +4829,23 @@ static_profiled_function(Result<DelayedValue<TypedRuntimeValue>>, generate_expre
             if(!is_runtime_type(return_type_value)) {
                 error(scope, function_type->return_type->range, "Function returns cannot be of type '%s'", type_description(return_type_value));
 
-                return { false };
+                return err;
             }
 
             return_type = return_type_value;
         }
 
-        return {
-            true,
-            {
-                true,
-                {
-                    &type_type_singleton,
-                    new RuntimeConstantValue {
-                        new TypeConstant {
-                            new FunctionTypeType {
-                                { parameter_count, parameters },
-                                return_type
-                            }
-                        }
+        return has({
+            &type_type_singleton,
+            new RuntimeConstantValue {
+                new TypeConstant {
+                    new FunctionTypeType {
+                        { parameter_count, parameters },
+                        return_type
                     }
                 }
             }
-        };
+        });
     } else {
         abort();
     }
@@ -5308,7 +4858,7 @@ static bool is_statement_declaration(Statement *statement) {
         statement->kind == StatementKind::StructDefinition;
 }
 
-static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
+static_profiled_function(DelayedResult<void>, generate_statement, (
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
@@ -5328,12 +4878,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
         expect_delayed_void_ret(value, generate_expression(info, jobs, scope, context, instructions, expression_statement->expression));
 
-        return {
-            true,
-            {
-                true
-            }
-        };
+        return has();
     } else if(statement->kind == StatementKind::VariableDeclaration) {
         auto variable_declaration = (VariableDeclaration*)statement;
 
@@ -5343,13 +4888,13 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
         if(variable_declaration->is_external) {
             error(scope, variable_declaration->range, "Local variables cannot be external");
 
-            return { false };
+            return err;
         }
 
         if(variable_declaration->is_no_mangle) {
             error(scope, variable_declaration->range, "Local variables cannot be no_mangle");
 
-            return { false };
+            return err;
         }
 
         if(variable_declaration->type != nullptr && variable_declaration->initializer != nullptr) {
@@ -5358,7 +4903,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             if(!is_runtime_type(type_value)) {
                 error(scope, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type_value));
 
-                return { false };
+                return err;
             }
 
             type = type_value;
@@ -5384,7 +4929,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
                 type,
                 address_register
             )) {
-                return { false };
+                return err;
             }
         } else if(variable_declaration->type != nullptr) {
             expect_delayed_void_ret(type_value, evaluate_type_expression_runtime(info, jobs, scope, context, instructions, variable_declaration->type));
@@ -5392,7 +4937,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             if(!is_runtime_type(type_value)) {
                 error(scope, variable_declaration->type->range, "Cannot create variables of type '%s'", type_description(type_value));
 
-                return { false };
+                return err;
             }
 
             type = type_value;
@@ -5412,7 +4957,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             if(!is_runtime_type(actual_type)) {
                 error(scope, variable_declaration->initializer->range, "Cannot create variables of type '%s'", type_description(actual_type));
 
-                return { false };
+                return err;
             }
 
             type = actual_type;
@@ -5436,7 +4981,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
                 type,
                 address_register
             )) {
-                return { false };
+                return err;
             }
         } else {
             abort();
@@ -5448,15 +4993,10 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             address_register,
             type
         )) {
-            return { false };
+            return err;
         }
 
-        return {
-            true,
-            {
-                true
-            }
-        };
+        return has();
     } else if(statement->kind == StatementKind::Assignment) {
         auto assignment = (Assignment*)statement;
 
@@ -5470,7 +5010,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
         } else {
             error(scope, assignment->target->range, "Value is not assignable");
 
-            return { false };
+            return err;
         }
 
         expect_delayed_void_ret(value, generate_expression(info, jobs, scope, context, instructions, assignment->value));
@@ -5486,15 +5026,10 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             target.type,
             address_register
         )) {
-            return { false };
+            return err;
         }
 
-        return {
-            true,
-            {
-                true
-            }
-        };
+        return has();
     } else if(statement->kind == StatementKind::BinaryOperationAssignment) {
         auto binary_operation_assignment = (BinaryOperationAssignment*)statement;
 
@@ -5508,7 +5043,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
         } else {
             error(scope, binary_operation_assignment->target->range, "Value is not assignable");
 
-            return { false };
+            return err;
         }
 
         expect_delayed_void_ret(value, generate_binary_operation(
@@ -5534,15 +5069,10 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             target.type,
             address_register
         )) {
-            return { false };
+            return err;
         }
 
-        return {
-            true,
-            {
-                true
-            }
-        };
+        return has();
     } else if(statement->kind == StatementKind::IfStatement) {
         auto if_statement = (IfStatement*)statement;
 
@@ -5554,7 +5084,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
         if(condition.type->kind != TypeKind::Boolean) {
             error(scope, if_statement->condition->range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
 
-            return { false };
+            return err;
         }
 
         auto condition_register = generate_in_register_boolean_value(info, context, instructions, if_statement->condition->range, condition.value);
@@ -5598,7 +5128,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             if(condition.type->kind != TypeKind::Boolean) {
                 error(scope, if_statement->else_ifs[i].condition->range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
 
-                return { false };
+                return err;
             }
 
             auto condition_register = generate_in_register_boolean_value(
@@ -5672,12 +5202,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             end_jumps[i]->destination_instruction = instructions->count;
         }
 
-        return {
-            true,
-            {
-                true
-            }
-        };
+        return has();
     } else if(statement->kind == StatementKind::WhileLoop) {
         auto while_loop = (WhileLoop*)statement;
 
@@ -5688,7 +5213,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
         if(condition.type->kind != TypeKind::Boolean) {
             error(scope, while_loop->condition->range, "Non-boolean while loop condition. Got %s", type_description(condition.type));
 
-            return { false };
+            return err;
         }
 
         auto condition_register = generate_in_register_boolean_value(
@@ -5753,12 +5278,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             jump->destination_instruction = instructions->count;
         }
 
-        return {
-            true,
-            {
-                true
-            }
-        };
+        return has();
     } else if(statement->kind == StatementKind::ForLoop) {
         auto for_loop = (ForLoop*)statement;
 
@@ -5821,7 +5341,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
                 store_integer->size = integer->size;
 
                 if(!check_undetermined_integer_to_integer_coercion(scope, for_loop->range, integer, (int64_t)from_integer_constant->value, false)) {
-                    return { false };
+                    return err;
                 }
 
                 expect(to_register_index, coerce_to_integer_register_value(
@@ -5840,7 +5360,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             } else {
                 error(scope, for_loop->range, "For loop index/range must be an integer. Got '%s'", type_description(determined_index_type));
 
-                return { false };
+                return err;
             }
         } else {
             expect(determined_index_type, coerce_to_default_type(info, scope, for_loop->range, from_value.type));
@@ -5884,7 +5404,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             } else {
                 error(scope, for_loop->range, "For loop index/range must be an integer. Got '%s'", type_description(determined_index_type));
 
-                return { false };
+                return err;
             }
         }
 
@@ -5935,7 +5455,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
         context->break_jumps = {};
 
         if(!add_new_variable(context, index_name, index_address_register, index_type)) {
-            return { false };
+            return err;
         }
 
         for(auto child_statement : for_loop->statements) {
@@ -5973,12 +5493,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
         branch->destination_instruction = instructions->count;
 
-        return {
-            true,
-            {
-                true
-            }
-        };
+        return has();
     } else if(statement->kind == StatementKind::ReturnStatement) {
         auto return_statement = (ReturnStatement*)statement;
 
@@ -5989,7 +5504,7 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
             if(context->return_type->kind == TypeKind::Void) {
                 error(scope, return_statement->range, "Erroneous return value");
 
-                return { false };
+                return err;
             } else {
                 expect_delayed_void_ret(value, generate_expression(info, jobs, scope, context, instructions, return_statement->value));
 
@@ -6021,31 +5536,26 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
                         context->return_type,
                         context->return_parameter_register
                     )) {
-                        return { false };
+                        return err;
                     }
                 }
             }
         } else if(context->return_type->kind != TypeKind::Void) {
             error(scope, return_statement->range, "Missing return value");
 
-            return { false };
+            return err;
         }
 
         append(instructions, (Instruction*)return_instruction);
 
-        return {
-            true,
-            {
-                true
-            }
-        };
+        return has();
     } else if(statement->kind == StatementKind::BreakStatement) {
         auto break_statement = (BreakStatement*)statement;
 
         if(!context->in_breakable_scope) {
             error(scope, break_statement->range, "Not in a break-able scope");
 
-            return { false };
+            return err;
         }
 
         auto jump = new Jump;
@@ -6055,18 +5565,13 @@ static_profiled_function(Result<DelayedValue<void>>, generate_statement, (
 
         append(&context->break_jumps, jump);
 
-        return {
-            true,
-            {
-                true
-            }
-        };
+        return has();
     } else {
         abort();
     }
 }
 
-profiled_function(Result<DelayedValue<Array<StaticConstant*>>>, do_generate_function, (
+profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionTypeType *type,
@@ -6260,7 +5765,7 @@ profiled_function(Result<DelayedValue<Array<StaticConstant*>>>, do_generate_func
             if(type->return_type->kind != TypeKind::Void) {
                 error(value->body_scope, declaration->range, "Function '%s' must end with a return", declaration->name.text);
 
-                return { false };
+                return err;
             } else {
                 auto return_instruction = new ReturnInstruction;
                 return_instruction->range = declaration->range;
@@ -6274,16 +5779,10 @@ profiled_function(Result<DelayedValue<Array<StaticConstant*>>>, do_generate_func
         static_constants = to_array(context.static_constants);
     }
 
-    return {
-        true,
-        {
-            true,
-            static_constants
-        }
-    };
+    return has(static_constants);
 }
 
-Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
+DelayedResult<StaticVariableResult> do_generate_static_variable(
     GlobalInfo info,
     List<Job*> *jobs,
     VariableDeclaration *declaration,
@@ -6295,7 +5794,7 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
         if(!is_runtime_type(type)) {
             error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
 
-            return { false };
+            return err;
         }
 
         auto size = get_type_size(info, type);
@@ -6310,16 +5809,10 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
         static_variable->alignment = alignment;
         static_variable->is_external = true;
 
-        return {
-            true,
-            {
-                true,
-                {
-                    static_variable,
-                    type
-                }
-            }
-        };
+        return has({
+            static_variable,
+            type
+        });
     } else {
         if(declaration->type != nullptr && declaration->initializer != nullptr) {
             expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));
@@ -6327,7 +5820,7 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
             if(!is_runtime_type(type)) {
                 error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
 
-                return { false };
+                return err;
             }
 
             expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, declaration->initializer));
@@ -6359,23 +5852,17 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
             static_variable->has_initial_data = true;
             static_variable->initial_data = data;
 
-            return {
-                true,
-                {
-                    true,
-                    {
-                        static_variable,
-                        type
-                    }
-                }
-            };
+            return has({
+                static_variable,
+                type
+            });
         } else if(declaration->type != nullptr) {
             expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));
 
             if(!is_runtime_type(type)) {
                 error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
 
-                return { false };
+                return err;
             }
 
             auto size = get_type_size(info, type);
@@ -6389,16 +5876,10 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
             static_variable->is_no_mangle = declaration->is_no_mangle;
             static_variable->is_external = false;
 
-            return {
-                true,
-                {
-                    true,
-                    {
-                        static_variable,
-                        type
-                    }
-                }
-            };
+            return has({
+                static_variable,
+                type
+            });
         } else if(declaration->initializer != nullptr) {
             expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, declaration->initializer));
 
@@ -6407,7 +5888,7 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
             if(!is_runtime_type(type)) {
                 error(scope, declaration->initializer->range, "Cannot create variables of type '%s'", type_description(type));
 
-                return { false };
+                return err;
             }
 
             auto size = get_type_size(info, type);
@@ -6427,16 +5908,10 @@ Result<DelayedValue<StaticVariableResult>> do_generate_static_variable(
             static_variable->has_initial_data = true;
             static_variable->initial_data = data;
 
-            return {
-                true,
-                {
-                    true,
-                    {
-                        static_variable,
-                        type
-                    }
-                }
-            };
+            return has({
+                static_variable,
+                type
+            });
         } else {
             abort();
         }

@@ -311,7 +311,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         parse_file->done = true;
 
                         if(!process_scope(&jobs, scope, nullptr, true)) {
-                            return { false };
+                            return false;
                         }
 
                         auto end_time = get_timer_counts();
@@ -324,13 +324,16 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         auto start_time = get_timer_counts();
 
-                        expect(delayed_value, do_resolve_static_if(info, &jobs, resolve_static_if->static_if, resolve_static_if->scope));
+                        auto result = do_resolve_static_if(info, &jobs, resolve_static_if->static_if, resolve_static_if->scope);
+                        if(!result.status) {
+                            return false;
+                        }
 
-                        if(delayed_value.has_value) {
+                        if(result.has_value) {
                             resolve_static_if->done = true;
-                            resolve_static_if->condition = delayed_value.value;
+                            resolve_static_if->condition = result.value;
                         } else {
-                            resolve_static_if->waiting_for = delayed_value.waiting_for;
+                            resolve_static_if->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -343,17 +346,20 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         auto start_time = get_timer_counts();
 
-                        expect(delayed_value, do_resolve_function_declaration(
+                        auto result = do_resolve_function_declaration(
                             info,
                             &jobs,
                             resolve_function_declaration->declaration,
                             resolve_function_declaration->scope
-                        ));
+                        );
+                        if(!result.status) {
+                            return false;
+                        }
 
-                        if(delayed_value.has_value) {
+                        if(result.has_value) {
                             resolve_function_declaration->done = true;
-                            resolve_function_declaration->type = delayed_value.value.type;
-                            resolve_function_declaration->value = delayed_value.value.value;
+                            resolve_function_declaration->type = result.value.type;
+                            resolve_function_declaration->value = result.value.value;
 
                             auto found = false;
                             for(auto job : jobs) {
@@ -374,14 +380,14 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                                 auto generate_function = new GenerateFunction;
                                 generate_function->done = false;
                                 generate_function->waiting_for = resolve_function_declaration;
-                                generate_function->type = delayed_value.value.type;
-                                generate_function->value = delayed_value.value.value;
+                                generate_function->type = result.value.type;
+                                generate_function->value = result.value.value;
                                 generate_function->function = new Function;
 
                                 append(&jobs, (Job*)generate_function);
                             }
                         } else {
-                            resolve_function_declaration->waiting_for = delayed_value.waiting_for;
+                            resolve_function_declaration->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -394,7 +400,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         auto start_time = get_timer_counts();
 
-                        expect(delayed_value, do_resolve_polymorphic_function(
+                        auto result = do_resolve_polymorphic_function(
                             info,
                             &jobs,
                             resolve_polymorphic_function->declaration,
@@ -402,14 +408,17 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             resolve_polymorphic_function->scope,
                             resolve_polymorphic_function->call_scope,
                             resolve_polymorphic_function->call_parameter_ranges
-                        ));
+                        );
+                        if(!result.status) {
+                            return false;
+                        }
 
-                        if(delayed_value.has_value) {
+                        if(result.has_value) {
                             resolve_polymorphic_function->done = true;
-                            resolve_polymorphic_function->type = delayed_value.value.type;
-                            resolve_polymorphic_function->value = delayed_value.value.value;
+                            resolve_polymorphic_function->type = result.value.type;
+                            resolve_polymorphic_function->value = result.value.value;
                         } else {
-                            resolve_polymorphic_function->waiting_for = delayed_value.waiting_for;
+                            resolve_polymorphic_function->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -422,19 +431,22 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         auto start_time = get_timer_counts();
 
-                        expect(delayed_value, evaluate_constant_expression(
+                        auto result = evaluate_constant_expression(
                             info,
                             &jobs,
                             resolve_constant_definition->scope,
                             resolve_constant_definition->definition->expression
-                        ));
+                        );
+                        if(!result.status) {
+                            return false;
+                        }
 
-                        if(delayed_value.has_value) {
+                        if(result.has_value) {
                             resolve_constant_definition->done = true;
-                            resolve_constant_definition->type = delayed_value.value.type;
-                            resolve_constant_definition->value = delayed_value.value.value;
+                            resolve_constant_definition->type = result.value.type;
+                            resolve_constant_definition->value = result.value.value;
                         } else {
-                            resolve_constant_definition->waiting_for = delayed_value.waiting_for;
+                            resolve_constant_definition->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -447,18 +459,21 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         auto start_time = get_timer_counts();
 
-                        expect(delayed_value, do_resolve_struct_definition(
+                        auto result = do_resolve_struct_definition(
                             info,
                             &jobs,
                             resolve_struct_definition->definition,
                             resolve_struct_definition->scope
-                        ));
+                        );
+                        if(!result.status) {
+                            return false;
+                        }
 
-                        if(delayed_value.has_value) {
+                        if(result.has_value) {
                             resolve_struct_definition->done = true;
-                            resolve_struct_definition->type = delayed_value.value;
+                            resolve_struct_definition->type = result.value;
                         } else {
-                            resolve_struct_definition->waiting_for = delayed_value.waiting_for;
+                            resolve_struct_definition->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -471,19 +486,22 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         auto start_time = get_timer_counts();
 
-                        expect(delayed_value, do_resolve_polymorphic_struct(
+                        auto result = do_resolve_polymorphic_struct(
                             info,
                             &jobs,
                             resolve_polymorphic_struct->definition,
                             resolve_polymorphic_struct->parameters,
                             resolve_polymorphic_struct->scope
-                        ));
+                        );
+                        if(!result.status) {
+                            return false;
+                        }
 
-                        if(delayed_value.has_value) {
+                        if(result.has_value) {
                             resolve_polymorphic_struct->done = true;
-                            resolve_polymorphic_struct->type = delayed_value.value;
+                            resolve_polymorphic_struct->type = result.value;
                         } else {
-                            resolve_polymorphic_struct->waiting_for = delayed_value.waiting_for;
+                            resolve_polymorphic_struct->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -496,21 +514,24 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         auto start_time = get_timer_counts();
 
-                        expect(delayed_value, do_generate_function(
+                        auto result = do_generate_function(
                             info,
                             &jobs,
                             generate_function->type,
                             generate_function->value,
                             generate_function->function
-                        ));
+                        );
+                        if(!result.status) {
+                            return false;
+                        }
 
-                        if(delayed_value.has_value) {
+                        if(result.has_value) {
                             generate_function->done = true;
-                            generate_function->static_constants = delayed_value.value;
+                            generate_function->static_constants = result.value;
 
                             append(&runtime_statics, (RuntimeStatic*)generate_function->function);
 
-                            for(auto static_constant : delayed_value.value) {
+                            for(auto static_constant : result.value) {
                                 append(&runtime_statics, (RuntimeStatic*)static_constant);
                             }
 
@@ -530,7 +551,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                                 }
                             }
                         } else {
-                            generate_function->waiting_for = delayed_value.waiting_for;
+                            generate_function->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -547,7 +568,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             print_static(generate_function->function);
                             printf("\n");
 
-                            for(auto static_constant : delayed_value.value) {
+                            for(auto static_constant : result.value) {
                                 print_static(static_constant);
                                 printf("\n");
                             }
@@ -559,19 +580,22 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         auto start_time = get_timer_counts();
 
-                        expect(delayed_value, do_generate_static_variable(
+                        auto result = do_generate_static_variable(
                             info,
                             &jobs,
                             generate_static_variable->declaration,
                             generate_static_variable->scope
-                        ));
+                        );
+                        if(!result.status) {
+                            return false;
+                        }
 
-                        if(delayed_value.has_value) {
+                        if(result.has_value) {
                             generate_static_variable->done = true;
-                            generate_static_variable->static_variable = delayed_value.value.static_variable;
-                            generate_static_variable->type = delayed_value.value.type;
+                            generate_static_variable->static_variable = result.value.static_variable;
+                            generate_static_variable->type = result.value.type;
 
-                            append(&runtime_statics, (RuntimeStatic*)delayed_value.value.static_variable);
+                            append(&runtime_statics, (RuntimeStatic*)result.value.static_variable);
 
                             if(print_ir) {
                                 auto current_scope = generate_static_variable->scope;
@@ -580,11 +604,11 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                                 }
 
                                 printf("%s:\n", current_scope->file_path);
-                                print_static(delayed_value.value.static_variable);
+                                print_static(result.value.static_variable);
                                 printf("\n");
                             }
                         } else {
-                            generate_static_variable->waiting_for = delayed_value.waiting_for;
+                            generate_static_variable->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();

@@ -15,16 +15,13 @@ Result<const char *> path_relative_to_absolute(const char *path) {
     if(realpath(path, absolute_path) == nullptr) {
         fprintf(stderr, "Invalid path %s\n", path);
 
-        return { false };
+        return err;
     }
 
     auto output_buffer = allocate<char>(strlen(absolute_path) + 1);
     strcpy(output_buffer, absolute_path);
     
-    return {
-        true,
-        output_buffer
-    };
+    return ok(output_buffer);
 }
 
 const char *path_get_file_component(const char *path) {
@@ -71,13 +68,10 @@ Result<const char *> path_relative_to_absolute(const char *path) {
     if(_fullpath(absolute_path, path, _MAX_PATH) == nullptr) {
         fprintf(stderr, "Invalid path %s\n", path);
 
-        return { false };
+        return err;
     }
 
-    return {
-        true,
-        absolute_path
-    };
+    return ok(absolute_path);
 }
 
 const char *path_get_directory_component(const char *path) {

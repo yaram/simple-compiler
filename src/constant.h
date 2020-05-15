@@ -233,25 +233,32 @@ struct TypedConstantValue {
 };
 
 template <typename T>
-struct DelayedValue {
+struct DelayedResult {
+    bool status;
+
     bool has_value;
 
     T value;
+
     Job *waiting_for;
 };
 
 template <>
-struct DelayedValue<void> {
+struct DelayedResult<void> {
+    bool status;
+
     bool has_value;
 
     Job *waiting_for;
 };
 
-#define expect_delayed(name, expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,{},__##name##_delayed.waiting_for}};auto name=__##name##_delayed.value
-#define expect_delayed_void_ret(name, expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,__##name##_delayed.waiting_for}};auto name=__##name##_delayed.value
-#define expect_delayed_void_val(expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,{},__##name##_delayed.waiting_for}}
-#define expect_delayed_void_both(expression) expect(__##name##_delayed, expression);if(!__##name##_delayed.has_value)return{true,{false,__##name##_delayed.waiting_for}}
+#define wait(job) {true,false,{},job}
+#define has(...) {true,true,##__VA_ARGS__}
 
+#define expect_delayed(name, expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,{},__##name##_result.waiting_for};auto name=__##name##_result.value
+#define expect_delayed_void_ret(name, expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,__##name##_result.waiting_for};auto name=__##name##_result.value
+#define expect_delayed_void_val(expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,{},__##name##_result.waiting_for}
+#define expect_delayed_void_both(expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,__##name##_result.waiting_for}
 void error(ConstantScope *scope, FileRange range, const char *format, ...);
 
 bool check_undetermined_integer_to_integer_coercion(ConstantScope *scope, FileRange range, Integer *target_type, int64_t value, bool probing);
@@ -305,7 +312,7 @@ Result<ConstantValue*> evaluate_constant_cast(
     FileRange target_range,
     bool probing
 );
-Result<DelayedValue<Type*>> evaluate_type_expression(
+DelayedResult<Type*> evaluate_type_expression(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
@@ -314,7 +321,7 @@ Result<DelayedValue<Type*>> evaluate_type_expression(
 Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope *scope, FileRange range, Type *type);
 bool match_public_declaration(Statement *statement, const char *name);
 bool match_declaration(Statement *statement, const char *name);
-Result<DelayedValue<TypedConstantValue>> get_simple_resolved_declaration(
+DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
@@ -324,28 +331,28 @@ bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b);
 
 bool static_if_may_have_declaration(const char *name, bool external, StaticIf *static_if);
 
-Result<DelayedValue<TypedConstantValue>> evaluate_constant_expression(
+DelayedResult<TypedConstantValue> evaluate_constant_expression(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
     Expression *expression
 );
 
-Result<DelayedValue<bool>> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope);
+DelayedResult<bool> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope);
 
 struct FunctionResolutionValue {
     FunctionTypeType *type;
     FunctionConstant *value;
 };
 
-Result<DelayedValue<FunctionResolutionValue>> do_resolve_function_declaration(
+DelayedResult<FunctionResolutionValue> do_resolve_function_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionDeclaration *declaration,
     ConstantScope *scope
 );
 
-Result<DelayedValue<FunctionResolutionValue>> do_resolve_polymorphic_function(
+DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionDeclaration *declaration,
@@ -355,14 +362,14 @@ Result<DelayedValue<FunctionResolutionValue>> do_resolve_polymorphic_function(
     FileRange *call_parameter_ranges
 );
 
-Result<DelayedValue<Type*>> do_resolve_struct_definition(
+DelayedResult<Type*> do_resolve_struct_definition(
     GlobalInfo info,
     List<Job*> *jobs,
     StructDefinition *struct_definition,
     ConstantScope *scope
 );
 
-Result<DelayedValue<Type*>> do_resolve_polymorphic_struct(
+DelayedResult<Type*> do_resolve_polymorphic_struct(
     GlobalInfo info,
     List<Job*> *jobs,
     StructDefinition *struct_definition,

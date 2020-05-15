@@ -131,7 +131,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
 
         leave_region();
 
-        return { false };
+        return err;
     }
 
     fseek(file, 0, SEEK_END);
@@ -222,7 +222,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
                     if(index == length) {
                         error(path, line, character, "Unexpected end of file");
 
-                        return { false };
+                        return err;
                     } else if(source[index] == '\r') {
                         index += 1;
 
@@ -527,11 +527,11 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
                 if(index == length) {
                     error(path, line, character, "Unexpected end of file");
 
-                    return { false };
+                    return err;
                 } else if(source[index] == '\n' || source[index] == '\r') {
                     error(path, line, character, "Unexpected newline");
 
-                    return { false };
+                    return err;
                 } else if(source[index] == '"') {
                     index += 1;
 
@@ -546,7 +546,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
                     if(index == length) {
                         error(path, line, character, "Unexpected end of file");
 
-                        return { false };
+                        return err;
                     } else if(source[index] == '\\') {
                         append(&buffer, '\\');
                     } else if(source[index] == '"') {
@@ -560,11 +560,11 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
                     } else if(source[index] == 'r' || source[index] == '\n') {
                         error(path, line, character, "Unexpected newline");
 
-                        return { false };
+                        return err;
                     } else {
                         error(path, line, character, "Unknown escape code '\\%c'", source[index]);
 
-                        return { false };
+                        return err;
                     }
 
                     index += 1;
@@ -769,12 +769,9 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
         } else {
             error(path, line, character, "Unexpected character '%c'", source[index]);
 
-            return { false };
+            return err;
         }
     }
 
-    return {
-        true,
-        to_array(tokens)
-    };
+    return ok(to_array(tokens));
 }

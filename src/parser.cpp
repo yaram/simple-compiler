@@ -45,14 +45,11 @@ static Result<Token> peek_token(Context context) {
     if(context.next_token_index < context.tokens.count) {
         auto token = context.tokens[context.next_token_index];
 
-        return {
-            true,
-            token
-        };
+        return ok(token);
     } else {
         fprintf(stderr, "Error: %s: Unexpected end of file\n", context.path);
 
-        return { false };
+        return err;
     }
 }
 
@@ -86,17 +83,14 @@ static Result<FileRange> expect_basic_token_with_range(Context *context, TokenTy
 
         error(*context, "Expected '%s', got '%s'", get_token_text(expected_token), get_token_text(token));
 
-        return { false };
+        return err;
     }
 
     consume_token(context);
 
     auto range = token_range(token);
 
-    return {
-        true,
-        range
-    };
+    return ok(range);
 }
 
 static Result<Array<char>> expect_string(Context *context) {
@@ -105,15 +99,12 @@ static Result<Array<char>> expect_string(Context *context) {
     if(token.type != TokenType::String) {
         error(*context, "Expected a string, got '%s'", get_token_text(token));
 
-        return { false };
+        return err;
     }
 
     consume_token(context);
 
-    return {
-        true,
-        token.string
-    };
+    return ok(token.string);
 }
 
 static Result<Identifier> expect_identifier(Context *context) {
@@ -122,18 +113,15 @@ static Result<Identifier> expect_identifier(Context *context) {
     if(token.type != TokenType::Identifier) {
         error(*context, "Expected an identifier, got '%s'", get_token_text(token));
 
-        return { false };
+        return err;
     }
 
     consume_token(context);
 
-    return {
-        true,
-        {
-            token.identifier,
-            token_range(token)
-        }
-    };
+    return ok({
+        token.identifier,
+        token_range(token)
+    });
 }
 
 static Identifier identifier_from_token(Context context, Token token) {
@@ -225,7 +213,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                 if(expression->kind != ExpressionKind::FunctionCall) {
                     error(context->path, expression->range, "Expected a function call");
 
-                    return { false };
+                    return err;
                 }
 
                 auto function_call = (FunctionCall*)expression;
@@ -237,7 +225,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             } else {
                 error(context->path, identifier.range, "Expected 'bake', got '%s'", identifier.text);
 
-                return { false };
+                return err;
             }
         } break;
 
@@ -335,7 +323,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                     default: {
                                         error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
 
-                                        return { false };
+                                        return err;
                                     } break;
                                 }
 
@@ -356,7 +344,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                         default: {
                             error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
 
-                            return { false };
+                            return err;
                         } break;
                     }
 
@@ -463,7 +451,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                         default: {
                                             error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
 
-                                            return { false };
+                                            return err;
                                         } break;
                                     }
 
@@ -484,7 +472,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                             default: {
                                 error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
 
-                                return { false };
+                                return err;
                             } break;
                         }
 
@@ -513,7 +501,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                         expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
                         if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
-                            return { false };
+                            return err;
                         }
 
                         left_expression = right_expression;
@@ -524,7 +512,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                     if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
-                        return { false };
+                        return err;
                     }
 
                     left_expression = expression;
@@ -580,7 +568,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                         expect(identifier, expect_identifier(context));
 
                                         if(!expect_basic_token(context, TokenType::Equals)) {
-                                            return { false };
+                                            return err;
                                         }
 
                                         expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -607,7 +595,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                             default: {
                                                 error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
 
-                                                return { false };
+                                                return err;
                                             } break;
                                         }
 
@@ -628,7 +616,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                 default: {
                                     error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
 
-                                    return { false };
+                                    return err;
                                 } break;
                             }
 
@@ -690,7 +678,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                             default: {
                                                 error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
 
-                                                return { false };
+                                                return err;
                                             } break;
                                         }
 
@@ -711,7 +699,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                 default: {
                                     error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
 
-                                    return { false };
+                                    return err;
                                 }
                             }
 
@@ -759,7 +747,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                     default: {
                                         error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
 
-                                        return { false };
+                                        return err;
                                     } break;
                                 }
 
@@ -819,16 +807,13 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
         default: {
             error(*context, "Expected an expression. Got '%s'", get_token_text(token));
 
-            return { false };
+            return err;
         } break;
     }
 
     expect(final_expression, parse_expression_continuation(context, minimum_precedence, left_expression));
 
-    return {
-        true,
-        final_expression
-    };
+    return ok(final_expression);
 }
 
 static_profiled_function(Result<Expression*>, parse_expression_continuation, (
@@ -1154,7 +1139,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                             default: {
                                 error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
 
-                                return { false };
+                                return err;
                             } break;
                         }
 
@@ -1241,15 +1226,12 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
         }
     }
 
-    return {
-        true,
-        current_expression
-    };
+    return ok(current_expression);
 }
 
 static Result<FunctionParameter> parse_function_parameter_second_half(Context *context, Identifier name, bool is_constant) {
     if(!expect_basic_token(context, TokenType::Colon)) {
-        return { false };
+        return err;
     }
 
     FunctionParameter parameter;
@@ -1276,10 +1258,7 @@ static Result<FunctionParameter> parse_function_parameter_second_half(Context *c
         } break;
     }
 
-    return {
-        true,
-        parameter
-    };
+    return ok(parameter);
 }
 
 static Result<Statement*> parse_statement(Context *context);
@@ -1330,19 +1309,14 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                 }
             }
 
-            auto function_declaration = new FunctionDeclaration {
+            return ok(new FunctionDeclaration {
                 span_range(name.range, last_range),
                 name,
                 parameters,
                 return_type,
                 false,
                 to_array(statements)
-            };
-
-            return {
-                true,
-                function_declaration
-            };
+            });
         } break;
 
         case TokenType::Semicolon: {
@@ -1354,16 +1328,11 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                 return_type
             };
 
-            auto constant_definition = new ConstantDefinition {
+            return ok(new ConstantDefinition {
                 span_range(parameters_range, token_range(token)),
                 name,
                 function_type
-            };
-
-            return {
-                true,
-                constant_definition
-            };
+            });
         } break;
 
         case TokenType::Identifier: {
@@ -1409,7 +1378,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                                 default: {
                                     error(*context, "Expected ',' or ';', got '%s'", get_token_text(token));
 
-                                    return { false };
+                                    return err;
                                 } break;
                             }
 
@@ -1424,27 +1393,22 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                     default: {
                         error(*context, "Expected ';' or a string, got '%s'", get_token_text(token));
 
-                        return { false };
+                        return err;
                     } break;
                 }
 
-                auto function_declaration = new FunctionDeclaration {
+                return ok(new FunctionDeclaration {
                     span_range(name.range, last_range),
                     name,
                     parameters,
                     return_type,
                     to_array(libraries)
-                };
-
-                return {
-                    true,
-                    function_declaration
-                };
+                });
             } else if(strcmp(token.identifier, "no_mangle") == 0) {
                 consume_token(context);
 
                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                    return { false };
+                    return err;
                 }
 
                 List<Statement*> statements{};
@@ -1465,23 +1429,18 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
                     }
                 }
 
-                auto function_declaration = new FunctionDeclaration {
+                return ok(new FunctionDeclaration {
                     span_range(name.range, last_range),
                     name,
                     parameters,
                     return_type,
                     true,
                     to_array(statements)
-                };
-
-                return {
-                    true,
-                    function_declaration
-                };
+                });
             } else {
                 error(*context, "Expected '->', '{', ';', 'extern' or 'no_mangle', got '%s'", token.identifier);
 
-                return { false };
+                return err;
             }
 
             
@@ -1490,7 +1449,7 @@ static Result<Statement*> continue_parsing_function_declaration_or_function_type
         default: {
             error(*context, "Expected '->', '{', ';', 'extern' or 'no_mangle', got '%s'", get_token_text(token));
 
-            return { false };
+            return err;
         } break;
     }
 }
@@ -1509,7 +1468,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
             if(token.type != TokenType::Identifier) {
                 error(*context, "Expected 'import', got '%s'", get_token_text(token));
 
-                return { false };
+                return err;
             }
 
             consume_token(context);
@@ -1523,20 +1482,15 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 memcpy(import_path, string.elements, string.count);
                 import_path[string.count] = 0;
 
-                auto import = new Import {
+                return ok(new Import {
                     span_range(first_range, last_range),
                     import_path
-                };
-
-                return {
-                    true,
-                    import
-                };
+                });
             } else if(strcmp(token.identifier, "if") == 0) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                    return { false };
+                    return err;
                 }
 
                 List<Statement*> statements{};
@@ -1558,23 +1512,18 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     }
                 }
 
-                auto static_if = new StaticIf {
+                return ok(new StaticIf {
                     span_range(first_range, last_range),
                     expression,
                     to_array(statements)
-                };
-
-                return {
-                    true,
-                    static_if
-                };
+                });
             } else if(strcmp(token.identifier, "bake") == 0) {
                 expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
                 if(expression->kind != ExpressionKind::FunctionCall) {
                     error(context->path, expression->range, "Expected a function call");
 
-                    return { false };
+                    return err;
                 }
 
                 expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
@@ -1586,19 +1535,14 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     function_call
                 };
 
-                auto expression_statement = new ExpressionStatement {
+                return ok(new ExpressionStatement {
                     span_range(first_range, last_range),
                     bake
-                };
-
-                return {
-                    true,
-                    expression_statement
-                };
+                });
             } else {
                 error(*context, "Expected 'import' or 'library', got '%s'", get_token_text(token));
 
-                return { false };
+                return err;
             }
         } break;
 
@@ -1609,7 +1553,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                    return { false };
+                    return err;
                 }
 
                 List<Statement*> statements{};
@@ -1668,7 +1612,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                 if(strcmp(token.identifier, "if") != 0) {
                                     error(*context, "Expected '{' or 'if', got '%s'", get_token_text(token));
 
-                                    return { false };
+                                    return err;
                                 }
 
                                 consume_token(context);
@@ -1676,7 +1620,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                                    return { false };
+                                    return err;
                                 }
                                 
                                 List<Statement*> statements{};
@@ -1706,7 +1650,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                             default: {
                                 error(*context, "Expected '{' or 'if', got '%s'", get_token_text(token));
 
-                                return { false };
+                                return err;
                             } break;
                         }
 
@@ -1718,23 +1662,18 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     }
                 }
 
-                auto if_statement = new IfStatement {
+                return ok(new IfStatement {
                     span_range(first_range, last_range),
                     expression,
                     to_array(statements),
                     to_array(else_ifs),
                     to_array(else_statements)
-                };
-
-                return {
-                    true,
-                    if_statement
-                };
+                });
             } else if(strcmp(token.identifier, "while") == 0) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                    return { false };
+                    return err;
                 }
 
                 List<Statement*> statements{};
@@ -1756,16 +1695,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     }
                 }
 
-                auto while_loop = new WhileLoop {
+                return ok(new WhileLoop {
                     span_range(first_range, last_range),
                     expression,
                     to_array(statements)
-                };
-
-                return {
-                    true,
-                    while_loop
-                };
+                });
             } else if(strcmp(token.identifier, "for") == 0) {
                 expect(token, peek_token(*context));
 
@@ -1806,13 +1740,13 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 }
 
                 if(!expect_basic_token(context, TokenType::DoubleDot)) {
-                    return { false };
+                    return err;
                 }
 
                 expect(to, parse_expression(context, OperatorPrecedence::None));
 
                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                    return { false };
+                    return err;
                 }
 
                 List<Statement*> statements{};
@@ -1834,28 +1768,22 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     }
                 }
 
-                ForLoop *for_loop;
                 if(has_index_name) {
-                    for_loop = new ForLoop(
+                    return ok(new ForLoop(
                         span_range(first_range, last_range),
                         index_name,
                         from,
                         to,
                         to_array(statements)
-                    );
+                    ));
                 } else {
-                    for_loop = new ForLoop(
+                    return ok(new ForLoop(
                         span_range(first_range, last_range),
                         from,
                         to,
                         to_array(statements)
-                    );
+                    ));
                 }
-
-                return {
-                    true,
-                    for_loop
-                };
             } else if(strcmp(token.identifier, "return") == 0) {
                 expect(token, peek_token(*context));
 
@@ -1877,40 +1805,25 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     value = expression;
                 }
 
-                auto return_statement = new ReturnStatement {
+                return ok(new ReturnStatement {
                     span_range(first_range, last_range),
                     value
-                };
-
-                return {
-                    true,
-                    return_statement
-                };
+                });
             } else if(strcmp(token.identifier, "break") == 0) {
                 expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
-                auto break_statement = new BreakStatement {
+                return ok(new BreakStatement {
                     span_range(first_range, last_range)
-                };
-
-                return {
-                    true,
-                    break_statement
-                };
+                });
             } else if(strcmp(token.identifier, "using") == 0) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                 expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
-                auto using_statement = new UsingStatement {
+                return ok(new UsingStatement {
                     span_range(first_range, last_range),
                     expression
-                };
-
-                return {
-                    true,
-                    using_statement
-                };
+                });
             } else {
                 auto identifier = identifier_from_token(*context, token);
 
@@ -1988,7 +1901,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                         default: {
                                                             error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
 
-                                                            return { false };
+                                                            return err;
                                                         } break;
                                                     }
 
@@ -2009,35 +1922,25 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             default: {
                                                 error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
 
-                                                return { false };
+                                                return err;
                                             } break;
                                         }
 
-                                        expect(statement, continue_parsing_function_declaration_or_function_type_constant(
+                                        return continue_parsing_function_declaration_or_function_type_constant(
                                             context,
                                             identifier,
                                             to_array(parameters),
                                             span_range(parameters_first_range, last_range)
-                                        ));
-
-                                        return {
-                                            true,
-                                            statement
-                                        };
+                                        );
                                     } else if(token.type == TokenType::CloseRoundBracket) {
                                         consume_token(context);
 
-                                        expect(statement, continue_parsing_function_declaration_or_function_type_constant(
+                                        return continue_parsing_function_declaration_or_function_type_constant(
                                             context,
                                             identifier,
                                             {},
-                                            span_range(parameters_first_range, token_range(token)))
+                                            span_range(parameters_first_range, token_range(token))
                                         );
-
-                                        return {
-                                            true,
-                                            statement
-                                        };
                                     } else if(token.type == TokenType::Identifier) {
                                         consume_token(context);
 
@@ -2094,7 +1997,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                             default: {
                                                                 error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
 
-                                                                return { false };
+                                                                return err;
                                                             } break;
                                                         }
 
@@ -2115,66 +2018,51 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                 default: {
                                                     error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
 
-                                                    return { false };
+                                                    return err;
                                                 } break;
                                             }
 
-                                            expect(statement, continue_parsing_function_declaration_or_function_type_constant(
+                                            return continue_parsing_function_declaration_or_function_type_constant(
                                                 context,
                                                 identifier,
                                                 to_array(parameters),
                                                 span_range(parameters_first_range, last_range)
-                                            ));
-
-                                            return {
-                                                true,
-                                                statement
-                                            };
+                                            );
                                         } else {
                                             auto expression = named_reference_from_identifier(first_identifier);
 
                                             expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
                                             if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
-                                                return { false };
+                                                return err;
                                             }
 
                                             expect(outer_right_expression, parse_expression_continuation(context, OperatorPrecedence::None, right_expression));
 
                                             expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
-                                            auto constant_definition = new ConstantDefinition {
+                                            return ok(new ConstantDefinition {
                                                 span_range(first_range, last_range),
                                                 identifier,
                                                 outer_right_expression
-                                            };
-
-                                            return {
-                                                true,
-                                                constant_definition
-                                            };
+                                            });
                                         }
                                     } else {
                                         expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                                         if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
-                                            return { false };
+                                            return err;
                                         }
 
                                         expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
                                         expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
-                                        auto constant_definition = new ConstantDefinition {
+                                        return ok(new ConstantDefinition {
                                             span_range(first_range, last_range),
                                             identifier,
                                             right_expression
-                                        };
-
-                                        return {
-                                            true,
-                                            constant_definition
-                                        };
+                                        });
                                     }
                                 } break;
 
@@ -2207,7 +2095,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                     expect(name, expect_identifier(context));
 
                                                     if(!expect_basic_token(context, TokenType::Colon)) {
-                                                        return { false };
+                                                        return err;
                                                     }
 
                                                     expect(type, parse_expression(context, OperatorPrecedence::None));
@@ -2244,7 +2132,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                         }
 
                                         if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                                            return { false };
+                                            return err;
                                         }
 
                                         List<StructDefinition::Member> members{};
@@ -2261,7 +2149,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                 expect(identifier, expect_identifier(context));
 
                                                 if(!expect_basic_token(context, TokenType::Colon)) {
-                                                    return { false };
+                                                    return err;
                                                 }
 
                                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -2288,7 +2176,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                     default: {
                                                         error(*context, "Expected ',' or '}', got '%s'", get_token_text(token));
 
-                                                        return { false };
+                                                        return err;
                                                     } break;
                                                 }
 
@@ -2300,18 +2188,13 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             }
                                         }
 
-                                        auto struct_definition = new StructDefinition {
+                                        return ok(new StructDefinition {
                                             span_range(first_range, token_range(token)),
                                             identifier,
                                             is_union,
                                             to_array(parameters),
                                             to_array(members)
-                                        };
-
-                                        return {
-                                            true,
-                                            struct_definition
-                                        };
+                                        });
                                     } else {
                                         auto sub_identifier = identifier_from_token(*context, token);
 
@@ -2321,16 +2204,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                         expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
-                                        auto constant_definition = new ConstantDefinition {
+                                        return ok(new ConstantDefinition {
                                             span_range(first_range, last_range),
                                             identifier,
                                             right_expression
-                                        };
-
-                                        return {
-                                            true,
-                                            constant_definition
-                                        };
+                                        });
                                     }
                                 } break;
 
@@ -2339,16 +2217,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                     expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
-                                    auto constant_definition = new ConstantDefinition {
+                                    return ok(new ConstantDefinition {
                                         span_range(first_range, last_range),
                                         identifier,
                                         expression
-                                    };
-
-                                    return {
-                                        true,
-                                        constant_definition
-                                    };
+                                    });
                                 } break;
                             }
                         } break;
@@ -2366,7 +2239,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                             Expression *initializer = nullptr;
                             if(pre_token.type == TokenType::Equals || !type) {
                                 if(!expect_basic_token(context, TokenType::Equals)) {
-                                    return { false };
+                                    return err;
                                 }
 
                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -2395,30 +2268,25 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                     } else {
                                         error(*context, "Expected ;', 'extern' or 'no_mangle', got '%s'", token.identifier);
 
-                                        return { false };
+                                        return err;
                                     }
                                 } break;
 
                                 default: {
                                     error(*context, "Expected ;', 'extern' or 'no_mangle', got '%s'", token.identifier);
 
-                                    return { false };
+                                    return err;
                                 } break;
                             }
 
-                            auto variable_declaration = new VariableDeclaration {
+                            return ok(new VariableDeclaration {
                                 span_range(first_range, token_range(token)),
                                 identifier,
                                 type,
                                 initializer,
                                 is_external,
                                 is_no_mangle
-                            };
-
-                            return {
-                                true,
-                                variable_declaration
-                            };
+                            });
                         } break;
                     }
                 } else {
@@ -2432,15 +2300,10 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                         case TokenType::Semicolon: {
                             consume_token(context);
 
-                            auto expression_statement = new ExpressionStatement {
+                            return ok(new ExpressionStatement {
                                 span_range(first_range, token_range(token)),
                                 right_expression
-                            };
-
-                            return {
-                                true,
-                                expression_statement
-                            };
+                            });
                         } break;
 
                         default: {
@@ -2491,7 +2354,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                 default: {
                                     error(*context, "Expected '=', '+=', '-=', '*=', '/=', '%=' or ';', got '%s'", get_token_text(token));
 
-                                    return { false };
+                                    return err;
                                 } break;
                             }
 
@@ -2500,28 +2363,18 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                             expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
                             if(is_binary_operation_assignment) {
-                                auto assignment = new BinaryOperationAssignment {
+                                return ok(new BinaryOperationAssignment {
                                     span_range(first_range, last_range),
                                     right_expression,
                                     binary_operator,
                                     expression
-                                };
-
-                                return {
-                                    true,
-                                    assignment
-                                };
+                                });
                             } else {
-                                auto assignment = new Assignment {
+                                return ok(new Assignment {
                                     span_range(first_range, last_range),
                                     right_expression,
                                     expression
-                                };
-
-                                return {
-                                    true,
-                                    assignment
-                                };
+                                });
                             }
                         } break;
                     }
@@ -2538,15 +2391,10 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 case TokenType::Semicolon: {
                     consume_token(context);
 
-                    auto expression_statement = new ExpressionStatement {
+                    return ok(new ExpressionStatement {
                         span_range(first_range, token_range(token)),
                         expression
-                    };
-
-                    return {
-                        true,
-                        expression_statement
-                    };
+                    });
                 } break;
 
                 case TokenType::Equals: {
@@ -2556,22 +2404,17 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                     expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
-                    auto assignment = new Assignment {
+                    return ok(new Assignment {
                         span_range(first_range, last_range),
                         expression,
                         value_expression
-                    };
-
-                    return {
-                        true,
-                        assignment
-                    };
+                    });
                 } break;
 
                 default: {
                     error(*context, "Expected '=' or ';', got '%s'", get_token_text(token));
 
-                    return { false };
+                    return err;
                 } break;
             }
         } break;
@@ -2592,8 +2435,5 @@ profiled_function(Result<Array<Statement*>>, parse_tokens, (const char *path, Ar
         append(&statements, statement);
     }
 
-    return {
-        true,
-        to_array(statements)
-    };
+    return ok(to_array(statements));
 }
