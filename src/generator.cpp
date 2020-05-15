@@ -4851,11 +4851,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     }
 }
 
-static bool is_statement_declaration(Statement *statement) {
+static bool is_not_runtime_statement(Statement *statement) {
     return
         statement->kind == StatementKind::FunctionDeclaration ||
         statement->kind == StatementKind::ConstantDefinition ||
-        statement->kind == StatementKind::StructDefinition;
+        statement->kind == StatementKind::StructDefinition ||
+        statement->kind == StatementKind::StaticIf;
 }
 
 static_profiled_function(DelayedResult<void>, generate_statement, (
@@ -5106,7 +5107,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         });
 
         for(auto child_statement : if_statement->statements) {
-            if(!is_statement_declaration(child_statement)) {
+            if(!is_not_runtime_statement(child_statement)) {
                 expect_delayed_void_both(generate_statement(info, jobs, if_scope, context, instructions, child_statement));
             }
         }
@@ -5162,7 +5163,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
             });
 
             for(auto child_statement : if_statement->else_ifs[i].statements) {
-                if(!is_statement_declaration(child_statement)) {
+                if(!is_not_runtime_statement(child_statement)) {
                     expect_delayed_void_both(generate_statement(info, jobs, else_if_scope, context, instructions, child_statement));
                 }
             }
@@ -5190,7 +5191,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
             });
 
             for(auto child_statement : if_statement->else_statements) {
-                if(!is_statement_declaration(child_statement)) {
+                if(!is_not_runtime_statement(child_statement)) {
                     expect_delayed_void_both(generate_statement(info, jobs, else_scope, context, instructions, child_statement));
                 }
             }
@@ -5253,7 +5254,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         context->break_jumps = {};
 
         for(auto child_statement : while_loop->statements) {
-            if(!is_statement_declaration(child_statement)) {
+            if(!is_not_runtime_statement(child_statement)) {
                 expect_delayed_void_both(generate_statement(info, jobs, while_scope, context, instructions, child_statement));
             }
         }
@@ -5459,7 +5460,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         }
 
         for(auto child_statement : for_loop->statements) {
-            if(!is_statement_declaration(child_statement)) {
+            if(!is_not_runtime_statement(child_statement)) {
                 expect_delayed_void_both(generate_statement(info, jobs, for_scope, context, instructions, child_statement));
             }
         }
@@ -5745,7 +5746,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         assert(parameter_index == parameter_count);
 
         for(auto statement : declaration->statements) {
-            if(!is_statement_declaration(statement)) {
+            if(!is_not_runtime_statement(statement)) {
                 expect_delayed_void_val(generate_statement(info, jobs, value->body_scope, &context, &instructions, statement));
             }
         }
