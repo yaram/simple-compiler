@@ -15,11 +15,15 @@
 #include "generator.h"
 #include "types.h"
 
-static const char *get_default_output_file(const char *os) {
-    if(strcmp(os, "windows") == 0) {
-        return "out.exe";
+static const char *get_default_output_file(const char *os, bool no_link) {
+    if(no_link) {
+        return "out.o";
     } else {
-        return "out";
+        if(strcmp(os, "windows") == 0) {
+            return "out.exe";
+        } else {
+            return "out";
+        }
     }
 }
 
@@ -29,10 +33,11 @@ static void print_help_message(FILE *file) {
     auto default_os = get_host_os();
 
     fprintf(file, "Options:\n");
-    fprintf(file, "  -output <output file>  (default: %s) Specify executable file path\n", get_default_output_file(default_os));
+    fprintf(file, "  -output <output file>  (default: %s) Specify output file path\n", get_default_output_file(default_os, false));
     fprintf(file, "  -config debug|release  (default: debug) Specify build configuration\n");
     fprintf(file, "  -arch x64  (default: %s) Specify CPU architecture to target\n", get_host_architecture());
     fprintf(file, "  -os windows|linux  (default: %s) Specify operating system to target\n", default_os);
+    fprintf(file, "  -no-link  Don't run the linker\n");
     fprintf(file, "  -print-ast  Print abstract syntax tree\n");
     fprintf(file, "  -print-ir  Print internal intermediate representation\n");
     fprintf(file, "  -help  Display this help message then exit\n");
@@ -74,6 +79,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
     auto config = "debug";
 
+    auto no_link = false;
     auto print_ast = false;
     auto print_ir = false;
 
@@ -127,6 +133,8 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             }
 
             config = arguments[argument_index];
+        } else if(strcmp(argument, "-no-link") == 0) {
+            no_link = true;
         } else if(strcmp(argument, "-print-ast") == 0) {
             print_ast = true;
         } else if(strcmp(argument, "-print-ir") == 0) {
@@ -179,7 +187,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     expect(absolute_source_file_path, path_relative_to_absolute(source_file_path));
 
     if(output_file_path == nullptr) {
-        output_file_path = get_default_output_file(os);
+        output_file_path = get_default_output_file(os, no_link);
     }
 
     auto regsiter_sizes = get_register_sizes(architecture);
@@ -756,12 +764,17 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         return false;
     }
 
-    const char *output_file_name;
-    {
+    auto output_file_directory = path_get_directory_component(output_file_path);
+
+    const char *object_file_path;
+    if(no_link) {
+        object_file_path = output_file_path;
+    } else {
         auto full_name = path_get_file_component(output_file_path);
 
         auto dot_pointer = strchr(full_name, '.');
 
+        const char *output_file_name;
         if(dot_pointer == nullptr) {
             output_file_name = full_name;
         } else {
@@ -778,15 +791,23 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                 output_file_name = buffer;
             }
         }
-    }
 
-    auto output_file_directory = path_get_directory_component(output_file_path);
+        StringBuffer buffer {};
+
+        string_buffer_append(&buffer, output_file_directory);
+        string_buffer_append(&buffer, output_file_name);
+        string_buffer_append(&buffer, ".o");
+
+        object_file_path = buffer.data;
+    }
 
     uint64_t backend_time;
     {
         auto start_time = get_timer_counts();
 
-        generate_c_object(to_array(runtime_statics), architecture, os, config, output_file_directory, output_file_name);
+        if(!generate_c_object(to_array(runtime_statics), architecture, os, config, object_file_path)) {
+            return false;
+        }
 
         auto end_time = get_timer_counts();
 
@@ -794,7 +815,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     }
 
     uint64_t linker_time;
-    {
+    if(!no_link) {
         auto start_time = get_timer_counts();
 
         StringBuffer buffer {};
@@ -830,13 +851,52 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         }
 
         string_buffer_append(&buffer, " ");
-        string_buffer_append(&buffer, output_file_directory);
-        string_buffer_append(&buffer, output_file_name);
-        string_buffer_append(&buffer, ".o");
+        string_buffer_append(&buffer, object_file_path);
+
+        if(strcmp(os, "windows") == 0) {
+            StringBuffer fltused_source_file_path {};
+            string_buffer_append(&fltused_source_file_path, output_file_directory);
+            string_buffer_append(&fltused_source_file_path, "fltused.c");
+
+            auto fltused_source_file = fopen(fltused_source_file_path.data, "w");
+            if(fltused_source_file == nullptr) {
+                fprintf(stderr, "Error: Unable to create fltused.c\n");
+
+                return false;
+            }
+
+            fputs("int _fltused;", fltused_source_file);
+
+            fclose(fltused_source_file);
+
+            StringBuffer command_buffer {};
+
+            string_buffer_append(&command_buffer, "clang -std=c99 -ffreestanding -nostdinc -c -target ");
+
+            string_buffer_append(&command_buffer, triple);
+            
+            string_buffer_append(&command_buffer, " -o ");
+            string_buffer_append(&command_buffer, output_file_directory);
+            string_buffer_append(&command_buffer, "fltused.o ");
+
+            string_buffer_append(&command_buffer, fltused_source_file_path.data);
+
+            if(system(command_buffer.data) != 0) {
+                fprintf(stderr, "Error: 'clang' returned non-zero while compiling fltused.c\n");
+
+                return false;
+            }
+
+            string_buffer_append(&buffer, " ");
+            string_buffer_append(&buffer, output_file_directory);
+            string_buffer_append(&buffer, "fltused.o ");
+        }
 
         enter_region("linker");
 
         if(system(buffer.data) != 0) {
+            fprintf(stderr, "Error: 'clang' returned non-zero while linking\n");
+
             return false;
         }
 
@@ -857,7 +917,9 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     printf("  Parser time: %.2fms\n", (double)total_parser_time / counts_per_second * 1000);
     printf("  Generator time: %.2fms\n", (double)total_generator_time / counts_per_second * 1000);
     printf("  C Backend time: %.2fms\n", (double)backend_time / counts_per_second * 1000);
-    printf("  Linker time: %.2fms\n", (double)linker_time / counts_per_second * 1000);
+    if(!no_link) {
+        printf("  Linker time: %.2fms\n", (double)linker_time / counts_per_second * 1000);
+    }
 
     return true;
 }

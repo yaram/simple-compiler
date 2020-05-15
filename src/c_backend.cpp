@@ -97,15 +97,13 @@ profiled_function(bool, generate_c_object,(
     const char *architecture,
     const char *os,
     const char *config,
-    const char *output_directory,
-    const char *output_name
+    const char *object_file_path
 ), (
     statics,
     architecture,
     os,
     config,
-    output_directory,
-    output_name
+    object_file_path
 )) {
     struct NameMapping {
         RuntimeStatic *runtime_static;
@@ -930,8 +928,34 @@ profiled_function(bool, generate_c_object,(
 
     StringBuffer source_file_path_buffer {};
 
-    string_buffer_append(&source_file_path_buffer, output_directory);
-    string_buffer_append(&source_file_path_buffer, output_name);
+    auto object_file_directory = path_get_directory_component(object_file_path);
+
+    const char *source_file_name;
+    {
+        auto full_name = path_get_file_component(object_file_path);
+
+        auto dot_pointer = strchr(full_name, '.');
+
+        if(dot_pointer == nullptr) {
+            source_file_name = full_name;
+        } else {
+            auto length = (size_t)dot_pointer - (size_t)full_name;
+
+            if(length == 0) {
+                source_file_name = "out.c";
+            } else {
+                auto buffer = allocate<char>(length + 1);
+
+                memcpy(buffer, full_name, length);
+                buffer[length] = 0;
+
+                source_file_name = buffer;
+            }
+        }
+    }
+
+    string_buffer_append(&source_file_path_buffer, object_file_directory);
+    string_buffer_append(&source_file_path_buffer, source_file_name);
     string_buffer_append(&source_file_path_buffer, ".c");
 
     auto source_file = fopen(source_file_path_buffer.data, "w");
@@ -944,10 +968,6 @@ profiled_function(bool, generate_c_object,(
 
     fputs(forward_declaration_source.data, source_file);
     fputs(implementation_source.data, source_file);
-
-    if(strcmp(os, "windows") == 0) {
-        fputs("int _fltused;int __fltused;", source_file);
-    }
 
     fclose(source_file);
 
@@ -968,15 +988,16 @@ profiled_function(bool, generate_c_object,(
     }
 
     string_buffer_append(&command_buffer, " -o ");
-    string_buffer_append(&command_buffer, output_directory);
-    string_buffer_append(&command_buffer, output_name);
-    string_buffer_append(&command_buffer, ".o ");
+    string_buffer_append(&command_buffer, object_file_path);
 
+    string_buffer_append(&command_buffer, " ");
     string_buffer_append(&command_buffer, source_file_path_buffer.data);
 
     enter_region("clang");
 
     if(system(command_buffer.data) != 0) {
+        fprintf(stderr, "Error: 'clang' returned non-zero\n");
+
         return false;
     }
 

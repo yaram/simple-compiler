@@ -8,6 +8,5 @@ bool generate_c_object(
     const char *architecture,
     const char *os,
     const char *config,
-    const char *output_directory,
-    const char *output_name
+    const char *object_file_path
 );
