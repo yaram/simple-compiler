@@ -678,7 +678,80 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     }
 
     if(!all_jobs_done) {
-        fprintf(stderr, "Error: Circular dependency detected\n");
+        fprintf(stderr, "Error: Circular dependency detected!\n");
+        fprintf(stderr, "Error: The following areas depend on eathother:\n");
+
+        for(auto job : jobs) {
+            if(!job->done) {
+                ConstantScope *scope;
+                FileRange range;
+                switch(job->kind) {
+                    case JobKind::ParseFile: {
+                        abort();
+                    } break;
+
+                    case JobKind::ResolveStaticIf: {
+                        auto resolve_static_if = (ResolveStaticIf*)job;
+
+                        scope = resolve_static_if->scope;
+                        range = resolve_static_if->static_if->range;
+                    } break;
+
+                    case JobKind::ResolveFunctionDeclaration: {
+                        auto resolve_function_declaration = (ResolveFunctionDeclaration*)job;
+
+                        scope = resolve_function_declaration->scope;
+                        range = resolve_function_declaration->declaration->range;
+                    } break;
+
+                    case JobKind::ResolvePolymorphicFunction: {
+                        auto resolve_polymorphic_function = (ResolvePolymorphicFunction*)job;
+
+                        scope = resolve_polymorphic_function->scope;
+                        range = resolve_polymorphic_function->declaration->range;
+                    } break;
+
+                    case JobKind::ResolveConstantDefinition: {
+                        auto resolve_constant_definition = (ResolveConstantDefinition*)job;
+
+                        scope = resolve_constant_definition->scope;
+                        range = resolve_constant_definition->definition->range;
+                    } break;
+
+                    case JobKind::ResolveStructDefinition: {
+                        auto resolve_struct_definition = (ResolveStructDefinition*)job;
+
+                        scope = resolve_struct_definition->scope;
+                        range = resolve_struct_definition->definition->range;
+                    } break;
+
+                    case JobKind::ResolvePolymorphicStruct: {
+                        auto resolve_polymorphic_struct = (ResolvePolymorphicStruct*)job;
+
+                        scope = resolve_polymorphic_struct->scope;
+                        range = resolve_polymorphic_struct->definition->range;
+                    } break;
+
+                    case JobKind::GenerateFunction: {
+                        auto generate_function = (GenerateFunction*)job;
+
+                        scope = generate_function->value->body_scope->parent;
+                        range = generate_function->value->declaration->range;
+                    } break;
+
+                    case JobKind::GenerateStaticVariable: {
+                        auto generate_static_variable = (GenerateStaticVariable*)job;
+
+                        scope = generate_static_variable->scope;
+                        range = generate_static_variable->declaration->range;
+                    } break;
+
+                    default: abort();
+                }
+
+                error(scope, range, "Here");
+            }
+        }
 
         return false;
     }
