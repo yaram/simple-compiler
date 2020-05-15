@@ -7,13 +7,9 @@ SDL_INIT_GAMECONTROLLER :: 0x00002000;
 SDL_INIT_EVENTS :: 0x00004000;
 SDL_INIT_EVERYTHING :: SDL_INIT_TIMER | SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC | SDL_INIT_GAMECONTROLLER;
 
-SDL_Init :: (flags: u32) -> i32 extern "SDL2-staticd.lib", "kernel32.lib", "user32.lib", "gdi32.lib", "winmm.lib", "imm32.lib", "ole32.lib", "oleaut32.lib", "version.lib", "uuid.lib", "advapi32.lib", "shell32.lib", "setupapi.lib";
-
 SDL_WINDOWPOS_UNDEFINED :: 0x1FFF0000;
 
 SDL_Window :: void;
-
-SDL_CreateWindow :: (title: *u8, x: i32, y: i32, w: i32, h: i32, flags: u32) -> *SDL_Window extern "SDL2-staticd.lib", "kernel32.lib", "user32.lib", "gdi32.lib", "winmm.lib", "imm32.lib", "ole32.lib", "oleaut32.lib", "version.lib", "uuid.lib", "advapi32.lib", "shell32.lib", "setupapi.lib";
 
 SDL_Event :: struct {
     type: u32,
@@ -39,4 +35,20 @@ SDL_WINDOWEVENT :: 0x200;
 
 SDL_WINDOWEVENT_CLOSE :: 14;
 
-SDL_PollEvent :: (event: *SDL_Event) -> i32 extern "SDL2-staticd.lib", "kernel32.lib", "user32.lib", "gdi32.lib", "winmm.lib", "imm32.lib", "ole32.lib", "oleaut32.lib", "version.lib", "uuid.lib", "advapi32.lib", "shell32.lib", "setupapi.lib";
+#if WINDOWS {
+    #if DEBUG {
+        SDL_Init :: (flags: u32) -> i32 extern "SDL2-staticd.lib", "kernel32.lib", "user32.lib", "gdi32.lib", "winmm.lib", "imm32.lib", "ole32.lib", "oleaut32.lib", "version.lib", "uuid.lib", "advapi32.lib", "shell32.lib", "setupapi.lib";
+
+        SDL_CreateWindow :: (title: *u8, x: i32, y: i32, w: i32, h: i32, flags: u32) -> *SDL_Window extern "SDL2-staticd.lib", "kernel32.lib", "user32.lib", "gdi32.lib", "winmm.lib", "imm32.lib", "ole32.lib", "oleaut32.lib", "version.lib", "uuid.lib", "advapi32.lib", "shell32.lib", "setupapi.lib";
+
+        SDL_PollEvent :: (event: *SDL_Event) -> i32 extern "SDL2-staticd.lib", "kernel32.lib", "user32.lib", "gdi32.lib", "winmm.lib", "imm32.lib", "ole32.lib", "oleaut32.lib", "version.lib", "uuid.lib", "advapi32.lib", "shell32.lib", "setupapi.lib";
+    }
+
+    #if RELEASE {
+        SDL_Init :: (flags: u32) -> i32 extern "SDL2-static.lib", "kernel32.lib", "user32.lib", "gdi32.lib", "winmm.lib", "imm32.lib", "ole32.lib", "oleaut32.lib", "version.lib", "uuid.lib", "advapi32.lib", "shell32.lib", "setupapi.lib";
+
+        SDL_CreateWindow :: (title: *u8, x: i32, y: i32, w: i32, h: i32, flags: u32) -> *SDL_Window extern "SDL2-static.lib", "kernel32.lib", "user32.lib", "gdi32.lib", "winmm.lib", "imm32.lib", "ole32.lib", "oleaut32.lib", "version.lib", "uuid.lib", "advapi32.lib", "shell32.lib", "setupapi.lib";
+
+        SDL_PollEvent :: (event: *SDL_Event) -> i32 extern "SDL2-static.lib", "kernel32.lib", "user32.lib", "gdi32.lib", "winmm.lib", "imm32.lib", "ole32.lib", "oleaut32.lib", "version.lib", "uuid.lib", "advapi32.lib", "shell32.lib", "setupapi.lib";
+    }
+}
