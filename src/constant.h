@@ -316,6 +316,7 @@ DelayedResult<Type*> evaluate_type_expression(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
+    Statement *ignore_statement,
     Expression *expression
 );
 Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope *scope, FileRange range, Type *type);
@@ -335,6 +336,7 @@ DelayedResult<TypedConstantValue> evaluate_constant_expression(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
+    Statement *ignore_statement,
     Expression *expression
 );
 
@@ -377,4 +379,4 @@ DelayedResult<Type*> do_resolve_polymorphic_struct(
     ConstantScope *scope
 );
 
-bool process_scope(List<Job*> *jobs, ConstantScope *scope, List<ConstantScope*> *child_scopes, bool is_top_level);
+bool process_scope(List<Job*> *jobs, ConstantScope *scope, Array<Statement*> statements, List<ConstantScope*> *child_scopes, bool is_top_level);

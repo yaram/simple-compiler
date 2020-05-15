@@ -2366,7 +2366,7 @@ static DelayedResult<DeclarationSearchValue> search_for_declaration(
             if(!external) {
                 auto using_statement = (UsingStatement*)statement;
 
-                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, using_statement->module));
+                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, nullptr, using_statement->module));
 
                 if(expression_value.type->kind != TypeKind::FileModule) {
                     error(scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
@@ -3941,7 +3941,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 auto parameters = allocate<ConstantValue*>(parameter_count);
 
                 for(size_t i = 0; i < parameter_count; i += 1) {
-                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, function_call->parameters[i]));
+                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, function_call->parameters[i]));
 
                     expect(parameter_value, coerce_constant_to_type(
                         info,
@@ -4756,7 +4756,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         }
 
         if(array_type->index != nullptr) {
-            expect_delayed(index_value, evaluate_constant_expression(info, jobs, scope, array_type->index));
+            expect_delayed(index_value, evaluate_constant_expression(info, jobs, scope, nullptr, array_type->index));
 
             expect(length, coerce_constant_to_integer_type(
                 scope,
@@ -5790,7 +5790,7 @@ DelayedResult<StaticVariableResult> do_generate_static_variable(
     ConstantScope *scope
 ) {
     if(declaration->is_external) {
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));
+        expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, declaration->type));
 
         if(!is_runtime_type(type)) {
             error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
@@ -5816,7 +5816,7 @@ DelayedResult<StaticVariableResult> do_generate_static_variable(
         });
     } else {
         if(declaration->type != nullptr && declaration->initializer != nullptr) {
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, declaration->type));
 
             if(!is_runtime_type(type)) {
                 error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
@@ -5824,7 +5824,7 @@ DelayedResult<StaticVariableResult> do_generate_static_variable(
                 return err;
             }
 
-            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, declaration->initializer));
+            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, nullptr, declaration->initializer));
 
             expect(coerced_initial_value, coerce_constant_to_type(
                 info,
@@ -5858,7 +5858,7 @@ DelayedResult<StaticVariableResult> do_generate_static_variable(
                 type
             });
         } else if(declaration->type != nullptr) {
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->type));
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, declaration->type));
 
             if(!is_runtime_type(type)) {
                 error(scope, declaration->type->range, "Cannot create variables of type '%s'", type_description(type));
@@ -5882,7 +5882,7 @@ DelayedResult<StaticVariableResult> do_generate_static_variable(
                 type
             });
         } else if(declaration->initializer != nullptr) {
-            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, declaration->initializer));
+            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, nullptr, declaration->initializer));
 
             expect(type, coerce_to_default_type(info, scope, declaration->initializer->range, initial_value.type));
 

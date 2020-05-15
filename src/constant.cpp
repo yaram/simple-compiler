@@ -1618,8 +1618,20 @@ struct DeclarationSearchValue {
     ConstantValue *value;
 };
 
-static DelayedResult<DeclarationSearchValue> search_for_declaration(GlobalInfo info, List<Job*> *jobs, const char *name, ConstantScope *scope, Array<Statement*> statements, bool external) {
+static DelayedResult<DeclarationSearchValue> search_for_declaration(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    const char *name,
+    ConstantScope *scope,
+    Array<Statement*> statements,
+    bool external,
+    Statement *ignore
+) {
     for(auto statement : statements) {
+        if(statement == ignore) {
+            continue;
+        }
+
         bool matching;
         if(external) {
             matching = match_public_declaration(statement, name);
@@ -1639,7 +1651,7 @@ static DelayedResult<DeclarationSearchValue> search_for_declaration(GlobalInfo i
             if(!external) {
                 auto using_statement = (UsingStatement*)statement;
 
-                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, using_statement->module));
+                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, using_statement, using_statement->module));
 
                 if(expression_value.type->kind != TypeKind::FileModule) {
                     error(scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
@@ -1650,7 +1662,7 @@ static DelayedResult<DeclarationSearchValue> search_for_declaration(GlobalInfo i
                 auto file_module = (FileModuleConstant*)expression_value.value;
                 assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
 
-                expect_delayed(search_value, search_for_declaration(info, jobs, name, file_module->scope, file_module->scope->statements, true));
+                expect_delayed(search_value, search_for_declaration(info, jobs, name, file_module->scope, file_module->scope->statements, true, nullptr));
 
                 if(search_value.found) {
                     return has({
@@ -1676,7 +1688,7 @@ static DelayedResult<DeclarationSearchValue> search_for_declaration(GlobalInfo i
 
                         if(resolve_static_if->done) {
                             if(resolve_static_if->condition) {
-                                expect_delayed(search_value, search_for_declaration(info, jobs, name, scope, static_if->statements, false));
+                                expect_delayed(search_value, search_for_declaration(info, jobs, name, scope, static_if->statements, false, nullptr));
 
                                 if(search_value.found) {
                                     return has({
@@ -1738,19 +1750,21 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
+    Statement *ignore_statement,
     Expression *expression
 ), (
     info,
     jobs,
     scope,
-    expression
+    ignore_statement,
+    expression,
 )) {
     if(expression->kind == ExpressionKind::NamedReference) {
         auto named_reference = (NamedReference*)expression;
 
         auto current_scope = scope;
         while(true) {
-            expect_delayed(search_value, search_for_declaration(info, jobs, named_reference->name.text, current_scope, current_scope->statements, false));
+            expect_delayed(search_value, search_for_declaration(info, jobs, named_reference->name.text, current_scope, current_scope->statements, false, ignore_statement));
 
             if(search_value.found) {
                 return has({
@@ -1781,7 +1795,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     } else if(expression->kind == ExpressionKind::MemberReference) {
         auto member_reference = (MemberReference*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, member_reference->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, member_reference->expression));
 
         if(expression_value.type->kind == TypeKind::ArrayTypeType) {
             auto array_type = (ArrayTypeType*)expression_value.type;
@@ -1877,7 +1891,8 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 member_reference->name.text,
                 file_module_value->scope,
                 file_module_value->scope->statements,
-                true
+                true,
+                nullptr
             ));
 
             if(search_value.found) {
@@ -1898,9 +1913,9 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     } else if(expression->kind == ExpressionKind::IndexReference) {
         auto index_reference = (IndexReference*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, index_reference->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, index_reference->expression));
 
-        expect_delayed(index, evaluate_constant_expression(info, jobs, scope, index_reference->index));
+        expect_delayed(index, evaluate_constant_expression(info, jobs, scope, ignore_statement, index_reference->index));
 
         expect(value, evaluate_constant_index(
             info,
@@ -1968,7 +1983,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             return err;
         }
 
-        expect_delayed(first_element, evaluate_constant_expression(info, jobs, scope, array_literal->elements[0]));
+        expect_delayed(first_element, evaluate_constant_expression(info, jobs, scope, ignore_statement, array_literal->elements[0]));
 
         expect(determined_element_type, coerce_to_default_type(info, scope, array_literal->elements[0]->range, first_element.type));
 
@@ -1982,7 +1997,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         elements[0] = first_element.value;
 
         for(size_t i = 1; i < element_count; i += 1) {
-            expect_delayed(element, evaluate_constant_expression(info, jobs, scope, array_literal->elements[i]));
+            expect_delayed(element, evaluate_constant_expression(info, jobs, scope, ignore_statement, array_literal->elements[i]));
 
             expect(element_value, coerce_constant_to_type(
                 info,
@@ -2031,7 +2046,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 }
             }
 
-            expect_delayed(member, evaluate_constant_expression(info, jobs, scope, struct_literal->members[i].value));
+            expect_delayed(member, evaluate_constant_expression(info, jobs, scope, ignore_statement, struct_literal->members[i].value));
 
             members[i] = {
                 member_name.text,
@@ -2055,7 +2070,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     } else if(expression->kind == ExpressionKind::FunctionCall) {
         auto function_call = (FunctionCall*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, function_call->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->expression));
 
         if(expression_value.type->kind == TypeKind::FunctionTypeType) {
             auto function = (FunctionTypeType*)expression_value.type;
@@ -2073,7 +2088,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     return err;
                 }
 
-                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, function_call->parameters[0]));
+                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[0]));
 
                 Type *type;
                 if(parameter_value.type->kind == TypeKind::TypeType) {
@@ -2106,7 +2121,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     return err;
                 }
 
-                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, function_call->parameters[0]));
+                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[0]));
 
                 return has({
                     &type_type_singleton,
@@ -2137,7 +2152,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 auto parameters = allocate<ConstantValue*>(parameter_count);
 
                 for(size_t i = 0; i < parameter_count; i += 1) {
-                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, function_call->parameters[i]));
+                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[i]));
 
                     expect(parameter_value, coerce_constant_to_type(
                         info,
@@ -2206,9 +2221,9 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     } else if(expression->kind == ExpressionKind::BinaryOperation) {
         auto binary_operation = (BinaryOperation*)expression;
 
-        expect_delayed(left, evaluate_constant_expression(info, jobs, scope, binary_operation->left));
+        expect_delayed(left, evaluate_constant_expression(info, jobs, scope, ignore_statement, binary_operation->left));
 
-        expect_delayed(right, evaluate_constant_expression(info, jobs, scope, binary_operation->right));
+        expect_delayed(right, evaluate_constant_expression(info, jobs, scope, ignore_statement, binary_operation->right));
 
         expect(value, evaluate_constant_binary_operation(
             info,
@@ -2227,7 +2242,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     } else if(expression->kind == ExpressionKind::UnaryOperation) {
         auto unary_operation = (UnaryOperation*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, unary_operation->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, unary_operation->expression));
 
         switch(unary_operation->unary_operator) {
             case UnaryOperation::Operator::Pointer: {
@@ -2312,9 +2327,9 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     } else if(expression->kind == ExpressionKind::Cast) {
         auto cast = (Cast*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, cast->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, cast->expression));
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, cast->type));
+        expect_delayed(type, evaluate_type_expression(info, jobs, scope, ignore_statement, cast->type));
 
         expect(value, evaluate_constant_cast(
             info,
@@ -2336,13 +2351,13 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
         auto function_call = bake->function_call;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, function_call->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->expression));
 
         auto call_parameter_count = function_call->parameters.count;
 
         auto parameters = allocate<TypedConstantValue>(call_parameter_count);
         for(size_t i = 0; i < call_parameter_count; i += 1) {
-            expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, function_call->parameters[i]));
+            expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[i]));
 
             parameters[i] = parameter_value;
         }
@@ -2463,7 +2478,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     } else if(expression->kind == ExpressionKind::ArrayType) {
         auto array_type = (ArrayType*)expression;
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, array_type->expression));
+        expect_delayed(type, evaluate_type_expression(info, jobs, scope, ignore_statement, array_type->expression));
 
         if(!is_runtime_type(type)) {
             error(scope, array_type->expression->range, "Cannot have arrays of type '%s'", type_description(type));
@@ -2472,7 +2487,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         }
 
         if(array_type->index != nullptr) {
-            expect_delayed(index_value, evaluate_constant_expression(info, jobs, scope, array_type->index));
+            expect_delayed(index_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, array_type->index));
 
             expect(length, coerce_constant_to_integer_type(
                 scope,
@@ -2521,7 +2536,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 return err;
             }
 
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, parameter.type));
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, ignore_statement, parameter.type));
 
             if(!is_runtime_type(type)) {
                 error(scope, parameter.type->range, "Function parameters cannot be of type '%s'", type_description(type));
@@ -2536,7 +2551,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         if(function_type->return_type == nullptr) {
             return_type = &void_singleton;
         } else {
-            expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, function_type->return_type));
+            expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, ignore_statement, function_type->return_type));
 
             if(!is_runtime_type(return_type_value)) {
                 error(scope, function_type->return_type->range, "Function returns cannot be of type '%s'", type_description(return_type_value));
@@ -2568,9 +2583,10 @@ DelayedResult<Type*> evaluate_type_expression(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
+    Statement *ignore_statement,
     Expression *expression
 ) {
-    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, expression));
+    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, expression));
 
     if(expression_value.type->kind == TypeKind::TypeType) {
         auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
@@ -2584,7 +2600,7 @@ DelayedResult<Type*> evaluate_type_expression(
 }
 
 DelayedResult<bool> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope) {
-    expect_delayed(condition, evaluate_constant_expression(info, jobs, scope, static_if->condition));
+    expect_delayed(condition, evaluate_constant_expression(info, jobs, scope, static_if, static_if->condition));
 
     if(condition.type->kind != TypeKind::Boolean) {
         error(scope, static_if->condition->range, "Expected a boolean, got '%s'", type_description(condition.type));
@@ -2595,13 +2611,7 @@ DelayedResult<bool> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, Stat
     auto condition_value = extract_constant_value(BooleanConstant, condition.value)->value;
 
     if(condition_value) {
-        auto body_scope = new ConstantScope;
-        body_scope->statements = static_if->statements;
-        body_scope->scope_constants = {};
-        body_scope->is_top_level = false;
-        body_scope->parent = scope;
-
-        if(!process_scope(jobs, body_scope, nullptr, true)) {
+        if(!process_scope(jobs, scope, static_if->statements, nullptr, true)) {
             return err;
         }
     }
@@ -2622,7 +2632,7 @@ DelayedResult<FunctionResolutionValue> do_resolve_function_declaration(
         assert(!declaration->parameters[i].is_constant);
         assert(!declaration->parameters[i].is_polymorphic_determiner);
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, declaration->parameters[i].type));
+        expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, declaration->parameters[i].type));
 
         if(!is_runtime_type(type)) {
             error(scope, declaration->parameters[i].type->range, "Function parameters cannot be of type '%s'", type_description(type));
@@ -2635,7 +2645,7 @@ DelayedResult<FunctionResolutionValue> do_resolve_function_declaration(
 
     Type *return_type;
     if(declaration->return_type) {
-        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, declaration->return_type));
+        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, nullptr, declaration->return_type));
 
         if(!is_runtime_type(return_type_value)) {
             error(scope, declaration->return_type->range, "Function parameters cannot be of type '%s'", type_description(return_type_value));
@@ -2658,7 +2668,7 @@ DelayedResult<FunctionResolutionValue> do_resolve_function_declaration(
     if(!declaration->is_external) {
         body_scope->statements = declaration->statements;
 
-        if(!process_scope(jobs, body_scope, &child_scopes, false)) {
+        if(!process_scope(jobs, body_scope, body_scope->statements, &child_scopes, false)) {
             return err;
         }
     }
@@ -2745,7 +2755,7 @@ DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
 
         if(declaration_parameter.is_constant) {
             if(!declaration_parameter.is_polymorphic_determiner) {
-                expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &signature_scope, declaration_parameter.type));
+                expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &signature_scope, nullptr, declaration_parameter.type));
 
                 parameter_types[i] = parameter_type;
             }
@@ -2778,7 +2788,7 @@ DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
 
         if(!declaration_parameter.is_constant) {
             if(!declaration_parameter.is_polymorphic_determiner) {
-                expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &signature_scope, declaration_parameter.type));
+                expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &signature_scope, nullptr, declaration_parameter.type));
 
                 if(!is_runtime_type(parameter_type)) {
                     error(scope,
@@ -2805,7 +2815,7 @@ DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
 
     Type *return_type;
     if(declaration->return_type) {
-        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, &signature_scope, declaration->return_type));
+        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, &signature_scope, nullptr, declaration->return_type));
 
         if(!is_runtime_type(return_type_value)) {
             error(
@@ -2834,7 +2844,7 @@ DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
         body_scope->is_top_level = false;
         body_scope->parent = scope;
 
-        if(!process_scope(jobs, body_scope, &child_scopes, false)) {
+        if(!process_scope(jobs, body_scope, body_scope->statements, &child_scopes, false)) {
             return err;
         }
     }
@@ -2867,7 +2877,7 @@ DelayedResult<Type*> do_resolve_struct_definition(
         auto parameter_types = allocate<Type*>(parameter_count);
 
         for(size_t i = 0; i < parameter_count; i += 1) {
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, struct_definition->parameters[i].type));
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, struct_definition->parameters[i].type));
 
             parameter_types[i] = type;
         }
@@ -2894,6 +2904,7 @@ DelayedResult<Type*> do_resolve_struct_definition(
             info,
             jobs,
             &member_scope,
+            nullptr,
             struct_definition->members[i].type
         ));
 
@@ -2933,7 +2944,7 @@ DelayedResult<Type*> do_resolve_polymorphic_struct(
     auto constant_parameters = allocate<ScopeConstant>(parameter_count);
 
     for(size_t i = 0; i < parameter_count; i += 1) {
-        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, scope, struct_definition->parameters[i].type));
+        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, scope, nullptr, struct_definition->parameters[i].type));
 
         constant_parameters[i] = {
             struct_definition->parameters[i].name.text,
@@ -2957,6 +2968,7 @@ DelayedResult<Type*> do_resolve_polymorphic_struct(
             info,
             jobs,
             &member_scope,
+            nullptr,
             struct_definition->members[i].type
         ));
 
@@ -2986,15 +2998,17 @@ DelayedResult<Type*> do_resolve_polymorphic_struct(
 profiled_function(bool, process_scope, (
     List<Job*> *jobs,
     ConstantScope *scope,
+    Array<Statement*> statements,
     List<ConstantScope*> *child_scopes,
     bool is_top_level
 ), (
     jobs,
     scope,
+    statements,
     child_scopes,
     is_top_level
 )) {
-    for(auto statement : scope->statements) {
+    for(auto statement : statements) {
         switch(statement->kind) {
             case StatementKind::FunctionDeclaration: {
                 auto function_declaration = (FunctionDeclaration*)statement;
@@ -3073,7 +3087,7 @@ profiled_function(bool, process_scope, (
 
                 append(child_scopes, if_scope);
 
-                process_scope(jobs, if_scope, child_scopes, false);
+                process_scope(jobs, if_scope, if_statement->statements, child_scopes, false);
 
                 for(auto else_if : if_statement->else_ifs) {
                     auto else_if_scope = new ConstantScope;
@@ -3084,7 +3098,7 @@ profiled_function(bool, process_scope, (
 
                     append(child_scopes, else_if_scope);
 
-                    process_scope(jobs, else_if_scope, child_scopes, false);
+                    process_scope(jobs, else_if_scope, else_if.statements, child_scopes, false);
                 }
 
                 if(if_statement->else_statements.count != 0) {
@@ -3096,7 +3110,7 @@ profiled_function(bool, process_scope, (
 
                     append(child_scopes, else_scope);
 
-                    process_scope(jobs, else_scope, child_scopes, false);
+                    process_scope(jobs, else_scope, if_statement->else_statements, child_scopes, false);
                 }
             } break;
 
@@ -3117,7 +3131,7 @@ profiled_function(bool, process_scope, (
 
                 append(child_scopes, while_scope);
 
-                process_scope(jobs, while_scope, child_scopes, false);
+                process_scope(jobs, while_scope, while_loop->statements, child_scopes, false);
             } break;
 
             case StatementKind::ForLoop: {
@@ -3137,7 +3151,7 @@ profiled_function(bool, process_scope, (
 
                 append(child_scopes, for_scope);
 
-                process_scope(jobs, for_scope, child_scopes, false);
+                process_scope(jobs, for_scope, for_loop->statements, child_scopes, false);
             } break;
 
             case StatementKind::Import: {

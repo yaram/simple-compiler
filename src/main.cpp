@@ -350,7 +350,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         parse_file->scope = scope;
                         parse_file->done = true;
 
-                        if(!process_scope(&jobs, scope, nullptr, true)) {
+                        if(!process_scope(&jobs, scope, statements, nullptr, true)) {
                             return false;
                         }
 
@@ -475,6 +475,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             info,
                             &jobs,
                             resolve_constant_definition->scope,
+                            nullptr,
                             resolve_constant_definition->definition->expression
                         );
                         if(!result.status) {
