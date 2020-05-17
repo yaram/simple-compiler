@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdarg.h>
 
 struct FileRange {
     unsigned int first_line;

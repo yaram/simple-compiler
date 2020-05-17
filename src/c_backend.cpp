@@ -256,7 +256,7 @@ profiled_function(bool, generate_c_object,(
 
                         string_buffer_append(&implementation_source, "=");
 
-                        char *operator_;
+                        const char *operator_;
                         bool is_signed;
 
                         switch(integer_arithmetic_operation->operation) {
@@ -336,7 +336,7 @@ profiled_function(bool, generate_c_object,(
 
                         string_buffer_append(&implementation_source, "=");
 
-                        char *operator_;
+                        const char *operator_;
                         bool is_signed;
 
                         switch(integer_comparison_operation->operation) {
@@ -425,7 +425,7 @@ profiled_function(bool, generate_c_object,(
 
                         string_buffer_append(&implementation_source, "=");
 
-                        char *operator_;
+                        const char *operator_;
 
                         switch(float_arithmetic_operation->operation) {
                             case FloatArithmeticOperation::Operation::Add: {
@@ -475,7 +475,7 @@ profiled_function(bool, generate_c_object,(
 
                         string_buffer_append(&implementation_source, "=");
 
-                        char *operator_;
+                        const char *operator_;
 
                         switch(float_comparison_operation->operation) {
                             case FloatComparisonOperation::Operation::Equal: {

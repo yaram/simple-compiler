@@ -78,8 +78,8 @@ inline void leave_region() {
 
 #else
 
-#define static_profiled_function(return_type, name, parameters, parameter_names) static return_type name##parameters
-#define profiled_function(return_type, name, parameters, parameter_names) return_type name##parameters
+#define static_profiled_function(return_type, name, parameters, parameter_names) static return_type name parameters
+#define profiled_function(return_type, name, parameters, parameter_names) return_type name parameters
 
 #define enter_region(name)
 #define leave_region()

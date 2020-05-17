@@ -3062,7 +3062,7 @@ profiled_function(bool, process_scope, (
 
                     auto generate_static_variable = new GenerateStaticVariable;
                     generate_static_variable->done = false;
-                    generate_static_variable->waiting_for = false;
+                    generate_static_variable->waiting_for = nullptr;
                     generate_static_variable->declaration = variable_declaration;
                     generate_static_variable->scope = scope;
 

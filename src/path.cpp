@@ -44,20 +44,12 @@ const char *path_get_directory_component(const char *path) {
 
     auto path_directory_length = strlen(path_directory);
 
-    if(path_directory_length != 1 && path_directory[path_directory_length - 1] != '/') {
-        auto output_buffer = allocate<char>(path_directory_length + 2);
+    auto output_buffer = allocate<char>(path_directory_length + 2);
 
-        strcpy(output_buffer, path_directory);
-        strcat(output_buffer, "/");
+    strcpy(output_buffer, path_directory);
+    strcat(output_buffer, "/");
 
-        return output_buffer;
-    } else {
-        auto output_buffer = allocate<char>(path_directory_length + 1);
-
-        strcpy(output_buffer, path_directory);
-
-        return output_buffer;
-    }
+    return output_buffer;
 }
 
 #elif defined(OS_WINDOWS)
