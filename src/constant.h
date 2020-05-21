@@ -330,6 +330,23 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
 );
 bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b);
 
+struct DeclarationSearchValue {
+    bool found;
+
+    Type *type;
+    ConstantValue *value;
+};
+
+DelayedResult<DeclarationSearchValue> search_for_declaration(
+    GlobalInfo info,
+    List<Job*> *jobs,
+    const char *name,
+    ConstantScope *scope,
+    Array<Statement*> statements,
+    bool external,
+    Statement *ignore
+);
+
 bool static_if_may_have_declaration(const char *name, bool external, StaticIf *static_if);
 
 DelayedResult<TypedConstantValue> evaluate_constant_expression(

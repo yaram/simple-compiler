@@ -92,7 +92,7 @@ static bool generate_function_signature(StringBuffer *source, const char *name, 
     return true;
 }
 
-profiled_function(bool, generate_c_object,(
+profiled_function(Result<Array<NameMapping>>, generate_c_object,(
     Array<RuntimeStatic*> statics,
     const char *architecture,
     const char *os,
@@ -105,11 +105,6 @@ profiled_function(bool, generate_c_object,(
     config,
     object_file_path
 )) {
-    struct NameMapping {
-        RuntimeStatic *runtime_static;
-
-        const char *name;
-    };
 
     List<NameMapping> name_mappings {};
 
@@ -120,7 +115,7 @@ profiled_function(bool, generate_c_object,(
                     error(runtime_static->scope, runtime_static->range, "Conflicting no_mangle name '%s'", name_mapping.name);
                     error(name_mapping.runtime_static->scope, name_mapping.runtime_static->range, "Conflicing declaration here");
 
-                    return false;
+                    return err;
                 }
             }
 
@@ -963,7 +958,7 @@ profiled_function(bool, generate_c_object,(
     if(source_file == nullptr) {
         fprintf(stderr, "Unable to create C output file\n");
 
-        return false;
+        return err;
     }
 
     fputs(forward_declaration_source.data, source_file);
@@ -998,10 +993,10 @@ profiled_function(bool, generate_c_object,(
     if(system(command_buffer.data) != 0) {
         fprintf(stderr, "Error: 'clang' returned non-zero\n");
 
-        return false;
+        return err;
     }
 
     leave_region();
 
-    return true;
+    return ok(to_array(name_mappings));
 }

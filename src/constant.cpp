@@ -1611,14 +1611,7 @@ bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b) {
     }
 }
 
-struct DeclarationSearchValue {
-    bool found;
-
-    Type *type;
-    ConstantValue *value;
-};
-
-static DelayedResult<DeclarationSearchValue> search_for_declaration(
+DelayedResult<DeclarationSearchValue> search_for_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
     const char *name,

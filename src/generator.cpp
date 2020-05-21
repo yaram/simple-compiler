@@ -2325,14 +2325,14 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
     }
 }
 
-struct DeclarationSearchValue {
+struct RuntimeDeclarationSearchValue {
     bool found;
 
     Type *type;
     RuntimeValue *value;
 };
 
-static DelayedResult<DeclarationSearchValue> search_for_declaration(
+static DelayedResult<RuntimeDeclarationSearchValue> search_for_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,

@@ -4,6 +4,7 @@
 #include "util.h"
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #if defined(OS_UNIX)
 
@@ -52,7 +53,24 @@ const char *path_get_directory_component(const char *path) {
     return output_buffer;
 }
 
+#if defined(OS_LINUX)
+#include <unistd.h>
+
+const char *get_executable_path() {
+    const auto buffer_size = 1024;
+    auto buffer = allocate<char>(buffer_size);
+    auto result = readlink("/proc/self/exe", buffer, buffer_size);
+    assert(result != -1);
+
+    buffer[result] = '\0';
+
+    return buffer;
+}
+#endif
+
 #elif defined(OS_WINDOWS)
+
+#include <Windows.h>
 
 Result<const char *> path_relative_to_absolute(const char *path) {
     auto absolute_path = allocate<char>(_MAX_PATH);
@@ -92,6 +110,14 @@ const char *path_get_file_component(const char *path) {
     strcat(buffer, path_extension);
 
     return buffer;
+}
+
+const char *get_executable_path() {
+    auto file_name = allocate<CHAR>(1024);
+    auto result = GetModuleFileNameA(nullptr, file_name, 1024);
+    assert(result != 1024);
+
+    return file_name;
 }
 
 #endif

@@ -316,6 +316,13 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     List<RuntimeStatic*> runtime_statics {};
     List<const char*> libraries {};
 
+    if(strcmp(os, "windows") == 0) {
+        append(&libraries, "kernel32.lib");
+    }
+
+    Job *main_function_waiting_for = main_file_parse_job;
+    Function *main_function = nullptr;
+
     uint64_t total_parser_time = 0;
     uint64_t total_generator_time = 0;
 
@@ -673,6 +680,97 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             }
         }
 
+        if(main_function == nullptr) {
+            assert(main_file_parse_job->done);
+
+            if(main_function_waiting_for != nullptr) {
+                if(!main_function_waiting_for->done) {
+                    continue;
+                }
+
+                main_function_waiting_for = nullptr;
+            }
+
+            did_work = true;
+
+            auto result = search_for_declaration(
+                info,
+                &jobs,
+                "main",
+                main_file_parse_job->scope,
+                main_file_parse_job->scope->statements,
+                false,
+                nullptr
+            );
+            if(!result.status) {
+                return false;
+            }
+
+            if(!result.has_value) {
+                main_function_waiting_for = result.waiting_for;
+
+                continue;
+            }
+
+            if(!result.value.found) {
+                fprintf(stderr, "Error: Cannot find 'main'\n");
+
+                return false;
+            }
+
+            if(result.value.type->kind != TypeKind::FunctionTypeType) {
+                fprintf(stderr, "Error: 'main' must be a function. Got '%s'\n", type_description(result.value.type));
+
+                return false;
+            }
+
+            auto function_type = (FunctionTypeType*)result.value.type;
+            auto function_value = extract_constant_value(FunctionConstant, result.value.value);
+
+            if(function_type->parameters.count != 0) {
+                error(main_file_parse_job->scope, function_value->declaration->range, "'main' must have zero parameters");
+
+                return false;
+            }
+
+            Integer expected_main_return_integer {
+                RegisterSize::Size32,
+                true
+            };
+
+            if(!types_equal(function_type->return_type, &expected_main_return_integer)) {
+                error(
+                    main_file_parse_job->scope,
+                    function_value->declaration->range,
+                    "Incorrect 'main' return type. Expected '%s', got '%s'",
+                    type_description(&expected_main_return_integer),
+                    type_description(function_type->return_type)
+                );
+
+                return false;
+            }
+
+            auto found = false;
+            for(auto job : jobs) {
+                if(job->kind == JobKind::GenerateFunction) {
+                    auto generate_function = (GenerateFunction*)job;
+
+                    if(
+                        types_equal(generate_function->type, function_type) &&
+                        generate_function->value->declaration == function_value->declaration &&
+                        generate_function->value->body_scope == function_value->body_scope
+                    ) {
+                        found = true;
+
+                        main_function = generate_function->function;
+
+                        break;
+                    }
+                }
+            }
+            assert(found);
+        }
+
         if(!did_work) {
             break;
         }
@@ -685,7 +783,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         }
     }
 
-    if(!all_jobs_done) {
+    if(!all_jobs_done || main_function == nullptr) {
         fprintf(stderr, "Error: Circular dependency detected!\n");
         fprintf(stderr, "Error: The following areas depend on eathother:\n");
 
@@ -802,12 +900,22 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     }
 
     uint64_t backend_time;
+    const char *main_function_name;
     {
         auto start_time = get_timer_counts();
 
-        if(!generate_c_object(to_array(runtime_statics), architecture, os, config, object_file_path)) {
-            return false;
+        expect(name_mappings, generate_c_object(to_array(runtime_statics), architecture, os, config, object_file_path));
+
+        auto found = false;
+        for(auto name_mapping : name_mappings) {
+            if(name_mapping.runtime_static == main_function) {
+                main_function_name = name_mapping.name;
+                found = true;
+
+                break;
+            }
         }
+        assert(found);
 
         auto end_time = get_timer_counts();
 
@@ -818,83 +926,82 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     if(!no_link) {
         auto start_time = get_timer_counts();
 
-        StringBuffer buffer {};
+        StringBuffer command_buffer {};
 
         const char *linker_options;
         if(strcmp(os, "windows") == 0) {
             if(strcmp(config, "debug") == 0) {
-                linker_options = "/entry:main,/DEBUG";
+                linker_options = "/entry:entry,/DEBUG,/SUBSYSTEM:CONSOLE";
             } else if(strcmp(config, "release") == 0) {
-                linker_options = "/entry:main";
+                linker_options = "/entry:entry,/SUBSYSTEM:CONSOLE";
             } else {
                 abort();
             }
         } else {
-            linker_options = "--entry=main";
+            linker_options = "--entry=entry";
         }
 
         auto triple = get_llvm_triple(architecture, os);
 
-        string_buffer_append(&buffer, "clang -nostdlib -fuse-ld=lld -target ");
+        string_buffer_append(&command_buffer, "clang -nostdlib -fuse-ld=lld -target ");
 
-        string_buffer_append(&buffer, triple);
+        string_buffer_append(&command_buffer, triple);
 
-        string_buffer_append(&buffer, " -Wl,");
-        string_buffer_append(&buffer, linker_options);
+        string_buffer_append(&command_buffer, " -Wl,");
+        string_buffer_append(&command_buffer, linker_options);
 
-        string_buffer_append(&buffer, " -o");
-        string_buffer_append(&buffer, output_file_path);
+        string_buffer_append(&command_buffer, " -o");
+        string_buffer_append(&command_buffer, output_file_path);
         
         for(auto library : libraries) {
-            string_buffer_append(&buffer, " -l");
-            string_buffer_append(&buffer, library);
+            string_buffer_append(&command_buffer, " -l");
+            string_buffer_append(&command_buffer, library);
         }
 
-        string_buffer_append(&buffer, " ");
-        string_buffer_append(&buffer, object_file_path);
+        string_buffer_append(&command_buffer, " ");
+        string_buffer_append(&command_buffer, object_file_path);
 
-        if(strcmp(os, "windows") == 0) {
-            StringBuffer fltused_source_file_path {};
-            string_buffer_append(&fltused_source_file_path, output_file_directory);
-            string_buffer_append(&fltused_source_file_path, "fltused.c");
+        auto executable_path = get_executable_path();
+        auto executable_directory = path_get_directory_component(executable_path);
 
-            auto fltused_source_file = fopen(fltused_source_file_path.data, "w");
-            if(fltused_source_file == nullptr) {
-                fprintf(stderr, "Error: Unable to create fltused.c\n");
-
-                return false;
-            }
-
-            fputs("int _fltused;", fltused_source_file);
-
-            fclose(fltused_source_file);
-
-            StringBuffer command_buffer {};
-
-            string_buffer_append(&command_buffer, "clang -std=c99 -ffreestanding -nostdinc -c -target ");
-
-            string_buffer_append(&command_buffer, triple);
-            
-            string_buffer_append(&command_buffer, " -o ");
-            string_buffer_append(&command_buffer, output_file_directory);
-            string_buffer_append(&command_buffer, "fltused.o ");
-
-            string_buffer_append(&command_buffer, fltused_source_file_path.data);
-
-            if(system(command_buffer.data) != 0) {
-                fprintf(stderr, "Error: 'clang' returned non-zero while compiling fltused.c\n");
-
-                return false;
-            }
-
-            string_buffer_append(&buffer, " ");
-            string_buffer_append(&buffer, output_file_directory);
-            string_buffer_append(&buffer, "fltused.o ");
+        const char *runtime_source_file_name;
+        if(strcmp(os, "linux") == 0) {
+            runtime_source_file_name = "runtime_linux.c";
+        } else if(strcmp(os, "windows") == 0) {
+            runtime_source_file_name = "runtime_windows.c";
+        } else {
+            abort();
         }
+
+        StringBuffer runtime_command_buffer {};
+
+        string_buffer_append(&runtime_command_buffer, "clang -std=gnu99 -ffreestanding -nostdinc -c -target ");
+
+        string_buffer_append(&runtime_command_buffer, triple);
+
+        string_buffer_append(&runtime_command_buffer, " -DMAIN=");
+        string_buffer_append(&runtime_command_buffer, main_function_name);
+        
+        string_buffer_append(&runtime_command_buffer, " -o ");
+        string_buffer_append(&runtime_command_buffer, output_file_directory);
+        string_buffer_append(&runtime_command_buffer, "runtime.o ");
+
+        string_buffer_append(&runtime_command_buffer, executable_directory);
+        string_buffer_append(&runtime_command_buffer, runtime_source_file_name);
+
+        if(system(runtime_command_buffer.data) != 0) {
+            fprintf(stderr, "Error: 'clang' returned non-zero while compiling runtime\n");
+
+            return false;
+        }
+
+        string_buffer_append(&command_buffer, " ");
+        string_buffer_append(&command_buffer, output_file_directory);
+        string_buffer_append(&command_buffer, "runtime.o");
 
         enter_region("linker");
 
-        if(system(buffer.data) != 0) {
+        if(system(command_buffer.data) != 0) {
             fprintf(stderr, "Error: 'clang' returned non-zero while linking\n");
 
             return false;

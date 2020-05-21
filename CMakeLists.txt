@@ -4,6 +4,11 @@ enable_testing()
 
 project(SimpleCompiler LANGUAGES CXX)
 
+add_custom_target(
+    copy_runtimes
+    COMMAND cmake -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/src/runtimes" "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>"
+)
+
 set(sources
     src/array.h
     src/list.h
@@ -67,10 +72,12 @@ target_compile_features(compiler PRIVATE cxx_std_11)
 if(PROFILING)
     target_compile_definitions(compiler PRIVATE PROFILING)
 endif()
+add_dependencies(compiler copy_runtimes)
 
 add_executable(test_driver
     src/test_driver.cpp
 )
+add_dependencies(test_driver compiler)
 
 target_compile_features(test_driver PRIVATE cxx_std_11)
 
