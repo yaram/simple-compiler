@@ -1,5 +1,5 @@
 CONSTANT :: 0;
 
-main :: () -> i32 no_mangle {
+main :: () -> i32 {
     return CONSTANT;
 }

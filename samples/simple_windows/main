@@ -78,7 +78,7 @@ window_procedure :: (hWnd: HWND, uMsg: UINT, wParam: WPARAM, lParam: LPARAM) -> 
     return 0;
 }
 
-main :: () -> i32 no_mangle {
+main :: () -> i32 {
     module_handle := GetModuleHandleA(0);
 
     class_name := "BestClass\0";

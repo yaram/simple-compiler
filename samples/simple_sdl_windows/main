@@ -1,7 +1,7 @@
 #import "sdl";
 using sdl;
 
-main :: () -> i32 no_mangle {
+main :: () -> i32 {
     if SDL_Init(SDL_INIT_VIDEO) != 0 {
         return 1;
     }

@@ -1,5 +1,5 @@
 #import "test";
 
-main :: () -> i32 no_mangle {
+main :: () -> i32 {
     return test.test();
 }

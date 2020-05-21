@@ -1,4 +1,4 @@
-main :: () -> i32 no_mangle {
+main :: () -> i32 {
     a: bool = true;
     b: bool = false;
 

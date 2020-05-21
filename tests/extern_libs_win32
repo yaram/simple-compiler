@@ -1,5 +1,5 @@
 MessageBoxA :: (hWnd: usize, lpText: usize, lpCaption: usize, uType: u32) -> i32 extern "user32.lib";
 
-main :: () -> i32 no_mangle {
+main :: () -> i32 {
     return MessageBoxA(0, 0, 0, -1 as u32);
 }
