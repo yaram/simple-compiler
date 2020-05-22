@@ -5,6 +5,7 @@ void entry() {
 
     int result = MAIN();
 
+    // Call exit_group system call
     asm(
         "movq $231, %%rax\n"
         "movq %0, %%rdi\n"
