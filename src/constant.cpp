@@ -2373,7 +2373,6 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 return err;
             }
 
-            auto found = false;
             for(auto job : *jobs) {
                 if(job->kind == JobKind::ResolvePolymorphicFunction) {
                     auto resolve_polymorphic_function = (ResolvePolymorphicFunction*)job;
@@ -2410,8 +2409,6 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                         }
 
                         if(resolve_polymorphic_function->done) {
-                            found = true;
-
                             return has({
                                 resolve_polymorphic_function->type,
                                 resolve_polymorphic_function->value
@@ -2423,26 +2420,24 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 }
             }
 
-            if(!found) {
-                auto call_parameter_ranges = allocate<FileRange>(declaration_parameter_count);
+            auto call_parameter_ranges = allocate<FileRange>(declaration_parameter_count);
 
-                for(size_t i = 0; i < declaration_parameter_count; i += 1) {
-                    call_parameter_ranges[i] = function_call->parameters[i]->range;
-                }
-
-                auto resolve_polymorphic_function = new ResolvePolymorphicFunction;
-                resolve_polymorphic_function->done = false;
-                resolve_polymorphic_function->waiting_for = nullptr;
-                resolve_polymorphic_function->declaration = polymorphic_function_value->declaration;
-                resolve_polymorphic_function->parameters = parameters;
-                resolve_polymorphic_function->scope = polymorphic_function_value->scope;
-                resolve_polymorphic_function->call_scope = scope;
-                resolve_polymorphic_function->call_parameter_ranges = call_parameter_ranges;
-
-                append(jobs, (Job*)resolve_polymorphic_function);
-
-                return wait(resolve_polymorphic_function);
+            for(size_t i = 0; i < declaration_parameter_count; i += 1) {
+                call_parameter_ranges[i] = function_call->parameters[i]->range;
             }
+
+            auto resolve_polymorphic_function = new ResolvePolymorphicFunction;
+            resolve_polymorphic_function->done = false;
+            resolve_polymorphic_function->waiting_for = nullptr;
+            resolve_polymorphic_function->declaration = polymorphic_function_value->declaration;
+            resolve_polymorphic_function->parameters = parameters;
+            resolve_polymorphic_function->scope = polymorphic_function_value->scope;
+            resolve_polymorphic_function->call_scope = scope;
+            resolve_polymorphic_function->call_parameter_ranges = call_parameter_ranges;
+
+            append(jobs, (Job*)resolve_polymorphic_function);
+
+            return wait(resolve_polymorphic_function);
         } else if(expression_value.type->kind == TypeKind::FunctionTypeType) {
             auto function_type = (FunctionTypeType*)expression_value.type;
             auto function_value = extract_constant_value(FunctionConstant, expression_value.value);
