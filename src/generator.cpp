@@ -2332,7 +2332,7 @@ struct RuntimeDeclarationSearchValue {
     RuntimeValue *value;
 };
 
-static DelayedResult<RuntimeDeclarationSearchValue> search_for_declaration(
+static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_for_declaration, (
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
@@ -2343,7 +2343,18 @@ static DelayedResult<RuntimeDeclarationSearchValue> search_for_declaration(
     FileRange name_range,
     Array<Statement*> statements,
     bool external
-) {
+), (
+    info,
+    jobs,
+    scope,
+    context,
+    instructions,
+    name,
+    name_scope,
+    name_range,
+    statements,
+    external
+)) {
     for(auto statement : statements) {
         bool matching;
         if(external) {
@@ -5577,7 +5588,8 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     info,
     jobs,
     type,
-    value
+    value,
+    function
 )) {
     auto declaration = value->declaration;
 
@@ -5778,12 +5790,17 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     return has(static_constants);
 }
 
-DelayedResult<StaticVariableResult> do_generate_static_variable(
+profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variable, (
     GlobalInfo info,
     List<Job*> *jobs,
     VariableDeclaration *declaration,
     ConstantScope *scope
-) {
+), (
+    info,
+    jobs,
+    declaration,
+    scope
+)) {
     if(declaration->is_external) {
         expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, declaration->type));
 

@@ -989,11 +989,13 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         string_buffer_append(&runtime_command_buffer, executable_directory);
         string_buffer_append(&runtime_command_buffer, runtime_source_file_name);
 
+        enter_region("clang");
         if(system(runtime_command_buffer.data) != 0) {
             fprintf(stderr, "Error: 'clang' returned non-zero while compiling runtime\n");
 
             return false;
         }
+        leave_region();
 
         string_buffer_append(&command_buffer, " ");
         string_buffer_append(&command_buffer, output_file_directory);

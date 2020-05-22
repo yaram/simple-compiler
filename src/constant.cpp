@@ -1611,7 +1611,7 @@ bool constant_values_equal(Type *type, ConstantValue *a, ConstantValue *b) {
     }
 }
 
-DelayedResult<DeclarationSearchValue> search_for_declaration(
+profiled_function(DelayedResult<DeclarationSearchValue>, search_for_declaration, (
     GlobalInfo info,
     List<Job*> *jobs,
     const char *name,
@@ -1619,7 +1619,15 @@ DelayedResult<DeclarationSearchValue> search_for_declaration(
     Array<Statement*> statements,
     bool external,
     Statement *ignore
-) {
+), (
+    info,
+    jobs,
+    name,
+    scope,
+    statements,
+    external,
+    ignore
+)) {
     for(auto statement : statements) {
         if(statement == ignore) {
             continue;
@@ -1750,7 +1758,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     jobs,
     scope,
     ignore_statement,
-    expression,
+    expression
 )) {
     if(expression->kind == ExpressionKind::NamedReference) {
         auto named_reference = (NamedReference*)expression;
@@ -2607,12 +2615,17 @@ DelayedResult<bool> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, Stat
     return has(condition_value);
 }
 
-DelayedResult<FunctionResolutionValue> do_resolve_function_declaration(
+profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_function_declaration, (
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionDeclaration *declaration,
     ConstantScope *scope
-) {
+), (
+    info,
+    jobs,
+    declaration,
+    scope
+)) {
     auto parameter_count = declaration->parameters.count;
 
     auto parameter_types = allocate<Type*>(parameter_count);
@@ -2677,7 +2690,7 @@ DelayedResult<FunctionResolutionValue> do_resolve_function_declaration(
     });
 }
 
-DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
+profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_polymorphic_function, (
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionDeclaration *declaration,
@@ -2685,7 +2698,15 @@ DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
     ConstantScope *scope,
     ConstantScope *call_scope,
     FileRange *call_parameter_ranges
-) {
+), (
+    info,
+    jobs,
+    declaration,
+    parameters,
+    scope,
+    call_scope,
+    call_parameter_ranges
+)) {
     auto original_parameter_count = declaration->parameters.count;
 
     auto parameter_types = allocate<Type*>(original_parameter_count);
@@ -2853,12 +2874,17 @@ DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
     });
 }
 
-DelayedResult<Type*> do_resolve_struct_definition(
+profiled_function(DelayedResult<Type*>, do_resolve_struct_definition, (
     GlobalInfo info,
     List<Job*> *jobs,
     StructDefinition *struct_definition,
     ConstantScope *scope
-) {
+), (
+    info,
+    jobs,
+    struct_definition,
+    scope
+)) {
     auto parameter_count = struct_definition->parameters.count;
 
     if(struct_definition->parameters.count > 0) {
@@ -2919,13 +2945,19 @@ DelayedResult<Type*> do_resolve_struct_definition(
     });
 }
 
-DelayedResult<Type*> do_resolve_polymorphic_struct(
+profiled_function(DelayedResult<Type*>, do_resolve_polymorphic_struct, (
     GlobalInfo info,
     List<Job*> *jobs,
     StructDefinition *struct_definition,
     ConstantValue **parameters,
     ConstantScope *scope
-) {
+), (
+    info,
+    jobs,
+    struct_definition,
+    parameters,
+scope
+)) {
     auto parameter_count = struct_definition->parameters.count;
     assert(parameter_count > 0);
 
