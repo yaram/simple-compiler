@@ -53,8 +53,8 @@ if(MSVC)
 else()
     set_target_properties(compiler PROPERTIES LINK_FLAGS -Wl,--stack,10000000)
 endif()
-target_link_libraries(compiler PRIVATE LLVMCore LLVMAnalysis)
-target_include_directories(compiler PRIVATE thirdparty/llvm/include)
+target_link_libraries(compiler PRIVATE LLVMCore LLVMAnalysis LLVMX86CodeGen)
+target_include_directories(compiler PRIVATE thirdparty/llvm/include "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/llvm/include")
 
 add_executable(test_driver
     src/test_driver.cpp

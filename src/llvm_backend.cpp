@@ -1,6 +1,9 @@
 #include "llvm_backend.h"
 #include <llvm-c/Core.h>
+#include <llvm-c/Target.h>
+#include <llvm-c/TargetMachine.h>
 #include <llvm-c/Analysis.h>
+#include <stdio.h>
 #include "util.h"
 #include "list.h"
 #include "platform.h"
@@ -613,8 +616,55 @@ bool generate_llvm_object(
     }
 
 #ifndef NDEBUG
-    LLVMVerifyModule(module, LLVMVerifierFailureAction::LLVMAbortProcessAction, nullptr);
+    assert(LLVMVerifyModule(module, LLVMVerifierFailureAction::LLVMAbortProcessAction, nullptr) == 0);
 #endif
 
-    return false;
+    auto triple = get_llvm_triple(architecture, os);
+
+    LLVMTargetRef target;
+    if(strcmp(architecture, "x64") == 0) {
+        LLVMInitializeX86TargetInfo();
+        LLVMInitializeX86Target();
+        LLVMInitializeX86TargetMC();
+        LLVMInitializeX86AsmPrinter();
+
+        auto status = LLVMGetTargetFromTriple(triple, &target, nullptr);
+        assert(status == 0);
+    } else {
+        abort();
+    }
+
+    LLVMCodeGenOptLevel optimization_level;
+    if(strcmp(config, "debug") == 0) {
+        optimization_level = LLVMCodeGenOptLevel::LLVMCodeGenLevelNone;
+    } else if(strcmp(config, "release") == 0) {
+        optimization_level = LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault;
+    } else {
+        abort();
+    }
+
+    auto target_machine = LLVMCreateTargetMachine(
+        target,
+        triple,
+        "",
+        "",
+        optimization_level,
+        LLVMRelocMode::LLVMRelocDefault,
+        LLVMCodeModel::LLVMCodeModelDefault
+    );
+    assert(target_machine);
+
+    char *output_file_path {};
+    string_buffer_append(&output_file_path, output_directory);
+    string_buffer_append(&output_file_path, output_name);
+    string_buffer_append(&output_file_path, ".o ");
+
+    char *error_message;
+    if(LLVMTargetMachineEmitToFile(target_machine, module, output_file_path, LLVMCodeGenFileType::LLVMObjectFile, &error_message) != 0) {
+        fprintf(stderr, "Error: Unable to emit object file '%s' (%s)\n", output_file_path, error_message);
+
+        return false;
+    }
+
+    return true;
 }
