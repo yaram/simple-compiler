@@ -953,6 +953,7 @@ profiled_function(Result<Array<NameMapping>>, generate_c_object,(
     string_buffer_append(&source_file_path_buffer, source_file_name);
     string_buffer_append(&source_file_path_buffer, ".c");
 
+    enter_region("write c source file");
     auto source_file = fopen(source_file_path_buffer.data, "w");
 
     if(source_file == nullptr) {
@@ -965,6 +966,7 @@ profiled_function(Result<Array<NameMapping>>, generate_c_object,(
     fputs(implementation_source.data, source_file);
 
     fclose(source_file);
+    leave_region();
 
     StringBuffer command_buffer {};
 

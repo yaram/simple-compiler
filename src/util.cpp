@@ -2,8 +2,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include "profiler.h"
 
-void string_buffer_append(StringBuffer *string_buffer, const char *string) {
+profiled_function_void(string_buffer_append, (StringBuffer *string_buffer, const char *string), (string_buffer, string)) {
     const size_t minimum_allocation = 64;
 
     auto string_length = strlen(string);

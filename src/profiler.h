@@ -16,6 +16,15 @@
     } \
     inline return_type __##name##_internal##parameters
 
+#define static_profiled_function_void(name, parameters, parameter_names) \
+    inline void __##name##_internal##parameters; \
+    static void name##parameters{ \
+        enter_region(__FUNCTION__); \
+        __##name##_internal##parameter_names; \
+        leave_region(); \
+    } \
+    inline void __##name##_internal##parameters
+
 #define profiled_function(return_type, name, parameters, parameter_names) \
     inline return_type __##name##_internal##parameters; \
     return_type name##parameters{ \
@@ -25,6 +34,15 @@
         return result; \
     } \
     inline return_type __##name##_internal##parameters
+
+#define profiled_function_void(name, parameters, parameter_names) \
+    inline void __##name##_internal##parameters; \
+    void name##parameters{ \
+        enter_region(__FUNCTION__); \
+        __##name##_internal##parameter_names; \
+        leave_region(); \
+    } \
+    inline void __##name##_internal##parameters
 
 extern uint8_t *profiler_buffer_pointer;
 
@@ -79,7 +97,9 @@ inline void leave_region() {
 #else
 
 #define static_profiled_function(return_type, name, parameters, parameter_names) static return_type name parameters
+#define static_profiled_function_void(name, parameters, parameter_names) static void name parameters
 #define profiled_function(return_type, name, parameters, parameter_names) return_type name parameters
+#define profiled_function_void(name, parameters, parameter_names) void name parameters
 
 #define enter_region(name)
 #define leave_region()
