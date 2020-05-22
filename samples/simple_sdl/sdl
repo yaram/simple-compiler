@@ -52,3 +52,11 @@ SDL_WINDOWEVENT_CLOSE :: 14;
         SDL_PollEvent :: (event: *SDL_Event) -> i32 extern "SDL2-static.lib", "kernel32.lib", "user32.lib", "gdi32.lib", "winmm.lib", "imm32.lib", "ole32.lib", "oleaut32.lib", "version.lib", "uuid.lib", "advapi32.lib", "shell32.lib", "setupapi.lib";
     }
 }
+
+#if LINUX {
+    SDL_Init :: (flags: u32) -> i32 extern "SDL2";
+
+    SDL_CreateWindow :: (title: *u8, x: i32, y: i32, w: i32, h: i32, flags: u32) -> *SDL_Window extern "SDL2";
+
+    SDL_PollEvent :: (event: *SDL_Event) -> i32 extern "SDL2";
+}
