@@ -279,7 +279,7 @@ struct StoreFloat : Instruction {
 };
 
 struct CopyMemory : Instruction {
-    size_t length_register;
+    size_t length;
 
     size_t source_address_register;
 

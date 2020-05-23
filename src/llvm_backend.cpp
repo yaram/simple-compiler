@@ -725,9 +725,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto destination_pointer_value = LLVMBuildIntToPtr(builder, destination_address_value, pointer_type, "destination");
 
-                        auto length_value = get_register_value(*function, function_value, registers, copy_memory->length_register);
+                        auto length_value = LLVMConstInt(get_llvm_integer_type(register_sizes.address_size), copy_memory->length, false);
 
-                        LLVMBuildMemCpy(
+                        LLVMBuildMemCpyInline(
                             builder,
                             destination_pointer_value,
                             (unsigned int)copy_memory->alignment,

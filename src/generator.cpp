@@ -629,34 +629,19 @@ static void append_copy_memory(
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
-    size_t length_register,
+    size_t length,
     size_t source_address_register,
     size_t destination_address_register,
     size_t alignment
 ) {
     auto copy_memory = new CopyMemory;
     copy_memory->range = range;
-    copy_memory->length_register = length_register;
+    copy_memory->length = length;
     copy_memory->source_address_register = source_address_register;
     copy_memory->destination_address_register = destination_address_register;
     copy_memory->alignment = alignment;
 
     append(instructions, (Instruction*)copy_memory);
-}
-
-static void generate_constant_size_copy(
-    GlobalInfo info,
-    GenerationContext *context,
-    List<Instruction*> *instructions,
-    FileRange range,
-    size_t length,
-    size_t source_address_register,
-    size_t destination_address_register,
-    size_t alignment
-) {
-    auto length_register = append_integer_constant(context, instructions, range, info.address_integer_size, length);
-
-    append_copy_memory(context, instructions, range, length_register, source_address_register, destination_address_register, alignment);
 }
 
 static size_t append_load_integer(
@@ -1495,8 +1480,7 @@ static bool coerce_to_type_write(
                     abort();
                 }
 
-                generate_constant_size_copy(
-                    info,
+                append_copy_memory(
                     context,
                     instructions,
                     range,
@@ -1653,8 +1637,7 @@ static bool coerce_to_type_write(
                     abort();
                 }
 
-                generate_constant_size_copy(
-                    info,
+                append_copy_memory(
                     context,
                     instructions,
                     range,
@@ -1713,8 +1696,7 @@ static bool coerce_to_type_write(
                         abort();
                     }
 
-                    generate_constant_size_copy(
-                        info,
+                    append_copy_memory(
                         context,
                         instructions,
                         range,
@@ -3754,15 +3736,15 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 Integer usize_type { info.address_integer_size, false };
 
-                expect_delayed(size_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[2]));
+                expect_delayed(size, evaluate_constant_expression(info, jobs, scope, nullptr, function_call->parameters[2]));
 
-                if(!types_equal(size_value.type, &usize_type)) {
+                if(!types_equal(size.type, &usize_type)) {
                     error(
                         scope,
                         function_call->parameters[1]->range,
                         "Incorrect type for parameter 2. Expected '%s', got '%s'",
                         type_description(&usize_type),
-                        type_description(size_value.type)
+                        type_description(size.type)
                     );
 
                     return err;
@@ -3784,19 +3766,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     source_value.value
                 );
 
-                auto size_register = generate_in_register_integer_value(
-                    context,
-                    instructions,
-                    function_call->parameters[2]->range,
-                    usize_type,
-                    size_value.value
-                );
+                auto size_value = (IntegerConstant*)size.value;
 
                 append_copy_memory(
                     context,
                     instructions,
                     function_call->range,
-                    size_register,
+                    size_value->value,
                     source_address_register,
                     destination_address_register,
                     1
@@ -5727,8 +5703,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
                         );
                     }
                 } else {
-                    generate_constant_size_copy(
-                        info,
+                    append_copy_memory(
                         &context,
                         &instructions,
                         declaration->parameters[i].name.range,

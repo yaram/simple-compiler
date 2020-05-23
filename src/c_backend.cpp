@@ -831,8 +831,8 @@ profiled_function(Result<Array<NameMapping>>, generate_c_object,(
 
                         string_buffer_append(&implementation_source, "for(");
                         generate_integer_type(&implementation_source, register_sizes.address_size, false);
-                        string_buffer_append(&implementation_source, " i=0;i<reg_");
-                        string_buffer_append(&implementation_source, copy_memory->length_register);
+                        string_buffer_append(&implementation_source, " i=0;i<");
+                        string_buffer_append(&implementation_source, copy_memory->length);
                         string_buffer_append(&implementation_source, ";i++)");
 
                         string_buffer_append(&implementation_source, "{");

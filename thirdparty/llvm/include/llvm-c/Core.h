@@ -3780,6 +3780,12 @@ LLVMValueRef LLVMBuildMemCpy(LLVMBuilderRef B,
                              LLVMValueRef Dst, unsigned DstAlign,
                              LLVMValueRef Src, unsigned SrcAlign,
                              LLVMValueRef Size);
+
+LLVMValueRef LLVMBuildMemCpyInline(LLVMBuilderRef B,
+                             LLVMValueRef Dst, unsigned DstAlign,
+                             LLVMValueRef Src, unsigned SrcAlign,
+                             LLVMValueRef Size);
+
 /**
  * Creates and inserts a memmove between the specified pointers.
  *

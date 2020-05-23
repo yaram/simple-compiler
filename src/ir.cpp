@@ -375,8 +375,8 @@ void print_instruction(Instruction *instruction, bool has_return) {
         auto copy_memory = (CopyMemory*)instruction;
 
         printf(
-            "COPY r%zu (%zu), r%zu, r%zu",
-            copy_memory->length_register,
+            "COPY %zu (%zu), r%zu, r%zu",
+            copy_memory->length,
             copy_memory->alignment,
             copy_memory->source_address_register,
             copy_memory->destination_address_register

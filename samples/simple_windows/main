@@ -51,7 +51,9 @@ print_string :: (string: []u8) {
         length_to_copy = buffer.length - 1;
     }
 
-    memcpy(buffer.pointer, string.pointer, length_to_copy);
+    for 0..length_to_copy {
+        buffer[it] = string[it];
+    }
 
     buffer[length_to_copy] = 0;
 
