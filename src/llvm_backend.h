@@ -2,11 +2,16 @@
 
 #include "ir.h"
 
-bool generate_llvm_object(
+struct NameMapping {
+    RuntimeStatic *runtime_static;
+
+    const char *name;
+};
+
+Result<Array<NameMapping>> generate_llvm_object(
     Array<RuntimeStatic*> statics,
     const char *architecture,
     const char *os,
     const char *config,
-    const char *output_directory,
-    const char *output_name
+    const char *object_file_path
 );

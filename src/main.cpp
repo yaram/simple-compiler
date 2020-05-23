@@ -6,7 +6,7 @@
 #include "profiler.h"
 #include "lexer.h"
 #include "parser.h"
-#include "c_backend.h"
+#include "llvm_backend.h"
 #include "util.h"
 #include "platform.h"
 #include "path.h"
@@ -904,7 +904,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     {
         auto start_time = get_timer_counts();
 
-        expect(name_mappings, generate_c_object(to_array(runtime_statics), architecture, os, config, object_file_path));
+        expect(name_mappings, generate_llvm_object(to_array(runtime_statics), architecture, os, config, object_file_path));
 
         auto found = false;
         for(auto name_mapping : name_mappings) {
@@ -1025,7 +1025,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     printf("Total time: %.2fms\n", (double)total_time / counts_per_second * 1000);
     printf("  Parser time: %.2fms\n", (double)total_parser_time / counts_per_second * 1000);
     printf("  Generator time: %.2fms\n", (double)total_generator_time / counts_per_second * 1000);
-    printf("  C Backend time: %.2fms\n", (double)backend_time / counts_per_second * 1000);
+    printf("  LLVM Backend time: %.2fms\n", (double)backend_time / counts_per_second * 1000);
     if(!no_link) {
         printf("  Linker time: %.2fms\n", (double)linker_time / counts_per_second * 1000);
     }

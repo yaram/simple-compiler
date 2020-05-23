@@ -7,6 +7,7 @@
 #include "util.h"
 #include "list.h"
 #include "platform.h"
+#include "profiler.h"
 
 LLVMTypeRef get_llvm_integer_type(RegisterSize size) {
     switch(size) {
@@ -79,22 +80,91 @@ LLVMValueRef get_register_value(Function function, LLVMValueRef function_value, 
     abort();
 }
 
-bool generate_llvm_object(
+profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     Array<RuntimeStatic*> statics,
     const char *architecture,
     const char *os,
     const char *config,
-    const char *output_directory,
-    const char *output_name
-) {
+    const char *object_file_path
+), (
+    statics,
+    architecture,
+    os,
+    config,
+    object_file_path
+)) {
+    List<NameMapping> name_mappings {};
+
+    for(auto runtime_static : statics) {
+        if(runtime_static->is_no_mangle) {
+            for(auto name_mapping : name_mappings) {
+                if(strcmp(name_mapping.name, runtime_static->name) == 0) {
+                    error(runtime_static->scope, runtime_static->range, "Conflicting no_mangle name '%s'", name_mapping.name);
+                    error(name_mapping.runtime_static->scope, name_mapping.runtime_static->range, "Conflicing declaration here");
+
+                    return err;
+                }
+            }
+
+            append(&name_mappings, {
+                runtime_static,
+                runtime_static->name
+            });
+        }
+    }
+
+    for(auto runtime_static : statics) {
+        if(!runtime_static->is_no_mangle) {
+            StringBuffer name_buffer {};
+
+            size_t number = 0;
+            while(true) {
+                string_buffer_append(&name_buffer, runtime_static->name);
+                if(number != 0) {
+                    string_buffer_append(&name_buffer, "_");
+                    string_buffer_append(&name_buffer, number);
+                }
+
+                auto name_taken = false;
+                for(auto name_mapping : name_mappings) {
+                    if(strcmp(name_mapping.name, name_buffer.data) == 0) {
+                        name_taken = true;
+                        break;
+                    }
+                }
+
+                if(name_taken) {
+                    name_buffer.length = 0;
+                    number += 1;
+                } else {
+                    append(&name_mappings, {
+                        runtime_static,
+                        name_buffer.data
+                    });
+
+                    break;
+                }
+            }
+        }
+    }
+
+    assert(name_mappings.count == statics.count);
+
     auto register_sizes = get_register_sizes(architecture);
 
     auto builder = LLVMCreateBuilder();
 
     auto module = LLVMModuleCreateWithName("module");
 
-    for(auto runtime_static : statics) {
-        if(auto function = dynamic_cast<Function*>(runtime_static)) {
+    auto global_values = allocate<LLVMValueRef>(statics.count);
+
+    for(size_t i = 0; i < statics.count; i += 1) {
+        auto runtime_static = statics[i];
+
+        LLVMValueRef global_value;
+        if(runtime_static->kind == RuntimeStaticKind::Function) {
+            auto function = (Function*)runtime_static;
+
             auto parameter_count = function->parameters.count;
             auto parameter_types = allocate<LLVMTypeRef>(parameter_count);
             for(size_t i = 0; i < parameter_count; i += 1) {
@@ -112,15 +182,17 @@ bool generate_llvm_object(
 
             auto function_type = LLVMFunctionType(return_type, parameter_types, (unsigned int)parameter_count, false);
 
-            auto global_value = LLVMAddFunction(module, function->name, function_type);
+            global_value = LLVMAddFunction(module, function->name, function_type);
 
             if(function->is_external) {
                 LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
             }
-        } else if(auto constant = dynamic_cast<StaticConstant*>(runtime_static)) {
+        } else if(runtime_static->kind == RuntimeStaticKind::StaticConstant) {
+            auto constant = (StaticConstant*)runtime_static;
+
             auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)constant->data.count);
 
-            auto global_value = LLVMAddGlobal(module, byte_array_type, constant->name);
+            global_value = LLVMAddGlobal(module, byte_array_type, constant->name);
             LLVMSetAlignment(global_value, (unsigned int)constant->alignment);
             LLVMSetGlobalConstant(global_value, true);
 
@@ -133,22 +205,38 @@ bool generate_llvm_object(
             auto array_constant = LLVMConstArray(LLVMInt8Type(), element_values, (unsigned int)constant->data.count);
 
             LLVMSetInitializer(global_value, array_constant);
-        } else if(auto variable = dynamic_cast<StaticVariable*>(runtime_static)) {
+        } else if(runtime_static->kind == RuntimeStaticKind::StaticVariable) {
+            auto variable = (StaticVariable*)runtime_static;
+
             auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)variable->size);
 
-            auto global_value = LLVMAddGlobal(module, byte_array_type, variable->name);
+            global_value = LLVMAddGlobal(module, byte_array_type, variable->name);
             LLVMSetAlignment(global_value, (unsigned int)variable->alignment);
 
-            if(!variable->is_external) {
+            if(variable->is_external) {
                 LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
+            } else if(variable->has_initial_data) {
+                auto element_values = allocate<LLVMValueRef>(variable->size);
+
+                for(size_t i = 0; i < variable->size; i += 1) {
+                    element_values[i] = LLVMConstInt(LLVMInt8Type(), variable->initial_data[i], false);
+                }
+
+                auto array_constant = LLVMConstArray(LLVMInt8Type(), element_values, (unsigned int)variable->size);
+
+                LLVMSetInitializer(global_value, array_constant);
             }
         } else {
             abort();
         }
+
+        global_values[i] = global_value;
     }
 
     for(auto runtime_static : statics) {
-        if(auto function = dynamic_cast<Function*>(runtime_static)) {
+        if(runtime_static->kind == RuntimeStaticKind::Function) {
+            auto function = (Function*)runtime_static;
+
             auto function_value = LLVMGetNamedFunction(module, function->name);
             assert(function_value);
 
@@ -156,11 +244,11 @@ bool generate_llvm_object(
                 auto blocks = allocate<LLVMBasicBlockRef>(function->instructions.count);
 
                 for(size_t i = 0 ; i < function->instructions.count; i += 1) {
-                    char *block_name {};
+                    StringBuffer block_name {};
                     string_buffer_append(&block_name, "block_");
                     string_buffer_append(&block_name, i);
 
-                    blocks[i] = LLVMAppendBasicBlock(function_value, block_name);
+                    blocks[i] = LLVMAppendBasicBlock(function_value, block_name.data);
                 }
 
                 List<Register> registers {};
@@ -171,7 +259,9 @@ bool generate_llvm_object(
                     LLVMPositionBuilderAtEnd(builder, blocks[i]);
 
                     auto need_end_branch = true;
-                    if(auto integer_arithmetic_operation = dynamic_cast<IntegerArithmeticOperation*>(instruction)) {
+                    if(instruction->kind == InstructionKind::IntegerArithmeticOperation) {
+                        auto integer_arithmetic_operation = (IntegerArithmeticOperation*)instruction;
+
                         auto type = get_llvm_integer_type(integer_arithmetic_operation->size);
 
                         auto value_a = LLVMBuildTrunc(
@@ -235,7 +325,9 @@ bool generate_llvm_object(
                             integer_arithmetic_operation->destination_register,
                             value
                         });
-                    } else if(auto integer_comparison_operation = dynamic_cast<IntegerComparisonOperation*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::IntegerComparisonOperation) {
+                        auto integer_comparison_operation = (IntegerComparisonOperation*)instruction;
+
                         auto type = get_llvm_integer_type(integer_comparison_operation->size);
 
                         auto value_a = LLVMBuildTrunc(
@@ -293,7 +385,9 @@ bool generate_llvm_object(
                             integer_comparison_operation->destination_register,
                             extended_value
                         });
-                    } else if(auto integer_upcast = dynamic_cast<IntegerUpcast*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::IntegerUpcast) {
+                        auto integer_upcast = (IntegerUpcast*)instruction;
+
                         auto source_value = LLVMBuildTrunc(
                             builder,
                             get_register_value(*function, function_value, registers, integer_upcast->source_register),
@@ -312,14 +406,18 @@ bool generate_llvm_object(
                             integer_upcast->destination_register,
                             value
                         });
-                    } else if(auto integer_constant = dynamic_cast<IntegerConstantInstruction*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::IntegerConstantInstruction) {
+                        auto integer_constant = (IntegerConstantInstruction*)instruction;
+
                         auto value = LLVMConstInt(get_llvm_integer_type(integer_constant->size), integer_constant->value, false);
 
                         append(&registers, {
                             integer_constant->destination_register,
                             value
                         });
-                    } else if(auto float_arithmetic_operation = dynamic_cast<FloatArithmeticOperation*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FloatArithmeticOperation) {
+                        auto float_arithmetic_operation = (FloatArithmeticOperation*)instruction;
+
                         auto value_a = get_register_value(*function, function_value, registers, float_arithmetic_operation->source_register_a);
                         auto value_b = get_register_value(*function, function_value, registers, float_arithmetic_operation->source_register_b);
 
@@ -350,9 +448,11 @@ bool generate_llvm_object(
                             float_arithmetic_operation->destination_register,
                             value
                         });
-                    } else if(auto float_comparison_operation = dynamic_cast<FloatComparisonOperation*>(instruction)) {
-                        auto value_a = get_register_value(*function, function_value, registers, float_arithmetic_operation->source_register_a);
-                        auto value_b = get_register_value(*function, function_value, registers, float_arithmetic_operation->source_register_b);
+                    } else if(instruction->kind == InstructionKind::FloatComparisonOperation) {
+                        auto float_comparison_operation = (FloatComparisonOperation*)instruction;
+
+                        auto value_a = get_register_value(*function, function_value, registers, float_comparison_operation->source_register_a);
+                        auto value_b = get_register_value(*function, function_value, registers, float_comparison_operation->source_register_b);
 
                         LLVMRealPredicate predicate;
                         const char *name;
@@ -385,7 +485,9 @@ bool generate_llvm_object(
                             float_comparison_operation->destination_register,
                             extended_value
                         });
-                    } else if(auto float_conversion = dynamic_cast<FloatConversion*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FloatConversion) {
+                        auto float_conversion = (FloatConversion*)instruction;
+
                         auto source_value = get_register_value(*function, function_value, registers, float_conversion->source_register);
 
                         auto value = LLVMBuildFPCast(builder, source_value, get_llvm_float_type(float_conversion->destination_size), "float_conversion");
@@ -394,7 +496,9 @@ bool generate_llvm_object(
                             float_conversion->destination_register,
                             value
                         });
-                    } else if(auto float_truncation = dynamic_cast<FloatTruncation*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FloatTruncation) {
+                        auto float_truncation = (FloatTruncation*)instruction;
+
                         auto source_value = get_register_value(*function, function_value, registers, float_truncation->source_register);
 
                         auto value = LLVMBuildFPToSI(builder, source_value, get_llvm_integer_type(float_truncation->destination_size), "float_truncation");
@@ -403,7 +507,9 @@ bool generate_llvm_object(
                             float_truncation->destination_register,
                             value
                         });
-                    } else if(auto float_from_integer = dynamic_cast<FloatFromInteger*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FloatFromInteger) {
+                        auto float_from_integer = (FloatFromInteger*)instruction;
+
                         auto source_value = LLVMBuildTrunc(
                             builder,
                             get_register_value(*function, function_value, registers, float_from_integer->source_register),
@@ -417,18 +523,24 @@ bool generate_llvm_object(
                             float_from_integer->destination_register,
                             value
                         });
-                    } else if(auto float_constant = dynamic_cast<FloatConstantInstruction*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FloatConstantInstruction) {
+                        auto float_constant = (FloatConstantInstruction*)instruction;
+
                         auto value = LLVMConstReal(get_llvm_float_type(float_constant->size), float_constant->value);
 
                         append(&registers, {
                             float_constant->destination_register,
                             value
                         });
-                    } else if(auto jump = dynamic_cast<Jump*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::Jump) {
+                        auto jump = (Jump*)instruction;
+
                         LLVMBuildBr(builder, blocks[jump->destination_instruction]);
 
                         need_end_branch = false;
-                    } else if(auto branch = dynamic_cast<Branch*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::Branch) {
+                        auto branch = (Branch*)instruction;
+
                         auto condition_value = get_register_value(*function, function_value, registers, branch->condition_register);
 
                         auto truncated_condition_value = LLVMBuildTrunc(builder, condition_value, LLVMInt1Type(), "truncate");
@@ -436,7 +548,9 @@ bool generate_llvm_object(
                         LLVMBuildCondBr(builder, truncated_condition_value, blocks[branch->destination_instruction], blocks[i + 1]);
 
                         need_end_branch = false;
-                    } else if(auto function_call = dynamic_cast<FunctionCallInstruction*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::FunctionCallInstruction) {
+                        auto function_call = (FunctionCallInstruction*)instruction;
+
                         auto parameter_count = function_call->parameters.count;
 
                         auto parameter_types = allocate<LLVMTypeRef>(parameter_count);
@@ -491,7 +605,9 @@ bool generate_llvm_object(
                                 value
                             });
                         }
-                    } else if(auto return_instruction = dynamic_cast<ReturnInstruction*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::ReturnInstruction) {
+                        auto return_instruction = (ReturnInstruction*)instruction;
+
                         if(function->has_return) {
                             auto return_value = get_register_value(*function, function_value, registers, return_instruction->value_register);
 
@@ -501,7 +617,9 @@ bool generate_llvm_object(
                         }
 
                         need_end_branch = false;
-                    } else if(auto allocate_local = dynamic_cast<AllocateLocal*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::AllocateLocal) {
+                        auto allocate_local = (AllocateLocal*)instruction;
+
                         auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)allocate_local->size);
 
                         auto pointer_value = LLVMBuildAlloca(builder, byte_array_type, "allocate_local");
@@ -514,7 +632,9 @@ bool generate_llvm_object(
                             allocate_local->destination_register,
                             address_value
                         });
-                    } else if(auto load_integer = dynamic_cast<LoadInteger*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::LoadInteger) {
+                        auto load_integer = (LoadInteger*)instruction;
+
                         auto address_value = get_register_value(*function, function_value, registers, load_integer->address_register);
 
                         auto pointer_type = LLVMPointerType(get_llvm_integer_type(load_integer->size), 0);
@@ -527,7 +647,9 @@ bool generate_llvm_object(
                             load_integer->destination_register,
                             value
                         });
-                    } else if(auto store_integer = dynamic_cast<StoreInteger*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::StoreInteger) {
+                        auto store_integer = (StoreInteger*)instruction;
+
                         auto source_value = LLVMBuildTrunc(
                             builder,
                             get_register_value(*function, function_value, registers, store_integer->source_register),
@@ -542,7 +664,9 @@ bool generate_llvm_object(
                         auto pointer_value = LLVMBuildIntToPtr(builder, address_value, pointer_type, "pointer");
 
                         LLVMBuildStore(builder, source_value, pointer_value);
-                    } else if(auto load_float = dynamic_cast<LoadFloat*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::LoadFloat) {
+                        auto load_float = (LoadFloat*)instruction;
+
                         auto address_value = get_register_value(*function, function_value, registers, load_float->address_register);
 
                         auto pointer_type = LLVMPointerType(get_llvm_float_type(load_float->size), 0);
@@ -555,7 +679,9 @@ bool generate_llvm_object(
                             load_float->destination_register,
                             value
                         });
-                    } else if(auto store_float = dynamic_cast<StoreFloat*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::StoreFloat) {
+                        auto store_float = (StoreFloat*)instruction;
+
                         auto source_value = get_register_value(*function, function_value, registers, store_float->source_register);
 
                         auto address_value = get_register_value(*function, function_value, registers, store_float->address_register);
@@ -565,22 +691,30 @@ bool generate_llvm_object(
                         auto pointer_value = LLVMBuildIntToPtr(builder, address_value, pointer_type, "pointer");
 
                         LLVMBuildStore(builder, source_value, pointer_value);
-                    } else if(auto reference_static = dynamic_cast<ReferenceStatic*>(instruction)) {
-                        auto pointer_value = LLVMGetNamedGlobal(module, reference_static->name);
+                    } else if(instruction->kind == InstructionKind::ReferenceStatic) {
+                        auto reference_static = (ReferenceStatic*)instruction;
 
-                        if(!pointer_value) {
-                            pointer_value = LLVMGetNamedFunction(module, reference_static->name);
+                        auto found = false;
+                        LLVMValueRef global_value;
+                        for(size_t i = 0; i < statics.count; i += 1) {
+                            if(statics[i] == reference_static->runtime_static) {
+                                global_value = global_values[i];
+                                found = true;
+
+                                break;
+                            }
                         }
+                        assert(found);
 
-                        assert(pointer_value);
-
-                        auto address_value = LLVMBuildPtrToInt(builder, pointer_value, get_llvm_integer_type(register_sizes.address_size), "static_address");
+                        auto address_value = LLVMBuildPtrToInt(builder, global_value, get_llvm_integer_type(register_sizes.address_size), "static_address");
 
                         append(&registers, {
                             reference_static->destination_register,
                             address_value
                         });
-                    } else if(auto copy_memory = dynamic_cast<CopyMemory*>(instruction)) {
+                    } else if(instruction->kind == InstructionKind::CopyMemory) {
+                        auto copy_memory = (CopyMemory*)instruction;
+
                         auto pointer_type = LLVMPointerType(LLVMInt8Type(), 0);
 
                         auto source_address_value = get_register_value(*function, function_value, registers, copy_memory->source_address_register);
@@ -654,17 +788,12 @@ bool generate_llvm_object(
     );
     assert(target_machine);
 
-    char *output_file_path {};
-    string_buffer_append(&output_file_path, output_directory);
-    string_buffer_append(&output_file_path, output_name);
-    string_buffer_append(&output_file_path, ".o ");
-
     char *error_message;
-    if(LLVMTargetMachineEmitToFile(target_machine, module, output_file_path, LLVMCodeGenFileType::LLVMObjectFile, &error_message) != 0) {
-        fprintf(stderr, "Error: Unable to emit object file '%s' (%s)\n", output_file_path, error_message);
+    if(LLVMTargetMachineEmitToFile(target_machine, module, (char*)object_file_path, LLVMCodeGenFileType::LLVMObjectFile, &error_message) != 0) {
+        fprintf(stderr, "Error: Unable to emit object file '%s' (%s)\n", object_file_path, error_message);
 
-        return false;
+        return err;
     }
 
-    return true;
+    return ok(to_array(name_mappings));
 }
