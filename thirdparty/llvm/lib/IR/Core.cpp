@@ -3466,6 +3466,15 @@ LLVMValueRef LLVMBuildMemCpy(LLVMBuilderRef B,
                                       unwrap(Size)));
 }
 
+LLVMValueRef LLVMBuildMemCpyInline(LLVMBuilderRef B,
+                             LLVMValueRef Dst, unsigned DstAlign,
+                             LLVMValueRef Src, unsigned SrcAlign,
+                             LLVMValueRef Size) {
+  return wrap(unwrap(B)->CreateMemCpyInline(unwrap(Dst), MaybeAlign(DstAlign),
+                                      unwrap(Src), MaybeAlign(SrcAlign),
+                                      unwrap(Size)));
+}
+
 LLVMValueRef LLVMBuildMemMove(LLVMBuilderRef B,
                               LLVMValueRef Dst, unsigned DstAlign,
                               LLVMValueRef Src, unsigned SrcAlign,
