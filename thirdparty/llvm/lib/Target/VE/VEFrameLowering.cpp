@@ -12,6 +12,7 @@
 
 #include "VEFrameLowering.h"
 #include "VEInstrInfo.h"
+#include "VEMachineFunctionInfo.h"
 #include "VESubtarget.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
@@ -48,20 +49,24 @@ void VEFrameLowering::emitPrologueInsns(MachineFunction &MF,
   //    st %plt, 32(,%sp)
   //    or %fp, 0, %sp
 
-  BuildMI(MBB, MBBI, dl, TII.get(VE::STSri))
+  BuildMI(MBB, MBBI, dl, TII.get(VE::STrii))
       .addReg(VE::SX11)
       .addImm(0)
+      .addImm(0)
       .addReg(VE::SX9);
-  BuildMI(MBB, MBBI, dl, TII.get(VE::STSri))
+  BuildMI(MBB, MBBI, dl, TII.get(VE::STrii))
       .addReg(VE::SX11)
+      .addImm(0)
       .addImm(8)
       .addReg(VE::SX10);
-  BuildMI(MBB, MBBI, dl, TII.get(VE::STSri))
+  BuildMI(MBB, MBBI, dl, TII.get(VE::STrii))
       .addReg(VE::SX11)
+      .addImm(0)
       .addImm(24)
       .addReg(VE::SX15);
-  BuildMI(MBB, MBBI, dl, TII.get(VE::STSri))
+  BuildMI(MBB, MBBI, dl, TII.get(VE::STrii))
       .addReg(VE::SX11)
+      .addImm(0)
       .addImm(32)
       .addReg(VE::SX16);
   BuildMI(MBB, MBBI, dl, TII.get(VE::ORri), VE::SX9)
@@ -89,17 +94,21 @@ void VEFrameLowering::emitEpilogueInsns(MachineFunction &MF,
   BuildMI(MBB, MBBI, dl, TII.get(VE::ORri), VE::SX11)
       .addReg(VE::SX9)
       .addImm(0);
-  BuildMI(MBB, MBBI, dl, TII.get(VE::LDSri), VE::SX16)
+  BuildMI(MBB, MBBI, dl, TII.get(VE::LDrii), VE::SX16)
       .addReg(VE::SX11)
+      .addImm(0)
       .addImm(32);
-  BuildMI(MBB, MBBI, dl, TII.get(VE::LDSri), VE::SX15)
+  BuildMI(MBB, MBBI, dl, TII.get(VE::LDrii), VE::SX15)
       .addReg(VE::SX11)
+      .addImm(0)
       .addImm(24);
-  BuildMI(MBB, MBBI, dl, TII.get(VE::LDSri), VE::SX10)
+  BuildMI(MBB, MBBI, dl, TII.get(VE::LDrii), VE::SX10)
       .addReg(VE::SX11)
+      .addImm(0)
       .addImm(8);
-  BuildMI(MBB, MBBI, dl, TII.get(VE::LDSri), VE::SX9)
+  BuildMI(MBB, MBBI, dl, TII.get(VE::LDrii), VE::SX9)
       .addReg(VE::SX11)
+      .addImm(0)
       .addImm(0);
 }
 
@@ -112,7 +121,7 @@ void VEFrameLowering::emitSPAdjustment(MachineFunction &MF,
       *static_cast<const VEInstrInfo *>(MF.getSubtarget().getInstrInfo());
 
   if (NumBytes >= -64 && NumBytes < 63) {
-    BuildMI(MBB, MBBI, dl, TII.get(VE::ADXri), VE::SX11)
+    BuildMI(MBB, MBBI, dl, TII.get(VE::ADDSLri), VE::SX11)
         .addReg(VE::SX11)
         .addImm(NumBytes);
     return;
@@ -123,15 +132,17 @@ void VEFrameLowering::emitSPAdjustment(MachineFunction &MF,
   //   lea     %s13,%lo(NumBytes)
   //   and     %s13,%s13,(32)0
   //   lea.sl  %sp,%hi(NumBytes)(%sp, %s13)
-  BuildMI(MBB, MBBI, dl, TII.get(VE::LEAzzi), VE::SX13)
-      .addImm(LO32(NumBytes));
-  BuildMI(MBB, MBBI, dl, TII.get(VE::ANDrm0), VE::SX13)
+  BuildMI(MBB, MBBI, dl, TII.get(VE::LEAzii), VE::SX13)
+      .addImm(0)
+      .addImm(0)
+      .addImm(Lo_32(NumBytes));
+  BuildMI(MBB, MBBI, dl, TII.get(VE::ANDrm), VE::SX13)
       .addReg(VE::SX13)
-      .addImm(32);
+      .addImm(M0(32));
   BuildMI(MBB, MBBI, dl, TII.get(VE::LEASLrri), VE::SX11)
       .addReg(VE::SX11)
       .addReg(VE::SX13)
-      .addImm(HI32(NumBytes));
+      .addImm(Hi_32(NumBytes));
 }
 
 void VEFrameLowering::emitSPExtend(MachineFunction &MF, MachineBasicBlock &MBB,
@@ -191,7 +202,7 @@ void VEFrameLowering::emitPrologue(MachineFunction &MF,
   // rather than reporting an error, as would be sensible. This is
   // poor, but fixing that bogosity is going to be a large project.
   // For now, just see if it's lied, and report an error here.
-  if (!NeedsStackRealignment && MFI.getMaxAlignment() > getStackAlignment())
+  if (!NeedsStackRealignment && MFI.getMaxAlign() > getStackAlign())
     report_fatal_error("Function \"" + Twine(MF.getName()) +
                        "\" required "
                        "stack re-alignment, but LLVM couldn't handle it "
@@ -221,9 +232,7 @@ void VEFrameLowering::emitPrologue(MachineFunction &MF,
 
   // Finally, ensure that the size is sufficiently aligned for the
   // data on the stack.
-  if (MFI.getMaxAlignment() > 0) {
-    NumBytes = alignTo(NumBytes, MFI.getMaxAlignment());
-  }
+  NumBytes = alignTo(NumBytes, MFI.getMaxAlign().value());
 
   // Update stack size with corrected value.
   MFI.setStackSize(NumBytes);
@@ -296,10 +305,41 @@ bool VEFrameLowering::hasFP(const MachineFunction &MF) const {
 }
 
 int VEFrameLowering::getFrameIndexReference(const MachineFunction &MF, int FI,
-                                            unsigned &FrameReg) const {
+                                            Register &FrameReg) const {
+  const VESubtarget &Subtarget = MF.getSubtarget<VESubtarget>();
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  const VERegisterInfo *RegInfo = Subtarget.getRegisterInfo();
+  const VEMachineFunctionInfo *FuncInfo = MF.getInfo<VEMachineFunctionInfo>();
+  bool isFixed = MFI.isFixedObjectIndex(FI);
+
   // Addressable stack objects are accessed using neg. offsets from
   // %fp, or positive offsets from %sp.
+  bool UseFP = true;
+
+  // VE uses FP-based references in general, even when "hasFP" is
+  // false. That function is rather a misnomer, because %fp is
+  // actually always available, unless isLeafProc.
+  if (FuncInfo->isLeafProc()) {
+    // If there's a leaf proc, all offsets need to be %sp-based,
+    // because we haven't caused %fp to actually point to our frame.
+    UseFP = false;
+  } else if (isFixed) {
+    // Otherwise, argument access should always use %fp.
+    UseFP = true;
+  } else if (RegInfo->needsStackRealignment(MF)) {
+    // If there is dynamic stack realignment, all local object
+    // references need to be via %sp, to take account of the
+    // re-alignment.
+    UseFP = false;
+  }
+
   int64_t FrameOffset = MF.getFrameInfo().getObjectOffset(FI);
+
+  if (UseFP) {
+    FrameReg = RegInfo->getFrameRegister(MF);
+    return FrameOffset;
+  }
+
   FrameReg = VE::SX11; // %sp
   return FrameOffset + MF.getFrameInfo().getStackSize();
 }
@@ -321,5 +361,8 @@ void VEFrameLowering::determineCalleeSaves(MachineFunction &MF,
                                            RegScavenger *RS) const {
   TargetFrameLowering::determineCalleeSaves(MF, SavedRegs, RS);
 
-  assert(isLeafProc(MF) && "TODO implement for non-leaf procs");
+  if (isLeafProc(MF)) {
+    VEMachineFunctionInfo *MFI = MF.getInfo<VEMachineFunctionInfo>();
+    MFI->setLeafProc(true);
+  }
 }
