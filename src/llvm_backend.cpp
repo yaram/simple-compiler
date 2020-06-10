@@ -80,6 +80,43 @@ LLVMValueRef get_register_value(Function function, LLVMValueRef function_value, 
     abort();
 }
 
+struct InstructionBlock {
+    Instruction *instruction;
+
+    LLVMBasicBlockRef block;
+};
+
+static void register_instruction_block(List<InstructionBlock> *blocks, LLVMValueRef function, Instruction *instruction) {
+    StringBuffer block_name {};
+    string_buffer_append(&block_name, "block_");
+    string_buffer_append(&block_name, blocks->count);
+
+    append(blocks, {
+        instruction,
+        LLVMAppendBasicBlock(function, block_name.data)
+    });
+}
+
+static void maybe_register_instruction_block(List<InstructionBlock> *blocks, LLVMValueRef function, Instruction *instruction) {
+    for(auto block : *blocks) {
+        if(block.instruction == instruction) {
+            return;
+        }
+    }
+
+    register_instruction_block(blocks, function, instruction);
+}
+
+static LLVMBasicBlockRef get_instruction_block(List<InstructionBlock> blocks, Instruction *instruction) {
+    for(auto block : blocks) {
+        if(block.instruction == instruction) {
+            return block.block;
+        }
+    }
+
+    abort();
+}
+
 profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     Array<RuntimeStatic*> statics,
     const char *architecture,
@@ -241,24 +278,65 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             assert(function_value);
 
             if(!function->is_external) {
-                auto blocks = allocate<LLVMBasicBlockRef>(function->instructions.count);
+                List<InstructionBlock> blocks {};
 
-                for(size_t i = 0 ; i < function->instructions.count; i += 1) {
-                    StringBuffer block_name {};
-                    string_buffer_append(&block_name, "block_");
-                    string_buffer_append(&block_name, i);
+                register_instruction_block(&blocks, function_value, 0);
 
-                    blocks[i] = LLVMAppendBasicBlock(function_value, block_name.data);
+                for(size_t i = 1; i < function->instructions.count; i += 1) {
+                    auto instruction = function->instructions[i];
+
+                    if(instruction->kind == InstructionKind::Jump) {
+                        auto jump = (Jump*)instruction;
+
+                        maybe_register_instruction_block(&blocks, function_value, function->instructions[jump->destination_instruction]);
+                    } else if(instruction->kind == InstructionKind::Branch) {
+                        auto branch = (Branch*)instruction;
+
+                        maybe_register_instruction_block(&blocks, function_value, function->instructions[branch->destination_instruction]);
+
+                        maybe_register_instruction_block(&blocks, function_value, function->instructions[i + 1]);
+                    }
                 }
 
                 List<Register> registers {};
 
+                LLVMPositionBuilderAtEnd(builder, blocks[0].block);
+
+                struct Local {
+                    AllocateLocal *allocate_local;
+
+                    LLVMValueRef pointer_value;
+                };
+
+                List<Local> locals {};
+
+                for(auto instruction : function->instructions) {
+                    if(instruction->kind == InstructionKind::AllocateLocal) {
+                        auto allocate_local = (AllocateLocal*)instruction;
+
+                        auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)allocate_local->size);
+
+                        auto pointer_value = LLVMBuildAlloca(builder, byte_array_type, "allocate_local");
+
+                        LLVMSetAlignment(pointer_value, (unsigned int)allocate_local->alignment);
+
+                        append(&locals, {
+                            allocate_local,
+                            pointer_value
+                        });
+                    }
+                }
+
                 for(size_t i = 0 ; i < function->instructions.count; i += 1) {
                     auto instruction = function->instructions[i];
 
-                    LLVMPositionBuilderAtEnd(builder, blocks[i]);
+                    for(auto block : blocks) {
+                        if(block.instruction == instruction) {
+                            LLVMPositionBuilderAtEnd(builder, block.block);
+                        }
+                    }
 
-                    auto need_end_branch = true;
+                    auto might_need_terminator = true;
                     if(instruction->kind == InstructionKind::IntegerArithmeticOperation) {
                         auto integer_arithmetic_operation = (IntegerArithmeticOperation*)instruction;
 
@@ -535,9 +613,11 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     } else if(instruction->kind == InstructionKind::Jump) {
                         auto jump = (Jump*)instruction;
 
-                        LLVMBuildBr(builder, blocks[jump->destination_instruction]);
+                        auto destination = get_instruction_block(blocks, function->instructions[jump->destination_instruction]);
 
-                        need_end_branch = false;
+                        LLVMBuildBr(builder, destination);
+
+                        might_need_terminator = false;
                     } else if(instruction->kind == InstructionKind::Branch) {
                         auto branch = (Branch*)instruction;
 
@@ -545,9 +625,13 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto truncated_condition_value = LLVMBuildTrunc(builder, condition_value, LLVMInt1Type(), "truncate");
 
-                        LLVMBuildCondBr(builder, truncated_condition_value, blocks[branch->destination_instruction], blocks[i + 1]);
+                        auto destination = get_instruction_block(blocks, function->instructions[branch->destination_instruction]);
 
-                        need_end_branch = false;
+                        auto next = get_instruction_block(blocks, function->instructions[i + 1]);
+
+                        LLVMBuildCondBr(builder, truncated_condition_value, destination, next);
+
+                        might_need_terminator = false;
                     } else if(instruction->kind == InstructionKind::FunctionCallInstruction) {
                         auto function_call = (FunctionCallInstruction*)instruction;
 
@@ -616,15 +700,21 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             LLVMBuildRetVoid(builder);
                         }
 
-                        need_end_branch = false;
+                        might_need_terminator = false;
                     } else if(instruction->kind == InstructionKind::AllocateLocal) {
                         auto allocate_local = (AllocateLocal*)instruction;
 
-                        auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)allocate_local->size);
+                        auto found = false;
+                        LLVMValueRef pointer_value;
+                        for(auto local : locals) {
+                            if(local.allocate_local == allocate_local) {
+                                pointer_value = local.pointer_value;
+                                found = true;
 
-                        auto pointer_value = LLVMBuildAlloca(builder, byte_array_type, "allocate_local");
-
-                        LLVMSetAlignment(pointer_value, (unsigned int)allocate_local->alignment);
+                                break;
+                            }
+                        }
+                        assert(found);
 
                         auto address_value = LLVMBuildPtrToInt(builder, pointer_value, get_llvm_integer_type(register_sizes.address_size), "local_address");
 
@@ -739,19 +829,19 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         abort();
                     }
 
-                    if(need_end_branch) {
-                        assert(i != function->instructions.count - 1);
-
-                        LLVMBuildBr(builder, blocks[i + 1]);
+                    if(might_need_terminator) {
+                        for(auto block : blocks) {
+                            if(block.instruction == function->instructions[i + 1]) {
+                                LLVMBuildBr(builder, block.block);
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-#ifndef NDEBUG
     assert(LLVMVerifyModule(module, LLVMVerifierFailureAction::LLVMAbortProcessAction, nullptr) == 0);
-#endif
 
     auto triple = get_llvm_triple(architecture, os);
 

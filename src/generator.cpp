@@ -5059,8 +5059,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
     } else if(statement->kind == StatementKind::IfStatement) {
         auto if_statement = (IfStatement*)statement;
 
-        auto end_jump_count = 1 + if_statement->else_ifs.count;
-        auto end_jumps = allocate<Jump*>(end_jump_count);
+        List<Jump*> end_jumps {};
 
         expect_delayed_void_ret(condition, generate_expression(info, jobs, scope, context, instructions, if_statement->condition));
 
@@ -5096,12 +5095,14 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 
         context->variable_scope_stack.count -= 1;
 
-        auto first_end_jump = new Jump;
-        first_end_jump->range = if_statement->range;
+        if((*instructions)[instructions->count - 1]->kind != InstructionKind::ReturnInstruction) {
+            auto first_end_jump = new Jump;
+            first_end_jump->range = if_statement->range;
 
-        append(instructions, (Instruction*)first_end_jump);
+            append(instructions, (Instruction*)first_end_jump);
 
-        end_jumps[0] = first_end_jump;
+            append(&end_jumps, first_end_jump);
+        }
 
         first_jump->destination_instruction = instructions->count;
 
@@ -5152,12 +5153,14 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 
             context->variable_scope_stack.count -= 1;
 
-            auto end_jump = new Jump;
-            end_jump->range = if_statement->range;
+            if((*instructions)[instructions->count - 1]->kind != InstructionKind::ReturnInstruction) {
+                auto end_jump = new Jump;
+                end_jump->range = if_statement->range;
 
-            append(instructions, (Instruction*)end_jump);
+                append(instructions, (Instruction*)end_jump);
 
-            end_jumps[i + 1] = end_jump;
+                append(&end_jumps, end_jump);
+            }
 
             jump->destination_instruction = instructions->count;
         }
@@ -5181,8 +5184,8 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
             context->variable_scope_stack.count -= 1;
         }
 
-        for(size_t i = 0; i < end_jump_count; i += 1) {
-            end_jumps[i]->destination_instruction = instructions->count;
+        for(auto end_jump : end_jumps) {
+            end_jump->destination_instruction = instructions->count;
         }
 
         return has();
@@ -5248,12 +5251,14 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 
         context->variable_scope_stack.count -= 1;
 
-        append_jump(
-            context,
-            instructions,
-            while_loop->range,
-            condition_index
-        );
+        if((*instructions)[instructions->count - 1]->kind != InstructionKind::ReturnInstruction) {
+            append_jump(
+                context,
+                instructions,
+                while_loop->range,
+                condition_index
+            );
+        }
 
         jump_out->destination_instruction = instructions->count;
 
