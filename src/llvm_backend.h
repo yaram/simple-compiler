@@ -13,5 +13,6 @@ Result<Array<NameMapping>> generate_llvm_object(
     const char *architecture,
     const char *os,
     const char *config,
-    const char *object_file_path
+    const char *object_file_path,
+    Array<const char*> reserved_names
 );

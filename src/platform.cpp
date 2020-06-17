@@ -3,14 +3,30 @@
 #include "util.h"
 
 bool does_os_exist(const char *os) {
-    return (
+    return
         strcmp(os, "linux") == 0 ||
-        strcmp(os, "windows") == 0
-    );
+        strcmp(os, "windows") == 0 ||
+        strcmp(os, "emscripten") == 0
+    ;
 }
 
 bool does_architecture_exist(const char *architecture) {
-    return strcmp(architecture, "x64") == 0;
+    return
+        strcmp(architecture, "x64") == 0 ||
+        strcmp(architecture, "wasm32") == 0
+    ;
+}
+
+bool is_supported_target(const char *os, const char *architecture) {
+    if(strcmp(os, "linux") == 0) {
+        return strcmp(architecture, "x64") == 0;
+    } else if(strcmp(os, "windows") == 0) {
+        return strcmp(architecture, "x64") == 0;
+    } else if(strcmp(os, "emscripten") == 0) {
+        return strcmp(architecture, "wasm32") == 0;
+    } else {
+        abort();
+    }
 }
 
 RegisterSizes get_register_sizes(const char *architecture) {
@@ -18,6 +34,11 @@ RegisterSizes get_register_sizes(const char *architecture) {
         return {
             RegisterSize::Size64,
             RegisterSize::Size64
+        };
+    } else if(strcmp(architecture, "wasm32") == 0) {
+        return {
+            RegisterSize::Size32,
+            RegisterSize::Size32
         };
     } else {
         abort();
@@ -30,6 +51,8 @@ const char *get_llvm_triple(const char *architecture, const char *os) {
     const char *triple_architecture;
     if(strcmp(architecture, "x64") == 0) {
         triple_architecture = "x86_64";
+    } else if(strcmp(architecture, "wasm32") == 0) {
+        triple_architecture = "wasm32";
     } else {
         abort();
     }
@@ -45,6 +68,10 @@ const char *get_llvm_triple(const char *architecture, const char *os) {
         triple_vendor = "pc";
         triple_system = "windows";
         triple_abi = "msvc";
+    } else if(strcmp(os, "emscripten") == 0) {
+        triple_vendor = "unknown";
+        triple_system = "emscripten";
+        triple_abi = "unknown";
     } else {
         abort();
     }

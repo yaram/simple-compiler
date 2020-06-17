@@ -122,13 +122,15 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     const char *architecture,
     const char *os,
     const char *config,
-    const char *object_file_path
+    const char *object_file_path,
+    Array<const char*> reserved_names
 ), (
     statics,
     architecture,
     os,
     config,
-    object_file_path
+    object_file_path,
+    reserved_names
 )) {
     List<NameMapping> name_mappings {};
 
@@ -138,6 +140,14 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 if(strcmp(name_mapping.name, runtime_static->name) == 0) {
                     error(runtime_static->scope, runtime_static->range, "Conflicting no_mangle name '%s'", name_mapping.name);
                     error(name_mapping.runtime_static->scope, name_mapping.runtime_static->range, "Conflicing declaration here");
+
+                    return err;
+                }
+            }
+
+            for(auto reserved_name : reserved_names) {
+                if(strcmp(reserved_name, runtime_static->name) == 0) {
+                    error(runtime_static->scope, runtime_static->range, "Runtime name '%s' is reserved", reserved_name);
 
                     return err;
                 }
@@ -163,8 +173,16 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 }
 
                 auto name_taken = false;
+
                 for(auto name_mapping : name_mappings) {
                     if(strcmp(name_mapping.name, name_buffer.data) == 0) {
+                        name_taken = true;
+                        break;
+                    }
+                }
+
+                for(auto reserved_name : reserved_names) {
+                    if(strcmp(reserved_name, name_buffer.data) == 0) {
                         name_taken = true;
                         break;
                     }
@@ -198,6 +216,18 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     for(size_t i = 0; i < statics.count; i += 1) {
         auto runtime_static = statics[i];
 
+        const char *name;
+        auto found = false;
+        for(auto name_mapping : name_mappings) {
+            if(name_mapping.runtime_static == runtime_static) {
+                name = name_mapping.name;
+                found = true;
+
+                break;
+            }
+        }
+        assert(found);
+
         LLVMValueRef global_value;
         if(runtime_static->kind == RuntimeStaticKind::Function) {
             auto function = (Function*)runtime_static;
@@ -219,7 +249,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
             auto function_type = LLVMFunctionType(return_type, parameter_types, (unsigned int)parameter_count, false);
 
-            global_value = LLVMAddFunction(module, function->name, function_type);
+            global_value = LLVMAddFunction(module, name, function_type);
 
             if(function->is_external) {
                 LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
@@ -229,7 +259,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
             auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)constant->data.count);
 
-            global_value = LLVMAddGlobal(module, byte_array_type, constant->name);
+            global_value = LLVMAddGlobal(module, byte_array_type, name);
             LLVMSetAlignment(global_value, (unsigned int)constant->alignment);
             LLVMSetGlobalConstant(global_value, true);
 
@@ -247,7 +277,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
             auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)variable->size);
 
-            global_value = LLVMAddGlobal(module, byte_array_type, variable->name);
+            global_value = LLVMAddGlobal(module, byte_array_type, name);
             LLVMSetAlignment(global_value, (unsigned int)variable->alignment);
 
             if(variable->is_external) {
@@ -270,12 +300,13 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         global_values[i] = global_value;
     }
 
-    for(auto runtime_static : statics) {
+    for(size_t i = 0; i < statics.count; i += 1) {
+        auto runtime_static = statics[i];
+
         if(runtime_static->kind == RuntimeStaticKind::Function) {
             auto function = (Function*)runtime_static;
 
-            auto function_value = LLVMGetNamedFunction(module, function->name);
-            assert(function_value);
+            auto function_value = global_values[i];
 
             if(!function->is_external) {
                 List<InstructionBlock> blocks {};
@@ -851,6 +882,14 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         LLVMInitializeX86Target();
         LLVMInitializeX86TargetMC();
         LLVMInitializeX86AsmPrinter();
+
+        auto status = LLVMGetTargetFromTriple(triple, &target, nullptr);
+        assert(status == 0);
+    } else if(strcmp(architecture, "wasm32") == 0) {
+        LLVMInitializeWebAssemblyTargetInfo();
+        LLVMInitializeWebAssemblyTarget();
+        LLVMInitializeWebAssemblyTargetMC();
+        LLVMInitializeWebAssemblyAsmPrinter();
 
         auto status = LLVMGetTargetFromTriple(triple, &target, nullptr);
         assert(status == 0);

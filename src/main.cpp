@@ -21,6 +21,8 @@ static const char *get_default_output_file(const char *os, bool no_link) {
     } else {
         if(strcmp(os, "windows") == 0) {
             return "out.exe";
+        } else if(strcmp(os, "emscripten") == 0) {
+            return "out.js";
         } else {
             return "out";
         }
@@ -35,8 +37,8 @@ static void print_help_message(FILE *file) {
     fprintf(file, "Options:\n");
     fprintf(file, "  -output <output file>  (default: %s) Specify output file path\n", get_default_output_file(default_os, false));
     fprintf(file, "  -config debug|release  (default: debug) Specify build configuration\n");
-    fprintf(file, "  -arch x64  (default: %s) Specify CPU architecture to target\n", get_host_architecture());
-    fprintf(file, "  -os windows|linux  (default: %s) Specify operating system to target\n", default_os);
+    fprintf(file, "  -arch x64|wasm32  (default: %s) Specify CPU architecture to target\n", get_host_architecture());
+    fprintf(file, "  -os windows|linux|emscripten  (default: %s) Specify operating system to target\n", default_os);
     fprintf(file, "  -no-link  Don't run the linker\n");
     fprintf(file, "  -print-ast  Print abstract syntax tree\n");
     fprintf(file, "  -print-ir  Print internal intermediate representation\n");
@@ -177,6 +179,13 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         return false;
     }
 
+    if(!is_supported_target(os, architecture)) {
+        fprintf(stderr, "Error: '%s' and '%s' is not a supported OS and architecture combination\n\n", os, architecture);
+        print_help_message(stderr);
+
+        return false;
+    }
+
     if(source_file_path == nullptr) {
         fprintf(stderr, "Error: No source file provided\n\n");
         print_help_message(stderr);
@@ -267,6 +276,14 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     });
 
     append(&global_constants, GlobalConstant {
+        "WASM32",
+        &boolean_singleton,
+        new BooleanConstant {
+            strcmp(config, "wasm32") == 0
+        }
+    });
+
+    append(&global_constants, GlobalConstant {
         "WINDOWS",
         &boolean_singleton,
         new BooleanConstant {
@@ -279,6 +296,14 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         &boolean_singleton,
         new BooleanConstant {
             strcmp(os, "linux") == 0
+        }
+    });
+
+    append(&global_constants, GlobalConstant {
+        "EMSCRIPTEN",
+        &boolean_singleton,
+        new BooleanConstant {
+            strcmp(os, "emscripten") == 0
         }
     });
 
@@ -902,9 +927,29 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     uint64_t backend_time;
     const char *main_function_name;
     {
+        List<const char*> reserved_names {};
+
+        if(strcmp(os, "emscripten") == 0) {
+            append(&reserved_names, "main");
+        } else {
+            append(&reserved_names, "entry");
+        }
+
+        if(strcmp(os, "windows") == 0) {
+            append(&reserved_names, "_fltused");
+            append(&reserved_names, "__chkstk");
+        }
+
         auto start_time = get_timer_counts();
 
-        expect(name_mappings, generate_llvm_object(to_array(runtime_statics), architecture, os, config, object_file_path));
+        expect(name_mappings, generate_llvm_object(
+            to_array(runtime_statics),
+            architecture,
+            os,
+            config,
+            object_file_path,
+            to_array(reserved_names)
+        ));
 
         auto found = false;
         for(auto name_mapping : name_mappings) {
@@ -928,6 +973,13 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
         StringBuffer command_buffer {};
 
+        const char *frontend;
+        if(strcmp(os, "emscripten") == 0) {
+            frontend = "emcc";
+        } else {
+            frontend = "clang";
+        }
+
         const char *linker_options;
         if(strcmp(os, "windows") == 0) {
             if(strcmp(config, "debug") == 0) {
@@ -937,18 +989,24 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             } else {
                 abort();
             }
+        } else if(strcmp(os, "emscripten") == 0) {
+            linker_options = nullptr;
         } else {
             linker_options = "--entry=entry";
         }
 
         auto triple = get_llvm_triple(architecture, os);
 
-        string_buffer_append(&command_buffer, "clang -nostdlib -fuse-ld=lld -target ");
+        string_buffer_append(&command_buffer, frontend);
+
+        string_buffer_append(&command_buffer, " -nostdlib -fuse-ld=lld --target=");
 
         string_buffer_append(&command_buffer, triple);
 
-        string_buffer_append(&command_buffer, " -Wl,");
-        string_buffer_append(&command_buffer, linker_options);
+        if(linker_options != nullptr) {
+            string_buffer_append(&command_buffer, " -Wl,"); 
+            string_buffer_append(&command_buffer, linker_options);
+        }
 
         string_buffer_append(&command_buffer, " -o");
         string_buffer_append(&command_buffer, output_file_path);
@@ -958,20 +1016,15 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             string_buffer_append(&command_buffer, library);
         }
 
+        if(strcmp(os, "emscripten") == 0) {
+            string_buffer_append(&command_buffer, " -lcompiler_rt");
+        }
+
         string_buffer_append(&command_buffer, " ");
         string_buffer_append(&command_buffer, object_file_path);
 
         auto executable_path = get_executable_path();
         auto executable_directory = path_get_directory_component(executable_path);
-
-        const char *runtime_source_file_name;
-        if(strcmp(os, "linux") == 0) {
-            runtime_source_file_name = "runtime_linux.c";
-        } else if(strcmp(os, "windows") == 0) {
-            runtime_source_file_name = "runtime_windows.c";
-        } else {
-            abort();
-        }
 
         StringBuffer runtime_command_buffer {};
 
@@ -987,7 +1040,9 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         string_buffer_append(&runtime_command_buffer, "runtime.o ");
 
         string_buffer_append(&runtime_command_buffer, executable_directory);
-        string_buffer_append(&runtime_command_buffer, runtime_source_file_name);
+        string_buffer_append(&runtime_command_buffer, "runtime_");
+        string_buffer_append(&runtime_command_buffer, os);
+        string_buffer_append(&runtime_command_buffer, ".c");
 
         enter_region("clang");
         if(system(runtime_command_buffer.data) != 0) {
@@ -1004,7 +1059,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         enter_region("linker");
 
         if(system(command_buffer.data) != 0) {
-            fprintf(stderr, "Error: 'clang' returned non-zero while linking\n");
+            fprintf(stderr, "Error: '%s' returned non-zero while linking\n", frontend);
 
             return false;
         }

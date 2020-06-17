@@ -77,7 +77,7 @@ target_compile_features(compiler PRIVATE cxx_std_11)
 if(PROFILING)
     target_compile_definitions(compiler PRIVATE PROFILING)
 endif()
-target_link_libraries(compiler PRIVATE LLVMCore LLVMAnalysis LLVMX86CodeGen)
+target_link_libraries(compiler PRIVATE LLVMCore LLVMAnalysis LLVMX86CodeGen LLVMWebAssemblyCodeGen)
 target_include_directories(compiler PRIVATE thirdparty/llvm/include "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/llvm/include")
 add_dependencies(compiler copy_runtimes)
 
