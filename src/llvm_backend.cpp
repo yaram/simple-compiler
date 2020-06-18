@@ -498,25 +498,34 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             integer_comparison_operation->destination_register,
                             extended_value
                         });
-                    } else if(instruction->kind == InstructionKind::IntegerUpcast) {
-                        auto integer_upcast = (IntegerUpcast*)instruction;
+                    } else if(instruction->kind == InstructionKind::IntegerExtension) {
+                        auto integer_extension = (IntegerExtension*)instruction;
 
-                        auto source_value = LLVMBuildTrunc(
-                            builder,
-                            get_register_value(*function, function_value, registers, integer_upcast->source_register),
-                            get_llvm_integer_type(integer_upcast->source_size),
-                            "source"
-                        );
+                        auto source_value = get_register_value(*function, function_value, registers, integer_extension->source_register);
 
                         LLVMValueRef value;
-                        if(integer_upcast->is_signed) {
-                            value = LLVMBuildSExt(builder, source_value, get_llvm_integer_type(integer_upcast->destination_size), "extend");
+                        if(integer_extension->is_signed) {
+                            value = LLVMBuildSExt(builder, source_value, get_llvm_integer_type(integer_extension->destination_size), "extend");
                         } else {
-                            value = LLVMBuildZExt(builder, source_value, get_llvm_integer_type(integer_upcast->destination_size), "extend");
+                            value = LLVMBuildZExt(builder, source_value, get_llvm_integer_type(integer_extension->destination_size), "extend");
                         }
 
                         append(&registers, {
-                            integer_upcast->destination_register,
+                            integer_extension->destination_register,
+                            value
+                        });
+                    } else if(instruction->kind == InstructionKind::IntegerTruncation) {
+                        auto integer_truncation = (IntegerTruncation*)instruction;
+
+                        auto value = LLVMBuildTrunc(
+                            builder,
+                            get_register_value(*function, function_value, registers, integer_truncation->source_register),
+                            get_llvm_integer_type(integer_truncation->destination_size),
+                            "truncate"
+                        );
+
+                        append(&registers, {
+                            integer_truncation->destination_register,
                             value
                         });
                     } else if(instruction->kind == InstructionKind::IntegerConstantInstruction) {

@@ -58,9 +58,6 @@ set(sources
     src/generator.h
     src/generator.cpp
 
-    src/c_backend.h
-    src/c_backend.cpp
-
     src/llvm_backend.h
     src/llvm_backend.cpp
 

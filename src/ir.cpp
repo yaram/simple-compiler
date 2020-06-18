@@ -116,21 +116,31 @@ void print_instruction(Instruction *instruction, bool has_return) {
             integer_comparison_operation->source_register_b,
             integer_comparison_operation->destination_register
         );
-    } else if(instruction->kind == InstructionKind::IntegerUpcast) {
-        auto integer_upcast = (IntegerUpcast*)instruction;
+    } else if(instruction->kind == InstructionKind::IntegerExtension) {
+        auto integer_extension = (IntegerExtension*)instruction;
 
-        if(integer_upcast->is_signed) {
-            printf("SCAST");
+        if(integer_extension->is_signed) {
+            printf("SEXTEND");
         } else {
-            printf("UCAST");
+            printf("EXTEND");
         }
 
         printf(
             " %s r%zu, %s r%zu",
-            register_size_name(integer_upcast->source_size),
-            integer_upcast->source_register,
-            register_size_name(integer_upcast->destination_size),
-            integer_upcast->destination_register
+            register_size_name(integer_extension->source_size),
+            integer_extension->source_register,
+            register_size_name(integer_extension->destination_size),
+            integer_extension->destination_register
+        );
+    } else if(instruction->kind == InstructionKind::IntegerTruncation) {
+        auto integer_truncation = (IntegerTruncation*)instruction;
+
+        printf(
+            "TRUNC %s r%zu, %s r%zu",
+            register_size_name(integer_truncation->source_size),
+            integer_truncation->source_register,
+            register_size_name(integer_truncation->destination_size),
+            integer_truncation->destination_register
         );
     } else if(instruction->kind == InstructionKind::IntegerConstantInstruction) {
         auto integer_constant = (IntegerConstantInstruction*)instruction;

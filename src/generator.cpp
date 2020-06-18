@@ -407,7 +407,7 @@ static size_t append_integer_comparison_operation(
     return destination_register;
 }
 
-static size_t append_integer_upcast(
+static size_t append_integer_extension(
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
@@ -418,15 +418,37 @@ static size_t append_integer_upcast(
 ) {
     auto destination_register = allocate_register(context);
 
-    auto integer_upcast = new IntegerUpcast;
-    integer_upcast->range = range;
-    integer_upcast->is_signed = is_signed;
-    integer_upcast->source_size = source_size;
-    integer_upcast->source_register = source_register;
-    integer_upcast->destination_size = destination_size;
-    integer_upcast->destination_register = destination_register;
+    auto integer_extension = new IntegerExtension;
+    integer_extension->range = range;
+    integer_extension->is_signed = is_signed;
+    integer_extension->source_size = source_size;
+    integer_extension->source_register = source_register;
+    integer_extension->destination_size = destination_size;
+    integer_extension->destination_register = destination_register;
 
-    append(instructions, (Instruction*)integer_upcast);
+    append(instructions, (Instruction*)integer_extension);
+
+    return destination_register;
+}
+
+static size_t append_integer_truncation(
+    GenerationContext *context,
+    List<Instruction*> *instructions,
+    FileRange range,
+    RegisterSize source_size,
+    RegisterSize destination_size,
+    size_t source_register
+) {
+    auto destination_register = allocate_register(context);
+
+    auto integer_truncation = new IntegerTruncation;
+    integer_truncation->range = range;
+    integer_truncation->source_size = source_size;
+    integer_truncation->source_register = source_register;
+    integer_truncation->destination_size = destination_size;
+    integer_truncation->destination_register = destination_register;
+
+    append(instructions, (Instruction*)integer_truncation);
 
     return destination_register;
 }
@@ -4373,7 +4395,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 has_cast = true;
 
                 if(target_integer->size > integer->size) {
-                    register_index = append_integer_upcast(
+                    register_index = append_integer_extension(
                         context,
                         instructions,
                         cast->range,
@@ -4383,7 +4405,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         value_register
                     );
                 } else {
-                    register_index = value_register;
+                    register_index = append_integer_truncation(
+                        context,
+                        instructions,
+                        cast->range,
+                        integer->size,
+                        target_integer->size,
+                        value_register
+                    );
                 }
             } else if(expression_value.type->kind == TypeKind::FloatType) {
                 auto float_type = (FloatType*)expression_value.type;

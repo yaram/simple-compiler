@@ -8,7 +8,8 @@
 enum struct InstructionKind {
     IntegerArithmeticOperation,
     IntegerComparisonOperation,
-    IntegerUpcast,
+    IntegerExtension,
+    IntegerTruncation,
     IntegerConstantInstruction,
     FloatArithmeticOperation,
     FloatComparisonOperation,
@@ -84,7 +85,7 @@ struct IntegerComparisonOperation : Instruction {
     IntegerComparisonOperation() : Instruction { InstructionKind::IntegerComparisonOperation } {}
 };
 
-struct IntegerUpcast : Instruction {
+struct IntegerExtension : Instruction {
     bool is_signed;
 
     RegisterSize source_size;
@@ -93,7 +94,17 @@ struct IntegerUpcast : Instruction {
     RegisterSize destination_size;
     size_t destination_register;
 
-    IntegerUpcast() : Instruction { InstructionKind::IntegerUpcast } {}
+    IntegerExtension() : Instruction { InstructionKind::IntegerExtension } {}
+};
+
+struct IntegerTruncation : Instruction {
+    RegisterSize source_size;
+    size_t source_register;
+
+    RegisterSize destination_size;
+    size_t destination_register;
+
+    IntegerTruncation() : Instruction { InstructionKind::IntegerTruncation } {}
 };
 
 struct IntegerConstantInstruction : Instruction {
