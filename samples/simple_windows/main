@@ -148,12 +148,12 @@ main :: () -> i32 {
 
         frame_time_ticks := current_frame_ticks - last_frame_ticks;
 
-        frame_time_seconds := frame_time_ticks as f64 / ticks_per_second as f64;
+        frame_time_seconds := frame_time_ticks as float / ticks_per_second as float;
 
         frames_per_second := 1 / frame_time_seconds;
 
         print_string("FPS: ");
-        print_int(frames_per_second as i64, 10);
+        print_int(frames_per_second as int, 10);
         print_string("\n");
 
         last_frame_ticks = current_frame_ticks;
@@ -208,7 +208,7 @@ main :: () -> i32 {
             for x: 0..window_width - 1 {
                 index := (y * window_width + x) * 4;
 
-                framebuffer[index] = (x as i64 - position as i64) as u8;
+                framebuffer[index] = (x as int - position as int) as u8;
                 framebuffer[index + 1] = y as u8;
                 framebuffer[index + 2] = 0;
             }
