@@ -216,6 +216,9 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     append_base_integer_type(&global_constants, "usize", regsiter_sizes.address_size, false);
     append_base_integer_type(&global_constants, "isize", regsiter_sizes.address_size, true);
 
+    append_base_integer_type(&global_constants, "uint", regsiter_sizes.default_size, false);
+    append_base_integer_type(&global_constants, "int", regsiter_sizes.default_size, true);
+
     append_global_type(
         &global_constants,
         "bool",
@@ -241,6 +244,14 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         "f64",
         new FloatType {
             RegisterSize::Size64
+        }
+    );
+
+    append_global_type(
+        &global_constants,
+        "float",
+        new FloatType {
+            regsiter_sizes.default_size
         }
     );
 
