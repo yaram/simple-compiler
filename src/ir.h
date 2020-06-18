@@ -5,6 +5,13 @@
 #include "register_size.h"
 #include "constant.h"
 
+enum struct CallingConvention {
+    Default,
+    StdCall
+};
+
+const char *calling_convention_name(CallingConvention calling_convention);
+
 enum struct InstructionKind {
     IntegerArithmeticOperation,
     IntegerComparisonOperation,
@@ -230,6 +237,8 @@ struct FunctionCallInstruction : Instruction {
     bool is_return_float;
     size_t return_register;
 
+    CallingConvention calling_convention;
+
     FunctionCallInstruction() : Instruction { InstructionKind::FunctionCallInstruction } {}
 };
 
@@ -347,6 +356,8 @@ struct Function : RuntimeStatic {
     Array<Instruction*> instructions;
 
     Array<const char*> libraries;
+
+    CallingConvention calling_convention;
 
     Function() : RuntimeStatic { RuntimeStaticKind::Function } {}
 };

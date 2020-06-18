@@ -2,6 +2,20 @@
 #include <stdio.h>
 #include <string.h>
 
+const char *calling_convention_name(CallingConvention calling_convention) {
+    switch(calling_convention) {
+        case CallingConvention::Default: {
+            return "cdecl";
+        };
+
+        case CallingConvention::StdCall: {
+            return "stdcall";
+        } break;
+
+        default: abort();
+    }
+}
+
 static const char *register_size_names[] = { "8", "16", "32", "64" };
 static const char *register_size_name(RegisterSize size) {
     switch(size) {
@@ -327,6 +341,16 @@ void print_instruction(Instruction *instruction, bool has_return) {
             }
 
             printf("%s", register_size_name(function_call->return_size));
+        }
+
+        switch(function_call->calling_convention) {
+            case CallingConvention::Default: break;
+
+            case CallingConvention::StdCall: {
+                printf(" __stdcall");
+            } break;
+
+            default: abort();
         }
     } else if(instruction->kind == InstructionKind::ReturnInstruction) {
         auto return_instruction = (ReturnInstruction*)instruction;

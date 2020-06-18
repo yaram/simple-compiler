@@ -3633,6 +3633,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             function_call_instruction->address_register = address_register;
             function_call_instruction->parameters = { instruction_parameter_count, instruction_parameters };
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
+            function_call_instruction->calling_convention = CallingConvention::Default;
 
             RuntimeValue *value;
             if(has_return) {
@@ -3902,6 +3903,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             function_call_instruction->address_register = address_register;
             function_call_instruction->parameters = { parameter_count, instruction_parameters };
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
+            function_call_instruction->calling_convention = CallingConvention::Default;
 
             RuntimeValue *value;
             if(has_return) {
@@ -5669,6 +5671,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     function->parameters = { ir_parameter_count, ir_parameters };
     function->has_return = type->return_type->kind != TypeKind::Void && return_representation.is_in_register;
     function->is_external = declaration->is_external;
+    function->calling_convention = CallingConvention::Default;
 
     if(type->return_type->kind != TypeKind::Void && return_representation.is_in_register) {
         function->return_size = return_representation.value_size;

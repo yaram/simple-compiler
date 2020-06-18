@@ -57,6 +57,63 @@ LLVMTypeRef get_llvm_type(RegisterSize size, bool is_float) {
     }
 }
 
+Result<LLVMCallConv> get_llvm_calling_convention(
+    ConstantScope *scope,
+    FileRange range,
+    const char *os,
+    const char *architecture,
+    CallingConvention calling_convention
+) {
+    if(strcmp(architecture, "x86") == 0) {
+        if(strcmp(os, "linux")) {
+            if(calling_convention == CallingConvention::Default) {
+                return ok(LLVMCallConv::LLVMCCallConv);
+            }
+        } else if(strcmp(os, "windows")) {
+            switch(calling_convention) {
+                case CallingConvention::Default: {
+                    return ok(LLVMCallConv::LLVMCCallConv);
+                } break;
+
+                case CallingConvention::StdCall: {
+                    return ok(LLVMCallConv::LLVMX86StdcallCallConv);
+                } break;
+
+                default: abort();
+            }
+        } else {
+            abort();
+        }
+    } else if(strcmp(architecture, "x64")) {
+        if(calling_convention == CallingConvention::Default) {
+            if(strcmp(os, "linux")) {
+                return ok(LLVMCallConv::LLVMX8664SysVCallConv);
+            } else if(strcmp(os, "windows")) {
+                return ok(LLVMCallConv::LLVMWin64CallConv);
+            } else {
+                abort();
+            }
+        }
+    } else if(strcmp(architecture, "wasm32")) {
+        if(calling_convention == CallingConvention::Default) {
+            return ok(LLVMCallConv::LLVMCCallConv);
+        }
+    } else {
+        abort();
+    }
+
+    error(
+        scope,
+        range,
+        "Cannot use '%s' calling convention with %s %s",
+        calling_convention_name(calling_convention),
+        os,
+        architecture
+    );
+
+    return err;
+}
+
 struct Register {
     size_t index;
 
@@ -255,9 +312,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
             }
 
-            if(strcmp(os, "windows") == 0 && strcmp(architecture, "x86") == 0) {
-                LLVMSetFunctionCallConv(global_value, LLVMCallConv::LLVMX86StdcallCallConv);
-            }
+            expect(calling_convention, get_llvm_calling_convention(function->scope, function->range, os, architecture, function->calling_convention));
+
+            LLVMSetFunctionCallConv(global_value, calling_convention);
         } else if(runtime_static->kind == RuntimeStaticKind::StaticConstant) {
             auto constant = (StaticConstant*)runtime_static;
 
@@ -727,9 +784,15 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildCall(builder, function_pointer_value, parameter_values, (unsigned int)parameter_count, name);
 
-                        if(strcmp(os, "windows") == 0 && strcmp(architecture, "x86") == 0) {
-                            LLVMSetInstructionCallConv(value, LLVMCallConv::LLVMX86StdcallCallConv);
-                        }
+                        expect(calling_convention, get_llvm_calling_convention(
+                            function->scope,
+                            function_call->range,
+                            os,
+                            architecture,
+                            function_call->calling_convention
+                        ));
+
+                        LLVMSetInstructionCallConv(value, calling_convention);
 
                         if(function_call->has_return) {
                             append(&registers, {
