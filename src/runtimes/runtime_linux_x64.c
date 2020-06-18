@@ -1,7 +1,7 @@
 int MAIN();
 
 void entry() {
-    asm("andq $-16, %rsp"); // Align stack to 16-byte boundaries for SSE to avoid segmentation fault
+    asm("and $-16, %rsp"); // Align stack to 16-byte boundaries for SSE to avoid segmentation fault
 
     int result = MAIN();
 

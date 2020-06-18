@@ -254,6 +254,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             if(function->is_external) {
                 LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
             }
+
+            if(strcmp(os, "windows") == 0 && strcmp(architecture, "x86") == 0) {
+                LLVMSetFunctionCallConv(global_value, LLVMCallConv::LLVMX86StdcallCallConv);
+            }
         } else if(runtime_static->kind == RuntimeStaticKind::StaticConstant) {
             auto constant = (StaticConstant*)runtime_static;
 
@@ -714,6 +718,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildCall(builder, function_pointer_value, parameter_values, (unsigned int)parameter_count, name);
 
+                        if(strcmp(os, "windows") == 0 && strcmp(architecture, "x86") == 0) {
+                            LLVMSetInstructionCallConv(value, LLVMCallConv::LLVMX86StdcallCallConv);
+                        }
+
                         if(function_call->has_return) {
                             append(&registers, {
                                 function_call->return_register,
@@ -877,7 +885,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     auto triple = get_llvm_triple(architecture, os);
 
     LLVMTargetRef target;
-    if(strcmp(architecture, "x64") == 0) {
+    if(strcmp(architecture, "x86") == 0 || strcmp(architecture, "x64") == 0) {
         LLVMInitializeX86TargetInfo();
         LLVMInitializeX86Target();
         LLVMInitializeX86TargetMC();
