@@ -24,6 +24,14 @@ struct FunctionParameter {
     Identifier polymorphic_determiner;
 };
 
+struct Tag {
+    Identifier name;
+
+    Array<Expression*> parameters;
+
+    FileRange range;
+};
+
 enum struct ExpressionKind {
     NamedReference,
     MemberReference,
@@ -281,14 +289,18 @@ struct FunctionType : Expression {
 
     Expression *return_type;
 
+    Array<Tag> tags;
+
     FunctionType(
         FileRange range,
         Array<FunctionParameter> parameters,
-        Expression *return_type
+        Expression *return_type,
+        Array<Tag> tags
     ) :
         Expression { ExpressionKind::FunctionType, range },
         parameters { parameters },
-        return_type { return_type }
+        return_type { return_type },
+        tags { tags }
     {}
 };
 
@@ -325,28 +337,25 @@ struct FunctionDeclaration : Statement {
 
     Expression *return_type;
 
-    bool is_external;
+    Array<Tag> tags;
 
-    bool is_no_mangle;
-
+    bool has_body;
     Array<Statement*> statements;
-
-    Array<const char *> external_libraries;
 
     FunctionDeclaration(
         FileRange range,
         Identifier name,
         Array<FunctionParameter> parameters,
         Expression *return_type,
-        bool is_no_mangle,
+        Array<Tag> tags,
         Array<Statement*> statements
     ) :
         Statement { StatementKind::FunctionDeclaration, range },
         name { name },
         parameters { parameters },
         return_type { return_type },
-        is_external { false },
-        is_no_mangle { is_no_mangle },
+        tags { tags },
+        has_body { true },
         statements { statements }
     {}
 
@@ -355,14 +364,14 @@ struct FunctionDeclaration : Statement {
         Identifier name,
         Array<FunctionParameter> parameters,
         Expression *return_type,
-        Array<const char *> external_libraries
+        Array<Tag> tags
     ) :
         Statement { StatementKind::FunctionDeclaration, range },
         name { name },
         parameters { parameters },
         return_type { return_type },
-        is_external { true },
-        external_libraries { external_libraries }
+        tags { tags },
+        has_body { false }
     {}
 };
 
@@ -436,23 +445,20 @@ struct VariableDeclaration : Statement {
     Expression *type;
     Expression *initializer;
 
-    bool is_external;
-    bool is_no_mangle;
+    Array<Tag> tags;
 
     VariableDeclaration(
         FileRange range,
         Identifier name,
         Expression *type,
         Expression *initializer,
-        bool is_external,
-        bool is_no_mangle
+        Array<Tag> tags
     ) :
         Statement { StatementKind::VariableDeclaration, range },
         name { name },
         type { type },
         initializer { initializer },
-        is_external { is_external },
-        is_no_mangle { is_no_mangle }
+        tags { tags }
     {}
 };
 

@@ -355,6 +355,37 @@ static void print_expression_internal(Expression *expression, unsigned int inden
             printf("\n");
         }
 
+        indent(indentation_level + 1);
+        printf("tags: {");
+
+        if(function_type->tags.count != 0) {
+            printf("\n");
+
+            for(auto tag : function_type->tags) {
+                indent(indentation_level + 2);
+                print_identifier(tag.name);
+                printf(": [");
+
+                if(tag.parameters.count != 0) {
+                    printf("\n");
+
+                    for(auto parameter : tag.parameters) {
+                        indent(indentation_level + 3);
+                        print_expression_internal(parameter, indentation_level + 3);
+                        printf("\n");
+                    }
+
+                    indent(indentation_level + 2);
+                }
+
+                printf("]\n");
+            }
+
+            indent(indentation_level + 1);
+        }
+
+        printf("}\n");
+
         indent(indentation_level);
         printf("}");
     } else {
@@ -437,35 +468,40 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         }
 
         indent(indentation_level + 1);
-        printf("is_external: ");
-        if(function_declaration->is_external) {
-            printf("true\n");
+        printf("tags: {");
 
-            indent(indentation_level + 1);
-            printf("external_libraries: [");
+        if(function_declaration->tags.count != 0) {
+            printf("\n");
 
-            if(function_declaration->external_libraries.count != 0) {
-                printf("\n");
+            for(auto tag : function_declaration->tags) {
+                indent(indentation_level + 2);
+                print_identifier(tag.name);
+                printf(": [");
 
-                for(auto library : function_declaration->external_libraries) {
+                if(tag.parameters.count != 0) {
+                    printf("\n");
+
+                    for(auto parameter : tag.parameters) {
+                        indent(indentation_level + 3);
+                        print_expression_internal(parameter, indentation_level + 3);
+                        printf("\n");
+                    }
+
                     indent(indentation_level + 2);
-                    printf("\"%s\"\n", library);
                 }
 
-                indent(indentation_level + 1);
+                printf("]\n");
             }
-
-            printf("]\n");
-        } else {
-            printf("false\n");
 
             indent(indentation_level + 1);
-            printf("is_no_mangle: ");
-            if(function_declaration->is_no_mangle) {
-                printf("true\n");
-            } else {
-                printf("false\n");
-            }
+        }
+
+        printf("}\n");
+
+        indent(indentation_level + 1);
+        printf("has_body: ");
+        if(function_declaration->has_body) {
+            printf("true\n");
 
             indent(indentation_level + 1);
             printf("statements: {");
@@ -483,6 +519,8 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
             }
 
             printf("}\n");
+        } else {
+            printf("false\n");
         }
 
         indent(indentation_level);
@@ -581,20 +619,35 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         }
 
         indent(indentation_level + 1);
-        printf("is_external: ");
-        if(variable_declaration->is_external) {
-            printf("true\n");
-        } else {
-            printf("false\n");
+        printf("tags: {");
+
+        if(variable_declaration->tags.count != 0) {
+            printf("\n");
+
+            for(auto tag : variable_declaration->tags) {
+                indent(indentation_level + 2);
+                print_identifier(tag.name);
+                printf(": [");
+
+                if(tag.parameters.count != 0) {
+                    printf("\n");
+
+                    for(auto parameter : tag.parameters) {
+                        indent(indentation_level + 3);
+                        print_expression_internal(parameter, indentation_level + 3);
+                        printf("\n");
+                    }
+
+                    indent(indentation_level + 2);
+                }
+
+                printf("]\n");
+            }
+
+            indent(indentation_level + 1);
         }
 
-        indent(indentation_level + 1);
-        printf("is_no_mangle: ");
-        if(variable_declaration->is_no_mangle) {
-            printf("true\n");
-        } else {
-            printf("false\n");
-        }
+        printf("}\n");
 
         indent(indentation_level);
         printf("}");
