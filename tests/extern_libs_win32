@@ -1,4 +1,4 @@
-MessageBoxA :: (hWnd: usize, lpText: usize, lpCaption: usize, uType: u32) -> i32 extern "user32.lib";
+MessageBoxA :: (hWnd: usize, lpText: usize, lpCaption: usize, uType: u32) -> i32 #extern("user32");
 
 main :: () -> i32 {
     return MessageBoxA(0, 0, 0, -1 as u32);

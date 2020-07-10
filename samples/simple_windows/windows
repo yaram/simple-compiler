@@ -146,31 +146,31 @@ WM_DESTROY :: 0x0002;
 WM_PAINT :: 0x000F;
 WM_QUIT :: 0x0012;
 
-ExitProcess :: (uExitCode: UINT) extern "kernel32.lib";
+ExitProcess :: (uExitCode: UINT) #extern("kernel32");
 
-OutputDebugStringA :: (lpOutputString: LPCSTR) extern "kernel32.lib";
+OutputDebugStringA :: (lpOutputString: LPCSTR) #extern("kernel32");
 
-GetLastError :: () -> DWORD extern "kernel32.lib";
+GetLastError :: () -> DWORD #extern("kernel32");
 
-VirtualAlloc :: (lpAddress: LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtected: DWORD) -> LPVOID extern "kernel32.lib";
-VirtualFree :: (lpAddress: LPVOID, dwSize: SIZE_T, dwFreeType: DWORD) -> BOOL extern "kernel32.lib";
+VirtualAlloc :: (lpAddress: LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtected: DWORD) -> LPVOID #extern("kernel32");
+VirtualFree :: (lpAddress: LPVOID, dwSize: SIZE_T, dwFreeType: DWORD) -> BOOL #extern("kernel32");
 
-GetProcessHeap :: () -> HANDLE extern "kernel32.lib";
+GetProcessHeap :: () -> HANDLE #extern("kernel32");
 
-HeapAlloc :: (hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) -> LPVOID extern "kernel32.lib";
-HeapReAlloc :: (hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID, dwBytes: SIZE_T) -> LPVOID extern "kernel32.lib";
-HeapFree :: (hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID) -> BOOL extern "kernel32.lib";
+HeapAlloc :: (hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) -> LPVOID #extern("kernel32");
+HeapReAlloc :: (hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID, dwBytes: SIZE_T) -> LPVOID #extern("kernel32");
+HeapFree :: (hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID) -> BOOL #extern("kernel32");
 
-GetModuleHandleA :: (lpModuleName: LPCSTR) -> HMODULE extern "kernel32.lib";
+GetModuleHandleA :: (lpModuleName: LPCSTR) -> HMODULE #extern("kernel32");
 
-QueryPerformanceFrequency :: (lpFrequency: *LONGLONG) -> BOOL extern "kernel32.lib";
-QueryPerformanceCounter :: (lpPerformanceCount: *LONGLONG) -> BOOL extern "kernel32.lib";
+QueryPerformanceFrequency :: (lpFrequency: *LONGLONG) -> BOOL #extern("kernel32");
+QueryPerformanceCounter :: (lpPerformanceCount: *LONGLONG) -> BOOL #extern("kernel32");
 
-PostQuitMessage :: (nExitCode: i32) extern "user32.lib";
+PostQuitMessage :: (nExitCode: i32) #extern("user32");
 
-MessageBoxA :: (hWnd: HWND, lpText: LPCSTR, lpCaption: LPCSTR, uType: UINT) extern "user32.lib";
+MessageBoxA :: (hWnd: HWND, lpText: LPCSTR, lpCaption: LPCSTR, uType: UINT) #extern("user32");
 
-RegisterClassA :: (lpWndClass: *WNDCLASSA) -> ATOM extern "user32.lib";
+RegisterClassA :: (lpWndClass: *WNDCLASSA) -> ATOM #extern("user32");
 
 CW_USEDEFAULT :: 0x80000000;
 
@@ -187,23 +187,23 @@ CreateWindowExA :: (
     hMenu: HMENU,
     hInstance: HINSTANCE,
     lpParam: LPVOID
-) -> HWND extern "user32.lib";
+) -> HWND #extern("user32");
 
-DefWindowProcA :: (hWnd: HWND, Msg: UINT, wParam: WPARAM, lparam: LPARAM) -> LRESULT extern "user32.lib";
+DefWindowProcA :: (hWnd: HWND, Msg: UINT, wParam: WPARAM, lparam: LPARAM) -> LRESULT #extern("user32");
 
-GetMessageA :: (lpMsg: LPMSG, hWnd: HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT) -> BOOL extern "user32.lib";
-PeekMessageA :: (lpMsg: LPMSG, hWnd: HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT, wRemoveMsg: UINT) -> BOOL extern "user32.lib";
-TranslateMessage :: (lpMsg: LPMSG) -> BOOL extern "user32.lib";
-DispatchMessageA :: (lpMsg: LPMSG) -> LRESULT extern "user32.lib";
+GetMessageA :: (lpMsg: LPMSG, hWnd: HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT) -> BOOL #extern("user32");
+PeekMessageA :: (lpMsg: LPMSG, hWnd: HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT, wRemoveMsg: UINT) -> BOOL #extern("user32");
+TranslateMessage :: (lpMsg: LPMSG) -> BOOL #extern("user32");
+DispatchMessageA :: (lpMsg: LPMSG) -> LRESULT #extern("user32");
 
-GetWindowRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL extern "user32.lib";
-GetClientRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL extern "user32.lib";
+GetWindowRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL #extern("user32");
+GetClientRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL #extern("user32");
 
-ValidateRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL extern "user32.lib";
+ValidateRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL #extern("user32");
 
-GetDC :: (hWnd: HWND) -> HDC extern "gdi32.lib";
+GetDC :: (hWnd: HWND) -> HDC #extern("gdi32");
 
-Rectangle :: (hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL extern "gdi32.lib";
+Rectangle :: (hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL #extern("gdi32");
 
 StretchDIBits :: (
     hdc: HDC,
@@ -219,4 +219,4 @@ StretchDIBits :: (
     lpbmi: *BITMAPINFO,
     iUsage: UINT,
     rop: DWORD
-) -> i32 extern "gdi32.lib";
+) -> i32 #extern("gdi32");
