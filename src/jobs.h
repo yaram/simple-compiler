@@ -50,8 +50,8 @@ struct ResolveFunctionDeclaration : Job {
     FunctionDeclaration *declaration;
     ConstantScope *scope;
 
-    FunctionTypeType *type;
-    FunctionConstant *value;
+    Type *type;
+    ConstantValue *value;
 
     ResolveFunctionDeclaration() : Job { JobKind::ResolveFunctionDeclaration } {}
 };
@@ -103,7 +103,6 @@ struct GenerateFunction : Job {
     FunctionConstant *value;
 
     Function *function;
-    Array<StaticConstant*> static_constants;
 
     GenerateFunction() : Job { JobKind::GenerateFunction } {}
 };

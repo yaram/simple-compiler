@@ -4899,16 +4899,20 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         Type *type;
         size_t address_register;
 
-        if(variable_declaration->is_external) {
-            error(scope, variable_declaration->range, "Local variables cannot be external");
+        for(auto tag : variable_declaration->tags) {
+            if(strcmp(tag.name.text, "extern") == 0) {
+                error(scope, variable_declaration->range, "Local variables cannot be external");
 
-            return err;
-        }
+                return err;
+            } else if(strcmp(tag.name.text, "no_mangle") == 0) {
+                error(scope, variable_declaration->range, "Local variables cannot be no_mangle");
 
-        if(variable_declaration->is_no_mangle) {
-            error(scope, variable_declaration->range, "Local variables cannot be no_mangle");
+                return err;
+            } else {
+                error(scope, tag.name.range, "Unknown tag '%s'", tag.name.text);
 
-            return err;
+                return err;
+            }
         }
 
         if(variable_declaration->type != nullptr && variable_declaration->initializer != nullptr) {
@@ -5665,12 +5669,10 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     }
 
     function->name = declaration->name.text;
-    function->is_no_mangle = declaration->is_no_mangle || declaration->is_external;
     function->range = declaration->range;
     function->scope = value->body_scope;
     function->parameters = { ir_parameter_count, ir_parameters };
     function->has_return = type->return_type->kind != TypeKind::Void && return_representation.is_in_register;
-    function->is_external = declaration->is_external;
     function->calling_convention = CallingConvention::Default;
 
     if(type->return_type->kind != TypeKind::Void && return_representation.is_in_register) {
@@ -5679,10 +5681,16 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     }
 
     Array<StaticConstant*> static_constants;
-    if(declaration->is_external) {
+    if(value->is_external) {
         static_constants = {};
-        function->libraries = declaration->external_libraries;
+
+        function->is_external = true;
+        function->is_no_mangle = true;
+        function->libraries = value->external_libraries;
     } else {
+        function->is_external = false;
+        function->is_no_mangle = value->is_external;
+
         GenerationContext context {};
 
         context.return_type = type->return_type;
@@ -5813,7 +5821,82 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
     declaration,
     scope
 )) {
-    if(declaration->is_external) {
+    auto is_external = false;
+    Array<const char*> external_libraries;
+    auto is_no_mangle = false;
+    for(auto tag : declaration->tags) {
+        if(strcmp(tag.name.text, "extern") == 0) {
+            if(is_external) {
+                error(scope, tag.range, "Duplicate 'extern' tag");
+
+                return err;
+            }
+
+            auto libraries = allocate<const char*>(tag.parameters.count);
+
+            for(size_t i = 0; i < tag.parameters.count; i += 1) {
+                expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, tag.parameters[i]));
+
+                if(parameter.type->kind != TypeKind::StaticArray) {
+                    error(scope, tag.parameters[i]->range, "Expected a string ([]u8), got '%s'", type_description(parameter.type));
+
+                    return err;
+                }
+
+                auto static_array = (StaticArray*)parameter.type;
+                auto static_array_value = extract_constant_value(StaticArrayConstant, parameter.value);
+
+                if(
+                    static_array->element_type->kind != TypeKind::Integer ||
+                    ((Integer*)static_array->element_type)->size != RegisterSize::Size8
+                ) {
+                    error(scope, tag.parameters[i]->range, "Expected a string ([]u8), got '%s'", type_description(parameter.type));
+
+                    return err;
+                }
+
+                auto library_path = allocate<char>(static_array->length + 1);
+                for(size_t j = 0; j < static_array->length; j += 1) {
+                    library_path[j] = extract_constant_value(IntegerConstant, static_array_value->elements[j])->value;
+                }
+                library_path[static_array->length] = '\0';
+
+                libraries[i] = library_path;
+            }
+
+            is_external = true;
+            external_libraries = {
+                tag.parameters.count,
+                libraries
+            };
+        } else if(strcmp(tag.name.text, "no_mangle") == 0) {
+            if(is_no_mangle) {
+                error(scope, tag.range, "Duplicate 'no_mangle' tag");
+
+                return err;
+            }
+
+            is_no_mangle = true;
+        } else {
+            error(scope, tag.name.range, "Unknown tag '%s'", tag.name.text);
+
+            return err;
+        }
+    }
+
+    if(is_external && is_no_mangle) {
+        error(scope, declaration->range, "External variables cannot be no_mangle");
+
+        return err;
+    }
+
+    if(is_external) {
+        if(declaration->initializer != nullptr) {
+            error(scope, declaration->range, "External variables cannot have initializers");
+
+            return err;
+        }
+
         expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, declaration->type));
 
         if(!is_runtime_type(type)) {
@@ -5833,6 +5916,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
         static_variable->size = size;
         static_variable->alignment = alignment;
         static_variable->is_external = true;
+        static_variable->libraries = external_libraries;
 
         return has({
             static_variable,
@@ -5869,7 +5953,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
 
             auto static_variable = new StaticVariable;
             static_variable->name = declaration->name.text;
-            static_variable->is_no_mangle = declaration->is_no_mangle;
+            static_variable->is_no_mangle = is_no_mangle;
             static_variable->scope = scope;
             static_variable->size = size;
             static_variable->alignment = alignment;
@@ -5898,7 +5982,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             static_variable->scope = scope;
             static_variable->size = size;
             static_variable->alignment = alignment;
-            static_variable->is_no_mangle = declaration->is_no_mangle;
+            static_variable->is_no_mangle = is_no_mangle;
             static_variable->is_external = false;
 
             return has({
@@ -5928,7 +6012,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             static_variable->scope = scope;
             static_variable->size = size;
             static_variable->alignment = alignment;
-            static_variable->is_no_mangle = declaration->is_no_mangle;
+            static_variable->is_no_mangle = is_no_mangle;
             static_variable->is_external = false;
             static_variable->has_initial_data = true;
             static_variable->initial_data = data;

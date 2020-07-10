@@ -72,18 +72,41 @@ extern ConstantValue void_constant_singleton;
 
 struct FunctionConstant : ConstantValue {
     FunctionDeclaration *declaration;
+
+    bool is_external;
+    Array<const char*> external_libraries;
+
     ConstantScope *body_scope;
     Array<ConstantScope*> child_scopes;
+
+    bool is_no_mangle;
 
     FunctionConstant(
         FunctionDeclaration *declaration,
         ConstantScope *body_scope,
+        Array<const char*> external_libraries,
         Array<ConstantScope*> child_scopes
     ) :
     ConstantValue { ConstantValueKind::FunctionConstant },
     declaration { declaration },
     body_scope { body_scope },
+    is_external { true },
+    external_libraries { external_libraries },
     child_scopes { child_scopes }
+    {}
+
+    FunctionConstant(
+        FunctionDeclaration *declaration,
+        ConstantScope *body_scope,
+        Array<ConstantScope*> child_scopes,
+        bool is_no_mangle
+    ) :
+    ConstantValue { ConstantValueKind::FunctionConstant },
+    declaration { declaration },
+    body_scope { body_scope },
+    is_external { false },
+    child_scopes { child_scopes },
+    is_no_mangle { is_no_mangle }
     {}
 };
 
@@ -359,17 +382,17 @@ DelayedResult<TypedConstantValue> evaluate_constant_expression(
 
 DelayedResult<bool> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope);
 
-struct FunctionResolutionValue {
-    FunctionTypeType *type;
-    FunctionConstant *value;
-};
-
-DelayedResult<FunctionResolutionValue> do_resolve_function_declaration(
+DelayedResult<TypedConstantValue> do_resolve_function_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionDeclaration *declaration,
     ConstantScope *scope
 );
+
+struct FunctionResolutionValue {
+    FunctionTypeType *type;
+    FunctionConstant *value;
+};
 
 DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
     GlobalInfo info,

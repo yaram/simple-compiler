@@ -452,30 +452,35 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             resolve_function_declaration->type = result.value.type;
                             resolve_function_declaration->value = result.value.value;
 
-                            auto found = false;
-                            for(auto job : jobs) {
-                                if(job->kind == JobKind::GenerateFunction) { 
-                                    auto generate_function = (GenerateFunction*)job;
+                            if(resolve_function_declaration->type->kind == TypeKind::FunctionTypeType) {
+                                auto function_type = (FunctionTypeType*)resolve_function_declaration->type;
+                                auto function_value = extract_constant_value(FunctionConstant, resolve_function_declaration->value);
 
-                                    if(
-                                        generate_function->value->declaration == resolve_function_declaration->declaration &&
-                                        generate_function->value->body_scope == resolve_function_declaration->value->body_scope
-                                    ) {
-                                        found = true;
-                                        break;
+                                auto found = false;
+                                for(auto job : jobs) {
+                                    if(job->kind == JobKind::GenerateFunction) { 
+                                        auto generate_function = (GenerateFunction*)job;
+
+                                        if(
+                                            generate_function->value->declaration == function_value->declaration &&
+                                            generate_function->value->body_scope == function_value->body_scope
+                                        ) {
+                                            found = true;
+                                            break;
+                                        }
                                     }
                                 }
-                            }
 
-                            if(!found) {
-                                auto generate_function = new GenerateFunction;
-                                generate_function->done = false;
-                                generate_function->waiting_for = resolve_function_declaration;
-                                generate_function->type = result.value.type;
-                                generate_function->value = result.value.value;
-                                generate_function->function = new Function;
+                                if(!found) {
+                                    auto generate_function = new GenerateFunction;
+                                    generate_function->done = false;
+                                    generate_function->waiting_for = nullptr;
+                                    generate_function->type = function_type;
+                                    generate_function->value = function_value;
+                                    generate_function->function = new Function;
 
-                                append(&jobs, (Job*)generate_function);
+                                    append(&jobs, (Job*)generate_function);
+                                }
                             }
                         } else {
                             resolve_function_declaration->waiting_for = result.waiting_for;
@@ -619,7 +624,6 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         if(result.has_value) {
                             generate_function->done = true;
-                            generate_function->static_constants = result.value;
 
                             append(&runtime_statics, (RuntimeStatic*)generate_function->function);
 
@@ -688,6 +692,22 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             generate_static_variable->type = result.value.type;
 
                             append(&runtime_statics, (RuntimeStatic*)result.value.static_variable);
+
+                            if(generate_static_variable->static_variable->is_external) {
+                                for(auto library : generate_static_variable->static_variable->libraries) {
+                                    auto already_registered = false;
+                                    for(auto registered_library : libraries) {
+                                        if(strcmp(registered_library, library) == 0) {
+                                            already_registered = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if(!already_registered) {
+                                        append(&libraries, library);
+                                    }
+                                }
+                            }
 
                             if(print_ir) {
                                 auto current_scope = generate_static_variable->scope;

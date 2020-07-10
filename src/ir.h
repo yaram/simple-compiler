@@ -377,6 +377,8 @@ struct StaticVariable : RuntimeStatic {
 
     bool is_external;
 
+    Array<const char*> libraries;
+
     bool has_initial_data;
     uint8_t *initial_data;
 

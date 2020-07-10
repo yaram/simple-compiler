@@ -2615,7 +2615,7 @@ DelayedResult<bool> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, Stat
     return has(condition_value);
 }
 
-profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_function_declaration, (
+profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declaration, (
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionDeclaration *declaration,
@@ -2644,6 +2644,69 @@ profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_function_de
         parameter_types[i] = type;
     }
 
+    auto is_external = false;
+    Array<const char*> external_libraries;
+    auto is_no_mangle = false;
+    for(auto tag : declaration->tags) {
+        if(strcmp(tag.name.text, "extern") == 0) {
+            if(is_external) {
+                error(scope, tag.range, "Duplicate 'extern' tag");
+
+                return err;
+            }
+
+            auto libraries = allocate<const char*>(tag.parameters.count);
+
+            for(size_t i = 0; i < tag.parameters.count; i += 1) {
+                expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, tag.parameters[i]));
+
+                if(parameter.type->kind != TypeKind::StaticArray) {
+                    error(scope, tag.parameters[i]->range, "Expected a string ([]u8), got '%s'", type_description(parameter.type));
+
+                    return err;
+                }
+
+                auto static_array = (StaticArray*)parameter.type;
+                auto static_array_value = extract_constant_value(StaticArrayConstant, parameter.value);
+
+                if(
+                    static_array->element_type->kind != TypeKind::Integer ||
+                    ((Integer*)static_array->element_type)->size != RegisterSize::Size8
+                ) {
+                    error(scope, tag.parameters[i]->range, "Expected a string ([]u8), got '%s'", type_description(parameter.type));
+
+                    return err;
+                }
+
+                auto library_path = allocate<char>(static_array->length + 1);
+                for(size_t j = 0; j < static_array->length; j += 1) {
+                    library_path[j] = extract_constant_value(IntegerConstant, static_array_value->elements[j])->value;
+                }
+                library_path[static_array->length] = '\0';
+
+                libraries[i] = library_path;
+            }
+
+            is_external = true;
+            external_libraries = {
+                tag.parameters.count,
+                libraries
+            };
+        } else if(strcmp(tag.name.text, "no_mangle") == 0) {
+            if(is_no_mangle) {
+                error(scope, tag.range, "Duplicate 'no_mangle' tag");
+
+                return err;
+            }
+
+            is_no_mangle = true;
+        } else {
+            error(scope, tag.name.range, "Unknown tag '%s'", tag.name.text);
+
+            return err;
+        }
+    }
+
     Type *return_type;
     if(declaration->return_type) {
         expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, nullptr, declaration->return_type));
@@ -2658,36 +2721,71 @@ profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_function_de
     } else {
         return_type = &void_singleton;
     }
-    
-    auto body_scope = new ConstantScope;
-    body_scope->statements = {};
-    body_scope->scope_constants = {};
-    body_scope->is_top_level = false;
-    body_scope->parent = scope;
 
-    List<ConstantScope*> child_scopes {};
-    if(!declaration->is_external) {
-        body_scope->statements = declaration->statements;
+    if(is_external && is_no_mangle) {
+        error(scope, declaration->range, "External functions cannot be no_mangle");
 
-        if(!process_scope(jobs, body_scope, body_scope->statements, &child_scopes, false)) {
-            return err;
-        }
+        return err;
     }
 
-    return has({
-        new FunctionTypeType {
-            {
-                parameter_count,
-                parameter_types
-            },
-            return_type
-        },
-        new FunctionConstant {
-            declaration,
-            body_scope,
-            to_array(child_scopes)
+    if(!is_external && !declaration->has_body) {
+        return has({
+            &type_type_singleton,
+            new TypeConstant {
+                new FunctionTypeType {
+                    { parameter_count, parameter_types },
+                    return_type
+                }
+            }
+        });
+    } else {
+        auto body_scope = new ConstantScope;
+        body_scope->scope_constants = {};
+        body_scope->is_top_level = false;
+        body_scope->parent = scope;
+
+        List<ConstantScope*> child_scopes {};
+        if(is_external) {
+            if(declaration->has_body) {
+                error(scope, declaration->range, "External functions cannot have a body");
+
+                return err;
+            }
+
+            body_scope->statements = {};
+        } else {
+            body_scope->statements = declaration->statements;
+
+            if(!process_scope(jobs, body_scope, body_scope->statements, &child_scopes, false)) {
+                return err;
+            }
         }
-    });
+
+        FunctionConstant *function_constant;
+        if(is_external) {
+            function_constant = new FunctionConstant {
+                declaration,
+                body_scope,
+                external_libraries,
+                to_array(child_scopes)
+            };
+        } else {
+            function_constant = new FunctionConstant {
+                declaration,
+                body_scope,
+                to_array(child_scopes),
+                is_no_mangle
+            };
+        }
+
+        return has({
+            new FunctionTypeType {
+                { parameter_count, parameter_types },
+                return_type
+            },
+            function_constant
+        });
+    }
 }
 
 profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_polymorphic_function, (
@@ -2842,20 +2940,37 @@ profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_polymorphic
         return_type = &void_singleton;
     }
 
-    List<ConstantScope*> child_scopes {};
-    ConstantScope *body_scope;
-    if(declaration->is_external) {
-        body_scope = nullptr;
-    } else {
-        body_scope = new ConstantScope;
-        body_scope->statements = declaration->statements;
-        body_scope->scope_constants = to_array(scope_constants);
-        body_scope->is_top_level = false;
-        body_scope->parent = scope;
+    for(auto tag : declaration->tags) {
+        if(strcmp(tag.name.text, "extern") == 0) {
+            error(scope, tag.range, "Polymorphic functions cannot be external");
 
-        if(!process_scope(jobs, body_scope, body_scope->statements, &child_scopes, false)) {
+            return err;
+        } else if(strcmp(tag.name.text, "no_mangle") == 0) {
+            error(scope, tag.range, "Polymorphic functions cannot be no_mangle");
+
+            return err;
+        } else {
+            error(scope, tag.name.range, "Unknown tag '%s'", tag.name.text);
+
             return err;
         }
+    }
+
+    if(!declaration->has_body) {
+        error(scope, declaration->range, "Polymorphic function missing a body");
+
+        return err;
+    }
+
+    auto body_scope = new ConstantScope;
+    body_scope->statements = declaration->statements;
+    body_scope->scope_constants = to_array(scope_constants);
+    body_scope->is_top_level = false;
+    body_scope->parent = scope;
+
+    List<ConstantScope*> child_scopes {};
+    if(!process_scope(jobs, body_scope, body_scope->statements, &child_scopes, false)) {
+        return err;
     }
 
     return has({
@@ -2869,7 +2984,8 @@ profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_polymorphic
         new FunctionConstant {
             declaration,
             body_scope,
-            to_array(child_scopes)
+            to_array(child_scopes),
+            false
         }
     });
 }
