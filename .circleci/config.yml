@@ -1,0 +1,33 @@
+version: 2.1
+
+orbs:
+  win: circleci/windows@2.4.0
+
+jobs:
+  build:
+    executor: win/default     
+
+    steps:
+      - checkout
+      - run: choco install cmake.install --version=3.16.0 --installargs ADD_CMAKE_TO_PATH=System
+      - run: mkdir build
+      - run: cd build
+      - run: cmake ..
+      - run: cmake --build . --target=compiler
+
+  test:
+    executor: win/default
+
+    steps:
+      - run: cmake --build . --config=Debug --target=test_driver
+      - run: ctest -C Debug .
+
+workflows:
+  build:
+    jobs:
+      - build
+
+  build-and-test:
+    jobs:
+      - build
+      - test
