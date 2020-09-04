@@ -106,6 +106,7 @@ namespace Intrinsic {
       Token,
       Metadata,
       Half,
+      BFloat,
       Float,
       Double,
       Quad,
@@ -189,8 +190,7 @@ namespace Intrinsic {
     static IITDescriptor getVector(unsigned Width, bool IsScalable) {
       IITDescriptor Result;
       Result.Kind = Vector;
-      Result.Vector_Width.Min = Width;
-      Result.Vector_Width.Scalable = IsScalable;
+      Result.Vector_Width = ElementCount::get(Width, IsScalable);
       return Result;
     }
   };
@@ -220,6 +220,13 @@ namespace Intrinsic {
   ///
   /// This method returns true on error.
   bool matchIntrinsicVarArg(bool isVarArg, ArrayRef<IITDescriptor> &Infos);
+
+  /// Gets the type arguments of an intrinsic call by matching type contraints
+  /// specified by the .td file. The overloaded types are pushed into the
+  /// AgTys vector.
+  ///
+  /// Returns false if the given function is not a valid intrinsic call.
+  bool getIntrinsicSignature(Function *F, SmallVectorImpl<Type *> &ArgTys);
 
   // Checks if the intrinsic name matches with its signature and if not
   // returns the declaration with the same signature and remangled name.

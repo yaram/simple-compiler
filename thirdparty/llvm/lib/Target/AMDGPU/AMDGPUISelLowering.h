@@ -18,6 +18,7 @@
 #include "AMDGPU.h"
 #include "llvm/CodeGen/CallingConvLower.h"
 #include "llvm/CodeGen/TargetLowering.h"
+#include "llvm/Target/TargetMachine.h"
 
 namespace llvm {
 
@@ -410,7 +411,6 @@ enum NodeType : unsigned {
   // For emitting ISD::FMAD when f32 denormals are enabled because mac/mad is
   // treated as an illegal operation.
   FMAD_FTZ,
-  TRIG_PREOP, // 1 ULP max error for f64
 
   // RCP, RSQ - For f32, 1 ULP max error, no denormal handling.
   //            For f64, max error 2^29 ULP, handles denormals.
@@ -534,9 +534,8 @@ enum NodeType : unsigned {
   BUFFER_ATOMIC_INC,
   BUFFER_ATOMIC_DEC,
   BUFFER_ATOMIC_CMPSWAP,
+  BUFFER_ATOMIC_CSUB,
   BUFFER_ATOMIC_FADD,
-  BUFFER_ATOMIC_PK_FADD,
-  ATOMIC_PK_FADD,
 
   LAST_AMDGPU_ISD_NUMBER
 };

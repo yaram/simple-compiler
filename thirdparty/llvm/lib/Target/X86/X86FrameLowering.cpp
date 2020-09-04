@@ -275,16 +275,9 @@ void X86FrameLowering::emitSPUpdate(MachineBasicBlock &MBB,
   // allocation is split in smaller chunks anyway.
   if (EmitInlineStackProbe && !InEpilogue) {
 
-    // stack probing may involve looping, and control flow generations is
-    // disallowed at this point. Rely to later processing through
-    // `inlineStackProbe`.
-    MachineInstr *Stub = emitStackProbeInlineStub(MF, MBB, MBBI, DL, true);
-
-    // Encode the static offset as a metadata attached to the stub.
-    LLVMContext &Context = MF.getFunction().getContext();
-    MachineInstrBuilder(MF, Stub).addMetadata(
-        MDTuple::get(Context, {ConstantAsMetadata::get(ConstantInt::get(
-                                  IntegerType::get(Context, 64), Offset))}));
+    // This pseudo-instruction is going to be expanded, potentially using a
+    // loop, by inlineStackProbe().
+    BuildMI(MBB, MBBI, DL, TII.get(X86::STACKALLOC_W_PROBING)).addImm(Offset);
     return;
   } else if (Offset > Chunk) {
     // Rather than emit a long series of instructions for large offsets,
@@ -486,6 +479,29 @@ void X86FrameLowering::BuildCFI(MachineBasicBlock &MBB,
       .addCFIIndex(CFIIndex);
 }
 
+/// Emits Dwarf Info specifying offsets of callee saved registers and
+/// frame pointer. This is called only when basic block sections are enabled.
+void X86FrameLowering::emitCalleeSavedFrameMoves(
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI) const {
+  MachineFunction &MF = *MBB.getParent();
+  if (!hasFP(MF)) {
+    emitCalleeSavedFrameMoves(MBB, MBBI, DebugLoc{}, true);
+    return;
+  }
+  const MachineModuleInfo &MMI = MF.getMMI();
+  const MCRegisterInfo *MRI = MMI.getContext().getRegisterInfo();
+  const unsigned FramePtr = TRI->getFrameRegister(MF);
+  const unsigned MachineFramePtr =
+      STI.isTarget64BitILP32() ? unsigned(getX86SubSuperRegister(FramePtr, 64))
+                               : FramePtr;
+  unsigned DwarfReg = MRI->getDwarfRegNum(MachineFramePtr, true);
+  // Offset = space for return address + size of the frame pointer itself.
+  unsigned Offset = (Is64Bit ? 8 : 4) + (Uses64BitFramePtr ? 8 : 4);
+  BuildCFI(MBB, MBBI, DebugLoc{},
+           MCCFIInstruction::createOffset(nullptr, DwarfReg, -Offset));
+  emitCalleeSavedFrameMoves(MBB, MBBI, DebugLoc{}, true);
+}
+
 void X86FrameLowering::emitCalleeSavedFrameMoves(
     MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
     const DebugLoc &DL, bool IsPrologue) const {
@@ -522,7 +538,8 @@ void X86FrameLowering::emitStackProbe(MachineFunction &MF,
   const X86Subtarget &STI = MF.getSubtarget<X86Subtarget>();
   if (STI.isTargetWindowsCoreCLR()) {
     if (InProlog) {
-      emitStackProbeInlineStub(MF, MBB, MBBI, DL, true);
+      BuildMI(MBB, MBBI, DL, TII.get(X86::STACKALLOC_W_PROBING))
+          .addImm(0 /* no explicit stack size */);
     } else {
       emitStackProbeInline(MF, MBB, MBBI, DL, false);
     }
@@ -533,26 +550,13 @@ void X86FrameLowering::emitStackProbe(MachineFunction &MF,
 
 void X86FrameLowering::inlineStackProbe(MachineFunction &MF,
                                         MachineBasicBlock &PrologMBB) const {
-  const StringRef ChkStkStubSymbol = "__chkstk_stub";
-  MachineInstr *ChkStkStub = nullptr;
-
-  for (MachineInstr &MI : PrologMBB) {
-    if (MI.isCall() && MI.getOperand(0).isSymbol() &&
-        ChkStkStubSymbol == MI.getOperand(0).getSymbolName()) {
-      ChkStkStub = &MI;
-      break;
-    }
-  }
-
-  if (ChkStkStub != nullptr) {
-    assert(!ChkStkStub->isBundled() &&
-           "Not expecting bundled instructions here");
-    MachineBasicBlock::iterator MBBI = std::next(ChkStkStub->getIterator());
-    assert(std::prev(MBBI) == ChkStkStub &&
-           "MBBI expected after __chkstk_stub.");
-    DebugLoc DL = PrologMBB.findDebugLoc(MBBI);
-    emitStackProbeInline(MF, PrologMBB, MBBI, DL, true);
-    ChkStkStub->eraseFromParent();
+  auto Where = llvm::find_if(PrologMBB, [](MachineInstr &MI) {
+    return MI.getOpcode() == X86::STACKALLOC_W_PROBING;
+  });
+  if (Where != PrologMBB.end()) {
+    DebugLoc DL = PrologMBB.findDebugLoc(Where);
+    emitStackProbeInline(MF, PrologMBB, Where, DL, true);
+    Where->eraseFromParent();
   }
 }
 
@@ -571,16 +575,8 @@ void X86FrameLowering::emitStackProbeInline(MachineFunction &MF,
 void X86FrameLowering::emitStackProbeInlineGeneric(
     MachineFunction &MF, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator MBBI, const DebugLoc &DL, bool InProlog) const {
-  MachineInstr &CallToInline = *std::prev(MBBI);
-  assert(CallToInline.getOperand(1).isMetadata() &&
-         "no metadata attached to that probe");
-  uint64_t Offset =
-      cast<ConstantInt>(
-          cast<ConstantAsMetadata>(
-              cast<MDTuple>(CallToInline.getOperand(1).getMetadata())
-                  ->getOperand(0))
-              ->getValue())
-          ->getZExtValue();
+  MachineInstr &AllocWithProbe = *MBBI;
+  uint64_t Offset = AllocWithProbe.getOperand(0).getImm();
 
   const X86Subtarget &STI = MF.getSubtarget<X86Subtarget>();
   const X86TargetLowering &TLI = *STI.getTargetLowering();
@@ -645,6 +641,7 @@ void X86FrameLowering::emitStackProbeInlineGenericLoop(
     MachineFunction &MF, MachineBasicBlock &MBB,
     MachineBasicBlock::iterator MBBI, const DebugLoc &DL,
     uint64_t Offset) const {
+  assert(Offset && "null offset");
 
   const X86Subtarget &STI = MF.getSubtarget<X86Subtarget>();
   const X86TargetLowering &TLI = *STI.getTargetLowering();
@@ -662,16 +659,16 @@ void X86FrameLowering::emitStackProbeInlineGenericLoop(
   MF.insert(MBBIter, testMBB);
   MF.insert(MBBIter, tailMBB);
 
-  unsigned FinalStackPtr = Uses64BitFramePtr ? X86::R11 : X86::R11D;
-  BuildMI(MBB, MBBI, DL, TII.get(X86::MOV64rr), FinalStackPtr)
+  Register FinalStackProbed = Uses64BitFramePtr ? X86::R11 : X86::R11D;
+  BuildMI(MBB, MBBI, DL, TII.get(TargetOpcode::COPY), FinalStackProbed)
       .addReg(StackPtr)
       .setMIFlag(MachineInstr::FrameSetup);
 
   // save loop bound
   {
     const unsigned Opc = getSUBriOpcode(Uses64BitFramePtr, Offset);
-    BuildMI(MBB, MBBI, DL, TII.get(Opc), FinalStackPtr)
-        .addReg(FinalStackPtr)
+    BuildMI(MBB, MBBI, DL, TII.get(Opc), FinalStackProbed)
+        .addReg(FinalStackProbed)
         .addImm(Offset / StackProbeSize * StackProbeSize)
         .setMIFlag(MachineInstr::FrameSetup);
   }
@@ -693,9 +690,9 @@ void X86FrameLowering::emitStackProbeInlineGenericLoop(
       .setMIFlag(MachineInstr::FrameSetup);
 
   // cmp with stack pointer bound
-  BuildMI(testMBB, DL, TII.get(IsLP64 ? X86::CMP64rr : X86::CMP32rr))
+  BuildMI(testMBB, DL, TII.get(Uses64BitFramePtr ? X86::CMP64rr : X86::CMP32rr))
       .addReg(StackPtr)
-      .addReg(FinalStackPtr)
+      .addReg(FinalStackProbed)
       .setMIFlag(MachineInstr::FrameSetup);
 
   // jump
@@ -705,21 +702,25 @@ void X86FrameLowering::emitStackProbeInlineGenericLoop(
       .setMIFlag(MachineInstr::FrameSetup);
   testMBB->addSuccessor(testMBB);
   testMBB->addSuccessor(tailMBB);
-  testMBB->addLiveIn(FinalStackPtr);
 
-  // allocate a block and touch it
-
+  // BB management
   tailMBB->splice(tailMBB->end(), &MBB, MBBI, MBB.end());
   tailMBB->transferSuccessorsAndUpdatePHIs(&MBB);
   MBB.addSuccessor(testMBB);
 
-  if (Offset % StackProbeSize) {
-    const unsigned Opc = getSUBriOpcode(Uses64BitFramePtr, Offset);
+  // handle tail
+  unsigned TailOffset = Offset % StackProbeSize;
+  if (TailOffset) {
+    const unsigned Opc = getSUBriOpcode(Uses64BitFramePtr, TailOffset);
     BuildMI(*tailMBB, tailMBB->begin(), DL, TII.get(Opc), StackPtr)
         .addReg(StackPtr)
-        .addImm(Offset % StackProbeSize)
+        .addImm(TailOffset)
         .setMIFlag(MachineInstr::FrameSetup);
   }
+
+  // Update Live In information
+  recomputeLiveIns(*testMBB);
+  recomputeLiveIns(*tailMBB);
 }
 
 void X86FrameLowering::emitStackProbeInlineWindowsCoreCLR64(
@@ -1017,16 +1018,6 @@ void X86FrameLowering::emitStackProbeCall(MachineFunction &MF,
     for (++ExpansionMBBI; ExpansionMBBI != MBBI; ++ExpansionMBBI)
       ExpansionMBBI->setFlag(MachineInstr::FrameSetup);
   }
-}
-
-MachineInstr *X86FrameLowering::emitStackProbeInlineStub(
-    MachineFunction &MF, MachineBasicBlock &MBB,
-    MachineBasicBlock::iterator MBBI, const DebugLoc &DL, bool InProlog) const {
-
-  assert(InProlog && "ChkStkStub called outside prolog!");
-
-  return BuildMI(MBB, MBBI, DL, TII.get(X86::CALLpcrel32))
-      .addExternalSymbol("__chkstk_stub");
 }
 
 static unsigned calculateSetFPREG(uint64_t SPAdjust) {

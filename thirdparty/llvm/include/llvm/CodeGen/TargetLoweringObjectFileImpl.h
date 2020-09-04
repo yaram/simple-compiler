@@ -246,12 +246,13 @@ public:
                                    const Constant *C,
                                    Align &Alignment) const override;
 
-  static XCOFF::StorageClass getStorageClassForGlobal(const GlobalObject *GO);
+  static XCOFF::StorageClass getStorageClassForGlobal(const GlobalValue *GV);
 
   MCSection *
   getSectionForFunctionDescriptor(const Function *F,
                                   const TargetMachine &TM) const override;
-  MCSection *getSectionForTOCEntry(const MCSymbol *Sym) const override;
+  MCSection *getSectionForTOCEntry(const MCSymbol *Sym,
+                                   const TargetMachine &TM) const override;
 
   /// For external functions, this will always return a function descriptor
   /// csect.
@@ -262,6 +263,9 @@ public:
   /// For functions, this will always return a function descriptor symbol.
   MCSymbol *getTargetSymbol(const GlobalValue *GV,
                             const TargetMachine &TM) const override;
+
+  MCSymbol *getFunctionEntryPointSymbol(const GlobalValue *Func,
+                                        const TargetMachine &TM) const override;
 };
 
 } // end namespace llvm

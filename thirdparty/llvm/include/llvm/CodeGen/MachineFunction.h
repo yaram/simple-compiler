@@ -144,6 +144,8 @@ public:
   //  operands, this also means that all generic virtual registers have been
   //  constrained to virtual registers (assigned to register classes) and that
   //  all sizes attached to them have been eliminated.
+  // TiedOpsRewritten: The twoaddressinstruction pass will set this flag, it
+  //  means that tied-def have been rewritten to meet the RegConstraint.
   enum class Property : unsigned {
     IsSSA,
     NoPHIs,
@@ -153,7 +155,8 @@ public:
     Legalized,
     RegBankSelected,
     Selected,
-    LastProperty = Selected,
+    TiedOpsRewritten,
+    LastProperty = TiedOpsRewritten,
   };
 
   bool hasProperty(Property P) const {
@@ -491,7 +494,8 @@ public:
   /// Returns true if this function has basic block sections enabled.
   bool hasBBSections() const {
     return (BBSectionsType == BasicBlockSection::All ||
-            BBSectionsType == BasicBlockSection::List);
+            BBSectionsType == BasicBlockSection::List ||
+            BBSectionsType == BasicBlockSection::Preset);
   }
 
   /// Returns true if basic block labels are to be generated for this function.
@@ -812,6 +816,14 @@ public:
   MachineMemOperand *getMachineMemOperand(const MachineMemOperand *MMO,
                                           int64_t Offset, uint64_t Size);
 
+  /// getMachineMemOperand - Allocate a new MachineMemOperand by copying
+  /// an existing one, replacing only the MachinePointerInfo and size.
+  /// MachineMemOperands are owned by the MachineFunction and need not be
+  /// explicitly deallocated.
+  MachineMemOperand *getMachineMemOperand(const MachineMemOperand *MMO,
+                                          MachinePointerInfo &PtrInfo,
+                                          uint64_t Size);
+
   /// Allocate a new MachineMemOperand by copying an existing one,
   /// replacing only AliasAnalysis information. MachineMemOperands are owned
   /// by the MachineFunction and need not be explicitly deallocated.
@@ -1129,6 +1141,11 @@ template <> struct GraphTraits<Inverse<const MachineFunction*>> :
     return &G.Graph->front();
   }
 };
+
+class MachineFunctionAnalysisManager;
+void verifyMachineFunction(MachineFunctionAnalysisManager *,
+                           const std::string &Banner,
+                           const MachineFunction &MF);
 
 } // end namespace llvm
 

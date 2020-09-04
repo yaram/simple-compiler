@@ -27,7 +27,6 @@
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/CodeGen/DAGCombine.h"
-#include "llvm/CodeGen/FunctionLoweringInfo.h"
 #include "llvm/CodeGen/ISDOpcodes.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
@@ -64,6 +63,7 @@ class ConstantFP;
 class ConstantInt;
 class DataLayout;
 struct fltSemantics;
+class FunctionLoweringInfo;
 class GlobalValue;
 struct KnownBits;
 class LegacyDivergenceAnalysis;
@@ -278,6 +278,7 @@ class SelectionDAG {
   struct CallSiteDbgInfo {
     CallSiteInfo CSInfo;
     MDNode *HeapAllocSite = nullptr;
+    bool NoMerge = false;
   };
 
   DenseMap<const SDNode *, CallSiteDbgInfo> SDCallSiteDbgInfo;
@@ -431,6 +432,17 @@ public:
   OptimizationRemarkEmitter &getORE() const { return *ORE; }
   ProfileSummaryInfo *getPSI() const { return PSI; }
   BlockFrequencyInfo *getBFI() const { return BFI; }
+
+  /// Just dump dot graph to a user-provided path and title.
+  /// This doesn't open the dot viewer program and
+  /// helps visualization when outside debugging session.
+  /// FileName expects absolute path. If provided
+  /// without any path separators then the file
+  /// will be created in the current directory.
+  /// Error will be emitted if the path is insane.
+#if !defined(NDEBUG) || defined(LLVM_ENABLE_DUMP)
+  LLVM_DUMP_METHOD void dumpDotGraph(const Twine &FileName, const Twine &Title);
+#endif
 
   /// Pop up a GraphViz/gv window with the DAG rendered using 'dot'.
   void viewGraph(const std::string &Title);
@@ -858,7 +870,7 @@ public:
 
   /// Returns sum of the base pointer and offset.
   /// Unlike getObjectPtrOffset this does not set NoUnsignedWrap by default.
-  SDValue getMemBasePlusOffset(SDValue Base, int64_t Offset, const SDLoc &DL,
+  SDValue getMemBasePlusOffset(SDValue Base, TypeSize Offset, const SDLoc &DL,
                                const SDNodeFlags Flags = SDNodeFlags());
   SDValue getMemBasePlusOffset(SDValue Base, SDValue Offset, const SDLoc &DL,
                                const SDNodeFlags Flags = SDNodeFlags());
@@ -866,7 +878,7 @@ public:
   /// Create an add instruction with appropriate flags when used for
   /// addressing some offset of an object. i.e. if a load is split into multiple
   /// components, create an add nuw from the base pointer to the offset.
-  SDValue getObjectPtrOffset(const SDLoc &SL, SDValue Ptr, int64_t Offset) {
+  SDValue getObjectPtrOffset(const SDLoc &SL, SDValue Ptr, TypeSize Offset) {
     SDNodeFlags Flags;
     Flags.setNoUnsignedWrap(true);
     return getMemBasePlusOffset(Ptr, Offset, SL, Flags);
@@ -919,7 +931,8 @@ public:
   SDValue getVScale(const SDLoc &DL, EVT VT, APInt MulImm) {
     assert(MulImm.getMinSignedBits() <= VT.getSizeInBits() &&
            "Immediate does not fit VT");
-    return getNode(ISD::VSCALE, DL, VT, getConstant(MulImm, DL, VT));
+    return getNode(ISD::VSCALE, DL, VT,
+                   getConstant(MulImm.sextOrTrunc(VT.getSizeInBits()), DL, VT));
   }
 
   /// Return a GLOBAL_OFFSET_TABLE node. This does not have a useful SDLoc.
@@ -1330,6 +1343,9 @@ public:
   /// Return a freeze using the SDLoc of the value operand.
   SDValue getFreeze(SDValue V);
 
+  /// Return an AssertAlignSDNode.
+  SDValue getAssertAlign(const SDLoc &DL, SDValue V, Align A);
+
   /// Return the specified value casted to
   /// the target's desired shift amount type.
   SDValue getShiftAmountOperand(EVT LHSTy, SDValue Op);
@@ -1547,6 +1563,7 @@ public:
     switch (VT.getScalarType().getSimpleVT().SimpleTy) {
     default: llvm_unreachable("Unknown FP format");
     case MVT::f16:     return APFloat::IEEEhalf();
+    case MVT::bf16:    return APFloat::BFloat();
     case MVT::f32:     return APFloat::IEEEsingle();
     case MVT::f64:     return APFloat::IEEEdouble();
     case MVT::f80:     return APFloat::x87DoubleExtended();
@@ -1594,6 +1611,12 @@ public:
   void salvageDebugInfo(SDNode &N);
 
   void dump() const;
+
+  /// In most cases this function returns the ABI alignment for a given type,
+  /// except for illegal vector types where the alignment exceeds that of the
+  /// stack. In such cases we attempt to break the vector down to a legal type
+  /// and return the ABI alignment for that instead.
+  Align getReducedAlign(EVT VT, bool UseABI);
 
   /// Create a stack temporary based on the size in bytes and the alignment
   SDValue CreateStackTemporary(TypeSize Bytes, Align Alignment);
@@ -1913,6 +1936,18 @@ public:
     if (It == SDCallSiteDbgInfo.end())
       return nullptr;
     return It->second.HeapAllocSite;
+  }
+
+  void addNoMergeSiteInfo(const SDNode *Node, bool NoMerge) {
+    if (NoMerge)
+      SDCallSiteDbgInfo[Node].NoMerge = NoMerge;
+  }
+
+  bool getNoMergeSiteInfo(const SDNode *Node) {
+    auto I = SDCallSiteDbgInfo.find(Node);
+    if (I == SDCallSiteDbgInfo.end())
+      return false;
+    return I->second.NoMerge;
   }
 
   /// Return the current function's default denormal handling kind for the given

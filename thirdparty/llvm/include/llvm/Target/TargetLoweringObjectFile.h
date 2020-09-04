@@ -226,7 +226,8 @@ public:
   /// On targets that support TOC entries, return a section for the entry given
   /// the symbol it refers to.
   /// TODO: Implement this interface for existing ELF targets.
-  virtual MCSection *getSectionForTOCEntry(const MCSymbol *S) const {
+  virtual MCSection *getSectionForTOCEntry(const MCSymbol *S,
+                                           const TargetMachine &TM) const {
     return nullptr;
   }
 
@@ -242,6 +243,14 @@ public:
   /// this hook to return a specialized symbol.
   virtual MCSymbol *getTargetSymbol(const GlobalValue *GV,
                                     const TargetMachine &TM) const {
+    return nullptr;
+  }
+
+  /// If supported, return the function entry point symbol.
+  /// Otherwise, returns nulltpr.
+  /// Func must be a function or an alias which has a function as base object.
+  virtual MCSymbol *getFunctionEntryPointSymbol(const GlobalValue *Func,
+                                                const TargetMachine &TM) const {
     return nullptr;
   }
 

@@ -190,7 +190,7 @@ static void dumpStringOffsetsSection(raw_ostream &OS, DIDumpOptions DumpOpts,
     // version field and the padding, a total of 4 bytes). Add them back in
     // for reporting.
     OS << "Contribution size = " << (Contribution->Size + (Version < 5 ? 0 : 4))
-       << ", Format = " << (Format == DWARF32 ? "DWARF32" : "DWARF64")
+       << ", Format = " << dwarf::FormatString(Format)
        << ", Version = " << Version << "\n";
 
     Offset = Contribution->Base;
@@ -255,7 +255,7 @@ static void dumpRnglistsSection(
         break;
       Offset = TableOffset + Length;
     } else {
-      Rnglists.dump(OS, LookupPooledAddress, DumpOpts);
+      Rnglists.dump(rnglistData, OS, LookupPooledAddress, DumpOpts);
     }
   }
 }
@@ -264,9 +264,13 @@ std::unique_ptr<DWARFDebugMacro>
 DWARFContext::parseMacroOrMacinfo(MacroSecType SectionType) {
   auto Macro = std::make_unique<DWARFDebugMacro>();
   auto ParseAndDump = [&](DWARFDataExtractor &Data, bool IsMacro) {
-    // FIXME: Add support for debug_macro.dwo section.
-    if (Error Err = IsMacro ? Macro->parseMacro(compile_units(),
-                                                getStringExtractor(), Data)
+    if (Error Err = IsMacro ? Macro->parseMacro(SectionType == MacroSection
+                                                    ? compile_units()
+                                                    : dwo_compile_units(),
+                                                SectionType == MacroSection
+                                                    ? getStringExtractor()
+                                                    : getStringDWOExtractor(),
+                                                Data)
                             : Macro->parseMacinfo(Data)) {
       RecoverableErrorHandler(std::move(Err));
       Macro = nullptr;
@@ -289,6 +293,11 @@ DWARFContext::parseMacroOrMacinfo(MacroSecType SectionType) {
     ParseAndDump(Data, /*IsMacro=*/true);
     break;
   }
+  case MacroDwoSection: {
+    DWARFDataExtractor Data(DObj->getMacroDWOSection(), isLittleEndian(), 0);
+    ParseAndDump(Data, /*IsMacro=*/true);
+    break;
+  }
   }
   return Macro;
 }
@@ -307,7 +316,7 @@ static void dumpLoclistsSection(raw_ostream &OS, DIDumpOptions DumpOpts,
       return;
     }
 
-    Header.dump(OS, DumpOpts);
+    Header.dump(Data, OS, DumpOpts);
 
     uint64_t EndOffset = Header.length() + Header.getHeaderOffset();
     Data.setAddressSize(Header.getAddrSize());
@@ -325,6 +334,13 @@ static void dumpLoclistsSection(raw_ostream &OS, DIDumpOptions DumpOpts,
     }
     Offset = EndOffset;
   }
+}
+
+static void dumpPubTableSection(raw_ostream &OS, DIDumpOptions DumpOpts,
+                                DWARFDataExtractor Data, bool GnuStyle) {
+  DWARFDebugPubTable Table;
+  Table.extract(Data, GnuStyle, DumpOpts.RecoverableErrorHandler);
+  Table.dump(OS);
 }
 
 void DWARFContext::dump(
@@ -461,6 +477,12 @@ void DWARFContext::dump(
       Macro->dump(OS);
   }
 
+  if (shouldDump(Explicit, ".debug_macro.dwo", DIDT_ID_DebugMacro,
+                 DObj->getMacroDWOSection())) {
+    if (auto MacroDWO = getDebugMacroDWO())
+      MacroDWO->dump(OS);
+  }
+
   if (shouldDump(Explicit, ".debug_macinfo", DIDT_ID_DebugMacro,
                  DObj->getMacinfoSection())) {
     if (auto Macinfo = getDebugMacinfo())
@@ -480,7 +502,8 @@ void DWARFContext::dump(
                                    0);
     DWARFDebugArangeSet set;
     while (arangesData.isValidOffset(offset)) {
-      if (Error E = set.extract(arangesData, &offset)) {
+      if (Error E =
+              set.extract(arangesData, &offset, DumpOpts.WarningHandler)) {
         RecoverableErrorHandler(std::move(E));
         break;
       }
@@ -498,15 +521,26 @@ void DWARFContext::dump(
       }
       OS << "debug_line[" << format("0x%8.8" PRIx64, Parser.getOffset())
          << "]\n";
-      OS.flush();
-      if (DumpOpts.Verbose) {
-        Parser.parseNext(DumpOpts.WarningHandler, DumpOpts.WarningHandler, &OS);
-      } else {
-        DWARFDebugLine::LineTable LineTable =
-            Parser.parseNext(DumpOpts.WarningHandler, DumpOpts.WarningHandler);
-        LineTable.dump(OS, DumpOpts);
+      Parser.parseNext(DumpOpts.WarningHandler, DumpOpts.WarningHandler, &OS,
+                       DumpOpts.Verbose);
+    }
+  };
+
+  auto DumpStrSection = [&](StringRef Section) {
+    DataExtractor StrData(Section, isLittleEndian(), 0);
+    uint64_t Offset = 0;
+    uint64_t StrOffset = 0;
+    while (StrData.isValidOffset(Offset)) {
+      Error Err = Error::success();
+      const char *CStr = StrData.getCStr(&Offset, &Err);
+      if (Err) {
+        DumpOpts.WarningHandler(std::move(Err));
+        return;
       }
-      OS.flush();
+      OS << format("0x%8.8" PRIx64 ": \"", StrOffset);
+      OS.write_escaped(CStr);
+      OS << "\"\n";
+      StrOffset = Offset;
     }
   };
 
@@ -540,37 +574,16 @@ void DWARFContext::dump(
   }
 
   if (shouldDump(Explicit, ".debug_str", DIDT_ID_DebugStr,
-                 DObj->getStrSection())) {
-    DataExtractor strData(DObj->getStrSection(), isLittleEndian(), 0);
-    uint64_t offset = 0;
-    uint64_t strOffset = 0;
-    while (const char *s = strData.getCStr(&offset)) {
-      OS << format("0x%8.8" PRIx64 ": \"%s\"\n", strOffset, s);
-      strOffset = offset;
-    }
-  }
+                 DObj->getStrSection()))
+    DumpStrSection(DObj->getStrSection());
+
   if (shouldDump(ExplicitDWO, ".debug_str.dwo", DIDT_ID_DebugStr,
-                 DObj->getStrDWOSection())) {
-    DataExtractor strDWOData(DObj->getStrDWOSection(), isLittleEndian(), 0);
-    uint64_t offset = 0;
-    uint64_t strDWOOffset = 0;
-    while (const char *s = strDWOData.getCStr(&offset)) {
-      OS << format("0x%8.8" PRIx64 ": \"%s\"\n", strDWOOffset, s);
-      strDWOOffset = offset;
-    }
-  }
+                 DObj->getStrDWOSection()))
+    DumpStrSection(DObj->getStrDWOSection());
+
   if (shouldDump(Explicit, ".debug_line_str", DIDT_ID_DebugLineStr,
-                 DObj->getLineStrSection())) {
-    DataExtractor strData(DObj->getLineStrSection(), isLittleEndian(), 0);
-    uint64_t offset = 0;
-    uint64_t strOffset = 0;
-    while (const char *s = strData.getCStr(&offset)) {
-      OS << format("0x%8.8" PRIx64 ": \"", strOffset);
-      OS.write_escaped(s);
-      OS << "\"\n";
-      strOffset = offset;
-    }
-  }
+                 DObj->getLineStrSection()))
+    DumpStrSection(DObj->getLineStrSection());
 
   if (shouldDump(Explicit, ".debug_addr", DIDT_ID_DebugAddr,
                  DObj->getAddrSection().Data)) {
@@ -618,26 +631,32 @@ void DWARFContext::dump(
   }
 
   if (shouldDump(Explicit, ".debug_pubnames", DIDT_ID_DebugPubnames,
-                 DObj->getPubnamesSection().Data))
-    DWARFDebugPubTable(*DObj, DObj->getPubnamesSection(), isLittleEndian(), false)
-        .dump(OS);
+                 DObj->getPubnamesSection().Data)) {
+    DWARFDataExtractor PubTableData(*DObj, DObj->getPubnamesSection(),
+                                    isLittleEndian(), 0);
+    dumpPubTableSection(OS, DumpOpts, PubTableData, /*GnuStyle=*/false);
+  }
 
   if (shouldDump(Explicit, ".debug_pubtypes", DIDT_ID_DebugPubtypes,
-                 DObj->getPubtypesSection().Data))
-    DWARFDebugPubTable(*DObj, DObj->getPubtypesSection(), isLittleEndian(), false)
-        .dump(OS);
+                 DObj->getPubtypesSection().Data)) {
+    DWARFDataExtractor PubTableData(*DObj, DObj->getPubtypesSection(),
+                                    isLittleEndian(), 0);
+    dumpPubTableSection(OS, DumpOpts, PubTableData, /*GnuStyle=*/false);
+  }
 
   if (shouldDump(Explicit, ".debug_gnu_pubnames", DIDT_ID_DebugGnuPubnames,
-                 DObj->getGnuPubnamesSection().Data))
-    DWARFDebugPubTable(*DObj, DObj->getGnuPubnamesSection(), isLittleEndian(),
-                       true /* GnuStyle */)
-        .dump(OS);
+                 DObj->getGnuPubnamesSection().Data)) {
+    DWARFDataExtractor PubTableData(*DObj, DObj->getGnuPubnamesSection(),
+                                    isLittleEndian(), 0);
+    dumpPubTableSection(OS, DumpOpts, PubTableData, /*GnuStyle=*/true);
+  }
 
   if (shouldDump(Explicit, ".debug_gnu_pubtypes", DIDT_ID_DebugGnuPubtypes,
-                 DObj->getGnuPubtypesSection().Data))
-    DWARFDebugPubTable(*DObj, DObj->getGnuPubtypesSection(), isLittleEndian(),
-                       true /* GnuStyle */)
-        .dump(OS);
+                 DObj->getGnuPubtypesSection().Data)) {
+    DWARFDataExtractor PubTableData(*DObj, DObj->getGnuPubtypesSection(),
+                                    isLittleEndian(), 0);
+    dumpPubTableSection(OS, DumpOpts, PubTableData, /*GnuStyle=*/true);
+  }
 
   if (shouldDump(Explicit, ".debug_str_offsets", DIDT_ID_DebugStrOffsets,
                  DObj->getStrOffsetsSection().Data))
@@ -843,6 +862,12 @@ const DWARFDebugMacro *DWARFContext::getDebugMacro() {
   if (!Macro)
     Macro = parseMacroOrMacinfo(MacroSection);
   return Macro.get();
+}
+
+const DWARFDebugMacro *DWARFContext::getDebugMacroDWO() {
+  if (!MacroDWO)
+    MacroDWO = parseMacroOrMacinfo(MacroDwoSection);
+  return MacroDWO.get();
 }
 
 const DWARFDebugMacro *DWARFContext::getDebugMacinfo() {
@@ -1534,6 +1559,7 @@ class DWARFObjInMemory final : public DWARFObject {
   StringRef StrSection;
   StringRef MacinfoSection;
   StringRef MacinfoDWOSection;
+  StringRef MacroDWOSection;
   StringRef AbbrevDWOSection;
   StringRef StrDWOSection;
   StringRef CUIndexSection;
@@ -1554,6 +1580,7 @@ class DWARFObjInMemory final : public DWARFObject {
         .Case("debug_str", &StrSection)
         .Case("debug_macinfo", &MacinfoSection)
         .Case("debug_macinfo.dwo", &MacinfoDWOSection)
+        .Case("debug_macro.dwo", &MacroDWOSection)
         .Case("debug_abbrev.dwo", &AbbrevDWOSection)
         .Case("debug_str.dwo", &StrDWOSection)
         .Case("debug_cu_index", &CUIndexSection)
@@ -1872,6 +1899,7 @@ public:
     return RnglistsSection;
   }
   const DWARFSection &getMacroSection() const override { return MacroSection; }
+  StringRef getMacroDWOSection() const override { return MacroDWOSection; }
   StringRef getMacinfoSection() const override { return MacinfoSection; }
   StringRef getMacinfoDWOSection() const override { return MacinfoDWOSection; }
   const DWARFSection &getPubnamesSection() const override { return PubnamesSection; }

@@ -176,9 +176,11 @@ define float @fma_combine_no_ice() {
 ; CHECK-NEXT:    addis 3, 2, .LCPI4_2@toc@ha
 ; CHECK-NEXT:    lfs 3, .LCPI4_1@toc@l(4)
 ; CHECK-NEXT:    lfs 1, .LCPI4_2@toc@l(3)
+; CHECK-NEXT:    fmr 4, 3
 ; CHECK-NEXT:    xsmaddasp 3, 2, 0
+; CHECK-NEXT:    xsnmaddasp 4, 2, 0
 ; CHECK-NEXT:    xsmaddasp 1, 2, 3
-; CHECK-NEXT:    xsnmsubasp 1, 3, 2
+; CHECK-NEXT:    xsmaddasp 1, 4, 2
 ; CHECK-NEXT:    blr
   %tmp = load float, float* undef, align 4
   %tmp2 = load float, float* undef, align 4
@@ -237,4 +239,26 @@ define double @getNegatedExpression_crash(double %x, double %y) {
   %fma1 = call reassoc nsz double @llvm.fma.f64(double %fma, double %y, double %add)
   ret double %fma1
 }
+
+define double @fma_flag_propagation(double %a) {
+; CHECK-FAST-LABEL: fma_flag_propagation:
+; CHECK-FAST:       # %bb.0: # %entry
+; CHECK-FAST-NEXT:    xssubdp 1, 1, 1
+; CHECK-FAST-NEXT:    blr
+;
+; CHECK-FAST-NOVSX-LABEL: fma_flag_propagation:
+; CHECK-FAST-NOVSX:       # %bb.0: # %entry
+; CHECK-FAST-NOVSX-NEXT:    fsub 1, 1, 1
+; CHECK-FAST-NOVSX-NEXT:    blr
+;
+; CHECK-LABEL: fma_flag_propagation:
+; CHECK:       # %bb.0: # %entry
+; CHECK-NEXT:    xssubdp 1, 1, 1
+; CHECK-NEXT:    blr
+entry:
+  %0 = fneg double %a
+  %1 = call reassoc nnan double @llvm.fma.f64(double %0, double 1.0, double %a)
+  ret double %1
+}
+
 declare double @llvm.fma.f64(double, double, double) nounwind readnone

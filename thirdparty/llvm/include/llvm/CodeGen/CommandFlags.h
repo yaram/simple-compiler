@@ -102,7 +102,7 @@ bool getEmulatedTLS();
 
 bool getUniqueSectionNames();
 
-bool getUniqueBBSectionNames();
+bool getUniqueBasicBlockSectionNames();
 
 llvm::EABI getEABIVersion();
 
@@ -114,9 +114,15 @@ bool getEnableAddrsig();
 
 bool getEmitCallSiteInfo();
 
+bool getEnableMachineFunctionSplitter();
+
 bool getEnableDebugEntryValues();
 
+bool getValueTrackingVariableLocations();
+
 bool getForceDwarfFrameSection();
+
+bool getXRayOmitFunctionIndex();
 
 /// Create this object with static storage to register codegen-related command
 /// line options.

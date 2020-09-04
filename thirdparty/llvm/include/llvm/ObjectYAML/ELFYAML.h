@@ -16,6 +16,7 @@
 #define LLVM_OBJECTYAML_ELFYAML_H
 
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ObjectYAML/DWARFYAML.h"
 #include "llvm/ObjectYAML/YAML.h"
 #include "llvm/Support/YAMLTraits.h"
 #include <cstdint>
@@ -76,30 +77,31 @@ struct FileHeader {
   ELF_ELFOSABI OSABI;
   llvm::yaml::Hex8 ABIVersion;
   ELF_ET Type;
-  ELF_EM Machine;
+  Optional<ELF_EM> Machine;
   ELF_EF Flags;
   llvm::yaml::Hex64 Entry;
 
-  Optional<llvm::yaml::Hex16> SHEntSize;
-  Optional<llvm::yaml::Hex64> SHOff;
-  Optional<llvm::yaml::Hex16> SHNum;
-  Optional<llvm::yaml::Hex16> SHStrNdx;
+  Optional<llvm::yaml::Hex64> EPhOff;
+  Optional<llvm::yaml::Hex16> EPhEntSize;
+  Optional<llvm::yaml::Hex16> EPhNum;
+  Optional<llvm::yaml::Hex16> EShEntSize;
+  Optional<llvm::yaml::Hex64> EShOff;
+  Optional<llvm::yaml::Hex16> EShNum;
+  Optional<llvm::yaml::Hex16> EShStrNdx;
+};
+
+struct SectionHeader {
+  StringRef Name;
+};
+
+struct SectionHeaderTable {
+  Optional<std::vector<SectionHeader>> Sections;
+  Optional<std::vector<SectionHeader>> Excluded;
+  Optional<bool> NoHeaders;
 };
 
 struct SectionName {
   StringRef Section;
-};
-
-struct ProgramHeader {
-  ELF_PT Type;
-  ELF_PF Flags;
-  llvm::yaml::Hex64 VAddr;
-  llvm::yaml::Hex64 PAddr;
-  Optional<llvm::yaml::Hex64> Align;
-  Optional<llvm::yaml::Hex64> FileSize;
-  Optional<llvm::yaml::Hex64> MemSize;
-  Optional<llvm::yaml::Hex64> Offset;
-  std::vector<SectionName> Sections;
 };
 
 struct Symbol {
@@ -204,6 +206,12 @@ struct Section : public Chunk {
 
   // This can be used to override the sh_flags field.
   Optional<llvm::yaml::Hex64> ShFlags;
+
+  // This can be used to override the sh_type field. It is useful when we
+  // want to use specific YAML keys for a section of a particular type to
+  // describe the content, but still want to have a different final type
+  // for the section.
+  Optional<ELF_SHT> ShType;
 };
 
 // Fill is a block of data which is placed outside of sections. It is
@@ -253,6 +261,9 @@ struct RawContentSection : Section {
   static bool classof(const Chunk *S) {
     return S->Kind == ChunkKind::RawContent;
   }
+
+  // Is used when a content is read as an array of bytes.
+  Optional<std::vector<uint8_t>> ContentBuf;
 };
 
 struct NoBitsSection : Section {
@@ -503,8 +514,24 @@ struct MipsABIFlags : Section {
   }
 };
 
+struct ProgramHeader {
+  ELF_PT Type;
+  ELF_PF Flags;
+  llvm::yaml::Hex64 VAddr;
+  llvm::yaml::Hex64 PAddr;
+  Optional<llvm::yaml::Hex64> Align;
+  Optional<llvm::yaml::Hex64> FileSize;
+  Optional<llvm::yaml::Hex64> MemSize;
+  Optional<llvm::yaml::Hex64> Offset;
+
+  std::vector<SectionName> Sections;
+  // This vector is parallel to Sections and contains corresponding chunks.
+  std::vector<Chunk *> Chunks;
+};
+
 struct Object {
   FileHeader Header;
+  Optional<SectionHeaderTable> SectionHeaders;
   std::vector<ProgramHeader> ProgramHeaders;
 
   // An object might contain output section descriptions as well as
@@ -517,6 +544,7 @@ struct Object {
   // being a single SHT_SYMTAB section are upheld.
   Optional<std::vector<Symbol>> Symbols;
   Optional<std::vector<Symbol>> DynamicSymbols;
+  Optional<DWARFYAML::Data> DWARF;
 
   std::vector<Section *> getSections() {
     std::vector<Section *> Ret;
@@ -525,6 +553,8 @@ struct Object {
         Ret.push_back(S);
     return Ret;
   }
+
+  unsigned getMachine() const;
 };
 
 } // end namespace ELFYAML
@@ -536,6 +566,7 @@ LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::LinkerOption)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::CallGraphEntry)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::NoteEntry)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::ProgramHeader)
+LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::SectionHeader)
 LLVM_YAML_IS_SEQUENCE_VECTOR(std::unique_ptr<llvm::ELFYAML::Chunk>)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::Symbol)
 LLVM_YAML_IS_SEQUENCE_VECTOR(llvm::ELFYAML::VerdefEntry)
@@ -665,6 +696,15 @@ struct ScalarBitSetTraits<ELFYAML::MIPS_AFL_FLAGS1> {
 template <>
 struct MappingTraits<ELFYAML::FileHeader> {
   static void mapping(IO &IO, ELFYAML::FileHeader &FileHdr);
+};
+
+template <> struct MappingTraits<ELFYAML::SectionHeaderTable> {
+  static void mapping(IO &IO, ELFYAML::SectionHeaderTable &SecHdrTable);
+  static StringRef validate(IO &IO, ELFYAML::SectionHeaderTable &SecHdrTable);
+};
+
+template <> struct MappingTraits<ELFYAML::SectionHeader> {
+  static void mapping(IO &IO, ELFYAML::SectionHeader &SHdr);
 };
 
 template <> struct MappingTraits<ELFYAML::ProgramHeader> {

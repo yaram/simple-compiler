@@ -57,7 +57,7 @@ static MCSubtargetInfo *createVEMCSubtargetInfo(const Triple &TT, StringRef CPU,
                                                 StringRef FS) {
   if (CPU.empty())
     CPU = "ve";
-  return createVEMCSubtargetInfoImpl(TT, CPU, FS);
+  return createVEMCSubtargetInfoImpl(TT, CPU, /*TuneCPU=*/CPU, FS);
 }
 
 static MCTargetStreamer *
@@ -93,6 +93,12 @@ extern "C" void LLVMInitializeVETargetMC() {
 
     // Register the MC subtarget info.
     TargetRegistry::RegisterMCSubtargetInfo(*T, createVEMCSubtargetInfo);
+
+    // Register the MC Code Emitter.
+    TargetRegistry::RegisterMCCodeEmitter(*T, createVEMCCodeEmitter);
+
+    // Register the asm backend.
+    TargetRegistry::RegisterMCAsmBackend(*T, createVEAsmBackend);
 
     // Register the object target streamer.
     TargetRegistry::RegisterObjectTargetStreamer(*T,

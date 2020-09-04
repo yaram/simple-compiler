@@ -17,7 +17,6 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/None.h"
-#include "llvm/CodeGen/LiveRegUnits.h"
 #include "llvm/CodeGen/MIRFormatter.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineCombinerPattern.h"
@@ -26,7 +25,6 @@
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineOutliner.h"
-#include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/CodeGen/VirtRegMap.h"
 #include "llvm/MC/MCInstrInfo.h"
 #include "llvm/Support/BranchProbability.h"
@@ -726,7 +724,7 @@ public:
     return nullptr;
   }
 
-  /// Analyze the loop code, return true if it cannot be understoo. Upon
+  /// Analyze the loop code, return true if it cannot be understood. Upon
   /// success, this function returns false and returns information about the
   /// induction variable and compare instruction used at the end.
   virtual bool analyzeLoop(MachineLoop &L, MachineInstr *&IndVarInst,
@@ -773,7 +771,7 @@ public:
 
   /// Second variant of isProfitableToIfCvt. This one
   /// checks for the case where two basic blocks from true and false path
-  /// of a if-then-else (diamond) are predicated on mutally exclusive
+  /// of a if-then-else (diamond) are predicated on mutually exclusive
   /// predicates, where the probability of the true path being taken is given
   /// by Probability, and Confidence is a measure of our confidence that it
   /// will be properly predicted.
@@ -1095,6 +1093,9 @@ public:
                       SmallVectorImpl<MachineInstr *> &DelInstrs,
                       DenseMap<unsigned, unsigned> &InstrIdxForVirtReg) const;
 
+  /// The limit on resource length extension we accept in MachineCombiner Pass.
+  virtual int getExtendResourceLenLimit() const { return 0; }
+
   /// This is an architecture-specific helper function of reassociateOps.
   /// Set special operand attributes for new instructions after reassociation.
   virtual void setSpecialOperandAttr(MachineInstr &OldMI1, MachineInstr &OldMI2,
@@ -1253,11 +1254,10 @@ public:
   /// It returns false if no base operands and offset was found.
   /// It is not guaranteed to always recognize base operands and offsets in all
   /// cases.
-  virtual bool
-  getMemOperandsWithOffset(const MachineInstr &MI,
-                           SmallVectorImpl<const MachineOperand *> &BaseOps,
-                           int64_t &Offset, bool &OffsetIsScalable,
-                           const TargetRegisterInfo *TRI) const {
+  virtual bool getMemOperandsWithOffsetWidth(
+      const MachineInstr &MI, SmallVectorImpl<const MachineOperand *> &BaseOps,
+      int64_t &Offset, bool &OffsetIsScalable, unsigned &Width,
+      const TargetRegisterInfo *TRI) const {
     return false;
   }
 
@@ -1285,9 +1285,11 @@ public:
   /// \p BaseOps1 and \p BaseOps2 are memory operands of two memory operations.
   /// \p NumLoads is the number of loads that will be in the cluster if this
   /// hook returns true.
+  /// \p NumBytes is the number of bytes that will be loaded from all the
+  /// clustered loads if this hook returns true.
   virtual bool shouldClusterMemOps(ArrayRef<const MachineOperand *> BaseOps1,
                                    ArrayRef<const MachineOperand *> BaseOps2,
-                                   unsigned NumLoads) const {
+                                   unsigned NumLoads, unsigned NumBytes) const {
     llvm_unreachable("target did not implement shouldClusterMemOps()");
   }
 
@@ -1440,7 +1442,7 @@ public:
   /// the machine instruction generated due to folding.
   virtual MachineInstr *optimizeLoadInstr(MachineInstr &MI,
                                           const MachineRegisterInfo *MRI,
-                                          unsigned &FoldAsLoadDefReg,
+                                          Register &FoldAsLoadDefReg,
                                           MachineInstr *&DefMI) const {
     return nullptr;
   }
@@ -1625,7 +1627,7 @@ public:
   /// This hook works similarly to getPartialRegUpdateClearance, except that it
   /// does not take an operand index. Instead sets \p OpNum to the index of the
   /// unused register.
-  virtual unsigned getUndefRegClearance(const MachineInstr &MI, unsigned &OpNum,
+  virtual unsigned getUndefRegClearance(const MachineInstr &MI, unsigned OpNum,
                                         const TargetRegisterInfo *TRI) const {
     // The default implementation returns 0 for no undef register dependency.
     return 0;

@@ -306,8 +306,9 @@ namespace HexagonISD {
                             const AttributeList &FuncAttributes) const override;
 
     bool allowsMemoryAccess(LLVMContext &Context, const DataLayout &DL, EVT VT,
-        unsigned AddrSpace, unsigned Alignment, MachineMemOperand::Flags Flags,
-        bool *Fast) const override;
+                            unsigned AddrSpace, Align Alignment,
+                            MachineMemOperand::Flags Flags,
+                            bool *Fast) const override;
 
     bool allowsMisalignedMemoryAccesses(EVT VT, unsigned AddrSpace,
         unsigned Alignment, MachineMemOperand::Flags Flags, bool *Fast)
@@ -337,6 +338,8 @@ namespace HexagonISD {
 
   private:
     void initializeHVXLowering();
+    unsigned getPreferredHvxVectorAction(MVT VecTy) const;
+
     void validateConstPtrAlignment(SDValue Ptr, const SDLoc &dl,
                                    unsigned NeedAlign) const;
 
@@ -408,10 +411,11 @@ namespace HexagonISD {
     VectorPair opSplit(SDValue Vec, const SDLoc &dl, SelectionDAG &DAG) const;
     SDValue opCastElem(SDValue Vec, MVT ElemTy, SelectionDAG &DAG) const;
 
-    bool allowsHvxMemoryAccess(MVT VecTy, unsigned Alignment,
-        MachineMemOperand::Flags Flags, bool *Fast) const;
-    bool allowsHvxMisalignedMemoryAccesses(MVT VecTy, unsigned Align,
-        MachineMemOperand::Flags Flags, bool *Fast) const;
+    bool allowsHvxMemoryAccess(MVT VecTy, MachineMemOperand::Flags Flags,
+                               bool *Fast) const;
+    bool allowsHvxMisalignedMemoryAccesses(MVT VecTy,
+                                           MachineMemOperand::Flags Flags,
+                                           bool *Fast) const;
 
     bool isHvxSingleTy(MVT Ty) const;
     bool isHvxPairTy(MVT Ty) const;
@@ -467,17 +471,16 @@ namespace HexagonISD {
     SDValue LowerHvxExtend(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerHvxShift(SDValue Op, SelectionDAG &DAG) const;
     SDValue LowerHvxIntrinsic(SDValue Op, SelectionDAG &DAG) const;
-    SDValue LowerHvxStore(SDValue Op, SelectionDAG &DAG) const;
-    SDValue HvxVecPredBitcastComputation(SDValue Op, SelectionDAG &DAG) const;
+    SDValue LowerHvxMaskedOp(SDValue Op, SelectionDAG &DAG) const;
 
     SDValue SplitHvxPairOp(SDValue Op, SelectionDAG &DAG) const;
     SDValue SplitHvxMemOp(SDValue Op, SelectionDAG &DAG) const;
+    SDValue WidenHvxStore(SDValue Op, SelectionDAG &DAG) const;
 
     std::pair<const TargetRegisterClass*, uint8_t>
     findRepresentativeClass(const TargetRegisterInfo *TRI, MVT VT)
         const override;
 
-    bool isHvxOperation(SDValue Op) const;
     bool isHvxOperation(SDNode *N) const;
     SDValue LowerHvxOperation(SDValue Op, SelectionDAG &DAG) const;
     void LowerHvxOperationWrapper(SDNode *N, SmallVectorImpl<SDValue> &Results,

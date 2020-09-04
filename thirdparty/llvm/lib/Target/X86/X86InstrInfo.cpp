@@ -28,9 +28,9 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/StackMaps.h"
+#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/MC/MCAsmInfo.h"
 #include "llvm/MC/MCExpr.h"
 #include "llvm/MC/MCInst.h"
@@ -1127,7 +1127,8 @@ void X86InstrInfo::reMaterialize(MachineBasicBlock &MBB,
                                  const MachineInstr &Orig,
                                  const TargetRegisterInfo &TRI) const {
   bool ClobbersEFLAGS = Orig.modifiesRegister(X86::EFLAGS, &TRI);
-  if (ClobbersEFLAGS && !isSafeToClobberEFLAGS(MBB, I)) {
+  if (ClobbersEFLAGS && MBB.computeRegisterLiveness(&TRI, X86::EFLAGS, I) !=
+                            MachineBasicBlock::LQR_Dead) {
     // The instruction clobbers EFLAGS. Re-materialize as MOV32ri to avoid side
     // effects.
     int Value;
@@ -3662,9 +3663,10 @@ static unsigned getLoadStoreRegOpcode(unsigned Reg,
   }
 }
 
-bool X86InstrInfo::getMemOperandsWithOffset(
+bool X86InstrInfo::getMemOperandsWithOffsetWidth(
     const MachineInstr &MemOp, SmallVectorImpl<const MachineOperand *> &BaseOps,
-    int64_t &Offset, bool &OffsetIsScalable, const TargetRegisterInfo *TRI) const {
+    int64_t &Offset, bool &OffsetIsScalable, unsigned &Width,
+    const TargetRegisterInfo *TRI) const {
   const MCInstrDesc &Desc = MemOp.getDesc();
   int MemRefBegin = X86II::getMemoryOperandNo(Desc.TSFlags);
   if (MemRefBegin < 0)
@@ -3696,6 +3698,11 @@ bool X86InstrInfo::getMemOperandsWithOffset(
     return false;
 
   OffsetIsScalable = false;
+  // FIXME: Relying on memoperands() may not be right thing to do here. Check
+  // with X86 maintainers, and fix it accordingly. For now, it is ok, since
+  // there is no use of `Width` for X86 back-end at the moment.
+  Width =
+      !MemOp.memoperands_empty() ? MemOp.memoperands().front()->getSize() : 0;
   BaseOps.push_back(BaseOp);
   return true;
 }
@@ -4306,7 +4313,7 @@ bool X86InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
 /// instructions in-between do not load or store, and have no side effects.
 MachineInstr *X86InstrInfo::optimizeLoadInstr(MachineInstr &MI,
                                               const MachineRegisterInfo *MRI,
-                                              unsigned &FoldAsLoadDefReg,
+                                              Register &FoldAsLoadDefReg,
                                               MachineInstr *&DefMI) const {
   // Check whether we can move DefMI here.
   DefMI = MRI->getVRegDef(FoldAsLoadDefReg);
@@ -5114,18 +5121,12 @@ static bool hasUndefRegUpdate(unsigned Opcode, unsigned OpNum,
 /// Like getPartialRegUpdateClearance, this makes a strong assumption that the
 /// high bits that are passed-through are not live.
 unsigned
-X86InstrInfo::getUndefRegClearance(const MachineInstr &MI, unsigned &OpNum,
+X86InstrInfo::getUndefRegClearance(const MachineInstr &MI, unsigned OpNum,
                                    const TargetRegisterInfo *TRI) const {
-  for (unsigned i = MI.getNumExplicitDefs(), e = MI.getNumExplicitOperands();
-         i != e; ++i) {
-    const MachineOperand &MO = MI.getOperand(i);
-    if (MO.isReg() && MO.isUndef() &&
-        Register::isPhysicalRegister(MO.getReg()) &&
-        hasUndefRegUpdate(MI.getOpcode(), i)) {
-      OpNum = i;
-      return UndefRegClearance;
-    }
-  }
+  const MachineOperand &MO = MI.getOperand(OpNum);
+  if (Register::isPhysicalRegister(MO.getReg()) &&
+      hasUndefRegUpdate(MI.getOpcode(), OpNum))
+    return UndefRegClearance;
 
   return 0;
 }
@@ -5999,14 +6000,18 @@ MachineInstr *X86InstrInfo::foldMemoryOperandImpl(
     else if (Opc == X86::FsFLD0F128 || Opc == X86::AVX512_FsFLD0F128)
       Ty = Type::getFP128Ty(MF.getFunction().getContext());
     else if (Opc == X86::AVX512_512_SET0 || Opc == X86::AVX512_512_SETALLONES)
-      Ty = VectorType::get(Type::getInt32Ty(MF.getFunction().getContext()),16);
+      Ty = FixedVectorType::get(Type::getInt32Ty(MF.getFunction().getContext()),
+                                16);
     else if (Opc == X86::AVX2_SETALLONES || Opc == X86::AVX_SET0 ||
              Opc == X86::AVX512_256_SET0 || Opc == X86::AVX1_SETALLONES)
-      Ty = VectorType::get(Type::getInt32Ty(MF.getFunction().getContext()), 8);
+      Ty = FixedVectorType::get(Type::getInt32Ty(MF.getFunction().getContext()),
+                                8);
     else if (Opc == X86::MMX_SET0)
-      Ty = VectorType::get(Type::getInt32Ty(MF.getFunction().getContext()), 2);
+      Ty = FixedVectorType::get(Type::getInt32Ty(MF.getFunction().getContext()),
+                                2);
     else
-      Ty = VectorType::get(Type::getInt32Ty(MF.getFunction().getContext()), 4);
+      Ty = FixedVectorType::get(Type::getInt32Ty(MF.getFunction().getContext()),
+                                4);
 
     bool IsAllOnes = (Opc == X86::V_SETALLONES || Opc == X86::AVX2_SETALLONES ||
                       Opc == X86::AVX512_512_SETALLONES ||
@@ -6663,6 +6668,18 @@ bool X86InstrInfo::shouldScheduleLoadsNear(SDNode *Load1, SDNode *Load2,
   }
 
   return true;
+}
+
+bool X86InstrInfo::isSchedulingBoundary(const MachineInstr &MI,
+                                        const MachineBasicBlock *MBB,
+                                        const MachineFunction &MF) const {
+
+  // ENDBR instructions should not be scheduled around.
+  unsigned Opcode = MI.getOpcode();
+  if (Opcode == X86::ENDBR64 || Opcode == X86::ENDBR32)
+    return true;
+
+  return TargetInstrInfo::isSchedulingBoundary(MI, MBB, MF);
 }
 
 bool X86InstrInfo::
@@ -8650,8 +8667,7 @@ namespace {
       }
 
       // Visit the children of this block in the dominator tree.
-      for (MachineDomTreeNode::iterator I = Node->begin(), E = Node->end();
-           I != E; ++I) {
+      for (auto I = Node->begin(), E = Node->end(); I != E; ++I) {
         Changed |= VisitNode(*I, TLSBaseAddrReg);
       }
 
