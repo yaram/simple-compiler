@@ -279,6 +279,14 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     append_builtin(&global_constants, "memcpy");
 
     append(&global_constants, GlobalConstant {
+        "X86",
+        &boolean_singleton,
+        new BooleanConstant {
+            strcmp(architecture, "x86") == 0
+        }
+    });
+
+    append(&global_constants, GlobalConstant {
         "X64",
         &boolean_singleton,
         new BooleanConstant {

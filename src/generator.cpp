@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <stdarg.h>
+#include <string.h>
 #include "timing.h"
 #include "profiler.h"
 #include "list.h"
@@ -3633,7 +3634,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             function_call_instruction->address_register = address_register;
             function_call_instruction->parameters = { instruction_parameter_count, instruction_parameters };
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
-            function_call_instruction->calling_convention = CallingConvention::Default;
+            function_call_instruction->calling_convention = function_type->calling_convention;
 
             RuntimeValue *value;
             if(has_return) {
@@ -3903,7 +3904,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             function_call_instruction->address_register = address_register;
             function_call_instruction->parameters = { parameter_count, instruction_parameters };
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
-            function_call_instruction->calling_convention = CallingConvention::Default;
+            function_call_instruction->calling_convention = function->calling_convention;
 
             RuntimeValue *value;
             if(has_return) {
@@ -4833,6 +4834,70 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             parameters[i] = type;
         }
 
+        auto is_calling_convention_specified = false;
+        auto calling_convention = CallingConvention::Default;
+        for(auto tag : function_type->tags) {
+            if(strcmp(tag.name.text, "extern") == 0) {
+                error(scope, tag.range, "Function types cannot be external");
+
+                return err;
+            } else if(strcmp(tag.name.text, "no_mangle") == 0) {
+                error(scope, tag.range, "Function types cannot be no_mangle");
+
+                return err;
+            } else if(strcmp(tag.name.text, "call_conv") == 0) {
+                if(is_calling_convention_specified) {
+                    error(scope, tag.range, "Duplicate 'call_conv' tag");
+
+                    return err;
+                }
+
+                if(tag.parameters.count != 1) {
+                    error(scope, tag.range, "Expected 1 parameter, got %zu", tag.parameters.count);
+
+                    return err;
+                }
+
+                expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, tag.parameters[0]));
+
+                if(parameter.type->kind != TypeKind::StaticArray) {
+                    error(scope, tag.parameters[0]->range, "Expected a string ([]u8), got '%s'", type_description(parameter.type));
+
+                    return err;
+                }
+
+                auto static_array = (StaticArray*)parameter.type;
+                auto static_array_value = extract_constant_value(StaticArrayConstant, parameter.value);
+
+                if(
+                    static_array->element_type->kind != TypeKind::Integer ||
+                    ((Integer*)static_array->element_type)->size != RegisterSize::Size8
+                ) {
+                    error(scope, tag.parameters[0]->range, "Expected a string ([]u8), got '%s'", type_description(parameter.type));
+
+                    return err;
+                }
+
+                auto calling_convention_name = allocate<char>(static_array->length + 1);
+                for(size_t j = 0; j < static_array->length; j += 1) {
+                    calling_convention_name[j] = (char)extract_constant_value(IntegerConstant, static_array_value->elements[j])->value;
+                }
+                calling_convention_name[static_array->length] = '\0';
+
+                if(strcmp(calling_convention_name, "default") == 0) {
+                    calling_convention = CallingConvention::Default;
+                } else if(strcmp(calling_convention_name, "stdcall") == 0) {
+                    calling_convention = CallingConvention::StdCall;
+                }
+
+                is_calling_convention_specified = true;
+            } else {
+                error(scope, tag.name.range, "Unknown tag '%s'", tag.name.text);
+
+                return err;
+            }
+        }
+
         Type *return_type;
         if(function_type->return_type == nullptr) {
             return_type = &void_singleton;
@@ -4854,7 +4919,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 new TypeConstant {
                     new FunctionTypeType {
                         { parameter_count, parameters },
-                        return_type
+                        return_type,
+                        calling_convention
                     }
                 }
             }
@@ -5673,7 +5739,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     function->scope = value->body_scope;
     function->parameters = { ir_parameter_count, ir_parameters };
     function->has_return = type->return_type->kind != TypeKind::Void && return_representation.is_in_register;
-    function->calling_convention = CallingConvention::Default;
+    function->calling_convention = type->calling_convention;
 
     if(type->return_type->kind != TypeKind::Void && return_representation.is_in_register) {
         function->return_size = return_representation.value_size;

@@ -1,4 +1,12 @@
-MessageBoxA :: (hWnd: usize, lpText: usize, lpCaption: usize, uType: u32) -> i32 #extern("user32");
+#if X86 {
+    WINAPI :: "stdcall";
+}
+
+#if X64 {
+    WINAPI :: "default";
+}
+
+MessageBoxA :: (hWnd: usize, lpText: usize, lpCaption: usize, uType: u32) -> i32 #extern("user32") #call_conv(WINAPI);
 
 main :: () -> i32 {
     return MessageBoxA(0, 0, 0, -1 as u32);

@@ -4,6 +4,7 @@
 #include <llvm-c/TargetMachine.h>
 #include <llvm-c/Analysis.h>
 #include <stdio.h>
+#include <string.h>
 #include "util.h"
 #include "list.h"
 #include "platform.h"

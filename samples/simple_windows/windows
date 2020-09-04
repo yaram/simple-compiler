@@ -1,3 +1,11 @@
+#if X86 {
+    WINAPI :: "stdcall";
+}
+
+#if X64 {
+    WINAPI :: "default";
+}
+
 BOOL :: u32;
 
 WORD :: u16;
@@ -87,7 +95,7 @@ DIB_RGB_COLORS :: 0;
 
 SRCCOPY :: 0x00CC0020;
 
-WNDPROC :: *(hwnd: HWND, uMsg: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT;
+WNDPROC :: *(hwnd: HWND, uMsg: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT #call_conv(WINAPI);
 
 WNDCLASSA :: struct {
     style: UINT,
@@ -146,31 +154,31 @@ WM_DESTROY :: 0x0002;
 WM_PAINT :: 0x000F;
 WM_QUIT :: 0x0012;
 
-ExitProcess :: (uExitCode: UINT) #extern("kernel32");
+ExitProcess :: (uExitCode: UINT) #extern("kernel32") #call_conv(WINAPI);
 
-OutputDebugStringA :: (lpOutputString: LPCSTR) #extern("kernel32");
+OutputDebugStringA :: (lpOutputString: LPCSTR) #extern("kernel32") #call_conv(WINAPI);
 
-GetLastError :: () -> DWORD #extern("kernel32");
+GetLastError :: () -> DWORD #extern("kernel32") #call_conv(WINAPI);
 
-VirtualAlloc :: (lpAddress: LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtected: DWORD) -> LPVOID #extern("kernel32");
-VirtualFree :: (lpAddress: LPVOID, dwSize: SIZE_T, dwFreeType: DWORD) -> BOOL #extern("kernel32");
+VirtualAlloc :: (lpAddress: LPVOID, dwSize: SIZE_T, flAllocationType: DWORD, flProtected: DWORD) -> LPVOID #extern("kernel32") #call_conv(WINAPI);
+VirtualFree :: (lpAddress: LPVOID, dwSize: SIZE_T, dwFreeType: DWORD) -> BOOL #extern("kernel32") #call_conv(WINAPI);
 
-GetProcessHeap :: () -> HANDLE #extern("kernel32");
+GetProcessHeap :: () -> HANDLE #extern("kernel32") #call_conv(WINAPI);
 
-HeapAlloc :: (hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) -> LPVOID #extern("kernel32");
-HeapReAlloc :: (hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID, dwBytes: SIZE_T) -> LPVOID #extern("kernel32");
-HeapFree :: (hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID) -> BOOL #extern("kernel32");
+HeapAlloc :: (hHeap: HANDLE, dwFlags: DWORD, dwBytes: SIZE_T) -> LPVOID #extern("kernel32") #call_conv(WINAPI);
+HeapReAlloc :: (hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID, dwBytes: SIZE_T) -> LPVOID #extern("kernel32") #call_conv(WINAPI);
+HeapFree :: (hHeap: HANDLE, dwFlags: DWORD, lpMem: LPVOID) -> BOOL #extern("kernel32") #call_conv(WINAPI);
 
-GetModuleHandleA :: (lpModuleName: LPCSTR) -> HMODULE #extern("kernel32");
+GetModuleHandleA :: (lpModuleName: LPCSTR) -> HMODULE #extern("kernel32") #call_conv(WINAPI);
 
-QueryPerformanceFrequency :: (lpFrequency: *LONGLONG) -> BOOL #extern("kernel32");
-QueryPerformanceCounter :: (lpPerformanceCount: *LONGLONG) -> BOOL #extern("kernel32");
+QueryPerformanceFrequency :: (lpFrequency: *LONGLONG) -> BOOL #extern("kernel32") #call_conv(WINAPI);
+QueryPerformanceCounter :: (lpPerformanceCount: *LONGLONG) -> BOOL #extern("kernel32") #call_conv(WINAPI);
 
-PostQuitMessage :: (nExitCode: i32) #extern("user32");
+PostQuitMessage :: (nExitCode: i32) #extern("user32") #call_conv(WINAPI);
 
-MessageBoxA :: (hWnd: HWND, lpText: LPCSTR, lpCaption: LPCSTR, uType: UINT) #extern("user32");
+MessageBoxA :: (hWnd: HWND, lpText: LPCSTR, lpCaption: LPCSTR, uType: UINT) #extern("user32") #call_conv(WINAPI);
 
-RegisterClassA :: (lpWndClass: *WNDCLASSA) -> ATOM #extern("user32");
+RegisterClassA :: (lpWndClass: *WNDCLASSA) -> ATOM #extern("user32") #call_conv(WINAPI);
 
 CW_USEDEFAULT :: 0x80000000;
 
@@ -189,21 +197,21 @@ CreateWindowExA :: (
     lpParam: LPVOID
 ) -> HWND #extern("user32");
 
-DefWindowProcA :: (hWnd: HWND, Msg: UINT, wParam: WPARAM, lparam: LPARAM) -> LRESULT #extern("user32");
+DefWindowProcA :: (hWnd: HWND, Msg: UINT, wParam: WPARAM, lparam: LPARAM) -> LRESULT #extern("user32") #call_conv(WINAPI);
 
-GetMessageA :: (lpMsg: LPMSG, hWnd: HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT) -> BOOL #extern("user32");
-PeekMessageA :: (lpMsg: LPMSG, hWnd: HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT, wRemoveMsg: UINT) -> BOOL #extern("user32");
-TranslateMessage :: (lpMsg: LPMSG) -> BOOL #extern("user32");
-DispatchMessageA :: (lpMsg: LPMSG) -> LRESULT #extern("user32");
+GetMessageA :: (lpMsg: LPMSG, hWnd: HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT) -> BOOL #extern("user32") #call_conv(WINAPI);
+PeekMessageA :: (lpMsg: LPMSG, hWnd: HWND, wMsgFilterMin: UINT, wMsgFilterMax: UINT, wRemoveMsg: UINT) -> BOOL #extern("user32") #call_conv(WINAPI);
+TranslateMessage :: (lpMsg: LPMSG) -> BOOL #extern("user32") #call_conv(WINAPI);
+DispatchMessageA :: (lpMsg: LPMSG) -> LRESULT #extern("user32") #call_conv(WINAPI);
 
-GetWindowRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL #extern("user32");
-GetClientRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL #extern("user32");
+GetWindowRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL #extern("user32") #call_conv(WINAPI);
+GetClientRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL #extern("user32") #call_conv(WINAPI);
 
-ValidateRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL #extern("user32");
+ValidateRect :: (hWnd: HWND, lpRect: LPRECT) -> BOOL #extern("user32") #call_conv(WINAPI);
 
-GetDC :: (hWnd: HWND) -> HDC #extern("gdi32");
+GetDC :: (hWnd: HWND) -> HDC #extern("gdi32") #call_conv(WINAPI);
 
-Rectangle :: (hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL #extern("gdi32");
+Rectangle :: (hdc: HDC, left: i32, top: i32, right: i32, bottom: i32) -> BOOL #extern("gdi32") #call_conv(WINAPI);
 
 StretchDIBits :: (
     hdc: HDC,
@@ -219,4 +227,4 @@ StretchDIBits :: (
     lpbmi: *BITMAPINFO,
     iUsage: UINT,
     rop: DWORD
-) -> i32 #extern("gdi32");
+) -> i32 #extern("gdi32") #call_conv(WINAPI);

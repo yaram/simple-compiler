@@ -1,6 +1,7 @@
 #pragma once
 
 #include "constant.h"
+#include "ir.h"
 
 enum struct TypeKind {
     FunctionTypeType,
@@ -42,13 +43,17 @@ struct FunctionTypeType : Type {
 
     Type *return_type;
 
+    CallingConvention calling_convention;
+
     FunctionTypeType(
         Array<Type*> parameters,
-        Type *return_type
+        Type *return_type,
+        CallingConvention calling_convention
     ) :
         Type { TypeKind::FunctionTypeType },
         parameters { parameters },
-        return_type { return_type }
+        return_type { return_type },
+        calling_convention { calling_convention }
     {}
 };
 

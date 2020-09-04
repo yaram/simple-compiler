@@ -68,7 +68,7 @@ print_int :: (int: $T, radix: T) {
     print_string({ pointer = buffer.pointer, length = used_length });
 }
 
-window_procedure :: (hWnd: HWND, uMsg: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
+window_procedure :: (hWnd: HWND, uMsg: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT #call_conv(WINAPI) {
     if uMsg == WM_PAINT {
         ValidateRect(hWnd, 0);
     } else if uMsg == WM_DESTROY {

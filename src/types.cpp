@@ -1,4 +1,5 @@
 #include "types.h"
+#include <string.h>
 #include "util.h"
 
 Type polymorphic_function_singleton { TypeKind::PolymorphicFunction };
@@ -29,6 +30,10 @@ bool types_equal(Type *a, Type *b) {
             if(!types_equal(a_function_type->parameters[i], b_function_type->parameters[i])) {
                 return false;
             }
+        }
+
+        if(a_function_type->calling_convention != b_function_type->calling_convention) {
+            return false;
         }
 
         return types_equal(a_function_type->return_type, b_function_type->return_type);
@@ -143,6 +148,22 @@ const char *type_description(Type *type) {
         if(function->return_type != nullptr) {
             string_buffer_append(&buffer, " -> ");
             string_buffer_append(&buffer, type_description(function->return_type));
+        }
+
+        if(function->calling_convention != CallingConvention::Default) {
+            string_buffer_append(&buffer, " #call_conv(\"");
+
+            switch(function->calling_convention) {
+                case CallingConvention::StdCall: {
+                    string_buffer_append(&buffer, "stdcall");
+                } break;
+
+                default: {
+                    abort();
+                }
+            }
+
+            string_buffer_append(&buffer, "\")");
         }
 
         return buffer.data;

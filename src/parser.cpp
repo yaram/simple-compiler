@@ -1,6 +1,7 @@
 #include "parser.h"
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 #include "profiler.h"
 #include "path.h"
 #include "list.h"
