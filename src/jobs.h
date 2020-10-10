@@ -51,7 +51,7 @@ struct ResolveFunctionDeclaration : Job {
     ConstantScope *scope;
 
     Type *type;
-    ConstantValue *value;
+    AnyConstantValue value;
 
     ResolveFunctionDeclaration() : Job { JobKind::ResolveFunctionDeclaration } {}
 };
@@ -64,7 +64,7 @@ struct ResolvePolymorphicFunction : Job {
     FileRange *call_parameter_ranges;
 
     FunctionTypeType *type;
-    FunctionConstant *value;
+    FunctionConstant value;
 
     ResolvePolymorphicFunction() : Job { JobKind::ResolvePolymorphicFunction } {}
 };
@@ -74,7 +74,7 @@ struct ResolveConstantDefinition : Job {
     ConstantScope *scope;
 
     Type *type;
-    ConstantValue *value;
+    AnyConstantValue value;
 
     ResolveConstantDefinition() : Job { JobKind::ResolveConstantDefinition } {}
 };
@@ -90,7 +90,7 @@ struct ResolveStructDefinition : Job {
 
 struct ResolvePolymorphicStruct : Job {
     StructDefinition *definition;
-    ConstantValue **parameters;
+    AnyConstantValue *parameters;
     ConstantScope *scope;
 
     Type *type;
@@ -100,7 +100,7 @@ struct ResolvePolymorphicStruct : Job {
 
 struct GenerateFunction : Job {
     FunctionTypeType *type;
-    FunctionConstant *value;
+    FunctionConstant value;
 
     Function *function;
 

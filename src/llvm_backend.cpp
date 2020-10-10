@@ -123,7 +123,7 @@ struct Register {
 
 LLVMValueRef get_register_value(Function function, LLVMValueRef function_value, List<Register> registers, size_t register_index) {
     if(register_index < function.parameters.count) {
-        auto parameter = LLVMGetParam(function_value, register_index);
+        auto parameter = LLVMGetParam(function_value, (unsigned int)register_index);
         assert(parameter);
 
         return parameter;

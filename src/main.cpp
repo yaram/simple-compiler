@@ -49,9 +49,7 @@ inline void append_global_type(List<GlobalConstant> *global_constants, const cha
     append(global_constants, {
         name,
         &type_type_singleton,
-        new TypeConstant {
-            type
-        }
+        wrap_type_constant(type)
     });
 }
 
@@ -63,9 +61,9 @@ inline void append_builtin(List<GlobalConstant> *global_constants, const char *n
     append(global_constants, {
         name,
         &builtin_function_singleton,
-        new BuiltinFunctionConstant {
+        wrap_builtin_function_constant({
             name
-        }
+        })
     });
 }
 
@@ -258,13 +256,13 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     append(&global_constants, GlobalConstant {
         "true",
         &boolean_singleton,
-        new BooleanConstant { true }
+        wrap_boolean_constant(true)
     });
 
     append(&global_constants, GlobalConstant {
         "false",
         &boolean_singleton,
-        new BooleanConstant { false }
+        wrap_boolean_constant(false)
     });
 
     append_global_type(
@@ -281,65 +279,49 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     append(&global_constants, GlobalConstant {
         "X86",
         &boolean_singleton,
-        new BooleanConstant {
-            strcmp(architecture, "x86") == 0
-        }
+        wrap_boolean_constant(strcmp(architecture, "x86") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "X64",
         &boolean_singleton,
-        new BooleanConstant {
-            strcmp(architecture, "x64") == 0
-        }
+        wrap_boolean_constant(strcmp(architecture, "x64") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "WASM32",
         &boolean_singleton,
-        new BooleanConstant {
-            strcmp(config, "wasm32") == 0
-        }
+        wrap_boolean_constant(strcmp(config, "wasm32") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "WINDOWS",
         &boolean_singleton,
-        new BooleanConstant {
-            strcmp(os, "windows") == 0
-        }
+        wrap_boolean_constant(strcmp(os, "windows") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "LINUX",
         &boolean_singleton,
-        new BooleanConstant {
-            strcmp(os, "linux") == 0
-        }
+        wrap_boolean_constant(strcmp(os, "linux") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "EMSCRIPTEN",
         &boolean_singleton,
-        new BooleanConstant {
-            strcmp(os, "emscripten") == 0
-        }
+        wrap_boolean_constant(strcmp(os, "emscripten") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "DEBUG",
         &boolean_singleton,
-        new BooleanConstant {
-            strcmp(config, "debug") == 0
-        }
+        wrap_boolean_constant(strcmp(config, "debug") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "RELEASE",
         &boolean_singleton,
-        new BooleanConstant {
-            strcmp(config, "release") == 0
-        }
+        wrap_boolean_constant(strcmp(config, "release") == 0)
     });
 
     GlobalInfo info {
@@ -462,7 +444,8 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                             if(resolve_function_declaration->type->kind == TypeKind::FunctionTypeType) {
                                 auto function_type = (FunctionTypeType*)resolve_function_declaration->type;
-                                auto function_value = extract_constant_value(FunctionConstant, resolve_function_declaration->value);
+
+                                auto function_value = unwrap_function_constant(resolve_function_declaration->value);
 
                                 auto found = false;
                                 for(auto job : jobs) {
@@ -470,8 +453,8 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                                         auto generate_function = (GenerateFunction*)job;
 
                                         if(
-                                            generate_function->value->declaration == function_value->declaration &&
-                                            generate_function->value->body_scope == function_value->body_scope
+                                            generate_function->value.declaration == function_value.declaration &&
+                                            generate_function->value.body_scope == function_value.body_scope
                                         ) {
                                             found = true;
                                             break;
@@ -789,10 +772,11 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             }
 
             auto function_type = (FunctionTypeType*)result.value.type;
-            auto function_value = extract_constant_value(FunctionConstant, result.value.value);
+
+            auto function_value = unwrap_function_constant(result.value.value);
 
             if(function_type->parameters.count != 0) {
-                error(main_file_parse_job->scope, function_value->declaration->range, "'main' must have zero parameters");
+                error(main_file_parse_job->scope, function_value.declaration->range, "'main' must have zero parameters");
 
                 return false;
             }
@@ -805,7 +789,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             if(!types_equal(function_type->return_type, &expected_main_return_integer)) {
                 error(
                     main_file_parse_job->scope,
-                    function_value->declaration->range,
+                    function_value.declaration->range,
                     "Incorrect 'main' return type. Expected '%s', got '%s'",
                     type_description(&expected_main_return_integer),
                     type_description(function_type->return_type)
@@ -821,8 +805,8 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                     if(
                         types_equal(generate_function->type, function_type) &&
-                        generate_function->value->declaration == function_value->declaration &&
-                        generate_function->value->body_scope == function_value->body_scope
+                        generate_function->value.declaration == function_value.declaration &&
+                        generate_function->value.body_scope == function_value.body_scope
                     ) {
                         found = true;
 
@@ -905,8 +889,8 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                     case JobKind::GenerateFunction: {
                         auto generate_function = (GenerateFunction*)job;
 
-                        scope = generate_function->value->body_scope->parent;
-                        range = generate_function->value->declaration->range;
+                        scope = generate_function->value.body_scope->parent;
+                        range = generate_function->value.declaration->range;
                     } break;
 
                     case JobKind::GenerateStaticVariable: {

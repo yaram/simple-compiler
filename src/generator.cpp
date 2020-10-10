@@ -93,7 +93,7 @@ static RegisterRepresentation get_type_representation(GlobalInfo info, Type *typ
     }
 }
 
-static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, ConstantValue *value);
+static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, AnyConstantValue value);
 
 static bool add_new_variable(GenerationContext *context, Identifier name, size_t address_register, Type *type) {
     auto variable_scope = &(context->variable_scope_stack[context->variable_scope_stack.count - 1]);
@@ -128,19 +128,10 @@ struct RuntimeValue {
 };
 
 struct RuntimeConstantValue : RuntimeValue {
-    ConstantValue *value;
+    AnyConstantValue value;
 
-    RuntimeConstantValue(ConstantValue *value) : RuntimeValue { RuntimeValueKind::RuntimeConstantValue }, value { value } {}
+    RuntimeConstantValue(AnyConstantValue value) : RuntimeValue { RuntimeValueKind::RuntimeConstantValue }, value { value } {}
 };
-
-template <typename T>
-static T *extract_constant_value_internal(RuntimeValue *value, ConstantValueKind kind) {
-    assert(value->kind == RuntimeValueKind::RuntimeConstantValue);
-
-    auto runtime_constant_value = (RuntimeConstantValue*)value;
-
-    return extract_constant_value_internal<T>(runtime_constant_value->value, kind);
-}
 
 struct RegisterValue : RuntimeValue {
     size_t register_index;
@@ -175,32 +166,32 @@ static size_t allocate_register(GenerationContext *context) {
 }
 
 static void write_integer(uint8_t *buffer, size_t offset, RegisterSize size, uint64_t value) {
-    buffer[offset] = value;
+    buffer[offset] = (uint8_t)value;
 
     if(size >= RegisterSize::Size16) {
-        buffer[offset + 1] = (value >> 8);
+        buffer[offset + 1] = (uint8_t)(value >> 8);
     } else {
         return;
     }
 
     if(size >= RegisterSize::Size32) {
-        buffer[offset + 2] = (value >> 16);
-        buffer[offset + 3] = (value >> 24);
+        buffer[offset + 2] = (uint8_t)(value >> 16);
+        buffer[offset + 3] = (uint8_t)(value >> 24);
     } else {
         return;
     }
 
     if(size == RegisterSize::Size64) {
-        buffer[offset + 4] = (value >> 32);
-        buffer[offset + 5] = (value >> 40);
-        buffer[offset + 6] = (value >> 48);
-        buffer[offset + 7] = (value >> 56);
+        buffer[offset + 4] = (uint8_t)(value >> 32);
+        buffer[offset + 5] = (uint8_t)(value >> 40);
+        buffer[offset + 6] = (uint8_t)(value >> 48);
+        buffer[offset + 7] = (uint8_t)(value >> 56);
     } else {
         abort();
     }
 }
 
-static void write_struct(GlobalInfo info, uint8_t *data, size_t offset, StructType struct_type, ConstantValue **member_values) {
+static void write_struct(GlobalInfo info, uint8_t *data, size_t offset, StructType struct_type, AnyConstantValue *member_values) {
     for(size_t i = 0; i < struct_type.members.count; i += 1) {
         write_value(
             info,
@@ -212,7 +203,7 @@ static void write_struct(GlobalInfo info, uint8_t *data, size_t offset, StructTy
     }
 }
 
-static void write_static_array(GlobalInfo info, uint8_t *data, size_t offset, Type *element_type, Array<ConstantValue*> elements) {
+static void write_static_array(GlobalInfo info, uint8_t *data, size_t offset, Type *element_type, Array<AnyConstantValue> elements) {
     auto element_size = get_type_size(info, element_type);
 
     for(size_t i = 0; i < elements.count; i += 1) {
@@ -226,30 +217,32 @@ static void write_static_array(GlobalInfo info, uint8_t *data, size_t offset, Ty
     }
 }
 
-static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, ConstantValue *value) {
+static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, AnyConstantValue value) {
     if(type->kind == TypeKind::Integer) {
         auto integer = (Integer*)type;
-        auto integer_value = (IntegerConstant*)value;
 
-        write_integer(data, offset, integer->size, integer_value->value);
+        auto integer_value = unwrap_integer_constant(value);
+
+        write_integer(data, offset, integer->size, integer_value);
     } else if(type->kind == TypeKind::Boolean) {
-        auto boolean_value = (BooleanConstant*)value;
+        auto boolean_value = unwrap_boolean_constant(value);
 
-        write_integer(data, offset, info.default_integer_size, boolean_value->value);
+        write_integer(data, offset, info.default_integer_size, boolean_value);
     } else if(type->kind == TypeKind::FloatType) {
         auto float_type = (FloatType*)type;
-        auto float_value = (FloatConstant*)value;
+
+        auto float_value = unwrap_float_constant(value);
 
         uint64_t integer_value;
         switch(float_type->size) {
             case RegisterSize::Size32: {
-                auto value = (float)float_value->value;
+                auto value = (float)float_value;
 
                 integer_value = (uint64_t)*(uint32_t*)&value;
             } break;
 
             case RegisterSize::Size64: {
-                integer_value = (uint64_t)*(uint64_t*)&float_value->value;
+                integer_value = (uint64_t)*(uint64_t*)&float_value;
             } break;
 
             default: {
@@ -259,28 +252,29 @@ static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *typ
 
         write_integer(data, offset, float_type->size, integer_value);
     } else if(type->kind == TypeKind::Pointer) {
-        auto pointer_value = (PointerConstant*)value;
+        auto pointer_value = unwrap_pointer_constant(value);
 
-        write_integer(data, offset, info.address_integer_size, pointer_value->value);
+        write_integer(data, offset, info.address_integer_size, pointer_value);
     } else if(type->kind == TypeKind::ArrayTypeType) {
-        auto array_value = (ArrayConstant*)value;
+        auto array_value = unwrap_array_constant(value);
 
         write_integer(
             data,
             offset,
             info.address_integer_size,
-            array_value->pointer
+            array_value.pointer
         );
 
         write_integer(
             data,
             offset + register_size_to_byte_size(info.address_integer_size),
             info.address_integer_size,
-            array_value->length
+            array_value.length
         );
     } else if(type->kind == TypeKind::StaticArray) {
         auto static_array = (StaticArray*)type;
-        auto static_array_value = (StaticArrayConstant*)value;
+
+        auto static_array_value = unwrap_static_array_constant(value);
 
         write_static_array(
             info,
@@ -289,14 +283,15 @@ static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *typ
             static_array->element_type,
             {
                 static_array->length,
-                static_array_value->elements
+                static_array_value.elements
             }
         );
     } else if(type->kind == TypeKind::StructType) {
         auto struct_type = (StructType*)type;
-        auto struct_value = (StructConstant*)value;
 
-        write_struct(info, data, offset, *struct_type, struct_value->members);
+        auto struct_value = unwrap_struct_constant(value);
+
+        write_struct(info, data, offset, *struct_type, struct_value.members);
     } else {
         abort();
     }
@@ -308,7 +303,7 @@ static StaticConstant *register_static_array_constant(
     GenerationContext *context,
     FileRange range,
     Type* element_type,
-    Array<ConstantValue*> elements
+    Array<AnyConstantValue> elements
 ) {
     auto data_length = get_type_size(info, element_type) * elements.count;
     auto data = allocate<uint8_t>(data_length);
@@ -337,7 +332,7 @@ static StaticConstant *register_struct_constant(
     GenerationContext *context,
     FileRange range,
     StructType struct_type,
-    ConstantValue **members
+    AnyConstantValue *members
 ) {
     auto data_length = get_struct_size(info, struct_type);
     auto data = allocate<uint8_t>(data_length);
@@ -804,9 +799,11 @@ static size_t generate_in_register_integer_value(
     RuntimeValue *value
 ) {
     if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto integer_value = extract_constant_value(IntegerConstant, value);
+        auto constant_value = (RuntimeConstantValue*)value;
 
-        return append_integer_constant(context, instructions, range, type.size, integer_value->value);
+        auto integer_value = unwrap_integer_constant(constant_value->value);
+
+        return append_integer_constant(context, instructions, range, type.size, integer_value);
     } else if(value->kind == RuntimeValueKind::RegisterValue) {
         auto regsiter_value = (RegisterValue*)value;
 
@@ -822,9 +819,11 @@ static size_t generate_in_register_integer_value(
 
 static size_t generate_in_register_boolean_value(GlobalInfo info, GenerationContext *context, List<Instruction*> *instructions, FileRange range, RuntimeValue *value) {
     if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto boolean_value = extract_constant_value(BooleanConstant, value);
+        auto constant_value = (RuntimeConstantValue*)value;
 
-        return append_integer_constant(context, instructions, range, info.default_integer_size, boolean_value->value);
+        auto boolean_value = unwrap_boolean_constant(constant_value->value);
+
+        return append_integer_constant(context, instructions, range, info.default_integer_size, boolean_value);
     } else if(value->kind == RuntimeValueKind::RegisterValue) {
         auto regsiter_value = (RegisterValue*)value;
 
@@ -840,9 +839,11 @@ static size_t generate_in_register_boolean_value(GlobalInfo info, GenerationCont
 
 static size_t generate_in_register_pointer_value(GlobalInfo info, GenerationContext *context, List<Instruction*> *instructions, FileRange range, RuntimeValue *value) {
     if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto pointer_value = extract_constant_value(PointerConstant, value);
+        auto constant_value = (RuntimeConstantValue*)value;
 
-        return append_integer_constant(context, instructions, range, info.address_integer_size, pointer_value->value);
+        auto pointer_value = unwrap_pointer_constant(constant_value->value);
+
+        return append_integer_constant(context, instructions, range, info.address_integer_size, pointer_value);
     } else if(value->kind == RuntimeValueKind::RegisterValue) {
         auto regsiter_value = (RegisterValue*)value;
 
@@ -875,13 +876,15 @@ static Result<size_t> coerce_to_integer_register_value(
             return ok(register_index);
         }
     } else if(type->kind == TypeKind::UndeterminedInteger) {
-        auto integer_value = extract_constant_value(IntegerConstant, value);
+        auto constant_value = (RuntimeConstantValue*)value;
 
-        if(!check_undetermined_integer_to_integer_coercion(scope, range, target_type, (int64_t)integer_value->value, probing)) {
+        auto integer_value = unwrap_integer_constant(constant_value->value);
+
+        if(!check_undetermined_integer_to_integer_coercion(scope, range, target_type, (int64_t)integer_value, probing)) {
             return err;
         }
 
-        auto regsiter_index = append_integer_constant(context, instructions, range, target_type->size, integer_value->value);
+        auto regsiter_index = append_integer_constant(context, instructions, range, target_type->size, integer_value);
 
         return ok(regsiter_index);
     }
@@ -904,9 +907,11 @@ static Result<size_t> coerce_to_float_register_value(
     bool probing
 ) {
     if(type->kind == TypeKind::UndeterminedInteger) {
-        auto integer_value = extract_constant_value(IntegerConstant, value);
+        auto constant_value = (RuntimeConstantValue*)value;
 
-        auto register_index = append_float_constant(context, instructions, range, target_type.size, (double)integer_value->value);
+        auto integer_value = unwrap_integer_constant(constant_value->value);
+
+        auto register_index = append_float_constant(context, instructions, range, target_type.size, (double)integer_value);
 
         return ok(register_index);
     } else if(type->kind == TypeKind::FloatType) {
@@ -915,9 +920,11 @@ static Result<size_t> coerce_to_float_register_value(
         if(target_type.size == float_type->size) {
             size_t register_index;
             if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto float_value = extract_constant_value(FloatConstant, value);
+                auto constant_value = (RuntimeConstantValue*)value;
 
-                register_index = append_float_constant(context, instructions, range, float_type->size, float_value->value);
+                auto float_value = unwrap_float_constant(constant_value->value);
+
+                register_index = append_float_constant(context, instructions, range, float_type->size, float_value);
             } else if(value->kind == RuntimeValueKind::RegisterValue) {
                 auto regsiter_value = (RegisterValue*)value;
 
@@ -933,9 +940,11 @@ static Result<size_t> coerce_to_float_register_value(
             return ok(register_index);
         }
     } else if(type->kind == TypeKind::UndeterminedFloat) {
-        auto float_value = extract_constant_value(FloatConstant, value);
+        auto constant_value = (RuntimeConstantValue*)value;
 
-        auto register_index = append_float_constant(context, instructions, range, target_type.size, float_value->value);
+        auto float_value = unwrap_float_constant(constant_value->value);
+
+        auto register_index = append_float_constant(context, instructions, range, target_type.size, float_value);
 
         return ok(register_index);
     }
@@ -959,14 +968,16 @@ static Result<size_t> coerce_to_pointer_register_value(
     bool probing
 ) {
     if(type->kind == TypeKind::UndeterminedInteger) {
-        auto integer_value = extract_constant_value(IntegerConstant, value);
+        auto constant_value = (RuntimeConstantValue*)value;
+
+        auto integer_value = unwrap_integer_constant(constant_value->value);
 
         auto register_index = append_integer_constant(
             context,
             instructions,
             range,
             info.address_integer_size,
-            integer_value->value
+            integer_value
         );
 
         return ok(register_index);
@@ -1089,7 +1100,9 @@ static Result<size_t> coerce_to_type_register(
             if(types_equal(target_array->element_type, static_array->element_type)) {
                 size_t pointer_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto static_array_value = extract_constant_value(StaticArrayConstant, value);
+                    auto constant_value = (RuntimeConstantValue*)value;
+
+                    auto static_array_value = unwrap_static_array_constant(constant_value->value);
 
                     auto static_constant = register_static_array_constant(
                         info,
@@ -1097,7 +1110,7 @@ static Result<size_t> coerce_to_type_register(
                         context,
                         range,
                         static_array->element_type,
-                        { static_array->length, static_array_value->elements }
+                        { static_array->length, static_array_value.elements }
                     );
 
                     pointer_register = append_reference_static(context, instructions, range, static_constant);
@@ -1171,10 +1184,10 @@ static Result<size_t> coerce_to_type_register(
                         range,
                         undetermined_struct->members[1].type,
                         undetermined_struct_value->members[1],
-                        heapify<Integer>({
+                        new Integer {
                             info.address_integer_size,
                             false
-                        }),
+                        },
                         true
                     );
 
@@ -1419,14 +1432,16 @@ static bool coerce_to_type_write(
         auto target_pointer = (Pointer*)target_type;
 
         if(type->kind == TypeKind::UndeterminedInteger) {
-            auto integer_value = extract_constant_value(IntegerConstant, value);
+            auto constant_value = (RuntimeConstantValue*)value;
+
+            auto integer_value = unwrap_integer_constant(constant_value->value);
 
             auto register_index = append_integer_constant(
                 context,
                 instructions,
                 range,
                 info.address_integer_size,
-                integer_value->value
+                integer_value
             );
 
             append_store_integer(
@@ -1459,14 +1474,16 @@ static bool coerce_to_type_write(
             if(types_equal(target_array->element_type, array_type->element_type)) {
                 size_t source_address_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto array_value = extract_constant_value(ArrayConstant, value);
+                    auto constant_value = (RuntimeConstantValue*)value;
+
+                    auto array_value = unwrap_array_constant(constant_value->value);
 
                     auto pointer_register = append_integer_constant(
                         context,
                         instructions,
                         range,
                         info.address_integer_size,
-                        array_value->pointer
+                        array_value.pointer
                     );
 
                     append_store_integer(context, instructions, range, info.address_integer_size, pointer_register, address_register);
@@ -1476,7 +1493,7 @@ static bool coerce_to_type_write(
                         instructions,
                         range,
                         info.address_integer_size,
-                        array_value->length
+                        array_value.length
                     );
 
                     auto length_address_register = generate_address_offset(
@@ -1520,7 +1537,9 @@ static bool coerce_to_type_write(
             if(types_equal(target_array->element_type, static_array->element_type)) {
                 size_t pointer_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto static_array_value = extract_constant_value(StaticArrayConstant, value);
+                    auto constant_value = (RuntimeConstantValue*)value;
+
+                    auto static_array_value = unwrap_static_array_constant(constant_value->value);
 
                     auto static_constant = register_static_array_constant(
                         info,
@@ -1528,7 +1547,7 @@ static bool coerce_to_type_write(
                         context,
                         range,
                         static_array->element_type,
-                        { static_array->length, static_array_value->elements }
+                        { static_array->length, static_array_value.elements }
                     );
 
                     pointer_register = append_reference_static(context, instructions, range, static_constant);
@@ -1594,10 +1613,10 @@ static bool coerce_to_type_write(
                         range,
                         undetermined_struct->members[1].type,
                         undetermined_struct_value->members[1],
-                        heapify<Integer>({
+                        new Integer {
                             info.address_integer_size,
                             false
-                        }),
+                        },
                         true
                     );
 
@@ -1636,7 +1655,9 @@ static bool coerce_to_type_write(
             if(types_equal(target_static_array->element_type, static_array->element_type) && target_static_array->length == static_array->length) {
                 size_t source_address_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto static_array_value = extract_constant_value(StaticArrayConstant, value);
+                    auto constant_value = (RuntimeConstantValue*)value;
+
+                    auto static_array_value = unwrap_static_array_constant(constant_value->value);
 
                     auto static_constant = register_static_array_constant(
                         info,
@@ -1644,7 +1665,7 @@ static bool coerce_to_type_write(
                         context,
                         range,
                         static_array->element_type,
-                        { static_array->length, static_array_value->elements }
+                        { static_array->length, static_array_value.elements }
                     );
 
                     source_address_register = append_reference_static(context, instructions, range, static_constant);
@@ -1695,7 +1716,9 @@ static bool coerce_to_type_write(
                 if(same_members) {
                     size_t source_address_register;
                     if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto struct_value = extract_constant_value(StructConstant, value);
+                        auto constant_value = (RuntimeConstantValue*)value;
+
+                        auto struct_value = unwrap_struct_constant(constant_value->value);
 
                         auto static_constant = register_struct_constant(
                             info,
@@ -1703,7 +1726,7 @@ static bool coerce_to_type_write(
                             context,
                             range,
                             *struct_type,
-                            struct_value->members
+                            struct_value.members
                         );
 
                         source_address_register = append_reference_static(context, instructions, range, static_constant);
@@ -1741,10 +1764,12 @@ static bool coerce_to_type_write(
                         if(strcmp(target_struct_type->members[i].name, undetermined_struct->members[0].name) == 0) {
                             RuntimeValue *variant_value;
                             if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                                auto struct_value = extract_constant_value(StructConstant, value);
+                                auto constant_value = (RuntimeConstantValue*)value;
+
+                                auto struct_value = unwrap_struct_constant(constant_value->value);
 
                                 variant_value = new RuntimeConstantValue {
-                                    struct_value->members[0]
+                                    struct_value.members[0]
                                 };
                             } else if(value->kind == RuntimeValueKind::UndeterminedStructValue) {
                                 auto undetermined_struct_value = (UndeterminedStructValue*)value;
@@ -1788,10 +1813,12 @@ static bool coerce_to_type_write(
                         for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
                             RuntimeValue *member_value;
                             if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                                auto struct_value = extract_constant_value(StructConstant, value);
+                                auto constant_value = (RuntimeConstantValue*)value;
+
+                                auto struct_value = unwrap_struct_constant(constant_value->value);
 
                                 member_value = new RuntimeConstantValue {
-                                    struct_value->members[i]
+                                    struct_value.members[i]
                                 };
                             } else if(value->kind == RuntimeValueKind::UndeterminedStructValue) {
                                 auto undetermined_struct_value = (UndeterminedStructValue*)value;
@@ -1863,9 +1890,9 @@ static DelayedResult<Type*> evaluate_type_expression_runtime(
     expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, expression));
 
     if(expression_value.type->kind == TypeKind::TypeType) {
-        auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
+        auto constant_value = (RuntimeConstantValue*)expression_value.value;
 
-        return has(type);
+        return has(unwrap_type_constant(constant_value->value));
     } else {
         error(scope, expression->range, "Expected a type, got %s", type_description(expression_value.type));
 
@@ -1889,9 +1916,9 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
     expect_delayed(right, generate_expression(info, jobs, scope, context, instructions, right_expression));
 
     if(left.value->kind == RuntimeValueKind::RuntimeConstantValue && right.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto left_value = ((RuntimeConstantValue*)left.value)->value;
+        auto left_constant_value = (RuntimeConstantValue*)left.value;
 
-        auto right_value = ((RuntimeConstantValue*)right.value)->value;
+        auto right_constant_value = (RuntimeConstantValue*)right.value;
 
         expect(constant, evaluate_constant_binary_operation(
             info,
@@ -1900,10 +1927,10 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             binary_operator,
             left_expression->range,
             left.type,
-            left_value,
+            left_constant_value->value,
             right_expression->range,
             right.type,
-            right_value
+            right_constant_value->value
         ));
 
         return has({
@@ -2330,6 +2357,12 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
     }
 }
 
+inline AnyConstantValue unwrap_runtime_constant_value(RuntimeValue *value) {
+    assert(value->kind == RuntimeValueKind::RuntimeConstantValue);
+
+    return ((RuntimeConstantValue*)value)->value;
+}
+
 struct RuntimeDeclarationSearchValue {
     bool found;
 
@@ -2390,19 +2423,18 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
                     return err;
                 }
 
-                auto file_module = (FileModuleConstant*)expression_value.value;
-                assert(expression_value.value->kind == ConstantValueKind::FileModuleConstant);
+                auto file_module = unwrap_file_module_constant(expression_value.value);
 
                 expect_delayed(search_value, search_for_declaration(
                     info,
                     jobs,
-                    file_module->scope,
+                    file_module.scope,
                     context,
                     instructions,
                     name,
                     name_scope,
                     name_range,
-                    file_module->scope->statements,
+                    file_module.scope->statements,
                     true
                 ));
 
@@ -2642,18 +2674,18 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         expect_delayed(index, generate_expression(info, jobs, scope, context, instructions, index_reference->index));
 
         if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue && index.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-            auto expression_constant = ((RuntimeConstantValue*)expression_value.value)->value;
+            auto expression_value_constant = (RuntimeConstantValue*)expression_value.value;
 
-            auto index_constant = ((RuntimeConstantValue*)index.value)->value;
+            auto index_constant = (RuntimeConstantValue*)index.value;
 
             expect(constant, evaluate_constant_index(
                 info,
                 scope,
                 expression_value.type,
-                expression_constant,
+                expression_value_constant->value,
                 index_reference->expression->range,
                 index.type,
-                index_constant,
+                index_constant->value,
                 index_reference->index->range
             ));
 
@@ -2672,10 +2704,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             index_reference->index->range,
             index.type,
             index.value,
-            heapify<Integer>({
+            new Integer {
                 info.address_integer_size,
                 false
-            }),
+            },
             false
         ));
 
@@ -2686,14 +2718,16 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             element_type = array_type->element_type;
 
             if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto pointer_value = extract_constant_value(PointerConstant, expression_value.value);
+                auto constant_value = (RuntimeConstantValue*)expression_value.value;
+
+                auto pointer_value = unwrap_pointer_constant(constant_value->value);
 
                 base_address_register = append_integer_constant(
                     context,
                     instructions,
                     index_reference->expression->range,
                     info.address_integer_size,
-                    pointer_value->value
+                    pointer_value
                 );
             } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
                 auto register_value = (RegisterValue*)expression_value.value;
@@ -2723,7 +2757,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             element_type = static_array->element_type;
 
             if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto static_array_value = extract_constant_value(StaticArrayConstant, expression_value.value);
+                auto constant_value = (RuntimeConstantValue*)expression_value.value;
+
+                auto static_array_value = unwrap_static_array_constant(constant_value->value);
 
                 auto static_constant = register_static_array_constant(
                     info,
@@ -2731,7 +2767,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     index_reference->expression->range,
                     static_array->element_type,
-                    { static_array->length, static_array_value->elements }
+                    { static_array->length, static_array_value.elements }
                 );
 
                 base_address_register = append_reference_static(
@@ -2800,14 +2836,16 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             size_t address_register;
             if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto integer_value = extract_constant_value(IntegerConstant, expression_value.value);
+                auto constant_value = (RuntimeConstantValue*)expression_value.value;
+
+                auto integer_value = unwrap_integer_constant(constant_value->value);
 
                 address_register = append_integer_constant(
                     context,
                     instructions,
                     member_reference->expression->range,
                     info.address_integer_size,
-                    integer_value->value
+                    integer_value
                 );
             } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
                 auto register_value = (RegisterValue*)expression_value.value;
@@ -2846,12 +2884,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 RuntimeValue *value;
                 if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto array_value = extract_constant_value(ArrayConstant, actual_value);
+                    auto constant_value = (RuntimeConstantValue*)expression_value.value;
+
+                    auto array_value = unwrap_array_constant(constant_value->value);
 
                     value = new RuntimeConstantValue {
-                        new IntegerConstant {
-                            array_value->length
-                        }
+                        wrap_integer_constant(array_value.length)
                     };
                 } else if(actual_value->kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = (RegisterValue*)actual_value;
@@ -2905,12 +2943,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else if(strcmp(member_reference->name.text, "pointer") == 0) {
                 RuntimeValue *value;
                 if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto array_value = extract_constant_value(ArrayConstant, actual_value);
+                    auto constant_value = (RuntimeConstantValue*)expression_value.value;
+
+                    auto array_value = unwrap_array_constant(constant_value->value);
 
                     value = new RuntimeConstantValue {
-                        new PointerConstant {
-                            array_value->pointer
-                        }
+                        wrap_pointer_constant(array_value.pointer)
                     };
                 } else if(actual_value->kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = (RegisterValue*)actual_value;
@@ -2957,15 +2995,15 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         false
                     },
                     new RuntimeConstantValue {
-                        new IntegerConstant {
-                            static_array->length
-                        }
+                        wrap_integer_constant(static_array->length)
                     }
                 });
             } else if(strcmp(member_reference->name.text, "pointer") == 0) {
                 size_t address_regsiter;
                 if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto static_array_value = extract_constant_value(StaticArrayConstant, actual_value);
+                    auto constant_value = (RuntimeConstantValue*)expression_value.value;
+
+                    auto static_array_value = unwrap_static_array_constant(constant_value->value);
 
                     auto static_constant = register_static_array_constant(
                         info,
@@ -2973,7 +3011,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         context,
                         member_reference->expression->range,
                         static_array->element_type,
-                        { static_array->length, static_array_value->elements }
+                        { static_array->length, static_array_value.elements }
                     );
 
                     address_regsiter = append_reference_static(context, instructions, member_reference->range, static_constant);
@@ -3010,14 +3048,16 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     auto member_type = struct_type->members[i].type;
 
                     if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto struct_value = extract_constant_value(StructConstant, actual_value);
+                        auto constant_value = (RuntimeConstantValue*)expression_value.value;
+
+                        auto struct_value = unwrap_struct_constant(constant_value->value);
 
                         assert(!struct_type->definition->is_union);
 
                         return has({
                             member_type,
                             new RuntimeConstantValue {
-                                struct_value->members[i]
+                                struct_value.members[i]
                             }
                         });
                     } else if(actual_value->kind == RuntimeValueKind::RegisterValue) {
@@ -3108,18 +3148,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             return err;
         } else if(actual_type->kind == TypeKind::FileModule) {
-            auto file_module_value = extract_constant_value(FileModuleConstant, actual_value);
+            auto constant_value = (RuntimeConstantValue*)expression_value.value;
+
+            auto file_module_value = unwrap_file_module_constant(constant_value->value);
 
             expect_delayed(search_value, search_for_declaration(
                 info,
                 jobs,
-                file_module_value->scope,
+                file_module_value.scope,
                 context,
                 instructions,
                 member_reference->name.text,
                 scope,
                 member_reference->name.range,
-                file_module_value->scope->statements,
+                file_module_value.scope->statements,
                 true
             ));
 
@@ -3144,9 +3186,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         return has({
             &undetermined_integer_singleton,
             new RuntimeConstantValue {
-                new IntegerConstant {
-                    integer_literal->value
-                }
+                wrap_integer_constant(integer_literal->value)
             }
         });
     } else if(expression->kind == ExpressionKind::FloatLiteral) {
@@ -3155,9 +3195,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         return has({
             &undetermined_float_singleton,
             new RuntimeConstantValue {
-                new FloatConstant {
-                    float_literal->value
-                }
+                wrap_float_constant(float_literal->value)
             }
         });
     } else if(expression->kind == ExpressionKind::StringLiteral) {
@@ -3165,12 +3203,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto character_count = string_literal->characters.count;
 
-        auto characters = allocate<ConstantValue*>(character_count);
+        auto characters = allocate<AnyConstantValue>(character_count);
 
         for(size_t i = 0; i < character_count; i += 1) {
-            characters[i] = new IntegerConstant {
-                (uint64_t)string_literal->characters[i]
-            };
+            characters[i] = wrap_integer_constant((uint64_t)string_literal->characters[i]);
         }
 
         return has({
@@ -3182,9 +3218,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             },
             new RuntimeConstantValue {
-                new StaticArrayConstant {
+                wrap_static_array_constant({
                     characters
-                }
+                })
             }
         });
     } else if(expression->kind == ExpressionKind::ArrayLiteral) {
@@ -3224,7 +3260,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         RuntimeValue *value;
         if(all_constant) {
-            auto element_values = allocate<ConstantValue*>(element_count);
+            auto element_values = allocate<AnyConstantValue>(element_count);
 
             for(size_t i = 0; i < element_count; i += 1) {
                 auto constant_value = ((RuntimeConstantValue*)elements[i].value)->value;
@@ -3243,9 +3279,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             }
 
             value = new RuntimeConstantValue {
-                new StaticArrayConstant {
+                wrap_static_array_constant({
                     element_values
-                }
+                })
             };
         } else {
             auto element_size = get_type_size(info, determined_element_type);
@@ -3347,7 +3383,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         RuntimeValue *value;
         if(all_constant) {
-            auto constant_member_values = allocate<ConstantValue*>(member_count);
+            auto constant_member_values = allocate<AnyConstantValue>(member_count);
 
             for(size_t i = 0; i < member_count; i += 1) {
                 auto constant_value = ((RuntimeConstantValue*)member_values[i])->value;
@@ -3356,9 +3392,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             }
 
             value = new RuntimeConstantValue {
-                new StructConstant {
+                wrap_struct_constant({
                     constant_member_values
-                }
+                })
             };
         } else {
             value = new UndeterminedStructValue {
@@ -3391,11 +3427,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             }
 
             FunctionTypeType *function_type;
-            FunctionConstant *function_value;
+            FunctionConstant function_value;
             if(expression_value.type->kind == TypeKind::PolymorphicFunction) {
-                auto polymorphic_function_value = extract_constant_value(PolymorphicFunctionConstant, expression_value.value);
+                auto constant_value = unwrap_runtime_constant_value(expression_value.value);
 
-                auto declaration_parameters = polymorphic_function_value->declaration->parameters;
+                auto polymorphic_function_value = unwrap_polymorphic_function_constant(constant_value);
+
+                auto declaration_parameters = polymorphic_function_value.declaration->parameters;
                 auto declaration_parameter_count = declaration_parameters.count;
 
                 if(call_parameter_count != declaration_parameter_count) {
@@ -3446,8 +3484,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         auto resolve_polymorphic_function = (ResolvePolymorphicFunction*)job;
 
                         if(
-                            resolve_polymorphic_function->declaration == polymorphic_function_value->declaration &&
-                            resolve_polymorphic_function->scope == polymorphic_function_value->scope
+                            resolve_polymorphic_function->declaration == polymorphic_function_value.declaration &&
+                            resolve_polymorphic_function->scope == polymorphic_function_value.scope
                         ) {
                             auto matching_polymorphic_parameters = true;
                             for(size_t i = 0; i < declaration_parameter_count; i += 1) {
@@ -3500,9 +3538,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     auto resolve_polymorphic_function = new ResolvePolymorphicFunction;
                     resolve_polymorphic_function->done = false;
                     resolve_polymorphic_function->waiting_for = nullptr;
-                    resolve_polymorphic_function->declaration = polymorphic_function_value->declaration;
+                    resolve_polymorphic_function->declaration = polymorphic_function_value.declaration;
                     resolve_polymorphic_function->parameters = polymorphic_parameters;
-                    resolve_polymorphic_function->scope = polymorphic_function_value->scope;
+                    resolve_polymorphic_function->scope = polymorphic_function_value.scope;
                     resolve_polymorphic_function->call_scope = scope;
                     resolve_polymorphic_function->call_parameter_ranges = call_parameter_ranges;
 
@@ -3512,7 +3550,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             } else {
                 function_type = (FunctionTypeType*)expression_value.type;
-                function_value = extract_constant_value(FunctionConstant, expression_value.value);
+
+                auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+
+                function_value = unwrap_function_constant(constant_value);
 
                 if(call_parameter_count != function_type->parameters.count) {
                     error(
@@ -3535,8 +3576,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     if(
                         types_equal(generate_function->type, function_type) &&
-                        generate_function->value->declaration == function_value->declaration &&
-                        generate_function->value->body_scope == function_value->body_scope
+                        generate_function->value.declaration == function_value.declaration &&
+                        generate_function->value.body_scope == function_value.body_scope
                     ) {
                         found = true;
 
@@ -3577,7 +3618,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             size_t runtime_parameter_index = 0;
             for(size_t i = 0; i < call_parameter_count; i += 1) {
-                if(!function_value->declaration->parameters[i].is_constant) {
+                if(!function_value.declaration->parameters[i].is_constant) {
                     expect(parameter_register, coerce_to_type_register(
                         info,
                         scope,
@@ -3655,7 +3696,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             } else {
                 value = new RuntimeConstantValue {
-                    &void_constant_singleton
+                    create_void_constant()
                 };
             }
 
@@ -3666,9 +3707,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 value
             });
         } else if(expression_value.type->kind == TypeKind::BuiltinFunction) {
-            auto builtin_function_value = extract_constant_value(BuiltinFunctionConstant, expression_value.value);
+            auto constant_value = unwrap_runtime_constant_value(expression_value.value);
 
-            if(strcmp(builtin_function_value->name, "size_of") == 0) {
+            auto builtin_function_value = unwrap_builtin_function_constant(constant_value);
+
+            if(strcmp(builtin_function_value.name, "size_of") == 0) {
                 if(function_call->parameters.count != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
@@ -3679,7 +3722,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 Type *type;
                 if(parameter_value.type->kind == TypeKind::TypeType) {
-                    type = extract_constant_value(TypeConstant, parameter_value.value)->type;
+                    auto constant_value = unwrap_runtime_constant_value(parameter_value.value);
+
+                    type = unwrap_type_constant(constant_value);
                 } else {
                     type = parameter_value.type;
                 }
@@ -3698,12 +3743,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         false
                     },
                     new RuntimeConstantValue {
-                        new IntegerConstant {
-                            size
-                        }
+                        wrap_integer_constant(size)
                     }
                 });
-            } else if(strcmp(builtin_function_value->name, "type_of") == 0) {
+            } else if(strcmp(builtin_function_value.name, "type_of") == 0) {
                 if(function_call->parameters.count != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
@@ -3715,12 +3758,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return has({
                     &type_type_singleton,
                     new RuntimeConstantValue {
-                        new TypeConstant {
-                            parameter_value.type
-                        }
+                        wrap_type_constant(parameter_value.type)
                     }
                 });
-            } else if(strcmp(builtin_function_value->name, "memcpy") == 0) {
+            } else if(strcmp(builtin_function_value.name, "memcpy") == 0) {
                 if(function_call->parameters.count != 3) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 3 got %zu", function_call->parameters.count);
 
@@ -3774,6 +3815,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err;
                 }
 
+                auto size_value = unwrap_integer_constant(size.value);
+
                 auto destination_address_register = generate_in_register_pointer_value(
                     info,
                     context,
@@ -3790,13 +3833,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     source_value.value
                 );
 
-                auto size_value = (IntegerConstant*)size.value;
-
                 append_copy_memory(
                     context,
                     instructions,
                     function_call->range,
-                    size_value->value,
+                    size_value,
                     source_address_register,
                     destination_address_register,
                     1
@@ -3805,7 +3846,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return has({
                     &void_singleton,
                     new RuntimeConstantValue {
-                        &void_constant_singleton
+                        create_void_constant()
                     }
                 });
             } else {
@@ -3925,7 +3966,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             } else {
                 value = new RuntimeConstantValue {
-                    &void_constant_singleton
+                    create_void_constant()
                 };
             }
 
@@ -3936,7 +3977,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 value
             });
         } else if(expression_value.type->kind == TypeKind::TypeType) {
-            auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
+            auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+
+            auto type = unwrap_type_constant(constant_value);
 
             if(type->kind == TypeKind::PolymorphicStruct) {
                 auto polymorphic_struct = (PolymorphicStruct*)type;
@@ -3950,7 +3993,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err;
                 }
 
-                auto parameters = allocate<ConstantValue*>(parameter_count);
+                auto parameters = allocate<AnyConstantValue>(parameter_count);
 
                 for(size_t i = 0; i < parameter_count; i += 1) {
                     expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, function_call->parameters[i]));
@@ -3988,9 +4031,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                                     return has({
                                         &type_type_singleton,
                                         new RuntimeConstantValue {
-                                            new TypeConstant {
-                                                resolve_polymorphic_struct->type
-                                            }
+                                            wrap_type_constant(resolve_polymorphic_struct->type)
                                         }
                                     });
                                 } else {
@@ -4051,7 +4092,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     if(expression_value.type->kind == TypeKind::FunctionTypeType) {
                         auto function = (FunctionTypeType*)expression_value.type;
 
-                        auto function_value = extract_constant_value(FunctionConstant, expression_value.value);
+                        auto function_value = unwrap_function_constant(constant_value);
 
                         auto found = false;
                         Function *runtime_function;
@@ -4061,8 +4102,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                                 if(
                                     types_equal(generate_function->type, function) &&
-                                    generate_function->value->declaration == function_value->declaration &&
-                                    generate_function->value->body_scope == function_value->body_scope
+                                    generate_function->value.declaration == function_value.declaration &&
+                                    generate_function->value.body_scope == function_value.body_scope
                                 ) {
                                     found = true;
 
@@ -4094,7 +4135,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             runtime_function
                         );
                     } else if(expression_value.type->kind == TypeKind::TypeType) {
-                        auto type = extract_constant_value(TypeConstant, expression_value.value)->type;
+                        auto type = unwrap_type_constant(constant_value);
 
                         if(
                             !is_runtime_type(type) &&
@@ -4109,11 +4150,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         return has({
                             &type_type_singleton,
                             new RuntimeConstantValue {
-                                new TypeConstant {
-                                    new Pointer {
-                                        type
-                                    }
-                                }
+                                wrap_type_constant(new Pointer {
+                                    type
+                                })
                             }
                         });
                     } else {
@@ -4155,14 +4194,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 size_t register_index;
                 if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto boolean_value = extract_constant_value(BooleanConstant, expression_value.value);
+                    auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
+
+                    auto boolean_value = unwrap_boolean_constant(constant_value);
 
                     return has({
                         &boolean_singleton,
                         new RuntimeConstantValue {
-                                new BooleanConstant {
-                                !boolean_value->value
-                            }
+                            wrap_boolean_constant(!boolean_value)
                         }
                     });
                 } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
@@ -4193,14 +4232,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             case UnaryOperation::Operator::Negation: {
                 if(expression_value.type->kind == TypeKind::UndeterminedInteger) {
-                    auto integer_value = extract_constant_value(IntegerConstant, expression_value.value);
+                    auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+
+                    auto integer_value = unwrap_integer_constant(constant_value);
 
                     return has({
                         &undetermined_integer_singleton,
                         new RuntimeConstantValue {
-                                new IntegerConstant {
-                                -integer_value->value
-                            }
+                            wrap_integer_constant(-integer_value)
                         }
                     });
                 } else if(expression_value.type->kind == TypeKind::Integer) {
@@ -4208,14 +4247,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     size_t register_index;
                     if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto integer_value = extract_constant_value(IntegerConstant, expression_value.value);
+                        auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
+
+                        auto integer_value = unwrap_integer_constant(constant_value);
 
                         return has({
                             &undetermined_integer_singleton,
                             new RuntimeConstantValue {
-                                new IntegerConstant {
-                                    -integer_value->value
-                                }
+                                wrap_integer_constant(-integer_value)
                             }
                         });
                     } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
@@ -4257,14 +4296,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     size_t register_index;
                     if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto float_value = extract_constant_value(FloatConstant, expression_value.value);
+                        auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
+
+                        auto float_value = unwrap_float_constant(constant_value);
 
                         return has({
                             float_type,
                             new RuntimeConstantValue {
-                                new FloatConstant {
-                                    -float_value->value
-                                }
+                                wrap_float_constant(-float_value)
                             }
                         });
                     } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
@@ -4302,14 +4341,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         }
                     });
                 } else if(expression_value.type->kind == TypeKind::UndeterminedFloat) {
-                    auto float_value = extract_constant_value(FloatConstant, expression_value.value);
+                    auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+
+                    auto float_value = unwrap_float_constant(constant_value);
 
                     return has({
                         &undetermined_float_singleton,
                         new RuntimeConstantValue {
-                            new FloatConstant {
-                                -float_value->value
-                            }
+                            wrap_float_constant(-float_value)
                         }
                     });
                 } else {
@@ -4617,9 +4656,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         }
 
         if(expression_value.type->kind == TypeKind::PolymorphicFunction) {
-            auto polymorphic_function_value = extract_constant_value(PolymorphicFunctionConstant, expression_value.value);
+            auto constant_value = unwrap_runtime_constant_value(expression_value.value);
 
-            auto declaration_parameters = polymorphic_function_value->declaration->parameters;
+            auto polymorphic_function_value = unwrap_polymorphic_function_constant(constant_value);
+
+            auto declaration_parameters = polymorphic_function_value.declaration->parameters;
             auto declaration_parameter_count = declaration_parameters.count;
 
             if(call_parameter_count != declaration_parameter_count) {
@@ -4669,8 +4710,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     auto resolve_polymorphic_function = (ResolvePolymorphicFunction*)job;
 
                     if(
-                        resolve_polymorphic_function->declaration == polymorphic_function_value->declaration &&
-                        resolve_polymorphic_function->scope == polymorphic_function_value->scope
+                        resolve_polymorphic_function->declaration == polymorphic_function_value.declaration &&
+                        resolve_polymorphic_function->scope == polymorphic_function_value.scope
                     ) {
                         auto matching_polymorphic_parameters = true;
                         for(size_t i = 0; i < declaration_parameter_count; i += 1) {
@@ -4703,7 +4744,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             return has({
                                 resolve_polymorphic_function->type,
                                 new RuntimeConstantValue {
-                                    resolve_polymorphic_function->value
+                                    wrap_function_constant(resolve_polymorphic_function->value)
                                 }
                             });
                         } else {
@@ -4722,9 +4763,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto resolve_polymorphic_function = new ResolvePolymorphicFunction;
             resolve_polymorphic_function->done = false;
             resolve_polymorphic_function->waiting_for = nullptr;
-            resolve_polymorphic_function->declaration = polymorphic_function_value->declaration;
+            resolve_polymorphic_function->declaration = polymorphic_function_value.declaration;
             resolve_polymorphic_function->parameters = polymorphic_parameters;
-            resolve_polymorphic_function->scope = polymorphic_function_value->scope;
+            resolve_polymorphic_function->scope = polymorphic_function_value.scope;
             resolve_polymorphic_function->call_scope = scope;
             resolve_polymorphic_function->call_parameter_ranges = call_parameter_ranges;
 
@@ -4733,7 +4774,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             return wait(resolve_polymorphic_function);
         } else if(expression_value.type->kind == TypeKind::FunctionTypeType) {
             auto function_type = (FunctionTypeType*)expression_value.type;
-            auto function_value = extract_constant_value(FunctionConstant, expression_value.value);
+
+            auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+
+            auto function_value = unwrap_function_constant(constant_value);
 
             if(call_parameter_count != function_type->parameters.count) {
                 error(
@@ -4750,7 +4794,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             return has({
                 function_type,
                 new RuntimeConstantValue {
-                    function_value
+                    wrap_function_constant(function_value)
                 }
             });
         } else {
@@ -4777,33 +4821,29 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 array_type->index->range,
                 index_value.type,
                 index_value.value,
-                heapify<Integer>({
+                new Integer {
                     info.address_integer_size,
                     false
-                }),
+                },
                 false
             ));
 
             return has({
                 &type_type_singleton,
                 new RuntimeConstantValue {
-                    new TypeConstant {
-                        new StaticArray {
-                            length->value,
-                            type
-                        }
-                    }
+                    wrap_type_constant(new StaticArray {
+                        length,
+                        type
+                    })
                 }
             });
         } else {
             return has({
                 &type_type_singleton,
                 new RuntimeConstantValue {
-                    new TypeConstant {
-                        new ArrayTypeType {
-                            type
-                        }
-                    }
+                    wrap_type_constant(new ArrayTypeType {
+                        type
+                    })
                 }
             });
         }
@@ -4860,29 +4900,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, tag.parameters[0]));
 
-                if(parameter.type->kind != TypeKind::StaticArray) {
-                    error(scope, tag.parameters[0]->range, "Expected a string ([]u8), got '%s'", type_description(parameter.type));
-
-                    return err;
-                }
-
-                auto static_array = (StaticArray*)parameter.type;
-                auto static_array_value = extract_constant_value(StaticArrayConstant, parameter.value);
-
-                if(
-                    static_array->element_type->kind != TypeKind::Integer ||
-                    ((Integer*)static_array->element_type)->size != RegisterSize::Size8
-                ) {
-                    error(scope, tag.parameters[0]->range, "Expected a string ([]u8), got '%s'", type_description(parameter.type));
-
-                    return err;
-                }
-
-                auto calling_convention_name = allocate<char>(static_array->length + 1);
-                for(size_t j = 0; j < static_array->length; j += 1) {
-                    calling_convention_name[j] = (char)extract_constant_value(IntegerConstant, static_array_value->elements[j])->value;
-                }
-                calling_convention_name[static_array->length] = '\0';
+                expect(calling_convention_name, static_array_to_c_string(scope, tag.parameters[0]->range, parameter.type, parameter.value));
 
                 if(strcmp(calling_convention_name, "default") == 0) {
                     calling_convention = CallingConvention::Default;
@@ -4916,13 +4934,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         return has({
             &type_type_singleton,
             new RuntimeConstantValue {
-                new TypeConstant {
-                    new FunctionTypeType {
-                        { parameter_count, parameters },
-                        return_type,
-                        calling_convention
-                    }
-                }
+                wrap_type_constant(new FunctionTypeType {
+                    { parameter_count, parameters },
+                    return_type,
+                    calling_convention
+                })
             }
         });
     } else {
@@ -5395,14 +5411,16 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         size_t to_register;
         Integer *index_type;
         if(from_value.type->kind == TypeKind::UndeterminedInteger) {
-            auto from_integer_constant = extract_constant_value(IntegerConstant, from_value.value);
+            auto constant_value = unwrap_runtime_constant_value(from_value.value);
+
+            auto from_integer_constant = unwrap_integer_constant(constant_value);
 
             auto from_regsiter = allocate_register(context);
 
             auto integer_constant = new IntegerConstantInstruction;
             integer_constant->range = for_loop->range;
             integer_constant->destination_register = from_regsiter;
-            integer_constant->value = from_integer_constant->value;
+            integer_constant->value = from_integer_constant;
 
             append(instructions, (Instruction*)integer_constant);
 
@@ -5429,7 +5447,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 
                 store_integer->size = integer->size;
 
-                if(!check_undetermined_integer_to_integer_coercion(scope, for_loop->range, integer, (int64_t)from_integer_constant->value, false)) {
+                if(!check_undetermined_integer_to_integer_coercion(scope, for_loop->range, integer, (int64_t)from_integer_constant, false)) {
                     return err;
                 }
 
@@ -5664,7 +5682,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionTypeType *type,
-    FunctionConstant *value,
+    FunctionConstant value,
     Function *function
 ), (
     info,
@@ -5673,7 +5691,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     value,
     function
 )) {
-    auto declaration = value->declaration;
+    auto declaration = value.declaration;
 
     auto declaration_parameter_count = declaration->parameters.count;
 
@@ -5681,7 +5699,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
     const char *file_path;
     {
-        auto current_scope = value->body_scope;
+        auto current_scope = value.body_scope;
 
         while(!current_scope->is_top_level) {
             current_scope = current_scope->parent;
@@ -5736,7 +5754,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
     function->name = declaration->name.text;
     function->range = declaration->range;
-    function->scope = value->body_scope;
+    function->scope = value.body_scope;
     function->parameters = { ir_parameter_count, ir_parameters };
     function->has_return = type->return_type->kind != TypeKind::Void && return_representation.is_in_register;
     function->calling_convention = type->calling_convention;
@@ -5747,15 +5765,15 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     }
 
     Array<StaticConstant*> static_constants;
-    if(value->is_external) {
+    if(value.is_external) {
         static_constants = {};
 
         function->is_external = true;
         function->is_no_mangle = true;
-        function->libraries = value->external_libraries;
+        function->libraries = value.external_libraries;
     } else {
         function->is_external = false;
-        function->is_no_mangle = value->is_external;
+        function->is_no_mangle = value.is_external;
 
         GenerationContext context {};
 
@@ -5767,11 +5785,11 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         context.next_register = ir_parameter_count;
 
         append(&context.variable_scope_stack, {
-            value->body_scope,
+            value.body_scope,
             {}
         });
 
-        context.child_scopes = value->child_scopes;
+        context.child_scopes = value.child_scopes;
 
         List<Instruction*> instructions {};
 
@@ -5840,11 +5858,11 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
         for(auto statement : declaration->statements) {
             if(!is_not_runtime_statement(statement)) {
-                expect_delayed_void_val(generate_statement(info, jobs, value->body_scope, &context, &instructions, statement));
+                expect_delayed_void_val(generate_statement(info, jobs, value.body_scope, &context, &instructions, statement));
             }
         }
 
-        assert(context.next_child_scope_index == value->child_scopes.count);
+        assert(context.next_child_scope_index == value.child_scopes.count);
 
         bool has_return_at_end;
         if(declaration->statements.count > 0) {
@@ -5857,7 +5875,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
         if(!has_return_at_end) {
             if(type->return_type->kind != TypeKind::Void) {
-                error(value->body_scope, declaration->range, "Function '%s' must end with a return", declaration->name.text);
+                error(value.body_scope, declaration->range, "Function '%s' must end with a return", declaration->name.text);
 
                 return err;
             } else {
@@ -5903,29 +5921,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             for(size_t i = 0; i < tag.parameters.count; i += 1) {
                 expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, tag.parameters[i]));
 
-                if(parameter.type->kind != TypeKind::StaticArray) {
-                    error(scope, tag.parameters[i]->range, "Expected a string ([]u8), got '%s'", type_description(parameter.type));
-
-                    return err;
-                }
-
-                auto static_array = (StaticArray*)parameter.type;
-                auto static_array_value = extract_constant_value(StaticArrayConstant, parameter.value);
-
-                if(
-                    static_array->element_type->kind != TypeKind::Integer ||
-                    ((Integer*)static_array->element_type)->size != RegisterSize::Size8
-                ) {
-                    error(scope, tag.parameters[i]->range, "Expected a string ([]u8), got '%s'", type_description(parameter.type));
-
-                    return err;
-                }
-
-                auto library_path = allocate<char>(static_array->length + 1);
-                for(size_t j = 0; j < static_array->length; j += 1) {
-                    library_path[j] = extract_constant_value(IntegerConstant, static_array_value->elements[j])->value;
-                }
-                library_path[static_array->length] = '\0';
+                expect(library_path, static_array_to_c_string(scope, tag.parameters[i]->range, parameter.type, parameter.value));
 
                 libraries[i] = library_path;
             }

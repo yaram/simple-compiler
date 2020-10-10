@@ -10,7 +10,7 @@ DelayedResult<Array<StaticConstant*>> do_generate_function(
     GlobalInfo info,
     List<Job*> *jobs,
     FunctionTypeType *type,
-    FunctionConstant *value,
+    FunctionConstant value,
     Function *function
 );
 
