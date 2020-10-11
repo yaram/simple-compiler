@@ -108,7 +108,7 @@ Result<uint64_t> coerce_constant_to_integer_type(
     if(type->kind == TypeKind::Integer) {
         auto integer = (Integer*)type;
 
-        if(integer->size != target_type->size || integer->size != target_type->size) {
+        if(integer->size != target_type->size || integer->is_signed != target_type->is_signed) {
             if(!probing) {
                 error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(integer), type_description(target_type));
             }
