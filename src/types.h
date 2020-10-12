@@ -122,7 +122,7 @@ struct StaticArray : Type {
 
 struct StructType : Type {
     struct Member {
-        const char *name;
+        String name;
 
         Type *type;
     };
@@ -162,7 +162,7 @@ struct PolymorphicStruct : Type {
 
 struct UndeterminedStruct : Type {
     struct Member {
-        const char *name;
+        String name;
 
         Type *type;
     };

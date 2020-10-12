@@ -280,8 +280,8 @@ Result<AnyConstantValue> coerce_constant_to_type(
 
             if(
                 undetermined_struct->members.count == 2 &&
-                strcmp(undetermined_struct->members[0].name, "pointer") == 0 &&
-                strcmp(undetermined_struct->members[1].name, "length") == 0
+                equal(undetermined_struct->members[0].name, "pointer"_S) &&
+                equal(undetermined_struct->members[1].name, "length"_S)
             ) {
                 auto undetermined_struct_value = unwrap_struct_constant(value);
 
@@ -1203,8 +1203,8 @@ Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope *scope, File
     }
 }
 
-bool match_public_declaration(Statement *statement, const char *name) {
-    const char *declaration_name;
+bool match_public_declaration(Statement *statement, String name) {
+    String declaration_name;
     if(statement->kind == StatementKind::FunctionDeclaration) {
         auto function_declaration = (FunctionDeclaration*)statement;
 
@@ -1221,11 +1221,11 @@ bool match_public_declaration(Statement *statement, const char *name) {
         return false;
     }
 
-    return strcmp(declaration_name, name) == 0;
+    return equal(declaration_name, name);
 }
 
-bool match_declaration(Statement *statement, const char *name) {
-    const char *declaration_name;
+bool match_declaration(Statement *statement, String name) {
+    String declaration_name;
     if(statement->kind == StatementKind::FunctionDeclaration) {
         auto function_declaration = (FunctionDeclaration*)statement;
 
@@ -1241,12 +1241,12 @@ bool match_declaration(Statement *statement, const char *name) {
     } else if(statement->kind == StatementKind::Import) {
         auto import = (Import*)statement;
 
-        declaration_name = path_get_file_component(import->path);
+        declaration_name = import->name;
     } else {
         return false;
     }
 
-    return strcmp(declaration_name, name) == 0;
+    return equal(declaration_name, name);
 }
 
 DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
@@ -1401,7 +1401,7 @@ bool constant_values_equal(Type *type, AnyConstantValue a, AnyConstantValue b) {
             auto builtin_function_value_a = unwrap_builtin_function_constant(a);
             auto builtin_function_value_b = unwrap_builtin_function_constant(b);
 
-            return strcmp(builtin_function_value_a.name , builtin_function_value_b.name) == 0;
+            return equal(builtin_function_value_a.name , builtin_function_value_b.name);
         } break;
 
         case TypeKind::Integer:
@@ -1510,7 +1510,7 @@ bool constant_values_equal(Type *type, AnyConstantValue a, AnyConstantValue b) {
 profiled_function(DelayedResult<DeclarationSearchValue>, search_for_declaration, (
     GlobalInfo info,
     List<Job*> *jobs,
-    const char *name,
+    String name,
     ConstantScope *scope,
     Array<Statement*> statements,
     bool external,
@@ -1628,7 +1628,7 @@ profiled_function(DelayedResult<DeclarationSearchValue>, search_for_declaration,
     }
 
     for(auto scope_constant : scope->scope_constants) {
-        if(strcmp(scope_constant.name, name) == 0) {
+        if(equal(scope_constant.name, name)) {
             return has({
                 true,
                 scope_constant.type,
@@ -1704,7 +1704,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         }
 
         for(auto global_constant : info.global_constants) {
-            if(strcmp(named_reference->name.text, global_constant.name) == 0) {
+            if(equal(named_reference->name.text, global_constant.name)) {
                 return has({
                     global_constant.type,
                     global_constant.value
@@ -1712,7 +1712,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             }
         }
 
-        error(scope, named_reference->name.range, "Cannot find named reference %s", named_reference->name.text);
+        error(scope, named_reference->name.range, "Cannot find named reference %.*s", STRING_PRINT(named_reference->name.text));
 
         return err;
     } else if(expression->kind == ExpressionKind::MemberReference) {
@@ -1725,7 +1725,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
             auto array_value = unwrap_array_constant(expression_value.value);
 
-            if(strcmp(member_reference->name.text, "length") == 0) {
+            if(equal(member_reference->name.text, "length"_S)) {
                 return has({
                     new Integer {
                         info.address_integer_size,
@@ -1733,7 +1733,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     },
                     wrap_integer_constant(array_value.length)
                 });
-            } else if(strcmp(member_reference->name.text, "pointer") == 0) {
+            } else if(equal(member_reference->name.text, "pointer"_S)) {
                 return has({
                     new Pointer {
                         array_type->element_type
@@ -1741,14 +1741,14 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     wrap_pointer_constant(array_value.pointer)
                 });
             } else {
-                error(scope, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
+                error(scope, member_reference->name.range, "No member with name '%.*s'", STRING_PRINT(member_reference->name.text));
 
                 return err;
             }
         } else if(expression_value.type->kind == TypeKind::StaticArray) {
             auto static_array = (StaticArray*)expression_value.type;
 
-            if(strcmp(member_reference->name.text, "length") == 0) {
+            if(equal(member_reference->name.text, "length"_S)) {
                 return has({
                     new Integer {
                         info.address_integer_size,
@@ -1756,12 +1756,12 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     },
                     wrap_integer_constant(static_array->length)
                 });
-            } else if(strcmp(member_reference->name.text, "pointer") == 0) {
+            } else if(equal(member_reference->name.text, "pointer"_S)) {
                 error(scope, member_reference->name.range, "Cannot take pointer to static array in constant context", member_reference->name.text);
 
                 return err;
             } else {
-                error(scope, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
+                error(scope, member_reference->name.range, "No member with name '%.*s'", STRING_PRINT(member_reference->name.text));
 
                 return err;
             }
@@ -1771,7 +1771,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             auto struct_value = unwrap_struct_constant(expression_value.value);
 
             for(size_t i = 0; i < struct_type->members.count; i += 1) {
-                if(strcmp(member_reference->name.text, struct_type->members[i].name) == 0) {
+                if(equal(member_reference->name.text, struct_type->members[i].name)) {
                     return has({
                         struct_type->members[i].type,
                         struct_value.members[i]
@@ -1779,7 +1779,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 }
             }
 
-            error(scope, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
+            error(scope, member_reference->name.range, "No member with name '%.*s'", STRING_PRINT(member_reference->name.text));
 
             return err;
         } else if(expression_value.type->kind == TypeKind::UndeterminedStruct) {
@@ -1788,7 +1788,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             auto undetermined_struct_value = unwrap_struct_constant(expression_value.value);
 
             for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
-                if(strcmp(member_reference->name.text, undetermined_struct->members[i].name) == 0) {
+                if(equal(member_reference->name.text, undetermined_struct->members[i].name)) {
                     return has({
                         undetermined_struct->members[i].type,
                         undetermined_struct_value.members[i]
@@ -1796,7 +1796,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 }
             }
 
-            error(scope, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
+            error(scope, member_reference->name.range, "No member with name '%.*s'", STRING_PRINT(member_reference->name.text));
 
             return err;
         } else if(expression_value.type->kind == TypeKind::FileModule) {
@@ -1819,7 +1819,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 });
             }
 
-            error(scope, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
+            error(scope, member_reference->name.range, "No member with name '%.*s'", STRING_PRINT(member_reference->name.text));
 
             return err;
         } else {
@@ -1950,8 +1950,8 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             auto member_name = struct_literal->members[i].name;
 
             for(size_t j = 0; j < member_count; j += 1) {
-                if(j != i && strcmp(member_name.text, struct_literal->members[j].name.text) == 0) {
-                    error(scope, member_name.range, "Duplicate struct member %s", member_name.text);
+                if(j != i && equal(member_name.text, struct_literal->members[j].name.text)) {
+                    error(scope, member_name.range, "Duplicate struct member %.*s", STRING_PRINT(member_name.text));
 
                     return err;
                 }
@@ -1991,7 +1991,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         } else if(expression_value.type->kind == TypeKind::BuiltinFunction) {
             auto builtin_function_value = unwrap_builtin_function_constant(expression_value.value);
 
-            if(strcmp(builtin_function_value.name, "size_of") == 0) {
+            if(equal(builtin_function_value.name, "size_of"_S)) {
                 if(function_call->parameters.count != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
@@ -2022,7 +2022,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     },
                     wrap_integer_constant(size)
                 });
-            } else if(strcmp(builtin_function_value.name, "type_of") == 0) {
+            } else if(equal(builtin_function_value.name, "type_of"_S)) {
                 if(function_call->parameters.count != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
@@ -2035,7 +2035,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     &type_type_singleton,
                     wrap_type_constant(parameter_value.type)
                 });
-            } else if(strcmp(builtin_function_value.name, "memcpy") == 0) {
+            } else if(equal(builtin_function_value.name, "memcpy"_S)) {
                 error(scope, function_call->range, "'memcpy' cannot be called in a constant context");
 
                 return err;
@@ -2442,15 +2442,15 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         auto is_calling_convention_specified = false;
         auto calling_convention = CallingConvention::Default;
         for(auto tag : function_type->tags) {
-            if(strcmp(tag.name.text, "extern") == 0) {
+            if(equal(tag.name.text, "extern"_S)) {
                 error(scope, tag.range, "Function types cannot be external");
 
                 return err;
-            } else if(strcmp(tag.name.text, "no_mangle") == 0) {
+            } else if(equal(tag.name.text, "no_mangle"_S)) {
                 error(scope, tag.range, "Function types cannot be no_mangle");
 
                 return err;
-            } else if(strcmp(tag.name.text, "call_conv") == 0) {
+            } else if(equal(tag.name.text, "call_conv"_S)) {
                 if(is_calling_convention_specified) {
                     error(scope, tag.range, "Duplicate 'call_conv' tag");
 
@@ -2475,7 +2475,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
                 is_calling_convention_specified = true;
             } else {
-                error(scope, tag.name.range, "Unknown tag '%s'", tag.name.text);
+                error(scope, tag.name.range, "Unknown tag '%.*s'", STRING_PRINT(tag.name.text));
 
                 return err;
             }
@@ -2587,7 +2587,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
     auto is_calling_convention_specified = false;
     auto calling_convention = CallingConvention::Default;
     for(auto tag : declaration->tags) {
-        if(strcmp(tag.name.text, "extern") == 0) {
+        if(equal(tag.name.text, "extern"_S)) {
             if(is_external) {
                 error(scope, tag.range, "Duplicate 'extern' tag");
 
@@ -2609,7 +2609,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
                 tag.parameters.count,
                 libraries
             };
-        } else if(strcmp(tag.name.text, "no_mangle") == 0) {
+        } else if(equal(tag.name.text, "no_mangle"_S)) {
             if(is_no_mangle) {
                 error(scope, tag.range, "Duplicate 'no_mangle' tag");
 
@@ -2617,7 +2617,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
             }
 
             is_no_mangle = true;
-        } else if(strcmp(tag.name.text, "call_conv") == 0) {
+        } else if(equal(tag.name.text, "call_conv"_S)) {
             if(is_calling_convention_specified) {
                 error(scope, tag.range, "Duplicate 'call_conv' tag");
 
@@ -2642,7 +2642,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
 
             is_calling_convention_specified = true;
         } else {
-            error(scope, tag.name.range, "Unknown tag '%s'", tag.name.text);
+            error(scope, tag.name.range, "Unknown tag '%.*s'", STRING_PRINT(tag.name.text));
 
             return err;
         }
@@ -2886,20 +2886,20 @@ profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_polymorphic
     }
 
     for(auto tag : declaration->tags) {
-        if(strcmp(tag.name.text, "extern") == 0) {
+        if(equal(tag.name.text, "extern"_S)) {
             error(scope, tag.range, "Polymorphic functions cannot be external");
 
             return err;
-        } else if(strcmp(tag.name.text, "no_mangle") == 0) {
+        } else if(equal(tag.name.text, "no_mangle"_S)) {
             error(scope, tag.range, "Polymorphic functions cannot be no_mangle");
 
             return err;
-        } else if(strcmp(tag.name.text, "call_conv") == 0) {
+        } else if(equal(tag.name.text, "call_conv"_S)) {
             error(scope, tag.range, "Polymorphic functions cannot have their calling convention specified");
 
             return err;
         } else {
-            error(scope, tag.name.range, "Unknown tag '%s'", tag.name.text);
+            error(scope, tag.name.range, "Unknown tag '%.*s'", STRING_PRINT(tag.name.text));
 
             return err;
         }

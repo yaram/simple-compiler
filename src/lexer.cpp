@@ -618,14 +618,15 @@ profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (pa
                 character += 1;
             }
 
-            append(&buffer, '\0');
-
             Token token;
             token.type = TokenType::Identifier;
             token.line = line;
             token.first_character = first_character;
             token.last_character = character - 1;
-            token.identifier = buffer.elements;
+            token.identifier = {
+                buffer.count,
+                buffer.elements
+            };
 
             append(&tokens, token);
         } else if((source[index] >= '0' && source[index] <= '9') || source[index] == '.') {

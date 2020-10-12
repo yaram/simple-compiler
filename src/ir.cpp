@@ -419,8 +419,8 @@ void print_instruction(Instruction *instruction, bool has_return) {
         auto reference_static = (ReferenceStatic*)instruction;
 
         printf(
-            "STATIC %s r%zu",
-            reference_static->runtime_static->name,
+            "STATIC %.*s r%zu",
+            STRING_PRINT(reference_static->runtime_static->name),
             reference_static->destination_register
         );
     } else {
@@ -429,7 +429,7 @@ void print_instruction(Instruction *instruction, bool has_return) {
 }
 
 void print_static(RuntimeStatic *runtime_static) {
-    printf("%s", runtime_static->name);
+    printf("%.*s", STRING_PRINT(runtime_static->name));
 
     if(runtime_static->is_no_mangle) {
         printf(" (no_mangle)");

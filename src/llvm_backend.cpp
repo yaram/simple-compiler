@@ -181,7 +181,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     const char *os,
     const char *config,
     const char *object_file_path,
-    Array<const char*> reserved_names
+    Array<String> reserved_names
 ), (
     statics,
     architecture,
@@ -195,8 +195,8 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     for(auto runtime_static : statics) {
         if(runtime_static->is_no_mangle) {
             for(auto name_mapping : name_mappings) {
-                if(strcmp(name_mapping.name, runtime_static->name) == 0) {
-                    error(runtime_static->scope, runtime_static->range, "Conflicting no_mangle name '%s'", name_mapping.name);
+                if(equal(name_mapping.name, runtime_static->name)) {
+                    error(runtime_static->scope, runtime_static->range, "Conflicting no_mangle name '%.*s'", STRING_PRINT(name_mapping.name));
                     error(name_mapping.runtime_static->scope, name_mapping.runtime_static->range, "Conflicing declaration here");
 
                     return err;
@@ -204,8 +204,8 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             }
 
             for(auto reserved_name : reserved_names) {
-                if(strcmp(reserved_name, runtime_static->name) == 0) {
-                    error(runtime_static->scope, runtime_static->range, "Runtime name '%s' is reserved", reserved_name);
+                if(equal(reserved_name, runtime_static->name)) {
+                    error(runtime_static->scope, runtime_static->range, "Runtime name '%.*s' is reserved", STRING_PRINT(reserved_name));
 
                     return err;
                 }
@@ -230,17 +230,19 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     string_buffer_append(&name_buffer, number);
                 }
 
+                auto name = string_buffer_string(name_buffer);
+
                 auto name_taken = false;
 
                 for(auto name_mapping : name_mappings) {
-                    if(strcmp(name_mapping.name, name_buffer.data) == 0) {
+                    if(equal(name_mapping.name, name)) {
                         name_taken = true;
                         break;
                     }
                 }
 
                 for(auto reserved_name : reserved_names) {
-                    if(strcmp(reserved_name, name_buffer.data) == 0) {
+                    if(equal(reserved_name, name)) {
                         name_taken = true;
                         break;
                     }
@@ -252,7 +254,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 } else {
                     append(&name_mappings, {
                         runtime_static,
-                        name_buffer.data
+                        name
                     });
 
                     break;
@@ -274,7 +276,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     for(size_t i = 0; i < statics.count; i += 1) {
         auto runtime_static = statics[i];
 
-        const char *name;
+        String name;
         auto found = false;
         for(auto name_mapping : name_mappings) {
             if(name_mapping.runtime_static == runtime_static) {
@@ -307,7 +309,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
             auto function_type = LLVMFunctionType(return_type, parameter_types, (unsigned int)parameter_count, false);
 
-            global_value = LLVMAddFunction(module, name, function_type);
+            global_value = LLVMAddFunction(module, string_to_c_string(name), function_type);
 
             if(function->is_external) {
                 LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
@@ -321,7 +323,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
             auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)constant->data.count);
 
-            global_value = LLVMAddGlobal(module, byte_array_type, name);
+            global_value = LLVMAddGlobal(module, byte_array_type, string_to_c_string(name));
             LLVMSetAlignment(global_value, (unsigned int)constant->alignment);
             LLVMSetGlobalConstant(global_value, true);
 
@@ -339,7 +341,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
             auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)variable->size);
 
-            global_value = LLVMAddGlobal(module, byte_array_type, name);
+            global_value = LLVMAddGlobal(module, byte_array_type, string_to_c_string(name));
             LLVMSetAlignment(global_value, (unsigned int)variable->alignment);
 
             if(variable->is_external) {

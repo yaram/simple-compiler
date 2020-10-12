@@ -90,7 +90,7 @@ bool types_equal(Type *a, Type *b) {
 
         for(size_t i = 0; i < a_struct->members.count; i += 1) {
             if(
-                strcmp(a_struct->members[i].name, b_struct->members[i].name) != 0 ||
+                !equal(a_struct->members[i].name, b_struct->members[i].name) ||
                 !types_equal(a_struct->members[i].type, b_struct->members[i].type)
             ) {
                 return false;
@@ -113,7 +113,7 @@ bool types_equal(Type *a, Type *b) {
 
         for(size_t i = 0; i < a_undetermined_struct->members.count; i += 1) {
             if(
-                strcmp(a_undetermined_struct->members[i].name, b_undetermined_struct->members[i].name) != 0 ||
+                !equal(a_undetermined_struct->members[i].name, b_undetermined_struct->members[i].name) ||
                 !types_equal(a_undetermined_struct->members[i].type, b_undetermined_struct->members[i].type)
             ) {
                 return false;
@@ -274,10 +274,10 @@ const char *type_description(Type *type) {
         return buffer.data;
     } else if(type->kind == TypeKind::StructType) {
         auto struct_type = (StructType*)type;
-        return struct_type->definition->name.text;
+        return string_to_c_string(struct_type->definition->name.text);
     } else if(type->kind == TypeKind::PolymorphicStruct) {
         auto polymorphic_struct = (PolymorphicStruct*)type;
-        return polymorphic_struct->definition->name.text;
+        return string_to_c_string(polymorphic_struct->definition->name.text);
     } else if(type->kind == TypeKind::UndeterminedStruct) {
         return "{struct}";
     } else if(type->kind == TypeKind::FileModule) {

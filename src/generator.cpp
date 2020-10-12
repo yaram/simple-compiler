@@ -99,8 +99,8 @@ static bool add_new_variable(GenerationContext *context, Identifier name, size_t
     auto variable_scope = &(context->variable_scope_stack[context->variable_scope_stack.count - 1]);
 
     for(auto variable : variable_scope->variables) {
-        if(strcmp(variable.name.text, name.text) == 0) {
-            error(variable_scope->constant_scope, name.range, "Duplicate variable name %s", name.text);
+        if(equal(variable.name.text, name.text)) {
+            error(variable_scope->constant_scope, name.range, "Duplicate variable name %.*s", STRING_PRINT(name.text));
             error(variable_scope->constant_scope, variable.name.range, "Original declared here");
 
             return false;
@@ -311,7 +311,7 @@ static StaticConstant *register_static_array_constant(
     write_static_array(info, data, 0, element_type, elements);
 
     auto constant = new StaticConstant;
-    constant->name = "array_constant";
+    constant->name = "array_constant"_S;
     constant->is_no_mangle = false;
     constant->range = range;
     constant->scope = scope;
@@ -340,7 +340,7 @@ static StaticConstant *register_struct_constant(
     write_struct(info, data, 0, struct_type, members);
 
     auto constant = new StaticConstant;
-    constant->name = "struct_constant";
+    constant->name = "struct_constant"_S;
     constant->is_no_mangle = false;
     constant->range = range;
     constant->scope = scope;
@@ -1156,8 +1156,8 @@ static Result<size_t> coerce_to_type_register(
 
             if(
                 undetermined_struct->members.count == 2 &&
-                strcmp(undetermined_struct->members[0].name, "pointer") == 0 &&
-                strcmp(undetermined_struct->members[1].name, "length") == 0
+                equal(undetermined_struct->members[0].name, "pointer"_S) &&
+                equal(undetermined_struct->members[1].name, "length"_S)
             ) {
                 auto undetermined_struct_value = (UndeterminedStructValue*)value;
                 assert(value->kind == RuntimeValueKind::UndeterminedStructValue);
@@ -1258,7 +1258,7 @@ static Result<size_t> coerce_to_type_register(
                 auto same_members = true;
                 for(size_t i = 0; i < struct_type->members.count; i += 1) {
                     if(
-                        strcmp(target_struct_type->members[i].name, struct_type->members[i].name) != 0 ||
+                        !equal(target_struct_type->members[i].name, struct_type->members[i].name) ||
                         !types_equal(target_struct_type->members[i].type, struct_type->members[i].type)
                     ) {
                         same_members = false;
@@ -1293,7 +1293,7 @@ static Result<size_t> coerce_to_type_register(
             if(target_struct_type->definition->is_union) {
                 if(undetermined_struct->members.count == 1) {
                     for(size_t i = 0; i < target_struct_type->members.count; i += 1) {
-                        if(strcmp(target_struct_type->members[i].name, undetermined_struct->members[0].name) == 0) {
+                        if(equal(target_struct_type->members[i].name, undetermined_struct->members[0].name)) {
                             auto address_register = append_allocate_local(
                                 context,
                                 instructions,
@@ -1324,7 +1324,7 @@ static Result<size_t> coerce_to_type_register(
                 if(target_struct_type->members.count == undetermined_struct->members.count) {
                     auto same_members = true;
                     for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
-                        if(strcmp(target_struct_type->members[i].name, undetermined_struct->members[i].name) != 0) {
+                        if(!equal(target_struct_type->members[i].name, undetermined_struct->members[i].name)) {
                             same_members = false;
 
                             break;
@@ -1585,8 +1585,8 @@ static bool coerce_to_type_write(
 
             if(
                 undetermined_struct->members.count == 2 &&
-                strcmp(undetermined_struct->members[0].name, "pointer") == 0 &&
-                strcmp(undetermined_struct->members[1].name, "length") == 0
+                equal(undetermined_struct->members[0].name, "pointer"_S) &&
+                equal(undetermined_struct->members[1].name, "length"_S)
             ) {
                 auto undetermined_struct_value = (UndeterminedStructValue*)value;
                 assert(value->kind == RuntimeValueKind::UndeterminedStructValue);
@@ -1704,7 +1704,7 @@ static bool coerce_to_type_write(
                 auto same_members = true;
                 for(size_t i = 0; i < struct_type->members.count; i += 1) {
                     if(
-                        strcmp(target_struct_type->members[i].name, struct_type->members[i].name) != 0 ||
+                        !equal(target_struct_type->members[i].name, struct_type->members[i].name) ||
                         !types_equal(target_struct_type->members[i].type, struct_type->members[i].type)
                     ) {
                         same_members = false;
@@ -1761,7 +1761,7 @@ static bool coerce_to_type_write(
             if(target_struct_type->definition->is_union) {
                 if(undetermined_struct->members.count == 1) {
                     for(size_t i = 0; i < target_struct_type->members.count; i += 1) {
-                        if(strcmp(target_struct_type->members[i].name, undetermined_struct->members[0].name) == 0) {
+                        if(equal(target_struct_type->members[i].name, undetermined_struct->members[0].name)) {
                             RuntimeValue *variant_value;
                             if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
                                 auto constant_value = (RuntimeConstantValue*)value;
@@ -1801,7 +1801,7 @@ static bool coerce_to_type_write(
                 if(target_struct_type->members.count == undetermined_struct->members.count) {
                     auto same_members = true;
                     for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
-                        if(strcmp(target_struct_type->members[i].name, undetermined_struct->members[i].name) != 0) {
+                        if(!equal(target_struct_type->members[i].name, undetermined_struct->members[i].name)) {
                             same_members = false;
 
                             break;
@@ -2376,7 +2376,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
-    const char *name,
+    String name,
     ConstantScope *name_scope,
     FileRange name_range,
     Array<Statement*> statements,
@@ -2517,7 +2517,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
             if(scope->is_top_level) {
                 auto variable_declaration = (VariableDeclaration*)statement;
 
-                if(strcmp(variable_declaration->name.text, name) == 0) {
+                if(equal(variable_declaration->name.text, name)) {
                     for(auto job : *jobs) {
                         if(job->kind == JobKind::GenerateStaticVariable) {
                             auto generate_static_variable = (GenerateStaticVariable*)job;
@@ -2552,7 +2552,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
     }
 
     for(auto scope_constant : scope->scope_constants) {
-        if(strcmp(scope_constant.name, name) == 0) {
+        if(equal(scope_constant.name, name)) {
             return has({
                 true,
                 scope_constant.type,
@@ -2590,7 +2590,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto current_scope = context->variable_scope_stack[context->variable_scope_stack.count - 1 - i];
 
             for(auto variable : current_scope.variables) {
-                if(strcmp(variable.name.text, named_reference->name.text) == 0) {
+                if(equal(variable.name.text, named_reference->name.text)) {
                     return has({
                         variable.type,
                         new AddressValue {
@@ -2653,7 +2653,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         }
 
         for(auto global_constant : info.global_constants) {
-            if(strcmp(named_reference->name.text, global_constant.name) == 0) {
+            if(equal(named_reference->name.text, global_constant.name)) {
                 return has({
                     global_constant.type,
                     new RuntimeConstantValue {
@@ -2663,7 +2663,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             }
         }
 
-        error(scope, named_reference->name.range, "Cannot find named reference %s", named_reference->name.text);
+        error(scope, named_reference->name.range, "Cannot find named reference %.*s", STRING_PRINT(named_reference->name.text));
 
         return err;
     } else if(expression->kind == ExpressionKind::IndexReference) {
@@ -2876,7 +2876,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         if(actual_type->kind == TypeKind::ArrayTypeType) {
             auto array_type = (ArrayTypeType*)actual_type;
 
-            if(strcmp(member_reference->name.text, "length") == 0) {
+            if(equal(member_reference->name.text, "length"_S)) {
                 auto type = new Integer {
                     info.address_integer_size,
                     false
@@ -2940,7 +2940,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     },
                     value
                 });
-            } else if(strcmp(member_reference->name.text, "pointer") == 0) {
+            } else if(equal(member_reference->name.text, "pointer"_S)) {
                 RuntimeValue *value;
                 if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
                     auto constant_value = (RuntimeConstantValue*)expression_value.value;
@@ -2981,14 +2981,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     value
                 });
             } else {
-                error(scope, member_reference->name.range, "No member with name %s", member_reference->name.text);
+                error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINT(member_reference->name.text));
 
                 return err;
             }
         } else if(actual_type->kind == TypeKind::StaticArray) {
             auto static_array = (StaticArray*)actual_type;
 
-            if(strcmp(member_reference->name.text, "length") == 0) {
+            if(equal(member_reference->name.text, "length"_S)) {
                 return has({
                     new Integer {
                         info.address_integer_size,
@@ -2998,7 +2998,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         wrap_integer_constant(static_array->length)
                     }
                 });
-            } else if(strcmp(member_reference->name.text, "pointer") == 0) {
+            } else if(equal(member_reference->name.text, "pointer"_S)) {
                 size_t address_regsiter;
                 if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
                     auto constant_value = (RuntimeConstantValue*)expression_value.value;
@@ -3036,7 +3036,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     }
                 });
             } else {
-                error(scope, member_reference->name.range, "No member with name %s", member_reference->name.text);
+                error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINT(member_reference->name.text));
 
                 return err;
             }
@@ -3044,7 +3044,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto struct_type = (StructType*)actual_type;
 
             for(size_t i = 0; i < struct_type->members.count; i += 1) {
-                if(strcmp(struct_type->members[i].name, member_reference->name.text) == 0) {
+                if(equal(struct_type->members[i].name, member_reference->name.text)) {
                     auto member_type = struct_type->members[i].type;
 
                     if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
@@ -3127,7 +3127,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             }
 
-            error(scope, member_reference->name.range, "No member with name %s", member_reference->name.text);
+            error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINT(member_reference->name.text));
 
             return err;
         } else if(actual_type->kind == TypeKind::UndeterminedStruct) {
@@ -3136,7 +3136,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto undetermined_struct_value = (UndeterminedStructValue*)actual_value;
 
             for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
-                if(strcmp(undetermined_struct->members[i].name, member_reference->name.text) == 0) {
+                if(equal(undetermined_struct->members[i].name, member_reference->name.text)) {
                     return has({
                         undetermined_struct->members[i].type,
                         undetermined_struct_value->members[i]
@@ -3144,7 +3144,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             }
 
-            error(scope, member_reference->name.range, "No member with name %s", member_reference->name.text);
+            error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINT(member_reference->name.text));
 
             return err;
         } else if(actual_type->kind == TypeKind::FileModule) {
@@ -3172,7 +3172,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 });
             }
 
-            error(scope, member_reference->name.range, "No member with name '%s'", member_reference->name.text);
+            error(scope, member_reference->name.range, "No member with name '%.*s'",STRING_PRINT( member_reference->name.text));
 
             return err;
         } else {
@@ -3360,8 +3360,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         for(size_t i = 0; i < member_count; i += 1) {
             for(size_t j = 0; j < i; j += 1) {
-                if(strcmp(struct_literal->members[i].name.text, type_members[j].name) == 0) {
-                    error(scope, struct_literal->members[i].name.range, "Duplicate struct member %s", struct_literal->members[i].name.text);
+                if(equal(struct_literal->members[i].name.text, type_members[j].name)) {
+                    error(scope, struct_literal->members[i].name.range, "Duplicate struct member %.*s", STRING_PRINT(struct_literal->members[i].name.text));
 
                     return err;
                 }
@@ -3462,8 +3462,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             error(
                                 scope,
                                 function_call->parameters[i]->range,
-                                "Non-constant value provided for constant parameter '%s'",
-                                declaration_parameter.name.text
+                                "Non-constant value provided for constant parameter '%.*s'",
+                                STRING_PRINT(declaration_parameter.name.text)
                             );
 
                             return err;
@@ -3711,7 +3711,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             auto builtin_function_value = unwrap_builtin_function_constant(constant_value);
 
-            if(strcmp(builtin_function_value.name, "size_of") == 0) {
+            if(equal(builtin_function_value.name, "size_of"_S)) {
                 if(function_call->parameters.count != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
@@ -3746,7 +3746,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         wrap_integer_constant(size)
                     }
                 });
-            } else if(strcmp(builtin_function_value.name, "type_of") == 0) {
+            } else if(equal(builtin_function_value.name, "type_of"_S)) {
                 if(function_call->parameters.count != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.count);
 
@@ -3761,7 +3761,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         wrap_type_constant(parameter_value.type)
                     }
                 });
-            } else if(strcmp(builtin_function_value.name, "memcpy") == 0) {
+            } else if(equal(builtin_function_value.name, "memcpy"_S)) {
                 if(function_call->parameters.count != 3) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 3 got %zu", function_call->parameters.count);
 
@@ -4689,8 +4689,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         error(
                             scope,
                             function_call->parameters[i]->range,
-                            "Non-constant value provided for constant parameter '%s'",
-                            declaration_parameter.name.text
+                            "Non-constant value provided for constant parameter '%.*s'",
+                            STRING_PRINT(declaration_parameter.name.text)
                         );
 
                         return err;
@@ -4877,15 +4877,15 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         auto is_calling_convention_specified = false;
         auto calling_convention = CallingConvention::Default;
         for(auto tag : function_type->tags) {
-            if(strcmp(tag.name.text, "extern") == 0) {
+            if(equal(tag.name.text, "extern"_S)) {
                 error(scope, tag.range, "Function types cannot be external");
 
                 return err;
-            } else if(strcmp(tag.name.text, "no_mangle") == 0) {
+            } else if(equal(tag.name.text, "no_mangle"_S)) {
                 error(scope, tag.range, "Function types cannot be no_mangle");
 
                 return err;
-            } else if(strcmp(tag.name.text, "call_conv") == 0) {
+            } else if(equal(tag.name.text, "call_conv"_S)) {
                 if(is_calling_convention_specified) {
                     error(scope, tag.range, "Duplicate 'call_conv' tag");
 
@@ -4982,16 +4982,16 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         size_t address_register;
 
         for(auto tag : variable_declaration->tags) {
-            if(strcmp(tag.name.text, "extern") == 0) {
+            if(equal(tag.name.text, "extern"_S)) {
                 error(scope, variable_declaration->range, "Local variables cannot be external");
 
                 return err;
-            } else if(strcmp(tag.name.text, "no_mangle") == 0) {
+            } else if(equal(tag.name.text, "no_mangle"_S)) {
                 error(scope, variable_declaration->range, "Local variables cannot be no_mangle");
 
                 return err;
             } else {
-                error(scope, tag.name.range, "Unknown tag '%s'", tag.name.text);
+                error(scope, tag.name.range, "Unknown tag '%.*s'",STRING_PRINT( tag.name.text));
 
                 return err;
             }
@@ -5392,7 +5392,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
             index_name = for_loop->index_name;
         } else {
             index_name = {
-                "it",
+                "it"_S,
                 for_loop->range
             };
         }
@@ -5875,7 +5875,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
         if(!has_return_at_end) {
             if(type->return_type->kind != TypeKind::Void) {
-                error(value.body_scope, declaration->range, "Function '%s' must end with a return", declaration->name.text);
+                error(value.body_scope, declaration->range, "Function '%.*s' must end with a return", STRING_PRINT(declaration->name.text));
 
                 return err;
             } else {
@@ -5909,7 +5909,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
     Array<const char*> external_libraries;
     auto is_no_mangle = false;
     for(auto tag : declaration->tags) {
-        if(strcmp(tag.name.text, "extern") == 0) {
+        if(equal(tag.name.text, "extern"_S)) {
             if(is_external) {
                 error(scope, tag.range, "Duplicate 'extern' tag");
 
@@ -5931,7 +5931,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
                 tag.parameters.count,
                 libraries
             };
-        } else if(strcmp(tag.name.text, "no_mangle") == 0) {
+        } else if(equal(tag.name.text, "no_mangle"_S)) {
             if(is_no_mangle) {
                 error(scope, tag.range, "Duplicate 'no_mangle' tag");
 
@@ -5940,7 +5940,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
 
             is_no_mangle = true;
         } else {
-            error(scope, tag.name.range, "Unknown tag '%s'", tag.name.text);
+            error(scope, tag.name.range, "Unknown tag '%.*s'",STRING_PRINT( tag.name.text));
 
             return err;
         }

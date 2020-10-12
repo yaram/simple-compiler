@@ -5,7 +5,7 @@
 #include "util.h"
 
 struct Identifier {
-    const char *text;
+    String text;
 
     FileRange range;
 };
@@ -604,13 +604,16 @@ struct BreakStatement : Statement {
 
 struct Import : Statement {
     const char *path;
+    String name;
 
     Import(
         FileRange range,
-        const char *path
+        const char *path,
+        String name
     ) :
         Statement { StatementKind::Import, range },
-        path { path }
+        path { path },
+        name { name }
     {}
 };
 

@@ -31,7 +31,7 @@ struct PolymorphicFunctionConstant {
 };
 
 struct BuiltinFunctionConstant {
-    const char *name;
+    String name;
 };
 
 struct ArrayConstant {
@@ -263,7 +263,7 @@ inline Type *unwrap_type_constant(AnyConstantValue value) {
 }
 
 struct ScopeConstant {
-    const char *name;
+    String name;
 
     Type *type;
 
@@ -283,7 +283,7 @@ struct ConstantScope {
 };
 
 struct GlobalConstant {
-    const char *name;
+    String name;
 
     Type *type;
 
@@ -393,8 +393,8 @@ DelayedResult<Type*> evaluate_type_expression(
     Expression *expression
 );
 Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope *scope, FileRange range, Type *type);
-bool match_public_declaration(Statement *statement, const char *name);
-bool match_declaration(Statement *statement, const char *name);
+bool match_public_declaration(Statement *statement, String name);
+bool match_declaration(Statement *statement, String name);
 DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
@@ -413,7 +413,7 @@ struct DeclarationSearchValue {
 DelayedResult<DeclarationSearchValue> search_for_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
-    const char *name,
+    String name,
     ConstantScope *scope,
     Array<Statement*> statements,
     bool external,

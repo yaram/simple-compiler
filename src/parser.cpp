@@ -210,7 +210,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
             expect(identifier, expect_identifier(context));
 
-            if(strcmp(identifier.text, "bake") == 0) {
+            if(equal(identifier.text, "bake"_S)) {
                 expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
                 if(expression->kind != ExpressionKind::FunctionCall) {
@@ -1207,7 +1207,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
             } break;
 
             case TokenType::Identifier: {
-                if(strcmp(token.identifier, "as") == 0) {
+                if(equal(token.identifier, "as"_S)) {
                     if(OperatorPrecedence::Cast <= minimum_precedence) {
                         done = true;
 
@@ -1457,20 +1457,26 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
             consume_token(context);
 
-            if(strcmp(token.identifier, "import") == 0) {
+            if(equal(token.identifier, "import"_S)) {
                 expect(string, expect_string(context));
 
                 expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
-                auto import_path = allocate<char>(string.count + 1);
+                auto import_path = allocate<char>(string.count);
                 memcpy(import_path, string.elements, string.count);
                 import_path[string.count] = 0;
 
+                auto name = path_get_file_component(import_path);
+
                 return ok(new Import {
                     span_range(first_range, last_range),
-                    import_path
+                    import_path,
+                    {
+                        strlen(name),
+                        (char*)name
+                    }
                 });
-            } else if(strcmp(token.identifier, "if") == 0) {
+            } else if(equal(token.identifier, "if"_S)) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
@@ -1501,7 +1507,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     expression,
                     to_array(statements)
                 });
-            } else if(strcmp(token.identifier, "bake") == 0) {
+            } else if(equal(token.identifier, "bake"_S)) {
                 expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
                 if(expression->kind != ExpressionKind::FunctionCall) {
@@ -1524,7 +1530,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     bake
                 });
             } else {
-                error(*context, "Expected 'import' or 'library', got '%s'", get_token_text(token));
+                error(*context, "Expected 'import', 'if' or 'bake', got '%s'", get_token_text(token));
 
                 return err;
             }
@@ -1533,7 +1539,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
         case TokenType::Identifier: {
             consume_token(context);
 
-            if(strcmp(token.identifier, "if") == 0) {
+            if(equal(token.identifier, "if"_S)) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
@@ -1566,7 +1572,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 while(true) {
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::Identifier && strcmp(token.identifier, "else") == 0) {
+                    if(token.type == TokenType::Identifier && equal(token.identifier, "else"_S)) {
                         consume_token(context);
 
                         expect(token, peek_token(*context));
@@ -1593,7 +1599,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                             } break;
 
                             case TokenType::Identifier: {
-                                if(strcmp(token.identifier, "if") != 0) {
+                                if(!equal(token.identifier, "if"_S)) {
                                     error(*context, "Expected '{' or 'if', got '%s'", get_token_text(token));
 
                                     return err;
@@ -1653,7 +1659,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     to_array(else_ifs),
                     to_array(else_statements)
                 });
-            } else if(strcmp(token.identifier, "while") == 0) {
+            } else if(equal(token.identifier, "while"_S)) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                 if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
@@ -1684,7 +1690,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     expression,
                     to_array(statements)
                 });
-            } else if(strcmp(token.identifier, "for") == 0) {
+            } else if(equal(token.identifier, "for"_S)) {
                 expect(token, peek_token(*context));
 
                 bool has_index_name;
@@ -1768,7 +1774,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                         to_array(statements)
                     ));
                 }
-            } else if(strcmp(token.identifier, "return") == 0) {
+            } else if(equal(token.identifier, "return"_S)) {
                 expect(token, peek_token(*context));
 
                 Expression *value;
@@ -1793,13 +1799,13 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     span_range(first_range, last_range),
                     value
                 });
-            } else if(strcmp(token.identifier, "break") == 0) {
+            } else if(equal(token.identifier, "break"_S)) {
                 expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
                 return ok(new BreakStatement {
                     span_range(first_range, last_range)
                 });
-            } else if(strcmp(token.identifier, "using") == 0) {
+            } else if(equal(token.identifier, "using"_S)) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                 expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
@@ -2053,11 +2059,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                 case TokenType::Identifier: {
                                     consume_token(context);
 
-                                    if(strcmp(token.identifier, "struct") == 0) {
+                                    if(equal(token.identifier, "struct"_S)) {
                                         expect(maybe_union_token, peek_token(*context));
 
                                         auto is_union = false;
-                                        if(maybe_union_token.type == TokenType::Identifier && strcmp(maybe_union_token.identifier, "union") == 0) {
+                                        if(maybe_union_token.type == TokenType::Identifier && equal(maybe_union_token.identifier, "union"_S)) {
                                             consume_token(context);
 
                                             is_union = true;

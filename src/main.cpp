@@ -45,7 +45,7 @@ static void print_help_message(FILE *file) {
     fprintf(file, "  -help  Display this help message then exit\n");
 }
 
-inline void append_global_type(List<GlobalConstant> *global_constants, const char *name, Type *type) {
+inline void append_global_type(List<GlobalConstant> *global_constants, String name, Type *type) {
     append(global_constants, {
         name,
         &type_type_singleton,
@@ -53,11 +53,11 @@ inline void append_global_type(List<GlobalConstant> *global_constants, const cha
     });
 }
 
-inline void append_base_integer_type(List<GlobalConstant> *global_constants, const char *name, RegisterSize size, bool is_signed) {
+inline void append_base_integer_type(List<GlobalConstant> *global_constants, String name, RegisterSize size, bool is_signed) {
     append_global_type(global_constants, name, new Integer { size, is_signed });
 }
 
-inline void append_builtin(List<GlobalConstant> *global_constants, const char *name) {
+inline void append_builtin(List<GlobalConstant> *global_constants, String name) {
     append(global_constants, {
         name,
         &builtin_function_singleton,
@@ -201,37 +201,37 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
     List<GlobalConstant> global_constants{};
 
-    append_base_integer_type(&global_constants, "u8", RegisterSize::Size8, false);
-    append_base_integer_type(&global_constants, "u16", RegisterSize::Size16, false);
-    append_base_integer_type(&global_constants, "u32", RegisterSize::Size32, false);
-    append_base_integer_type(&global_constants, "u64", RegisterSize::Size64, false);
+    append_base_integer_type(&global_constants, "u8"_S, RegisterSize::Size8, false);
+    append_base_integer_type(&global_constants, "u16"_S, RegisterSize::Size16, false);
+    append_base_integer_type(&global_constants, "u32"_S, RegisterSize::Size32, false);
+    append_base_integer_type(&global_constants, "u64"_S, RegisterSize::Size64, false);
 
-    append_base_integer_type(&global_constants, "i8", RegisterSize::Size8, true);
-    append_base_integer_type(&global_constants, "i16", RegisterSize::Size16, true);
-    append_base_integer_type(&global_constants, "i32", RegisterSize::Size32, true);
-    append_base_integer_type(&global_constants, "i64", RegisterSize::Size64, true);
+    append_base_integer_type(&global_constants, "i8"_S, RegisterSize::Size8, true);
+    append_base_integer_type(&global_constants, "i16"_S, RegisterSize::Size16, true);
+    append_base_integer_type(&global_constants, "i32"_S, RegisterSize::Size32, true);
+    append_base_integer_type(&global_constants, "i64"_S, RegisterSize::Size64, true);
 
-    append_base_integer_type(&global_constants, "usize", regsiter_sizes.address_size, false);
-    append_base_integer_type(&global_constants, "isize", regsiter_sizes.address_size, true);
+    append_base_integer_type(&global_constants, "usize"_S, regsiter_sizes.address_size, false);
+    append_base_integer_type(&global_constants, "isize"_S, regsiter_sizes.address_size, true);
 
-    append_base_integer_type(&global_constants, "uint", regsiter_sizes.default_size, false);
-    append_base_integer_type(&global_constants, "int", regsiter_sizes.default_size, true);
+    append_base_integer_type(&global_constants, "uint"_S, regsiter_sizes.default_size, false);
+    append_base_integer_type(&global_constants, "int"_S, regsiter_sizes.default_size, true);
 
     append_global_type(
         &global_constants,
-        "bool",
+        "bool"_S,
         &boolean_singleton
     );
 
     append_global_type(
         &global_constants,
-        "void",
+        "void"_S,
         &void_singleton
     );
 
     append_global_type(
         &global_constants,
-        "f32",
+        "f32"_S,
         new FloatType {
             RegisterSize::Size32
         }
@@ -239,7 +239,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
     append_global_type(
         &global_constants,
-        "f64",
+        "f64"_S,
         new FloatType {
             RegisterSize::Size64
         }
@@ -247,79 +247,79 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
     append_global_type(
         &global_constants,
-        "float",
+        "float"_S,
         new FloatType {
             regsiter_sizes.default_size
         }
     );
 
     append(&global_constants, GlobalConstant {
-        "true",
+        "true"_S,
         &boolean_singleton,
         wrap_boolean_constant(true)
     });
 
     append(&global_constants, GlobalConstant {
-        "false",
+        "false"_S,
         &boolean_singleton,
         wrap_boolean_constant(false)
     });
 
     append_global_type(
         &global_constants,
-        "type",
+        "type"_S,
         &type_type_singleton
     );
 
-    append_builtin(&global_constants, "size_of");
-    append_builtin(&global_constants, "type_of");
+    append_builtin(&global_constants, "size_of"_S);
+    append_builtin(&global_constants, "type_of"_S);
 
-    append_builtin(&global_constants, "memcpy");
+    append_builtin(&global_constants, "memcpy"_S);
 
     append(&global_constants, GlobalConstant {
-        "X86",
+        "X86"_S,
         &boolean_singleton,
         wrap_boolean_constant(strcmp(architecture, "x86") == 0)
     });
 
     append(&global_constants, GlobalConstant {
-        "X64",
+        "X64"_S,
         &boolean_singleton,
         wrap_boolean_constant(strcmp(architecture, "x64") == 0)
     });
 
     append(&global_constants, GlobalConstant {
-        "WASM32",
+        "WASM32"_S,
         &boolean_singleton,
         wrap_boolean_constant(strcmp(config, "wasm32") == 0)
     });
 
     append(&global_constants, GlobalConstant {
-        "WINDOWS",
+        "WINDOWS"_S,
         &boolean_singleton,
         wrap_boolean_constant(strcmp(os, "windows") == 0)
     });
 
     append(&global_constants, GlobalConstant {
-        "LINUX",
+        "LINUX"_S,
         &boolean_singleton,
         wrap_boolean_constant(strcmp(os, "linux") == 0)
     });
 
     append(&global_constants, GlobalConstant {
-        "EMSCRIPTEN",
+        "EMSCRIPTEN"_S,
         &boolean_singleton,
         wrap_boolean_constant(strcmp(os, "emscripten") == 0)
     });
 
     append(&global_constants, GlobalConstant {
-        "DEBUG",
+        "DEBUG"_S,
         &boolean_singleton,
         wrap_boolean_constant(strcmp(config, "debug") == 0)
     });
 
     append(&global_constants, GlobalConstant {
-        "RELEASE",
+        "RELEASE"_S,
         &boolean_singleton,
         wrap_boolean_constant(strcmp(config, "release") == 0)
     });
@@ -376,6 +376,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         if(print_ast) {
                             printf("%s:\n", parse_file->path);
+
                             for(auto statement : statements) {
                                 print_statement(statement);
                                 printf("\n");
@@ -743,7 +744,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             auto result = search_for_declaration(
                 info,
                 &jobs,
-                "main",
+                "main"_S,
                 main_file_parse_job->scope,
                 main_file_parse_job->scope->statements,
                 false,
@@ -948,19 +949,19 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     }
 
     uint64_t backend_time;
-    const char *main_function_name;
+    String main_function_name;
     {
-        List<const char*> reserved_names {};
+        List<String> reserved_names {};
 
         if(strcmp(os, "emscripten") == 0) {
-            append(&reserved_names, "main");
+            append(&reserved_names, "main"_S);
         } else {
-            append(&reserved_names, "entry");
+            append(&reserved_names, "entry"_S);
         }
 
         if(strcmp(os, "windows") == 0) {
-            append(&reserved_names, "_fltused");
-            append(&reserved_names, "__chkstk");
+            append(&reserved_names, "_fltused"_S);
+            append(&reserved_names, "__chkstk"_S);
         }
 
         auto start_time = get_timer_counts();

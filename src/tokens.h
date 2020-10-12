@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include "array.h"
+#include "util.h"
 
 enum struct TokenType {
     Dot,
@@ -52,7 +53,7 @@ struct Token {
     unsigned int last_character;
 
     union {
-        const char *identifier;
+        String identifier;
 
         Array<char> string;
 

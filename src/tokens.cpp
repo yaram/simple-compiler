@@ -144,7 +144,7 @@ void print_token(Token token) {
         } break;
 
         case TokenType::Identifier: {
-            printf("Identifier(%s)", token.identifier);
+            printf("Identifier(%.*s)", STRING_PRINT(token.identifier));
         } break;
 
         case TokenType::String: {
@@ -300,7 +300,7 @@ const char *get_token_text(Token token) {
         } break;
 
         case TokenType::Identifier: {
-            return token.identifier;
+            return string_to_c_string(token.identifier);
         } break;
 
         case TokenType::String: {

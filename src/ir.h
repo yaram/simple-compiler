@@ -331,7 +331,7 @@ enum struct RuntimeStaticKind {
 struct RuntimeStatic {
     RuntimeStaticKind kind;
 
-    const char *name;
+    String name;
     bool is_no_mangle;
 
     FileRange range;

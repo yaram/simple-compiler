@@ -13,7 +13,7 @@ static void print_range(FileRange range) {
 
 static void print_identifier(Identifier identifier) {
     print_range(identifier.range);
-    printf(": %s", identifier.text);
+    printf(": %.*s", STRING_PRINT(identifier.text));
 }
 
 static void print_binary_operator(BinaryOperation::Operator binary_operator) {
