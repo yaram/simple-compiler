@@ -385,6 +385,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         auto scope = new ConstantScope;
                         scope->statements = statements;
+                        scope->declarations = construct_declaration_hash_table(statements);
                         scope->scope_constants = {};
                         scope->is_top_level = true;
                         scope->file_path = parse_file->path;
@@ -413,7 +414,8 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         if(result.has_value) {
                             resolve_static_if->done = true;
-                            resolve_static_if->condition = result.value;
+                            resolve_static_if->condition = result.value.condition;
+                            resolve_static_if->declarations = result.value.declarations;
                         } else {
                             resolve_static_if->waiting_for = result.waiting_for;
                         }
@@ -745,8 +747,10 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                 info,
                 &jobs,
                 "main"_S,
+                calculate_string_hash("main"_S),
                 main_file_parse_job->scope,
                 main_file_parse_job->scope->statements,
+                main_file_parse_job->scope->declarations,
                 false,
                 nullptr
             );

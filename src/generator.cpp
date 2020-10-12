@@ -2377,9 +2377,11 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
     GenerationContext *context,
     List<Instruction*> *instructions,
     String name,
+    uint32_t name_hash,
     ConstantScope *name_scope,
     FileRange name_range,
     Array<Statement*> statements,
+    DeclarationHashTable declarations,
     bool external
 ), (
     info,
@@ -2388,30 +2390,33 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
     context,
     instructions,
     name,
+    name_hash,
     name_scope,
     name_range,
     statements,
+    declarations,
     external
 )) {
-    for(auto statement : statements) {
-        bool matching;
-        if(external) {
-            matching = match_public_declaration(statement, name);
-        } else {
-            matching = match_declaration(statement, name);
+    auto declaration = search_in_declaration_hash_table(declarations, name_hash, name);
+
+    if(declaration != nullptr) {
+        if(external && !is_declaration_public(declaration)) {
+            return has({ false });
         }
 
-        if(matching) {
-            expect_delayed(value, get_simple_resolved_declaration(info, jobs, scope, statement));
+        expect_delayed(value, get_simple_resolved_declaration(info, jobs, scope, declaration));
 
-            return has({
-                true,
-                value.type,
-                new RuntimeConstantValue {
-                    value.value
-                }
-            });
-        } else if(statement->kind == StatementKind::UsingStatement) {
+        return has({
+            true,
+            value.type,
+            new RuntimeConstantValue {
+                value.value
+            }
+        });
+    }
+
+    for(auto statement : statements) {
+        if(statement->kind == StatementKind::UsingStatement) {
             if(!external) {
                 auto using_statement = (UsingStatement*)statement;
 
@@ -2432,9 +2437,11 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
                     context,
                     instructions,
                     name,
+                    name_hash,
                     name_scope,
                     name_range,
                     file_module.scope->statements,
+                    file_module.scope->declarations,
                     true
                 ));
 
@@ -2469,9 +2476,11 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
                                     context,
                                     instructions,
                                     name,
+                                    name_hash,
                                     name_scope,
                                     name_range,
                                     static_if->statements,
+                                    resolve_static_if->declarations,
                                     false
                                 ));
 
@@ -2584,6 +2593,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     if(expression->kind == ExpressionKind::NamedReference) {
         auto named_reference = (NamedReference*)expression;
 
+        auto name_hash = calculate_string_hash(named_reference->name.text);
+
         assert(context->variable_scope_stack.count > 0);
 
         for(size_t i = 0; i < context->variable_scope_stack.count; i += 1) {
@@ -2607,9 +2618,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 context,
                 instructions,
                 named_reference->name.text,
+                name_hash,
                 scope,
                 named_reference->name.range,
                 current_scope.constant_scope->statements,
+                current_scope.constant_scope->declarations,
                 false
             ));
 
@@ -2632,9 +2645,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 context,
                 instructions,
                 named_reference->name.text,
+                name_hash,
                 scope,
                 named_reference->name.range,
                 current_scope->statements,
+                current_scope->declarations,
                 false
             ));
 
@@ -3159,9 +3174,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 context,
                 instructions,
                 member_reference->name.text,
+                calculate_string_hash(member_reference->name.text),
                 scope,
                 member_reference->name.range,
                 file_module_value.scope->statements,
+                file_module_value.scope->declarations,
                 true
             ));
 

@@ -1203,6 +1203,18 @@ Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope *scope, File
     }
 }
 
+bool is_declaration_public(Statement *declaration) {
+    if(declaration->kind == StatementKind::FunctionDeclaration) {
+        return true;
+    } else if(declaration->kind == StatementKind::ConstantDefinition) {
+        return true;
+    } else if(declaration->kind == StatementKind::StructDefinition) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 bool match_public_declaration(Statement *statement, String name) {
     String declaration_name;
     if(statement->kind == StatementKind::FunctionDeclaration) {
@@ -1493,44 +1505,117 @@ bool constant_values_equal(Type *type, AnyConstantValue a, AnyConstantValue b) {
     }
 }
 
+static Result<String> get_declaration_name(Statement *declaration) {
+    if(declaration->kind == StatementKind::FunctionDeclaration) {
+        auto function_declaration = (FunctionDeclaration*)declaration;
+
+        return ok(function_declaration->name.text);
+    } else if(declaration->kind == StatementKind::ConstantDefinition) {
+        auto constant_definition = (ConstantDefinition*)declaration;
+
+        return ok(constant_definition->name.text);
+    } else if(declaration->kind == StatementKind::StructDefinition) {
+        auto struct_definition = (StructDefinition*)declaration;
+
+        return ok(struct_definition->name.text);
+    } else if(declaration->kind == StatementKind::Import) {
+        auto import = (Import*)declaration;
+
+        return ok(import->name);
+    } else {
+        return err;
+    }
+}
+
+uint32_t calculate_string_hash(String string) {
+    uint32_t hash = 0;
+
+    for(size_t i = 0; i < string.length; i += 1) {
+        hash = (uint8_t)string.data[i] + (hash << 6) + (hash << 16) - hash;
+    }
+
+    return hash;
+}
+
+DeclarationHashTable construct_declaration_hash_table(Array<Statement*> statements) {
+    DeclarationHashTable hash_table {};
+
+    for(auto statement : statements) {
+        auto result = get_declaration_name(statement);
+
+        if(result.status) {
+            auto declaration_name = result.value;
+
+            auto hash = calculate_string_hash(declaration_name);
+
+            auto bucket_index = hash % DECLARATION_HASH_TABLE_SIZE;
+
+            append(&hash_table.buckets[bucket_index], statement);
+        }
+    }
+
+    return hash_table;
+}
+
+Statement *search_in_declaration_hash_table(DeclarationHashTable declaration_hash_table, uint32_t hash, String name) {
+    auto bucket = declaration_hash_table.buckets[hash % DECLARATION_HASH_TABLE_SIZE];
+
+    for(auto declaration : bucket) {
+        auto result = get_declaration_name(declaration);
+
+        assert(result.status);
+
+        if(equal(result.value, name)) {
+            return declaration;
+        }
+    }
+
+    return nullptr;
+}
+
 profiled_function(DelayedResult<DeclarationSearchValue>, search_for_declaration, (
     GlobalInfo info,
     List<Job*> *jobs,
     String name,
+    uint32_t name_hash,
     ConstantScope *scope,
     Array<Statement*> statements,
+    DeclarationHashTable declarations,
     bool external,
     Statement *ignore
 ), (
     info,
     jobs,
     name,
+    name_hash,
     scope,
     statements,
+    declarations,
     external,
     ignore
 )) {
+    auto declaration = search_in_declaration_hash_table(declarations, name_hash, name);
+
+    if(declaration != nullptr && declaration != ignore) {
+        if(external && !is_declaration_public(declaration)) {
+            return has({ false });
+        }
+
+        expect_delayed(value, get_simple_resolved_declaration(info, jobs, scope, declaration));
+
+        return has({
+            true,
+            value.type,
+            value.value
+        });
+    }
+
     for(auto statement : statements) {
         if(statement == ignore) {
             continue;
         }
 
-        bool matching;
-        if(external) {
-            matching = match_public_declaration(statement, name);
-        } else {
-            matching = match_declaration(statement, name);
-        }
-
-        if(matching) {
-            expect_delayed(value, get_simple_resolved_declaration(info, jobs, scope, statement));
-
-            return has({
-                true,
-                value.type,
-                value.value
-            });
-        } else if(statement->kind == StatementKind::UsingStatement) {
+        if(statement->kind == StatementKind::UsingStatement) {
             if(!external) {
                 auto using_statement = (UsingStatement*)statement;
 
@@ -1544,7 +1629,7 @@ profiled_function(DelayedResult<DeclarationSearchValue>, search_for_declaration,
 
                 auto file_module = unwrap_file_module_constant(expression_value.value);
 
-                expect_delayed(search_value, search_for_declaration(info, jobs, name, file_module.scope, file_module.scope->statements, true, nullptr));
+                expect_delayed(search_value, search_for_declaration(info, jobs, name, name_hash, file_module.scope, file_module.scope->statements, file_module.scope->declarations, true, nullptr));
 
                 if(search_value.found) {
                     return has({
@@ -1570,7 +1655,7 @@ profiled_function(DelayedResult<DeclarationSearchValue>, search_for_declaration,
 
                         if(resolve_static_if->done) {
                             if(resolve_static_if->condition) {
-                                expect_delayed(search_value, search_for_declaration(info, jobs, name, scope, static_if->statements, false, nullptr));
+                                expect_delayed(search_value, search_for_declaration(info, jobs, name, name_hash, scope, static_if->statements, resolve_static_if->declarations, false, nullptr));
 
                                 if(search_value.found) {
                                     return has({
@@ -1671,9 +1756,21 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     if(expression->kind == ExpressionKind::NamedReference) {
         auto named_reference = (NamedReference*)expression;
 
+        auto name_hash = calculate_string_hash(named_reference->name.text);
+
         auto current_scope = scope;
         while(true) {
-            expect_delayed(search_value, search_for_declaration(info, jobs, named_reference->name.text, current_scope, current_scope->statements, false, ignore_statement));
+            expect_delayed(search_value, search_for_declaration(
+                info,
+                jobs,
+                named_reference->name.text,
+                name_hash,
+                current_scope,
+                current_scope->statements,
+                current_scope->declarations,
+                false,
+                ignore_statement
+            ));
 
             if(search_value.found) {
                 return has({
@@ -1792,8 +1889,10 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 info,
                 jobs,
                 member_reference->name.text,
+                calculate_string_hash(member_reference->name.text),
                 file_module_value.scope,
                 file_module_value.scope->statements,
+                file_module_value.scope->declarations,
                 true,
                 nullptr
             ));
@@ -2518,7 +2617,7 @@ DelayedResult<Type*> evaluate_type_expression(
     }
 }
 
-DelayedResult<bool> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope) {
+DelayedResult<StaticIfResolutionValue> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope) {
     expect_delayed(condition, evaluate_constant_expression(info, jobs, scope, static_if, static_if->condition));
 
     if(condition.type->kind != TypeKind::Boolean) {
@@ -2533,9 +2632,16 @@ DelayedResult<bool> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, Stat
         if(!process_scope(jobs, scope, static_if->statements, nullptr, true)) {
             return err;
         }
+
+        auto declarations = construct_declaration_hash_table(static_if->statements);
+
+        return has({
+            true,
+            declarations
+        });
     }
 
-    return has(condition_value);
+    return has({ false });
 }
 
 profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declaration, (
@@ -2687,8 +2793,10 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
             }
 
             body_scope->statements = {};
+            body_scope->declarations = {};
         } else {
             body_scope->statements = declaration->statements;
+            body_scope->declarations = construct_declaration_hash_table(declaration->statements);
 
             if(!process_scope(jobs, body_scope, body_scope->statements, &child_scopes, false)) {
                 return err;
@@ -2777,6 +2885,7 @@ profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_polymorphic
 
     ConstantScope signature_scope;
     signature_scope.statements = {};
+    signature_scope.declarations = {};
     signature_scope.scope_constants = to_array(polymorphic_determiners);
     signature_scope.is_top_level = false;
     signature_scope.parent = scope;
@@ -2899,6 +3008,7 @@ profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_polymorphic
 
     auto body_scope = new ConstantScope;
     body_scope->statements = declaration->statements;
+    body_scope->declarations = construct_declaration_hash_table(declaration->statements);
     body_scope->scope_constants = to_array(scope_constants);
     body_scope->is_top_level = false;
     body_scope->parent = scope;
@@ -2959,6 +3069,7 @@ profiled_function(DelayedResult<Type*>, do_resolve_struct_definition, (
 
     ConstantScope member_scope;
     member_scope.statements = {};
+    member_scope.declarations = {};
     member_scope.scope_constants = {};
     member_scope.is_top_level = false;
     member_scope.parent = scope;
@@ -3029,6 +3140,7 @@ profiled_function(DelayedResult<Type*>, do_resolve_polymorphic_struct, (
 
     ConstantScope member_scope;
     member_scope.statements = {};
+    member_scope.declarations = {};
     member_scope.scope_constants = { parameter_count, constant_parameters };
     member_scope.is_top_level = false;
     member_scope.parent = scope;
@@ -3155,6 +3267,7 @@ profiled_function(bool, process_scope, (
 
                 auto if_scope = new ConstantScope;
                 if_scope->statements = if_statement->statements;
+                if_scope->declarations = construct_declaration_hash_table(if_statement->statements);
                 if_scope->scope_constants = {};
                 if_scope->is_top_level = false;
                 if_scope->parent = scope;
@@ -3166,6 +3279,7 @@ profiled_function(bool, process_scope, (
                 for(auto else_if : if_statement->else_ifs) {
                     auto else_if_scope = new ConstantScope;
                     else_if_scope->statements = else_if.statements;
+                    else_if_scope->declarations = construct_declaration_hash_table(else_if.statements);
                     else_if_scope->scope_constants = {};
                     else_if_scope->is_top_level = false;
                     else_if_scope->parent = scope;
@@ -3178,6 +3292,7 @@ profiled_function(bool, process_scope, (
                 if(if_statement->else_statements.count != 0) {
                     auto else_scope = new ConstantScope;
                     else_scope->statements = if_statement->else_statements;
+                    else_scope->declarations = construct_declaration_hash_table(if_statement->else_statements);
                     else_scope->scope_constants = {};
                     else_scope->is_top_level = false;
                     else_scope->parent = scope;
@@ -3199,6 +3314,7 @@ profiled_function(bool, process_scope, (
 
                 auto while_scope = new ConstantScope;
                 while_scope->statements = while_loop->statements;
+                while_scope->declarations = construct_declaration_hash_table(while_loop->statements);
                 while_scope->scope_constants = {};
                 while_scope->is_top_level = false;
                 while_scope->parent = scope;
@@ -3219,6 +3335,7 @@ profiled_function(bool, process_scope, (
 
                 auto for_scope = new ConstantScope;
                 for_scope->statements = for_loop->statements;
+                for_scope->declarations = construct_declaration_hash_table(for_loop->statements);
                 for_scope->scope_constants = {};
                 for_scope->is_top_level = false;
                 for_scope->parent = scope;

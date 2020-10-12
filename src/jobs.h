@@ -42,6 +42,7 @@ struct ResolveStaticIf : Job {
     ConstantScope *scope;
 
     bool condition;
+    DeclarationHashTable declarations;
 
     ResolveStaticIf() : Job { JobKind::ResolveStaticIf } {}
 };

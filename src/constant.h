@@ -262,6 +262,17 @@ inline Type *unwrap_type_constant(AnyConstantValue value) {
     return value.type;
 }
 
+const size_t DECLARATION_HASH_TABLE_SIZE = 32;
+
+struct DeclarationHashTable {
+    List<Statement*> buckets[DECLARATION_HASH_TABLE_SIZE];
+};
+
+uint32_t calculate_string_hash(String string);
+DeclarationHashTable construct_declaration_hash_table(Array<Statement*> statements);
+Statement *search_in_declaration_hash_table(DeclarationHashTable declaration_hash_table, String name);
+Statement *search_in_declaration_hash_table(DeclarationHashTable declaration_hash_table, uint32_t hash, String name);
+
 struct ScopeConstant {
     String name;
 
@@ -272,6 +283,7 @@ struct ScopeConstant {
 
 struct ConstantScope {
     Array<Statement*> statements;
+    DeclarationHashTable declarations;
 
     Array<ScopeConstant> scope_constants;
 
@@ -393,6 +405,7 @@ DelayedResult<Type*> evaluate_type_expression(
     Expression *expression
 );
 Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope *scope, FileRange range, Type *type);
+bool is_declaration_public(Statement *declaration);
 bool match_public_declaration(Statement *statement, String name);
 bool match_declaration(Statement *statement, String name);
 DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
@@ -414,8 +427,10 @@ DelayedResult<DeclarationSearchValue> search_for_declaration(
     GlobalInfo info,
     List<Job*> *jobs,
     String name,
+    uint32_t name_hash,
     ConstantScope *scope,
     Array<Statement*> statements,
+    DeclarationHashTable declarations,
     bool external,
     Statement *ignore
 );
@@ -430,7 +445,13 @@ DelayedResult<TypedConstantValue> evaluate_constant_expression(
     Expression *expression
 );
 
-DelayedResult<bool> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope);
+struct StaticIfResolutionValue {
+    bool condition;
+
+    DeclarationHashTable declarations;
+};
+
+DelayedResult<StaticIfResolutionValue> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope);
 
 DelayedResult<TypedConstantValue> do_resolve_function_declaration(
     GlobalInfo info,
