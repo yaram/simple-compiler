@@ -12,11 +12,15 @@ uint8_t *profiler_buffer_pointer;
 bool read_performance_frequency;
 uint64_t performance_frequency;
 
+uint64_t start_performance_counter;
+
 #if defined(OS_WINDOWS)
 
 #include <Windows.h>
 
 void init_profiler() {
+    start_performance_counter = read_performance_counter();
+
     profiler_buffer_pointer = profiler_buffer;
 
     read_performance_frequency = false;

@@ -45,6 +45,7 @@
     inline void __##name##_internal##parameters
 
 extern uint8_t *profiler_buffer_pointer;
+extern uint64_t start_performance_counter;
 
 void init_profiler();
 void dump_profile();
@@ -71,7 +72,7 @@ inline void enter_region(const char *name) {
     *((const char**)&profiler_buffer_pointer[1]) = name;
 
     // Read performance counter
-    uint64_t performance_counter = read_performance_counter();
+    uint64_t performance_counter = read_performance_counter() - start_performance_counter;
 
     // Write performance counter
     *((uint64_t*)&profiler_buffer_pointer[1 + sizeof(const char*)]) = performance_counter;
@@ -85,7 +86,7 @@ inline void leave_region() {
     profiler_buffer_pointer[0] = 1;
 
     // Read performance counter
-    uint64_t performance_counter = read_performance_counter();
+    uint64_t performance_counter = read_performance_counter() - start_performance_counter;
 
     // Write performance counter
     *((uint64_t*)&profiler_buffer_pointer[1]) = performance_counter;
