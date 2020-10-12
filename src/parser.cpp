@@ -1466,11 +1466,21 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 memcpy(import_path, string.elements, string.count);
                 import_path[string.count] = 0;
 
+                auto source_file_directory = path_get_directory_component(context->path);
+
+                StringBuffer import_file_path {};
+
+                string_buffer_append(&import_file_path, source_file_directory);
+                string_buffer_append(&import_file_path, import_path);
+
+                expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
+
                 auto name = path_get_file_component(import_path);
 
                 return ok(new Import {
                     span_range(first_range, last_range),
                     import_path,
+                    import_file_path_absolute,
                     {
                         strlen(name),
                         (char*)name

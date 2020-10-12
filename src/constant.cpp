@@ -1340,26 +1340,12 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
         case StatementKind::Import: {
             auto import = (Import*)declaration;
 
-            auto current_scope = scope;
-            while(!current_scope->is_top_level) {
-                current_scope = current_scope->parent;
-            }
-
-            auto source_file_directory = path_get_directory_component(current_scope->file_path);
-
-            StringBuffer import_file_path {};
-
-            string_buffer_append(&import_file_path, source_file_directory);
-            string_buffer_append(&import_file_path, import->path);
-
-            expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
-
             auto job_already_added = false;
             for(auto job : *jobs) {
                 if(job->kind == JobKind::ParseFile) {
                     auto parse_file = (ParseFile*)job;
 
-                    if(strcmp(parse_file->path, import_file_path_absolute) == 0) {
+                    if(strcmp(parse_file->path, import->absolute_path) == 0) {
                         if(parse_file->done) {
                             return has({
                                 &file_module_singleton,
@@ -3245,21 +3231,12 @@ profiled_function(bool, process_scope, (
             case StatementKind::Import: {
                 auto import = (Import*)statement;
 
-                auto source_file_directory = path_get_directory_component(scope->file_path);
-
-                StringBuffer import_file_path {};
-
-                string_buffer_append(&import_file_path, source_file_directory);
-                string_buffer_append(&import_file_path, import->path);
-
-                expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
-
                 auto job_already_added = false;
                 for(auto job : *jobs) {
                     if(job->kind == JobKind::ParseFile) {
                         auto parse_file = (ParseFile*)job;
 
-                        if(strcmp(parse_file->path, import_file_path_absolute) == 0) {
+                        if(strcmp(parse_file->path, import->absolute_path) == 0) {
                             job_already_added = true;
                             break;
                         }
@@ -3270,7 +3247,7 @@ profiled_function(bool, process_scope, (
                     auto parse_file = new ParseFile;
                     parse_file->done = false;
                     parse_file->waiting_for = nullptr;
-                    parse_file->path = import_file_path_absolute;
+                    parse_file->path = import->absolute_path;
 
                     append(jobs, (Job*)parse_file);
                 }

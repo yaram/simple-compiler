@@ -604,15 +604,18 @@ struct BreakStatement : Statement {
 
 struct Import : Statement {
     const char *path;
+    const char *absolute_path;
     String name;
 
     Import(
         FileRange range,
         const char *path,
+        const char *absolute_path,
         String name
     ) :
         Statement { StatementKind::Import, range },
         path { path },
+        absolute_path { absolute_path },
         name { name }
     {}
 };
