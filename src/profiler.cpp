@@ -144,19 +144,19 @@ void dump_profile() {
         unit = "none";
     }
 
-    auto start_time = entries[0].time;
+    auto start_time = (double)entries[0].time;
     if(read_performance_frequency) {
-        start_time = start_time * 1000000000 / performance_frequency;
+        start_time = start_time * 1000000000.0 / performance_frequency;
     }
 
-    auto end_time = entries[entries.count - 1].time;
+    auto end_time = (double)entries[entries.count - 1].time;
     if(read_performance_frequency) {
-        end_time = end_time * 1000000000 / performance_frequency;
+        end_time = end_time * 1000000000.0 / performance_frequency;
     }
 
     fprintf(
         file,
-        "]},\"profiles\":[{\"type\":\"evented\",\"name\":\"simple-compiler\",\"unit\":\"%s\",\"startValue\":%llu,\"endValue\":%llu,\"events\":[",
+        "]},\"profiles\":[{\"type\":\"evented\",\"name\":\"simple-compiler\",\"unit\":\"%s\",\"startValue\":%f,\"endValue\":%f,\"events\":[",
         unit,
         start_time,
         end_time
@@ -172,12 +172,12 @@ void dump_profile() {
             type = "O";
         }
 
-        auto time = entry.time;
+        auto time = (double)entry.time;
         if(read_performance_frequency) {
             time = time * 1000000000 / performance_frequency;
         }
 
-        fprintf(file, "{\"type\":\"%s\",\"frame\":%zu,\"at\":%llu}", type, entry.type, time);
+        fprintf(file, "{\"type\":\"%s\",\"frame\":%zu,\"at\":%f}", type, entry.type, time);
 
         if(i != entries.count - 1) {
             fprintf(file, ",");
