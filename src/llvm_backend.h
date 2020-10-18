@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ir.h"
+#include "result.h"
 
 struct NameMapping {
     RuntimeStatic *runtime_static;

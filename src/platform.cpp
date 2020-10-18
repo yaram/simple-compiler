@@ -36,21 +36,27 @@ bool is_supported_target(const char *os, const char *architecture) {
     }
 }
 
-RegisterSizes get_register_sizes(const char *architecture) {
+ArchitectureSizes get_architecture_sizes(const char *architecture) {
     if(strcmp(architecture, "x86") == 0) {
         return {
             RegisterSize::Size32,
-            RegisterSize::Size32
+            RegisterSize::Size32,
+            RegisterSize::Size32,
+            RegisterSize::Size8
         };
     } else if(strcmp(architecture, "x64") == 0) {
         return {
             RegisterSize::Size64,
-            RegisterSize::Size64
+            RegisterSize::Size64,
+            RegisterSize::Size64,
+            RegisterSize::Size8
         };
     } else if(strcmp(architecture, "wasm32") == 0) {
         return {
             RegisterSize::Size32,
-            RegisterSize::Size32
+            RegisterSize::Size32,
+            RegisterSize::Size32,
+            RegisterSize::Size8
         };
     } else {
         abort();

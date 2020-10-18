@@ -18,7 +18,7 @@
 struct Variable {
     Identifier name;
 
-    Type *type;
+    AnyType type;
 
     size_t address_register;
 };
@@ -30,7 +30,7 @@ struct VariableScope {
 };
 
 struct GenerationContext {
-    Type *return_type;
+    AnyType return_type;
     size_t return_parameter_register;
 
     Array<ConstantScope*> child_scopes;
@@ -53,37 +53,39 @@ struct RegisterRepresentation {
     bool is_float;
 };
 
-static RegisterRepresentation get_type_representation(GlobalInfo info, Type *type) {
-    if(type->kind == TypeKind::Integer) {
-        auto integer = (Integer*)type;
+static RegisterRepresentation get_type_representation(GlobalInfo info, AnyType type) {
+    if(type.kind == TypeKind::Integer) {
+        auto integer = type.integer;
+
         return {
             true,
-            integer->size,
+            integer.size,
             false
         };
-    } else if(type->kind == TypeKind::Boolean) {
+    } else if(type.kind == TypeKind::Boolean) {
         return {
             true,
-            info.default_integer_size,
+            info.architecture_sizes.boolean_size,
             false
         };
-    } else if(type->kind == TypeKind::FloatType) {
-        auto float_type = (FloatType*)type;
+    } else if(type.kind == TypeKind::FloatType) {
+        auto float_type = type.float_;
+
         return {
             true,
-            float_type->size,
+            float_type.size,
             true
         };
-    } else if(type->kind == TypeKind::Pointer) {
+    } else if(type.kind == TypeKind::Pointer) {
         return {
             true,
-            info.address_integer_size,
+            info.architecture_sizes.address_size,
             false
         };
     } else if(
-        type->kind == TypeKind::ArrayTypeType ||
-        type->kind == TypeKind::StaticArray ||
-        type->kind == TypeKind::StructType
+        type.kind == TypeKind::ArrayTypeType ||
+        type.kind == TypeKind::StaticArray ||
+        type.kind == TypeKind::StructType
     ) {
         return {
             false
@@ -93,9 +95,9 @@ static RegisterRepresentation get_type_representation(GlobalInfo info, Type *typ
     }
 }
 
-static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, AnyConstantValue value);
+static void write_value(GlobalInfo info, uint8_t *data, size_t offset, AnyType type, AnyConstantValue value);
 
-static bool add_new_variable(GenerationContext *context, Identifier name, size_t address_register, Type *type) {
+static bool add_new_variable(GenerationContext *context, Identifier name, size_t address_register, AnyType type) {
     auto variable_scope = &(context->variable_scope_stack[context->variable_scope_stack.count - 1]);
 
     for(auto variable : variable_scope->variables) {
@@ -152,7 +154,7 @@ struct UndeterminedStructValue : RuntimeValue {
 };
 
 struct TypedRuntimeValue {
-    Type *type;
+    AnyType type;
 
     RuntimeValue *value;
 };
@@ -196,15 +198,15 @@ static void write_struct(GlobalInfo info, uint8_t *data, size_t offset, StructTy
         write_value(
             info,
             data,
-            offset + get_struct_member_offset(info, struct_type, i),
+            offset + get_struct_member_offset(info.architecture_sizes, struct_type, i),
             struct_type.members[i].type,
             member_values[i]
         );
     }
 }
 
-static void write_static_array(GlobalInfo info, uint8_t *data, size_t offset, Type *element_type, Array<AnyConstantValue> elements) {
-    auto element_size = get_type_size(info, element_type);
+static void write_static_array(GlobalInfo info, uint8_t *data, size_t offset, AnyType element_type, Array<AnyConstantValue> elements) {
+    auto element_size = get_type_size(info.architecture_sizes, element_type);
 
     for(size_t i = 0; i < elements.count; i += 1) {
         write_value(
@@ -217,24 +219,24 @@ static void write_static_array(GlobalInfo info, uint8_t *data, size_t offset, Ty
     }
 }
 
-static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *type, AnyConstantValue value) {
-    if(type->kind == TypeKind::Integer) {
-        auto integer = (Integer*)type;
+static void write_value(GlobalInfo info, uint8_t *data, size_t offset, AnyType type, AnyConstantValue value) {
+    if(type.kind == TypeKind::Integer) {
+        auto integer = type.integer;
 
         auto integer_value = unwrap_integer_constant(value);
 
-        write_integer(data, offset, integer->size, integer_value);
-    } else if(type->kind == TypeKind::Boolean) {
+        write_integer(data, offset, integer.size, integer_value);
+    } else if(type.kind == TypeKind::Boolean) {
         auto boolean_value = unwrap_boolean_constant(value);
 
-        write_integer(data, offset, info.default_integer_size, boolean_value);
-    } else if(type->kind == TypeKind::FloatType) {
-        auto float_type = (FloatType*)type;
+        write_integer(data, offset, info.architecture_sizes.boolean_size, boolean_value);
+    } else if(type.kind == TypeKind::FloatType) {
+        auto float_type = type.float_;
 
         auto float_value = unwrap_float_constant(value);
 
         uint64_t integer_value;
-        switch(float_type->size) {
+        switch(float_type.size) {
             case RegisterSize::Size32: {
                 auto value = (float)float_value;
 
@@ -250,29 +252,29 @@ static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *typ
             } break;
         }
 
-        write_integer(data, offset, float_type->size, integer_value);
-    } else if(type->kind == TypeKind::Pointer) {
+        write_integer(data, offset, float_type.size, integer_value);
+    } else if(type.kind == TypeKind::Pointer) {
         auto pointer_value = unwrap_pointer_constant(value);
 
-        write_integer(data, offset, info.address_integer_size, pointer_value);
-    } else if(type->kind == TypeKind::ArrayTypeType) {
+        write_integer(data, offset, info.architecture_sizes.address_size, pointer_value);
+    } else if(type.kind == TypeKind::ArrayTypeType) {
         auto array_value = unwrap_array_constant(value);
 
         write_integer(
             data,
             offset,
-            info.address_integer_size,
+            info.architecture_sizes.address_size,
             array_value.pointer
         );
 
         write_integer(
             data,
-            offset + register_size_to_byte_size(info.address_integer_size),
-            info.address_integer_size,
+            offset + register_size_to_byte_size(info.architecture_sizes.address_size),
+            info.architecture_sizes.address_size,
             array_value.length
         );
-    } else if(type->kind == TypeKind::StaticArray) {
-        auto static_array = (StaticArray*)type;
+    } else if(type.kind == TypeKind::StaticArray) {
+        auto static_array = type.static_array;
 
         auto static_array_value = unwrap_static_array_constant(value);
 
@@ -280,18 +282,18 @@ static void write_value(GlobalInfo info, uint8_t *data, size_t offset, Type *typ
             info,
             data,
             offset,
-            static_array->element_type,
+            *static_array.element_type,
             {
-                static_array->length,
+                static_array.length,
                 static_array_value.elements
             }
         );
-    } else if(type->kind == TypeKind::StructType) {
-        auto struct_type = (StructType*)type;
+    } else if(type.kind == TypeKind::StructType) {
+        auto struct_type = type.struct_;
 
         auto struct_value = unwrap_struct_constant(value);
 
-        write_struct(info, data, offset, *struct_type, struct_value.members);
+        write_struct(info, data, offset, struct_type, struct_value.members);
     } else {
         abort();
     }
@@ -302,10 +304,10 @@ static StaticConstant *register_static_array_constant(
     ConstantScope *scope,
     GenerationContext *context,
     FileRange range,
-    Type* element_type,
+    AnyType element_type,
     Array<AnyConstantValue> elements
 ) {
-    auto data_length = get_type_size(info, element_type) * elements.count;
+    auto data_length = get_type_size(info.architecture_sizes, element_type) * elements.count;
     auto data = allocate<uint8_t>(data_length);
 
     write_static_array(info, data, 0, element_type, elements);
@@ -313,13 +315,13 @@ static StaticConstant *register_static_array_constant(
     auto constant = new StaticConstant;
     constant->name = "array_constant"_S;
     constant->is_no_mangle = false;
+    constant->path = get_scope_file_path(*scope);
     constant->range = range;
-    constant->scope = scope;
     constant->data = {
         data_length,
         data
     };
-    constant->alignment = get_type_alignment(info, element_type);
+    constant->alignment = get_type_alignment(info.architecture_sizes, element_type);
 
     append(&context->static_constants, constant);
 
@@ -334,7 +336,7 @@ static StaticConstant *register_struct_constant(
     StructType struct_type,
     AnyConstantValue *members
 ) {
-    auto data_length = get_struct_size(info, struct_type);
+    auto data_length = get_struct_size(info.architecture_sizes, struct_type);
     auto data = allocate<uint8_t>(data_length);
 
     write_struct(info, data, 0, struct_type, members);
@@ -342,13 +344,13 @@ static StaticConstant *register_struct_constant(
     auto constant = new StaticConstant;
     constant->name = "struct_constant"_S;
     constant->is_no_mangle = false;
+    constant->path = get_scope_file_path(*scope);
     constant->range = range;
-    constant->scope = scope;
     constant->data = {
         data_length,
         data
     };
-    constant->alignment = get_struct_alignment(info, struct_type);
+    constant->alignment = get_struct_alignment(info.architecture_sizes, struct_type);
 
     append(&context->static_constants, constant);
 
@@ -748,7 +750,7 @@ static size_t generate_address_offset(
         context,
         instructions,
         range,
-        info.address_integer_size,
+        info.architecture_sizes.address_size,
         offset
     );
 
@@ -757,7 +759,7 @@ static size_t generate_address_offset(
         instructions,
         range,
         IntegerArithmeticOperation::Operation::Add,
-        info.address_integer_size,
+        info.architecture_sizes.address_size,
         address_register,
         offset_register
     );
@@ -770,23 +772,23 @@ static size_t generate_boolean_invert(GlobalInfo info, GenerationContext *contex
         context,
         instructions,
         range,
-        register_size_to_byte_size(info.default_integer_size),
-        register_size_to_byte_size(info.default_integer_size)
+        register_size_to_byte_size(info.architecture_sizes.boolean_size),
+        register_size_to_byte_size(info.architecture_sizes.boolean_size)
     );
 
     append_branch(context, instructions, range, value_register, instructions->count + 4);
 
-    auto true_register = append_integer_constant(context, instructions, range, info.default_integer_size, 1);
+    auto true_register = append_integer_constant(context, instructions, range, info.architecture_sizes.boolean_size, 1);
 
-    append_store_integer(context, instructions, range, info.default_integer_size, true_register, local_register);
+    append_store_integer(context, instructions, range, info.architecture_sizes.boolean_size, true_register, local_register);
 
     append_jump(context, instructions, range, instructions->count + 3);
 
-    auto false_register = append_integer_constant(context, instructions, range, info.default_integer_size, 0);
+    auto false_register = append_integer_constant(context, instructions, range, info.architecture_sizes.boolean_size, 0);
 
-    append_store_integer(context, instructions, range, info.default_integer_size, false_register, local_register);
+    append_store_integer(context, instructions, range, info.architecture_sizes.boolean_size, false_register, local_register);
 
-    auto result_register = append_load_integer(context, instructions, range, info.default_integer_size, local_register);
+    auto result_register = append_load_integer(context, instructions, range, info.architecture_sizes.boolean_size, local_register);
 
     return result_register;
 }
@@ -823,7 +825,7 @@ static size_t generate_in_register_boolean_value(GlobalInfo info, GenerationCont
 
         auto boolean_value = unwrap_boolean_constant(constant_value->value);
 
-        return append_integer_constant(context, instructions, range, info.default_integer_size, boolean_value);
+        return append_integer_constant(context, instructions, range, info.architecture_sizes.boolean_size, boolean_value);
     } else if(value->kind == RuntimeValueKind::RegisterValue) {
         auto regsiter_value = (RegisterValue*)value;
 
@@ -831,7 +833,7 @@ static size_t generate_in_register_boolean_value(GlobalInfo info, GenerationCont
     } else if(value->kind == RuntimeValueKind::AddressValue) {
         auto address_value = (AddressValue*)value;
 
-        return append_load_integer(context, instructions, range, info.default_integer_size, address_value->address_register);
+        return append_load_integer(context, instructions, range, info.architecture_sizes.boolean_size, address_value->address_register);
     } else {
         abort();
     }
@@ -843,7 +845,7 @@ static size_t generate_in_register_pointer_value(GlobalInfo info, GenerationCont
 
         auto pointer_value = unwrap_pointer_constant(constant_value->value);
 
-        return append_integer_constant(context, instructions, range, info.address_integer_size, pointer_value);
+        return append_integer_constant(context, instructions, range, info.architecture_sizes.address_size, pointer_value);
     } else if(value->kind == RuntimeValueKind::RegisterValue) {
         auto regsiter_value = (RegisterValue*)value;
 
@@ -851,7 +853,7 @@ static size_t generate_in_register_pointer_value(GlobalInfo info, GenerationCont
     } else if(value->kind == RuntimeValueKind::AddressValue) {
         auto address_value = (AddressValue*)value;
 
-        return append_load_integer(context, instructions, range, info.address_integer_size, address_value->address_register);
+        return append_load_integer(context, instructions, range, info.architecture_sizes.address_size, address_value->address_register);
     } else {
         abort();
     }
@@ -862,20 +864,20 @@ static Result<size_t> coerce_to_integer_register_value(
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
-    Type *type,
+    AnyType type,
     RuntimeValue *value,
-    Integer *target_type,
+    Integer target_type,
     bool probing
 ) {
-    if(type->kind == TypeKind::Integer) {
-        auto integer = (Integer*)type;
+    if(type.kind == TypeKind::Integer) {
+        auto integer = type.integer;
 
-        if(integer->size == target_type->size && integer->is_signed == target_type->is_signed) {
-            auto register_index = generate_in_register_integer_value(context, instructions, range, *target_type, value);
+        if(integer.size == target_type.size && integer.is_signed == target_type.is_signed) {
+            auto register_index = generate_in_register_integer_value(context, instructions, range, target_type, value);
 
             return ok(register_index);
         }
-    } else if(type->kind == TypeKind::UndeterminedInteger) {
+    } else if(type.kind == TypeKind::UndeterminedInteger) {
         auto constant_value = (RuntimeConstantValue*)value;
 
         auto integer_value = unwrap_integer_constant(constant_value->value);
@@ -884,13 +886,13 @@ static Result<size_t> coerce_to_integer_register_value(
             return err;
         }
 
-        auto regsiter_index = append_integer_constant(context, instructions, range, target_type->size, integer_value);
+        auto regsiter_index = append_integer_constant(context, instructions, range, target_type.size, integer_value);
 
         return ok(regsiter_index);
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(target_type));
+        error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(wrap_integer_type(target_type)));
     }
 
     return err;
@@ -901,12 +903,12 @@ static Result<size_t> coerce_to_float_register_value(
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
-    Type *type,
+    AnyType type,
     RuntimeValue *value,
     FloatType target_type,
     bool probing
 ) {
-    if(type->kind == TypeKind::UndeterminedInteger) {
+    if(type.kind == TypeKind::UndeterminedInteger) {
         auto constant_value = (RuntimeConstantValue*)value;
 
         auto integer_value = unwrap_integer_constant(constant_value->value);
@@ -914,17 +916,17 @@ static Result<size_t> coerce_to_float_register_value(
         auto register_index = append_float_constant(context, instructions, range, target_type.size, (double)integer_value);
 
         return ok(register_index);
-    } else if(type->kind == TypeKind::FloatType) {
-        auto float_type = (FloatType*)type;
+    } else if(type.kind == TypeKind::FloatType) {
+        auto float_type = type.float_;
 
-        if(target_type.size == float_type->size) {
+        if(target_type.size == float_type.size) {
             size_t register_index;
             if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
                 auto constant_value = (RuntimeConstantValue*)value;
 
                 auto float_value = unwrap_float_constant(constant_value->value);
 
-                register_index = append_float_constant(context, instructions, range, float_type->size, float_value);
+                register_index = append_float_constant(context, instructions, range, float_type.size, float_value);
             } else if(value->kind == RuntimeValueKind::RegisterValue) {
                 auto regsiter_value = (RegisterValue*)value;
 
@@ -932,14 +934,14 @@ static Result<size_t> coerce_to_float_register_value(
             } else if(value->kind == RuntimeValueKind::AddressValue) {
                 auto address_value = (AddressValue*)value;
 
-                register_index = append_load_float(context, instructions, range, float_type->size, address_value->address_register);
+                register_index = append_load_float(context, instructions, range, float_type.size, address_value->address_register);
             } else {
                 abort();
             }
 
             return ok(register_index);
         }
-    } else if(type->kind == TypeKind::UndeterminedFloat) {
+    } else if(type.kind == TypeKind::UndeterminedFloat) {
         auto constant_value = (RuntimeConstantValue*)value;
 
         auto float_value = unwrap_float_constant(constant_value->value);
@@ -950,7 +952,7 @@ static Result<size_t> coerce_to_float_register_value(
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
+        error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(wrap_float_type(target_type)));
     }
 
     return err;
@@ -962,12 +964,12 @@ static Result<size_t> coerce_to_pointer_register_value(
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
-    Type *type,
+    AnyType type,
     RuntimeValue *value,
     Pointer target_type,
     bool probing
 ) {
-    if(type->kind == TypeKind::UndeterminedInteger) {
+    if(type.kind == TypeKind::UndeterminedInteger) {
         auto constant_value = (RuntimeConstantValue*)value;
 
         auto integer_value = unwrap_integer_constant(constant_value->value);
@@ -976,15 +978,15 @@ static Result<size_t> coerce_to_pointer_register_value(
             context,
             instructions,
             range,
-            info.address_integer_size,
+            info.architecture_sizes.address_size,
             integer_value
         );
 
         return ok(register_index);
-    } else if(type->kind == TypeKind::Pointer) {
-        auto pointer = (Pointer*)type;
+    } else if(type.kind == TypeKind::Pointer) {
+        auto pointer = type.pointer;
 
-        if(types_equal(pointer->type, target_type.type)) {
+        if(types_equal(*pointer.type, *target_type.type)) {
             auto register_index = generate_in_register_pointer_value(info, context, instructions, range, value);
 
             return ok(register_index);
@@ -992,7 +994,7 @@ static Result<size_t> coerce_to_pointer_register_value(
     }
 
     if (!probing) {
-        error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(&target_type));
+        error(scope, range, "Cannot implicitly convert '%s' to '%s'", type_description(type), type_description(wrap_pointer_type(target_type)));
     }
 
     return err;
@@ -1004,9 +1006,9 @@ static bool coerce_to_type_write(
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
-    Type *type,
+    AnyType type,
     RuntimeValue *value,
-    Type *target_type,
+    AnyType target_type,
     size_t address_register
 );
 
@@ -1016,13 +1018,13 @@ static Result<size_t> coerce_to_type_register(
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
-    Type *type,
+    AnyType type,
     RuntimeValue *value,
-    Type *target_type,
+    AnyType target_type,
     bool probing
 ) {
-    if(target_type->kind == TypeKind::Integer) {
-        auto integer = (Integer*)target_type;
+    if(target_type.kind == TypeKind::Integer) {
+        auto integer = target_type.integer;
 
         expect(register_index, coerce_to_integer_register_value(
             scope,
@@ -1036,14 +1038,14 @@ static Result<size_t> coerce_to_type_register(
         ));
 
         return ok(register_index);
-    } else if(target_type->kind == TypeKind::Boolean) {
-        if(type->kind == TypeKind::Boolean) {
+    } else if(target_type.kind == TypeKind::Boolean) {
+        if(type.kind == TypeKind::Boolean) {
             auto register_index = generate_in_register_boolean_value(info, context, instructions, range, value);
 
             return ok(register_index);
         }
-    } else if(target_type->kind == TypeKind::FloatType) {
-        auto float_type = (FloatType*)target_type;
+    } else if(target_type.kind == TypeKind::FloatType) {
+        auto float_type = target_type.float_;
 
         expect(register_index, coerce_to_float_register_value(
             scope,
@@ -1052,13 +1054,13 @@ static Result<size_t> coerce_to_type_register(
             range,
             type,
             value,
-            *float_type,
+            float_type,
             probing
         ));
 
         return ok(register_index);
-    } else if(target_type->kind == TypeKind::Pointer) {
-        auto pointer = (Pointer*)target_type;
+    } else if(target_type.kind == TypeKind::Pointer) {
+        auto pointer = target_type.pointer;
 
         expect(register_index, coerce_to_pointer_register_value(
             info,
@@ -1068,17 +1070,17 @@ static Result<size_t> coerce_to_type_register(
             range,
             type,
             value,
-            *pointer,
+            pointer,
             probing
         ));
 
         return ok(register_index);
-    } else if(target_type->kind == TypeKind::ArrayTypeType) {
-        auto target_array = (ArrayTypeType*)target_type;
+    } else if(target_type.kind == TypeKind::ArrayTypeType) {
+        auto target_array = target_type.array;
 
-        if(type->kind == TypeKind::ArrayTypeType) {
-            auto array_type = (ArrayTypeType*)type;
-            if(types_equal(target_array->element_type, array_type->element_type)) {
+        if(type.kind == TypeKind::ArrayTypeType) {
+            auto array_type = type.array;
+            if(types_equal(*target_array.element_type, *array_type.element_type)) {
                 size_t register_index;
                 if(value->kind == RuntimeValueKind::RegisterValue) {
                     auto regsiter_value = (RegisterValue*)value;
@@ -1094,10 +1096,10 @@ static Result<size_t> coerce_to_type_register(
 
                 return ok(register_index);
             }
-        } else if(type->kind == TypeKind::StaticArray) {
-            auto static_array = (StaticArray*)type;
+        } else if(type.kind == TypeKind::StaticArray) {
+            auto static_array = type.static_array;
 
-            if(types_equal(target_array->element_type, static_array->element_type)) {
+            if(types_equal(*target_array.element_type, *static_array.element_type)) {
                 size_t pointer_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
                     auto constant_value = (RuntimeConstantValue*)value;
@@ -1109,8 +1111,8 @@ static Result<size_t> coerce_to_type_register(
                         scope,
                         context,
                         range,
-                        static_array->element_type,
-                        { static_array->length, static_array_value.elements }
+                        *static_array.element_type,
+                        { static_array.length, static_array_value.elements }
                     );
 
                     pointer_register = append_reference_static(context, instructions, range, static_constant);
@@ -1130,11 +1132,11 @@ static Result<size_t> coerce_to_type_register(
                     context,
                     instructions,
                     range,
-                    2 * register_size_to_byte_size(info.address_integer_size),
-                    register_size_to_byte_size(info.address_integer_size)
+                    2 * register_size_to_byte_size(info.architecture_sizes.address_size),
+                    register_size_to_byte_size(info.architecture_sizes.address_size)
                 );
 
-                append_store_integer(context, instructions, range, info.address_integer_size, pointer_register, address_register);
+                append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_register, address_register);
 
                 auto length_address_register = generate_address_offset(
                     info,
@@ -1142,22 +1144,22 @@ static Result<size_t> coerce_to_type_register(
                     instructions,
                     range,
                     address_register,
-                    register_size_to_byte_size(info.address_integer_size)
+                    register_size_to_byte_size(info.architecture_sizes.address_size)
                 );
 
-                auto length_register = append_integer_constant(context, instructions, range, info.address_integer_size, static_array->length);
+                auto length_register = append_integer_constant(context, instructions, range, info.architecture_sizes.address_size, static_array.length);
 
-                append_store_integer(context, instructions, range, info.address_integer_size, length_register, length_address_register);
+                append_store_integer(context, instructions, range, info.architecture_sizes.address_size, length_register, length_address_register);
 
                 return ok(address_register);
             }
-        } else if(type->kind == TypeKind::UndeterminedStruct) {
-            auto undetermined_struct = (UndeterminedStruct*)type;
+        } else if(type.kind == TypeKind::UndeterminedStruct) {
+            auto undetermined_struct = type.undetermined_struct;
 
             if(
-                undetermined_struct->members.count == 2 &&
-                equal(undetermined_struct->members[0].name, "pointer"_S) &&
-                equal(undetermined_struct->members[1].name, "length"_S)
+                undetermined_struct.members.count == 2 &&
+                equal(undetermined_struct.members[0].name, "pointer"_S) &&
+                equal(undetermined_struct.members[1].name, "length"_S)
             ) {
                 auto undetermined_struct_value = (UndeterminedStructValue*)value;
                 assert(value->kind == RuntimeValueKind::UndeterminedStructValue);
@@ -1168,10 +1170,10 @@ static Result<size_t> coerce_to_type_register(
                     context,
                     instructions,
                     range,
-                    undetermined_struct->members[0].type,
+                    undetermined_struct.members[0].type,
                     undetermined_struct_value->members[0],
                     {
-                        target_array->element_type
+                        target_array.element_type
                     },
                     true
                 );
@@ -1182,10 +1184,10 @@ static Result<size_t> coerce_to_type_register(
                         context,
                         instructions,
                         range,
-                        undetermined_struct->members[1].type,
+                        undetermined_struct.members[1].type,
                         undetermined_struct_value->members[1],
-                        new Integer {
-                            info.address_integer_size,
+                        {
+                            info.architecture_sizes.address_size,
                             false
                         },
                         true
@@ -1196,11 +1198,11 @@ static Result<size_t> coerce_to_type_register(
                             context,
                             instructions,
                             range,
-                            2 * register_size_to_byte_size(info.address_integer_size),
-                            register_size_to_byte_size(info.address_integer_size)
+                            2 * register_size_to_byte_size(info.architecture_sizes.address_size),
+                            register_size_to_byte_size(info.architecture_sizes.address_size)
                         );
 
-                        append_store_integer(context, instructions, range, info.address_integer_size, pointer_result.value, address_register);
+                        append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_result.value, address_register);
 
                         auto length_address_register = generate_address_offset(
                             info,
@@ -1208,14 +1210,14 @@ static Result<size_t> coerce_to_type_register(
                             instructions,
                             range,
                             address_register,
-                            register_size_to_byte_size(info.address_integer_size)
+                            register_size_to_byte_size(info.architecture_sizes.address_size)
                         );
 
                         append_store_integer(
                             context,
                             instructions,
                             range,
-                            info.address_integer_size,
+                            info.architecture_sizes.address_size,
                             length_result.value,
                             length_address_register
                         );
@@ -1225,13 +1227,13 @@ static Result<size_t> coerce_to_type_register(
                 }
             }
         }
-    } else if(target_type->kind == TypeKind::StaticArray) {
-        auto target_static_array = (StaticArray*)target_type;
+    } else if(target_type.kind == TypeKind::StaticArray) {
+        auto target_static_array = target_type.static_array;
 
-        if(type->kind == TypeKind::StaticArray) {
-            auto static_array = (StaticArray*)type;
+        if(type.kind == TypeKind::StaticArray) {
+            auto static_array = type.static_array;
 
-            if(types_equal(target_static_array->element_type, static_array->element_type) && target_static_array->length == static_array->length) {
+            if(types_equal(*target_static_array.element_type, *static_array.element_type) && target_static_array.length == static_array.length) {
                 size_t register_index;
                 if(value->kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = (RegisterValue*)value;
@@ -1248,18 +1250,18 @@ static Result<size_t> coerce_to_type_register(
                 return ok(register_index);
             }
         }
-    } else if(target_type->kind == TypeKind::StructType) {
-        auto target_struct_type = (StructType*)target_type;
+    } else if(target_type.kind == TypeKind::StructType) {
+        auto target_struct_type = target_type.struct_;
 
-        if(type->kind == TypeKind::StructType) {
-            auto struct_type = (StructType*)type;
+        if(type.kind == TypeKind::StructType) {
+            auto struct_type = type.struct_;
 
-            if(target_struct_type->definition == struct_type->definition && target_struct_type->members.count == struct_type->members.count) {
+            if(target_struct_type.definition == struct_type.definition && target_struct_type.members.count == struct_type.members.count) {
                 auto same_members = true;
-                for(size_t i = 0; i < struct_type->members.count; i += 1) {
+                for(size_t i = 0; i < struct_type.members.count; i += 1) {
                     if(
-                        !equal(target_struct_type->members[i].name, struct_type->members[i].name) ||
-                        !types_equal(target_struct_type->members[i].type, struct_type->members[i].type)
+                        !equal(target_struct_type.members[i].name, struct_type.members[i].name) ||
+                        !types_equal(target_struct_type.members[i].type, struct_type.members[i].type)
                     ) {
                         same_members = false;
 
@@ -1284,22 +1286,22 @@ static Result<size_t> coerce_to_type_register(
                     return ok(register_index);
                 }
             }
-        } else if(type->kind == TypeKind::UndeterminedStruct) {
-            auto undetermined_struct = (UndeterminedStruct*)type;
+        } else if(type.kind == TypeKind::UndeterminedStruct) {
+            auto undetermined_struct = type.undetermined_struct;
 
             auto undetermined_struct_value = (UndeterminedStructValue*)value;
             assert(value->kind == RuntimeValueKind::UndeterminedStructValue);
 
-            if(target_struct_type->definition->is_union) {
-                if(undetermined_struct->members.count == 1) {
-                    for(size_t i = 0; i < target_struct_type->members.count; i += 1) {
-                        if(equal(target_struct_type->members[i].name, undetermined_struct->members[0].name)) {
+            if(target_struct_type.definition->is_union) {
+                if(undetermined_struct.members.count == 1) {
+                    for(size_t i = 0; i < target_struct_type.members.count; i += 1) {
+                        if(equal(target_struct_type.members[i].name, undetermined_struct.members[0].name)) {
                             auto address_register = append_allocate_local(
                                 context,
                                 instructions,
                                 range,
-                                get_struct_size(info, *target_struct_type),
-                                get_struct_alignment(info, *target_struct_type)
+                                get_struct_size(info.architecture_sizes, target_struct_type),
+                                get_struct_alignment(info.architecture_sizes, target_struct_type)
                             );
 
                             if(coerce_to_type_write(
@@ -1308,9 +1310,9 @@ static Result<size_t> coerce_to_type_register(
                                 context,
                                 instructions,
                                 range,
-                                undetermined_struct->members[0].type,
+                                undetermined_struct.members[0].type,
                                 undetermined_struct_value->members[0],
-                                target_struct_type->members[i].type,
+                                target_struct_type.members[i].type,
                                 address_register
                             )) {
                                 return ok(address_register);
@@ -1321,10 +1323,10 @@ static Result<size_t> coerce_to_type_register(
                     }
                 }
             } else {
-                if(target_struct_type->members.count == undetermined_struct->members.count) {
+                if(target_struct_type.members.count == undetermined_struct.members.count) {
                     auto same_members = true;
-                    for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
-                        if(!equal(target_struct_type->members[i].name, undetermined_struct->members[i].name)) {
+                    for(size_t i = 0; i < undetermined_struct.members.count; i += 1) {
+                        if(!equal(target_struct_type.members[i].name, undetermined_struct.members[i].name)) {
                             same_members = false;
 
                             break;
@@ -1336,19 +1338,19 @@ static Result<size_t> coerce_to_type_register(
                             context,
                             instructions,
                             range,
-                            get_struct_size(info, *target_struct_type),
-                            get_struct_alignment(info, *target_struct_type)
+                            get_struct_size(info.architecture_sizes, target_struct_type),
+                            get_struct_alignment(info.architecture_sizes, target_struct_type)
                         );
 
                         auto success = true;
-                        for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
+                        for(size_t i = 0; i < undetermined_struct.members.count; i += 1) {
                             auto member_address_register = generate_address_offset(
                                 info,
                                 context,
                                 instructions,
                                 range,
                                 address_register,
-                                get_struct_member_offset(info, *target_struct_type, i)
+                                get_struct_member_offset(info.architecture_sizes, target_struct_type, i)
                             );
 
                             if(!coerce_to_type_write(
@@ -1357,9 +1359,9 @@ static Result<size_t> coerce_to_type_register(
                                 context,
                                 instructions,
                                 range,
-                                undetermined_struct->members[i].type,
+                                undetermined_struct.members[i].type,
                                 undetermined_struct_value->members[i],
-                                target_struct_type->members[i].type,
+                                target_struct_type.members[i].type,
                                 member_address_register
                             )) {
                                 success = false;
@@ -1392,27 +1394,27 @@ static bool coerce_to_type_write(
     GenerationContext *context,
     List<Instruction*> *instructions,
     FileRange range,
-    Type *type,
+    AnyType type,
     RuntimeValue *value,
-    Type *target_type,
+    AnyType target_type,
     size_t address_register
 ) {
-    if(target_type->kind == TypeKind::Integer) {
-        auto integer_type = (Integer*)target_type;
+    if(target_type.kind == TypeKind::Integer) {
+        auto integer_type = target_type.integer;
 
         expect(register_index, coerce_to_integer_register_value(scope, context, instructions, range, type, value, integer_type, false));
 
-        append_store_integer(context, instructions, range, integer_type->size, register_index, address_register);
+        append_store_integer(context, instructions, range, integer_type.size, register_index, address_register);
 
         return true;
-    } else if(target_type->kind == TypeKind::Boolean && type->kind == TypeKind::Boolean) {
+    } else if(target_type.kind == TypeKind::Boolean && type.kind == TypeKind::Boolean) {
         size_t register_index = generate_in_register_boolean_value(info, context, instructions, range, value);
 
-        append_store_integer(context, instructions, range, info.default_integer_size, register_index, address_register);
+        append_store_integer(context, instructions, range, info.architecture_sizes.boolean_size, register_index, address_register);
 
         return true;
-    } else if(target_type->kind == TypeKind::FloatType) {
-        auto float_type = (FloatType*)target_type;
+    } else if(target_type.kind == TypeKind::FloatType) {
+        auto float_type = target_type.float_;
 
         expect(register_index, coerce_to_float_register_value(
             scope,
@@ -1421,17 +1423,17 @@ static bool coerce_to_type_write(
             range,
             type,
             value,
-            *float_type,
+            float_type,
             false
         ));
 
-        append_store_float(context, instructions, range, float_type->size, register_index, address_register);
+        append_store_float(context, instructions, range, float_type.size, register_index, address_register);
 
         return true;
-    } else if(target_type->kind == TypeKind::Pointer) {
-        auto target_pointer = (Pointer*)target_type;
+    } else if(target_type.kind == TypeKind::Pointer) {
+        auto target_pointer = target_type.pointer;
 
-        if(type->kind == TypeKind::UndeterminedInteger) {
+        if(type.kind == TypeKind::UndeterminedInteger) {
             auto constant_value = (RuntimeConstantValue*)value;
 
             auto integer_value = unwrap_integer_constant(constant_value->value);
@@ -1440,7 +1442,7 @@ static bool coerce_to_type_write(
                 context,
                 instructions,
                 range,
-                info.address_integer_size,
+                info.architecture_sizes.address_size,
                 integer_value
             );
 
@@ -1448,30 +1450,30 @@ static bool coerce_to_type_write(
                 context,
                 instructions,
                 range,
-                info.address_integer_size,
+                info.architecture_sizes.address_size,
                 register_index,
                 address_register
             );
 
             return true;
-        } else if(type->kind == TypeKind::Pointer) {
-            auto pointer = (Pointer*)type;
+        } else if(type.kind == TypeKind::Pointer) {
+            auto pointer = type.pointer;
 
-            if(types_equal(target_pointer->type, pointer->type)) {
+            if(types_equal(*target_pointer.type, *pointer.type)) {
                 size_t register_index = generate_in_register_pointer_value(info, context, instructions, range, value);
 
-                append_store_integer(context, instructions, range, info.address_integer_size, register_index, address_register);
+                append_store_integer(context, instructions, range, info.architecture_sizes.address_size, register_index, address_register);
 
                 return true;
             }
         }
-    } else if(target_type->kind == TypeKind::ArrayTypeType) {
-        auto target_array = (ArrayTypeType*)target_type;
+    } else if(target_type.kind == TypeKind::ArrayTypeType) {
+        auto target_array = target_type.array;
 
-        if(type->kind == TypeKind::ArrayTypeType) {
-            auto array_type = (ArrayTypeType*)type;
+        if(type.kind == TypeKind::ArrayTypeType) {
+            auto array_type = type.array;
 
-            if(types_equal(target_array->element_type, array_type->element_type)) {
+            if(types_equal(*target_array.element_type, *array_type.element_type)) {
                 size_t source_address_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
                     auto constant_value = (RuntimeConstantValue*)value;
@@ -1482,17 +1484,17 @@ static bool coerce_to_type_write(
                         context,
                         instructions,
                         range,
-                        info.address_integer_size,
+                        info.architecture_sizes.address_size,
                         array_value.pointer
                     );
 
-                    append_store_integer(context, instructions, range, info.address_integer_size, pointer_register, address_register);
+                    append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_register, address_register);
 
                     auto length_register = append_integer_constant(
                         context,
                         instructions,
                         range,
-                        info.address_integer_size,
+                        info.architecture_sizes.address_size,
                         array_value.length
                     );
 
@@ -1502,10 +1504,10 @@ static bool coerce_to_type_write(
                         instructions,
                         range,
                         address_register,
-                        register_size_to_byte_size(info.address_integer_size)
+                        register_size_to_byte_size(info.architecture_sizes.address_size)
                     );
 
-                    append_store_integer(context, instructions, range, info.address_integer_size, length_register, length_address_register);
+                    append_store_integer(context, instructions, range, info.architecture_sizes.address_size, length_register, length_address_register);
 
                     return true;
                 } else if(value->kind == RuntimeValueKind::RegisterValue) {
@@ -1524,17 +1526,17 @@ static bool coerce_to_type_write(
                     context,
                     instructions,
                     range,
-                    2 * register_size_to_byte_size(info.address_integer_size),
+                    2 * register_size_to_byte_size(info.architecture_sizes.address_size),
                     source_address_register,
                     address_register,
-                    register_size_to_byte_size(info.address_integer_size)
+                    register_size_to_byte_size(info.architecture_sizes.address_size)
                 );
 
                 return true;
             }
-        } else if(type->kind == TypeKind::StaticArray) {
-            auto static_array = (StaticArray*)type;
-            if(types_equal(target_array->element_type, static_array->element_type)) {
+        } else if(type.kind == TypeKind::StaticArray) {
+            auto static_array = type.static_array;
+            if(types_equal(*target_array.element_type, *static_array.element_type)) {
                 size_t pointer_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
                     auto constant_value = (RuntimeConstantValue*)value;
@@ -1546,8 +1548,8 @@ static bool coerce_to_type_write(
                         scope,
                         context,
                         range,
-                        static_array->element_type,
-                        { static_array->length, static_array_value.elements }
+                        *static_array.element_type,
+                        { static_array.length, static_array_value.elements }
                     );
 
                     pointer_register = append_reference_static(context, instructions, range, static_constant);
@@ -1563,7 +1565,7 @@ static bool coerce_to_type_write(
                     abort();
                 }
 
-                append_store_integer(context, instructions, range, info.address_integer_size, pointer_register, address_register);
+                append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_register, address_register);
 
                 auto length_address_register = generate_address_offset(
                     info,
@@ -1571,22 +1573,22 @@ static bool coerce_to_type_write(
                     instructions,
                     range,
                     address_register,
-                    register_size_to_byte_size(info.address_integer_size)
+                    register_size_to_byte_size(info.architecture_sizes.address_size)
                 );
 
-                auto length_register = append_integer_constant(context, instructions, range, info.address_integer_size, static_array->length);
+                auto length_register = append_integer_constant(context, instructions, range, info.architecture_sizes.address_size, static_array.length);
 
-                append_store_integer(context, instructions, range, info.address_integer_size, pointer_register, length_address_register);
+                append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_register, length_address_register);
 
                 return true;
             }
-        } else if(type->kind == TypeKind::UndeterminedStruct) {
-            auto undetermined_struct = (UndeterminedStruct*)type;
+        } else if(type.kind == TypeKind::UndeterminedStruct) {
+            auto undetermined_struct = type.undetermined_struct;
 
             if(
-                undetermined_struct->members.count == 2 &&
-                equal(undetermined_struct->members[0].name, "pointer"_S) &&
-                equal(undetermined_struct->members[1].name, "length"_S)
+                undetermined_struct.members.count == 2 &&
+                equal(undetermined_struct.members[0].name, "pointer"_S) &&
+                equal(undetermined_struct.members[1].name, "length"_S)
             ) {
                 auto undetermined_struct_value = (UndeterminedStructValue*)value;
                 assert(value->kind == RuntimeValueKind::UndeterminedStructValue);
@@ -1597,10 +1599,10 @@ static bool coerce_to_type_write(
                     context,
                     instructions,
                     range,
-                    undetermined_struct->members[0].type,
+                    undetermined_struct.members[0].type,
                     undetermined_struct_value->members[0],
                     {
-                        target_array->element_type
+                        target_array.element_type
                     },
                     true
                 );
@@ -1611,17 +1613,17 @@ static bool coerce_to_type_write(
                         context,
                         instructions,
                         range,
-                        undetermined_struct->members[1].type,
+                        undetermined_struct.members[1].type,
                         undetermined_struct_value->members[1],
-                        new Integer {
-                            info.address_integer_size,
+                        {
+                            info.architecture_sizes.address_size,
                             false
                         },
                         true
                     );
 
                     if(length_result.status) {
-                        append_store_integer(context, instructions, range, info.address_integer_size, pointer_result.value, address_register);
+                        append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_result.value, address_register);
 
                         auto length_address_register = generate_address_offset(
                             info,
@@ -1629,14 +1631,14 @@ static bool coerce_to_type_write(
                             instructions,
                             range,
                             address_register,
-                            register_size_to_byte_size(info.address_integer_size)
+                            register_size_to_byte_size(info.architecture_sizes.address_size)
                         );
 
                         append_store_integer(
                             context,
                             instructions,
                             range,
-                            info.address_integer_size,
+                            info.architecture_sizes.address_size,
                             length_result.value,
                             length_address_register
                         );
@@ -1646,13 +1648,13 @@ static bool coerce_to_type_write(
                 }
             }
         }
-    } else if(target_type->kind == TypeKind::StaticArray) {
-        auto target_static_array = (StaticArray*)target_type;
+    } else if(target_type.kind == TypeKind::StaticArray) {
+        auto target_static_array = target_type.static_array;
 
-        if(type->kind == TypeKind::StaticArray) {
-            auto static_array = (StaticArray*)type;
+        if(type.kind == TypeKind::StaticArray) {
+            auto static_array = type.static_array;
 
-            if(types_equal(target_static_array->element_type, static_array->element_type) && target_static_array->length == static_array->length) {
+            if(types_equal(*target_static_array.element_type, *static_array.element_type) && target_static_array.length == static_array.length) {
                 size_t source_address_register;
                 if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
                     auto constant_value = (RuntimeConstantValue*)value;
@@ -1664,8 +1666,8 @@ static bool coerce_to_type_write(
                         scope,
                         context,
                         range,
-                        static_array->element_type,
-                        { static_array->length, static_array_value.elements }
+                        *static_array.element_type,
+                        { static_array.length, static_array_value.elements }
                     );
 
                     source_address_register = append_reference_static(context, instructions, range, static_constant);
@@ -1685,27 +1687,27 @@ static bool coerce_to_type_write(
                     context,
                     instructions,
                     range,
-                    static_array->length * get_type_size(info, static_array->element_type),
+                    static_array.length * get_type_size(info.architecture_sizes, *static_array.element_type),
                     source_address_register,
                     address_register,
-                    get_type_size(info, static_array->element_type)
+                    get_type_size(info.architecture_sizes, *static_array.element_type)
                 );
 
                 return true;
             }
         }
-    } else if(target_type->kind == TypeKind::StructType) {
-        auto target_struct_type = (StructType*)target_type;
+    } else if(target_type.kind == TypeKind::StructType) {
+        auto target_struct_type = target_type.struct_;
 
-        if(type->kind == TypeKind::StructType) {
-            auto struct_type = (StructType*)type;
+        if(type.kind == TypeKind::StructType) {
+            auto struct_type = type.struct_;
 
-            if(target_struct_type->definition == struct_type->definition && target_struct_type->members.count == struct_type->members.count) {
+            if(target_struct_type.definition == struct_type.definition && target_struct_type.members.count == struct_type.members.count) {
                 auto same_members = true;
-                for(size_t i = 0; i < struct_type->members.count; i += 1) {
+                for(size_t i = 0; i < struct_type.members.count; i += 1) {
                     if(
-                        !equal(target_struct_type->members[i].name, struct_type->members[i].name) ||
-                        !types_equal(target_struct_type->members[i].type, struct_type->members[i].type)
+                        !equal(target_struct_type.members[i].name, struct_type.members[i].name) ||
+                        !types_equal(target_struct_type.members[i].type, struct_type.members[i].type)
                     ) {
                         same_members = false;
 
@@ -1725,7 +1727,7 @@ static bool coerce_to_type_write(
                             scope,
                             context,
                             range,
-                            *struct_type,
+                            struct_type,
                             struct_value.members
                         );
 
@@ -1746,22 +1748,22 @@ static bool coerce_to_type_write(
                         context,
                         instructions,
                         range,
-                        get_struct_size(info, *struct_type),
+                        get_struct_size(info.architecture_sizes, struct_type),
                         source_address_register,
                         address_register,
-                        get_struct_alignment(info, *struct_type)
+                        get_struct_alignment(info.architecture_sizes, struct_type)
                     );
 
                     return true;
                 }
             }
-        } else if(type->kind == TypeKind::UndeterminedStruct) {
-            auto undetermined_struct = (UndeterminedStruct*)type;
+        } else if(type.kind == TypeKind::UndeterminedStruct) {
+            auto undetermined_struct = type.undetermined_struct;
 
-            if(target_struct_type->definition->is_union) {
-                if(undetermined_struct->members.count == 1) {
-                    for(size_t i = 0; i < target_struct_type->members.count; i += 1) {
-                        if(equal(target_struct_type->members[i].name, undetermined_struct->members[0].name)) {
+            if(target_struct_type.definition->is_union) {
+                if(undetermined_struct.members.count == 1) {
+                    for(size_t i = 0; i < target_struct_type.members.count; i += 1) {
+                        if(equal(target_struct_type.members[i].name, undetermined_struct.members[0].name)) {
                             RuntimeValue *variant_value;
                             if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
                                 auto constant_value = (RuntimeConstantValue*)value;
@@ -1785,9 +1787,9 @@ static bool coerce_to_type_write(
                                 context,
                                 instructions,
                                 range,
-                                undetermined_struct->members[0].type,
+                                undetermined_struct.members[0].type,
                                 variant_value,
-                                target_struct_type->members[i].type,
+                                target_struct_type.members[i].type,
                                 address_register
                             )) {
                                 return true;
@@ -1798,10 +1800,10 @@ static bool coerce_to_type_write(
                     }
                 }
             } else {
-                if(target_struct_type->members.count == undetermined_struct->members.count) {
+                if(target_struct_type.members.count == undetermined_struct.members.count) {
                     auto same_members = true;
-                    for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
-                        if(!equal(target_struct_type->members[i].name, undetermined_struct->members[i].name)) {
+                    for(size_t i = 0; i < undetermined_struct.members.count; i += 1) {
+                        if(!equal(target_struct_type.members[i].name, undetermined_struct.members[i].name)) {
                             same_members = false;
 
                             break;
@@ -1810,7 +1812,7 @@ static bool coerce_to_type_write(
 
                     if(same_members) {
                         auto success = true;
-                        for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
+                        for(size_t i = 0; i < undetermined_struct.members.count; i += 1) {
                             RuntimeValue *member_value;
                             if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
                                 auto constant_value = (RuntimeConstantValue*)value;
@@ -1834,7 +1836,7 @@ static bool coerce_to_type_write(
                                 instructions,
                                 range,
                                 address_register,
-                                get_struct_member_offset(info, *target_struct_type, i)
+                                get_struct_member_offset(info.architecture_sizes, target_struct_type, i)
                             );
 
                             if(!coerce_to_type_write(
@@ -1843,9 +1845,9 @@ static bool coerce_to_type_write(
                                 context,
                                 instructions,
                                 range,
-                                undetermined_struct->members[i].type,
+                                undetermined_struct.members[i].type,
                                 member_value,
-                                target_struct_type->members[i].type,
+                                target_struct_type.members[i].type,
                                 member_address_register
                             )) {
                                 success = false;
@@ -1879,7 +1881,7 @@ static DelayedResult<TypedRuntimeValue> generate_expression(
     Expression *expression
 );
 
-static DelayedResult<Type*> evaluate_type_expression_runtime(
+static DelayedResult<AnyType> evaluate_type_expression_runtime(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
@@ -1889,7 +1891,7 @@ static DelayedResult<Type*> evaluate_type_expression_runtime(
 ) {
     expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, expression));
 
-    if(expression_value.type->kind == TypeKind::TypeType) {
+    if(expression_value.type.kind == TypeKind::Type) {
         auto constant_value = (RuntimeConstantValue*)expression_value.value;
 
         return has(unwrap_type_constant(constant_value->value));
@@ -1945,8 +1947,8 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
     expect(determined_type, coerce_to_default_type(info, scope, range, type));
 
-    if(determined_type->kind == TypeKind::Integer) {
-        auto integer = (Integer*)determined_type;
+    if(determined_type.kind == TypeKind::Integer) {
+        auto integer = determined_type.integer;
 
         expect(left_register, coerce_to_integer_register_value(
             scope,
@@ -1986,7 +1988,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             } break;
 
             case BinaryOperation::Operator::Division: {
-                if(integer->is_signed) {
+                if(integer.is_signed) {
                     arithmetic_operation = IntegerArithmeticOperation::Operation::SignedDivide;
                 } else {
                     arithmetic_operation = IntegerArithmeticOperation::Operation::UnsignedDivide;
@@ -1994,7 +1996,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             } break;
 
             case BinaryOperation::Operator::Modulo: {
-                if(integer->is_signed) {
+                if(integer.is_signed) {
                     arithmetic_operation = IntegerArithmeticOperation::Operation::SignedModulus;
                 } else {
                     arithmetic_operation = IntegerArithmeticOperation::Operation::UnsignedModulus;
@@ -2015,19 +2017,19 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         }
 
         size_t result_register;
-        Type *result_type;
+        AnyType result_type;
         if(is_arithmetic) {
             result_register = append_integer_arithmetic_operation(
                 context,
                 instructions,
                 range,
                 arithmetic_operation,
-                integer->size,
+                integer.size,
                 left_register,
                 right_register
             );
 
-            result_type = integer;
+            result_type = wrap_integer_type(integer);
         } else {
             IntegerComparisonOperation::Operation comparison_operation;
             auto invert = false;
@@ -2042,7 +2044,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 } break;
 
                 case BinaryOperation::Operator::LessThan: {
-                    if(integer->is_signed) {
+                    if(integer.is_signed) {
                         comparison_operation = IntegerComparisonOperation::Operation::SignedLessThan;
                     } else {
                         comparison_operation = IntegerComparisonOperation::Operation::UnsignedLessThan;
@@ -2050,7 +2052,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 } break;
 
                 case BinaryOperation::Operator::GreaterThan: {
-                    if(integer->is_signed) {
+                    if(integer.is_signed) {
                         comparison_operation = IntegerComparisonOperation::Operation::SignedGreaterThan;
                     } else {
                         comparison_operation = IntegerComparisonOperation::Operation::UnsignedGreaterThan;
@@ -2069,7 +2071,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 instructions,
                 range,
                 comparison_operation,
-                integer->size,
+                integer.size,
                 left_register,
                 right_register
             );
@@ -2078,7 +2080,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 result_register = generate_boolean_invert(info, context, instructions, range, result_register);
             }
 
-            result_type = &boolean_singleton;
+            result_type = create_boolean_type();
         }
 
         return has({
@@ -2087,8 +2089,8 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 result_register
             }
         });
-    } else if(determined_type->kind == TypeKind::Boolean) {
-        if(left.type->kind != TypeKind::Boolean) {
+    } else if(determined_type.kind == TypeKind::Boolean) {
+        if(left.type.kind != TypeKind::Boolean) {
             error(scope, left_expression->range, "Expected 'bool', got '%s'", type_description(left.type));
 
             return err;
@@ -2096,7 +2098,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
         auto left_register = generate_in_register_boolean_value(info, context, instructions, left_expression->range, left.value);
 
-        if(right.type->kind != TypeKind::Boolean) {
+        if(right.type.kind != TypeKind::Boolean) {
             error(scope, right_expression->range, "Expected 'bool', got '%s'", type_description(right.type));
 
             return err;
@@ -2127,7 +2129,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 instructions,
                 range,
                 arithmetic_operation,
-                info.default_integer_size,
+                info.architecture_sizes.boolean_size,
                 left_register,
                 right_register
             );
@@ -2156,7 +2158,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 instructions,
                 range,
                 comparison_operation,
-                info.default_integer_size,
+                info.architecture_sizes.boolean_size,
                 left_register,
                 right_register
             );
@@ -2167,13 +2169,13 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         }
 
         return has({
-            &boolean_singleton,
+            create_boolean_type(),
             new RegisterValue {
                 result_register
             }
         });
-    } else if(determined_type->kind == TypeKind::FloatType) {
-        auto float_type = (FloatType*)determined_type;
+    } else if(determined_type.kind == TypeKind::FloatType) {
+        auto float_type = determined_type.float_;
 
         expect(left_register, coerce_to_float_register_value(
             scope,
@@ -2182,7 +2184,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             left_expression->range,
             left.type,
             left.value,
-            *float_type,
+            float_type,
             false
         ));
 
@@ -2193,7 +2195,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             right_expression->range,
             right.type,
             right.value,
-            *float_type,
+            float_type,
             false
         ));
 
@@ -2222,19 +2224,19 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         }
 
         size_t result_register;
-        Type *result_type;
+        AnyType result_type;
         if(is_arithmetic) {
             result_register = append_float_arithmetic_operation(
                 context,
                 instructions,
                 range,
                 arithmetic_operation,
-                float_type->size,
+                float_type.size,
                 left_register,
                 right_register
             );
 
-            result_type = float_type;
+            result_type = wrap_float_type(float_type);
         } else {
             FloatComparisonOperation::Operation comparison_operation;
             auto invert = false;
@@ -2268,7 +2270,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 instructions,
                 range,
                 comparison_operation,
-                float_type->size,
+                float_type.size,
                 left_register,
                 right_register
             );
@@ -2277,7 +2279,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 result_register = generate_boolean_invert(info, context, instructions, range, result_register);
             }
 
-            result_type = &boolean_singleton;
+            result_type = create_boolean_type();
         }
 
         return has({
@@ -2286,8 +2288,8 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 result_register
             }
         });
-    } else if(determined_type->kind == TypeKind::Pointer) {
-        auto pointer = (Pointer*)determined_type;
+    } else if(determined_type.kind == TypeKind::Pointer) {
+        auto pointer = determined_type.pointer;
 
         expect(left_register, coerce_to_pointer_register_value(
             info,
@@ -2297,7 +2299,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             left_expression->range,
             left.type,
             left.value,
-            *pointer,
+            pointer,
             false
         ));
 
@@ -2309,7 +2311,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             right_expression->range,
             right.type,
             right.value,
-            *pointer,
+            pointer,
             false
         ));
 
@@ -2326,7 +2328,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             } break;
 
             default: {
-                error(scope, range, "Cannot perform that operation on '%s'", type_description(pointer));
+                error(scope, range, "Cannot perform that operation on '%s'", type_description(wrap_pointer_type(pointer)));
 
                 return err;
             } break;
@@ -2337,7 +2339,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             instructions,
             range,
             comparison_operation,
-            info.address_integer_size,
+            info.architecture_sizes.address_size,
             left_register,
             right_register
         );
@@ -2347,7 +2349,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         }
 
         return has({
-            &boolean_singleton,
+            create_boolean_type(),
             new RegisterValue {
                 result_register
             }
@@ -2366,7 +2368,7 @@ inline AnyConstantValue unwrap_runtime_constant_value(RuntimeValue *value) {
 struct RuntimeDeclarationSearchValue {
     bool found;
 
-    Type *type;
+    AnyType type;
     RuntimeValue *value;
 };
 
@@ -2422,7 +2424,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
 
                 expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, nullptr, using_statement->module));
 
-                if(expression_value.type->kind != TypeKind::FileModule) {
+                if(expression_value.type.kind != TypeKind::FileModule) {
                     error(scope, using_statement->range, "Expected a module, got '%s'", type_description(expression_value.type));
 
                     return err;
@@ -2719,18 +2721,18 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             index_reference->index->range,
             index.type,
             index.value,
-            new Integer {
-                info.address_integer_size,
+            {
+                info.architecture_sizes.address_size,
                 false
             },
             false
         ));
 
         size_t base_address_register;
-        Type *element_type;
-        if(expression_value.type->kind == TypeKind::ArrayTypeType) {
-            auto array_type = (ArrayTypeType*)expression_value.type;
-            element_type = array_type->element_type;
+        AnyType element_type;
+        if(expression_value.type.kind == TypeKind::ArrayTypeType) {
+            auto array_type = expression_value.type.array;
+            element_type = *array_type.element_type;
 
             if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
                 auto constant_value = (RuntimeConstantValue*)expression_value.value;
@@ -2741,7 +2743,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     instructions,
                     index_reference->expression->range,
-                    info.address_integer_size,
+                    info.architecture_sizes.address_size,
                     pointer_value
                 );
             } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
@@ -2751,7 +2753,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     instructions,
                     index_reference->expression->range,
-                    info.address_integer_size,
+                    info.architecture_sizes.address_size,
                     register_value->register_index
                 );
             } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
@@ -2761,15 +2763,15 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     instructions,
                     index_reference->expression->range,
-                    info.address_integer_size,
+                    info.architecture_sizes.address_size,
                     address_value->address_register
                 );
             } else {
                 abort();
             }
-        } else if(expression_value.type->kind == TypeKind::StaticArray) {
-            auto static_array = (StaticArray*)expression_value.type;
-            element_type = static_array->element_type;
+        } else if(expression_value.type.kind == TypeKind::StaticArray) {
+            auto static_array = expression_value.type.static_array;
+            element_type = *static_array.element_type;
 
             if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
                 auto constant_value = (RuntimeConstantValue*)expression_value.value;
@@ -2781,8 +2783,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     scope,
                     context,
                     index_reference->expression->range,
-                    static_array->element_type,
-                    { static_array->length, static_array_value.elements }
+                    *static_array.element_type,
+                    { static_array.length, static_array_value.elements }
                 );
 
                 base_address_register = append_reference_static(
@@ -2808,8 +2810,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             context,
             instructions,
             index_reference->range,
-            info.address_integer_size,
-            get_type_size(info, element_type)
+            info.architecture_sizes.address_size,
+            get_type_size(info.architecture_sizes, element_type)
         );
 
         auto offset = append_integer_arithmetic_operation(
@@ -2817,7 +2819,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             instructions,
             index_reference->range,
             IntegerArithmeticOperation::Operation::Multiply,
-            info.address_integer_size,
+            info.architecture_sizes.address_size,
             element_size_register,
             index_register
         );
@@ -2827,7 +2829,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             instructions,
             index_reference->range,
             IntegerArithmeticOperation::Operation::Add,
-            info.address_integer_size,
+            info.architecture_sizes.address_size,
             base_address_register,
             offset
         );
@@ -2843,11 +2845,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, member_reference->expression));
 
-        Type *actual_type;
+        AnyType actual_type;
         RuntimeValue *actual_value;
-        if(expression_value.type->kind == TypeKind::Pointer) {
-            auto pointer = (Pointer*)expression_value.type;
-            actual_type = pointer->type;
+        if(expression_value.type.kind == TypeKind::Pointer) {
+            auto pointer = expression_value.type.pointer;
+            actual_type = *pointer.type;
 
             size_t address_register;
             if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
@@ -2859,7 +2861,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     instructions,
                     member_reference->expression->range,
-                    info.address_integer_size,
+                    info.architecture_sizes.address_size,
                     integer_value
                 );
             } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
@@ -2873,7 +2875,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     instructions,
                     member_reference->expression->range,
-                    info.address_integer_size,
+                    info.architecture_sizes.address_size,
                     address_value->address_register
                 );
             } else {
@@ -2888,12 +2890,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             actual_value = expression_value.value;
         }
 
-        if(actual_type->kind == TypeKind::ArrayTypeType) {
-            auto array_type = (ArrayTypeType*)actual_type;
+        if(actual_type.kind == TypeKind::ArrayTypeType) {
+            auto array_type = actual_type.array;
 
             if(equal(member_reference->name.text, "length"_S)) {
                 auto type = new Integer {
-                    info.address_integer_size,
+                    info.architecture_sizes.address_size,
                     false
                 };
 
@@ -2915,14 +2917,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         instructions,
                         member_reference->range,
                         register_value->register_index,
-                        register_size_to_byte_size(info.address_integer_size)
+                        register_size_to_byte_size(info.architecture_sizes.address_size)
                     );
 
                     auto length_register = append_load_integer(
                         context,
                         instructions,
                         member_reference->range,
-                        info.address_integer_size,
+                        info.architecture_sizes.address_size,
                         address_register
                     );
 
@@ -2938,7 +2940,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         instructions,
                         member_reference->range,
                         address_value->address_register,
-                        register_size_to_byte_size(info.address_integer_size)
+                        register_size_to_byte_size(info.architecture_sizes.address_size)
                     );
 
                     value = new AddressValue {
@@ -2949,10 +2951,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
 
                 return has({
-                    new Integer {
-                        info.address_integer_size,
+                    wrap_integer_type({
+                        info.architecture_sizes.address_size,
                         false
-                    },
+                    }),
                     value
                 });
             } else if(equal(member_reference->name.text, "pointer"_S)) {
@@ -2972,7 +2974,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         context,
                         instructions,
                         member_reference->range,
-                        info.address_integer_size,
+                        info.architecture_sizes.address_size,
                         register_value->register_index
                     );
 
@@ -2990,9 +2992,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
 
                 return has({
-                    new Pointer {
-                        array_type->element_type
-                    },
+                    wrap_pointer_type({
+                        array_type.element_type
+                    }),
                     value
                 });
             } else {
@@ -3000,17 +3002,17 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 return err;
             }
-        } else if(actual_type->kind == TypeKind::StaticArray) {
-            auto static_array = (StaticArray*)actual_type;
+        } else if(actual_type.kind == TypeKind::StaticArray) {
+            auto static_array = actual_type.static_array;
 
             if(equal(member_reference->name.text, "length"_S)) {
                 return has({
-                    new Integer {
-                        info.address_integer_size,
+                    wrap_integer_type({
+                        info.architecture_sizes.address_size,
                         false
-                    },
+                    }),
                     new RuntimeConstantValue {
-                        wrap_integer_constant(static_array->length)
+                        wrap_integer_constant(static_array.length)
                     }
                 });
             } else if(equal(member_reference->name.text, "pointer"_S)) {
@@ -3025,8 +3027,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         scope,
                         context,
                         member_reference->expression->range,
-                        static_array->element_type,
-                        { static_array->length, static_array_value.elements }
+                        *static_array.element_type,
+                        { static_array.length, static_array_value.elements }
                     );
 
                     address_regsiter = append_reference_static(context, instructions, member_reference->range, static_constant);
@@ -3043,9 +3045,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
 
                 return has({
-                    new Pointer {
-                        static_array->element_type
-                    },
+                    wrap_pointer_type({
+                        static_array.element_type
+                    }),
                     new RegisterValue {
                         address_regsiter
                     }
@@ -3055,19 +3057,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 return err;
             }
-        } else if(actual_type->kind == TypeKind::StructType) {
-            auto struct_type = (StructType*)actual_type;
+        } else if(actual_type.kind == TypeKind::StructType) {
+            auto struct_type = actual_type.struct_;
 
-            for(size_t i = 0; i < struct_type->members.count; i += 1) {
-                if(equal(struct_type->members[i].name, member_reference->name.text)) {
-                    auto member_type = struct_type->members[i].type;
+            for(size_t i = 0; i < struct_type.members.count; i += 1) {
+                if(equal(struct_type.members[i].name, member_reference->name.text)) {
+                    auto member_type = struct_type.members[i].type;
 
                     if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
                         auto constant_value = (RuntimeConstantValue*)expression_value.value;
 
                         auto struct_value = unwrap_struct_constant(constant_value->value);
 
-                        assert(!struct_type->definition->is_union);
+                        assert(!struct_type.definition->is_union);
 
                         return has({
                             member_type,
@@ -3084,7 +3086,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             instructions,
                             member_reference->range,
                             register_value->register_index,
-                            get_struct_member_offset(info, *struct_type, i)
+                            get_struct_member_offset(info.architecture_sizes, struct_type, i)
                         );
 
                         auto member_representation = get_type_representation(info, member_type);
@@ -3127,7 +3129,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             instructions,
                             member_reference->range,
                             address_value->address_register,
-                            get_struct_member_offset(info, *struct_type, i)
+                            get_struct_member_offset(info.architecture_sizes, struct_type, i)
                         );
 
                         return has({
@@ -3145,15 +3147,15 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINT(member_reference->name.text));
 
             return err;
-        } else if(actual_type->kind == TypeKind::UndeterminedStruct) {
-            auto undetermined_struct = (UndeterminedStruct*)actual_type;
+        } else if(actual_type.kind == TypeKind::UndeterminedStruct) {
+            auto undetermined_struct = actual_type.undetermined_struct;
 
             auto undetermined_struct_value = (UndeterminedStructValue*)actual_value;
 
-            for(size_t i = 0; i < undetermined_struct->members.count; i += 1) {
-                if(equal(undetermined_struct->members[i].name, member_reference->name.text)) {
+            for(size_t i = 0; i < undetermined_struct.members.count; i += 1) {
+                if(equal(undetermined_struct.members[i].name, member_reference->name.text)) {
                     return has({
-                        undetermined_struct->members[i].type,
+                        undetermined_struct.members[i].type,
                         undetermined_struct_value->members[i]
                     });
                 }
@@ -3162,7 +3164,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINT(member_reference->name.text));
 
             return err;
-        } else if(actual_type->kind == TypeKind::FileModule) {
+        } else if(actual_type.kind == TypeKind::FileModule) {
             auto constant_value = (RuntimeConstantValue*)expression_value.value;
 
             auto file_module_value = unwrap_file_module_constant(constant_value->value);
@@ -3201,7 +3203,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         auto integer_literal = (IntegerLiteral*)expression;
 
         return has({
-            &undetermined_integer_singleton,
+            create_undetermined_integer_type(),
             new RuntimeConstantValue {
                 wrap_integer_constant(integer_literal->value)
             }
@@ -3210,7 +3212,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         auto float_literal = (FloatLiteral*)expression;
 
         return has({
-            &undetermined_float_singleton,
+            create_undetermined_float_type(),
             new RuntimeConstantValue {
                 wrap_float_constant(float_literal->value)
             }
@@ -3227,13 +3229,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         }
 
         return has({
-            new StaticArray {
+            wrap_static_array_type({
                 character_count,
-                new Integer {
+                heapify(wrap_integer_type({
                     RegisterSize::Size8,
                     false
-                }
-            },
+                }))
+            }),
             new RuntimeConstantValue {
                 wrap_static_array_constant({
                     characters
@@ -3301,21 +3303,21 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 })
             };
         } else {
-            auto element_size = get_type_size(info, determined_element_type);
+            auto element_size = get_type_size(info.architecture_sizes, determined_element_type);
 
             auto address_register = append_allocate_local(
                 context,
                 instructions,
                 array_literal->range,
                 array_literal->elements.count * element_size,
-                get_type_alignment(info, determined_element_type)
+                get_type_alignment(info.architecture_sizes, determined_element_type)
             );
 
             auto element_size_register = append_integer_constant(
                 context,
                 instructions,
                 array_literal->range,
-                info.address_integer_size,
+                info.architecture_sizes.address_size,
                 element_size
             );
 
@@ -3341,7 +3343,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         instructions,
                         array_literal->elements[i]->range,
                         IntegerArithmeticOperation::Operation::Add,
-                        info.address_integer_size,
+                        info.architecture_sizes.address_size,
                         element_address_register,
                         element_size_register
                     );
@@ -3354,10 +3356,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         }
 
         return has({
-            new StaticArray {
+            wrap_static_array_type({
                 element_count,
-                determined_element_type
-            },
+                heapify(determined_element_type)
+            }),
             value
         });
     } else if(expression->kind == ExpressionKind::StructLiteral) {
@@ -3371,7 +3373,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto member_count = struct_literal->members.count;
 
-        auto type_members = allocate<UndeterminedStruct::Member>(member_count);
+        auto type_members = allocate<StructTypeMember>(member_count);
         auto member_values = allocate<RuntimeValue*>(member_count);
         auto all_constant = true;
 
@@ -3420,12 +3422,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         }
 
         return has({
-            new UndeterminedStruct {
+            wrap_undetermined_struct_type({
                 {
                     member_count,
                     type_members
                 }
-            },
+            }),
             value
         });
     } else if(expression->kind == ExpressionKind::FunctionCall) {
@@ -3433,7 +3435,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, function_call->expression));
 
-        if(expression_value.type->kind == TypeKind::FunctionTypeType || expression_value.type->kind == TypeKind::PolymorphicFunction) {
+        if(expression_value.type.kind == TypeKind::FunctionTypeType || expression_value.type.kind == TypeKind::PolymorphicFunction) {
             auto call_parameter_count = function_call->parameters.count;
 
             auto call_parameters = allocate<TypedRuntimeValue>(call_parameter_count);
@@ -3443,9 +3445,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 call_parameters[i] = parameter_value;
             }
 
-            FunctionTypeType *function_type;
+            FunctionTypeType function_type;
             FunctionConstant function_value;
-            if(expression_value.type->kind == TypeKind::PolymorphicFunction) {
+            if(expression_value.type.kind == TypeKind::PolymorphicFunction) {
                 auto constant_value = unwrap_runtime_constant_value(expression_value.value);
 
                 auto polymorphic_function_value = unwrap_polymorphic_function_constant(constant_value);
@@ -3566,18 +3568,18 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return wait(resolve_polymorphic_function);
                 }
             } else {
-                function_type = (FunctionTypeType*)expression_value.type;
+                function_type = expression_value.type.function;
 
                 auto constant_value = unwrap_runtime_constant_value(expression_value.value);
 
                 function_value = unwrap_function_constant(constant_value);
 
-                if(call_parameter_count != function_type->parameters.count) {
+                if(call_parameter_count != function_type.parameters.count) {
                     error(
                         scope,
                         function_call->range,
                         "Incorrect number of parameters. Expected %zu, got %zu",
-                        function_type->parameters.count,
+                        function_type.parameters.count,
                         call_parameter_count
                     );
 
@@ -3592,7 +3594,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     auto generate_function = (GenerateFunction*)job;
 
                     if(
-                        types_equal(generate_function->type, function_type) &&
+                        types_equal(wrap_function_type(generate_function->type), wrap_function_type(function_type)) &&
                         generate_function->value.declaration == function_value.declaration &&
                         generate_function->value.body_scope == function_value.body_scope
                     ) {
@@ -3619,14 +3621,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 append(jobs, (Job*)generate_function);
             }
 
-            auto has_return = function_type->return_type->kind != TypeKind::Void;
+            auto has_return = function_type.return_type->kind != TypeKind::Void;
 
             RegisterRepresentation return_type_representation;
             if(has_return) {
-                return_type_representation = get_type_representation(info, function_type->return_type);
+                return_type_representation = get_type_representation(info, *function_type.return_type);
             }
 
-            auto instruction_parameter_count = function_type->parameters.count;
+            auto instruction_parameter_count = function_type.parameters.count;
             if(has_return && !return_type_representation.is_in_register) {
                 instruction_parameter_count += 1;
             }
@@ -3644,17 +3646,17 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         function_call->parameters[i]->range,
                         call_parameters[i].type,
                         call_parameters[i].value,
-                        function_type->parameters[i],
+                        function_type.parameters[i],
                         false
                     ));
 
-                    auto representation = get_type_representation(info, function_type->parameters[i]);
+                    auto representation = get_type_representation(info, function_type.parameters[i]);
 
                     RegisterSize size;
                     if(representation.is_in_register) {
                         size = representation.value_size;
                     } else {
-                        size = info.address_integer_size;
+                        size = info.architecture_sizes.address_size;
                     }
 
                     instruction_parameters[i] = {
@@ -3667,19 +3669,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             }
 
-            assert(runtime_parameter_index == function_type->parameters.count);
+            assert(runtime_parameter_index == function_type.parameters.count);
 
             if(has_return && !return_type_representation.is_in_register) {
                 auto parameter_register = append_allocate_local(
                     context,
                     instructions,
                     function_call->range,
-                    get_type_size(info, function_type->return_type),
-                    get_type_alignment(info, function_type->return_type)
+                    get_type_size(info.architecture_sizes, *function_type.return_type),
+                    get_type_alignment(info.architecture_sizes, *function_type.return_type)
                 );
 
                 instruction_parameters[instruction_parameter_count - 1] = {
-                    info.address_integer_size,
+                    info.architecture_sizes.address_size,
                     false,
                     parameter_register
                 };
@@ -3692,7 +3694,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             function_call_instruction->address_register = address_register;
             function_call_instruction->parameters = { instruction_parameter_count, instruction_parameters };
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
-            function_call_instruction->calling_convention = function_type->calling_convention;
+            function_call_instruction->calling_convention = function_type.calling_convention;
 
             RuntimeValue *value;
             if(has_return) {
@@ -3720,10 +3722,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             append(instructions, (Instruction*)function_call_instruction);
 
             return has({
-                function_type->return_type,
+                *function_type.return_type,
                 value
             });
-        } else if(expression_value.type->kind == TypeKind::BuiltinFunction) {
+        } else if(expression_value.type.kind == TypeKind::BuiltinFunction) {
             auto constant_value = unwrap_runtime_constant_value(expression_value.value);
 
             auto builtin_function_value = unwrap_builtin_function_constant(constant_value);
@@ -3737,8 +3739,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
 
-                Type *type;
-                if(parameter_value.type->kind == TypeKind::TypeType) {
+                AnyType type;
+                if(parameter_value.type.kind == TypeKind::Type) {
                     auto constant_value = unwrap_runtime_constant_value(parameter_value.value);
 
                     type = unwrap_type_constant(constant_value);
@@ -3752,13 +3754,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err;
                 }
 
-                auto size = get_type_size(info, type);
+                auto size = get_type_size(info.architecture_sizes, type);
 
                 return has({
-                    new Integer {
-                        info.address_integer_size,
+                    wrap_integer_type({
+                        info.architecture_sizes.address_size,
                         false
-                    },
+                    }),
                     new RuntimeConstantValue {
                         wrap_integer_constant(size)
                     }
@@ -3773,7 +3775,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
 
                 return has({
-                    &type_type_singleton,
+                    create_type_type(),
                     new RuntimeConstantValue {
                         wrap_type_constant(parameter_value.type)
                     }
@@ -3785,17 +3787,18 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err;
                 }
 
-                Integer u8_type { RegisterSize::Size8, false };
-                Pointer u8_pointer_type { &u8_type };
+                auto u8_type = wrap_integer_type({ RegisterSize::Size8, false });
+
+                auto u8_pointer_type = wrap_pointer_type({ &u8_type });
 
                 expect_delayed(destination_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
 
-                if(!types_equal(destination_value.type, &u8_pointer_type)) {
+                if(!types_equal(destination_value.type, u8_pointer_type)) {
                     error(
                         scope,
                         function_call->parameters[0]->range,
                         "Incorrect type for parameter 0. Expected '%s', got '%s'",
-                        type_description(&u8_pointer_type),
+                        type_description(u8_pointer_type),
                         type_description(destination_value.type)
                     );
 
@@ -3804,28 +3807,28 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 expect_delayed(source_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[1]));
 
-                if(!types_equal(source_value.type, &u8_pointer_type)) {
+                if(!types_equal(source_value.type, u8_pointer_type)) {
                     error(
                         scope,
                         function_call->parameters[1]->range,
                         "Incorrect type for parameter 1. Expected '%s', got '%s'",
-                        type_description(&u8_pointer_type),
+                        type_description(u8_pointer_type),
                         type_description(source_value.type)
                     );
 
                     return err;
                 }
 
-                Integer usize_type { info.address_integer_size, false };
+                auto usize_type = wrap_integer_type({ info.architecture_sizes.address_size, false });
 
                 expect_delayed(size, evaluate_constant_expression(info, jobs, scope, nullptr, function_call->parameters[2]));
 
-                if(!types_equal(size.type, &usize_type)) {
+                if(!types_equal(size.type, usize_type)) {
                     error(
                         scope,
                         function_call->parameters[1]->range,
                         "Incorrect type for parameter 2. Expected '%s', got '%s'",
-                        type_description(&usize_type),
+                        type_description(usize_type),
                         type_description(size.type)
                     );
 
@@ -3861,7 +3864,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 );
 
                 return has({
-                    &void_singleton,
+                    create_void_type(),
                     new RuntimeConstantValue {
                         create_void_constant()
                     }
@@ -3869,20 +3872,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else {
                 abort();
             }
-        } else if(expression_value.type->kind == TypeKind::Pointer) {
-            auto pointer = (Pointer*)expression_value.type;
+        } else if(expression_value.type.kind == TypeKind::Pointer) {
+            auto pointer = expression_value.type.pointer;
 
-            if(pointer->type->kind != TypeKind::FunctionTypeType) {
+            if(pointer.type->kind != TypeKind::FunctionTypeType) {
                 error(scope, function_call->expression->range, "Cannot call '%s'", type_description(expression_value.type));
 
                 return err;
             }
 
-            auto function = (FunctionTypeType*)pointer->type;
+            auto function = pointer.type->function;
 
             auto address_register = generate_in_register_pointer_value(info, context, instructions, function_call->expression->range, expression_value.value);
 
-            auto parameter_count = function->parameters.count;
+            auto parameter_count = function.parameters.count;
 
             if(function_call->parameters.count != parameter_count) {
                 error(
@@ -3896,11 +3899,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return err;
             }
 
-            auto has_return = function->return_type->kind != TypeKind::Void;
+            auto has_return = function.return_type->kind != TypeKind::Void;
 
             RegisterRepresentation return_type_representation;
             if(has_return) {
-                return_type_representation = get_type_representation(info, function->return_type);
+                return_type_representation = get_type_representation(info, *function.return_type);
             }
 
             auto instruction_parameter_count = parameter_count;
@@ -3921,17 +3924,17 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     function_call->parameters[i]->range,
                     parameter_value.type,
                     parameter_value.value,
-                    function->parameters[i],
+                    function.parameters[i],
                     false
                 ));
 
-                auto representation = get_type_representation(info, function->parameters[i]);
+                auto representation = get_type_representation(info, function.parameters[i]);
 
                 RegisterSize size;
                 if(representation.is_in_register) {
                     size = representation.value_size;
                 } else {
-                    size = info.address_integer_size;
+                    size = info.architecture_sizes.address_size;
                 }
 
                 instruction_parameters[i] = {
@@ -3946,12 +3949,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     instructions,
                     function_call->range,
-                    get_type_size(info, function->return_type),
-                    get_type_alignment(info, function->return_type)
+                    get_type_size(info.architecture_sizes, *function.return_type),
+                    get_type_alignment(info.architecture_sizes, *function.return_type)
                 );
 
                 instruction_parameters[instruction_parameter_count - 1] = {
-                    info.address_integer_size,
+                    info.architecture_sizes.address_size,
                     false,
                     parameter_register
                 };
@@ -3962,7 +3965,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             function_call_instruction->address_register = address_register;
             function_call_instruction->parameters = { parameter_count, instruction_parameters };
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
-            function_call_instruction->calling_convention = function->calling_convention;
+            function_call_instruction->calling_convention = function.calling_convention;
 
             RuntimeValue *value;
             if(has_return) {
@@ -3990,17 +3993,17 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             append(instructions, (Instruction*)function_call_instruction);
 
             return has({
-                function->return_type,
+                *function.return_type,
                 value
             });
-        } else if(expression_value.type->kind == TypeKind::TypeType) {
+        } else if(expression_value.type.kind == TypeKind::Type) {
             auto constant_value = unwrap_runtime_constant_value(expression_value.value);
 
             auto type = unwrap_type_constant(constant_value);
 
-            if(type->kind == TypeKind::PolymorphicStruct) {
-                auto polymorphic_struct = (PolymorphicStruct*)type;
-                auto definition = polymorphic_struct->definition;
+            if(type.kind == TypeKind::PolymorphicStruct) {
+                auto polymorphic_struct = type.polymorphic_struct;
+                auto definition = polymorphic_struct.definition;
 
                 auto parameter_count = definition->parameters.count;
 
@@ -4021,7 +4024,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         function_call->parameters[i]->range,
                         parameter.type,
                         parameter.value,
-                        polymorphic_struct->parameter_types[i],
+                        polymorphic_struct.parameter_types[i],
                         false
                     ));
 
@@ -4037,7 +4040,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         if(resolve_polymorphic_struct->definition == definition && resolve_polymorphic_struct->parameters != nullptr) {
                             auto same_parameters = true;
                             for(size_t i = 0; i < parameter_count; i += 1) {
-                                if(!constant_values_equal(polymorphic_struct->parameter_types[i], parameters[i], resolve_polymorphic_struct->parameters[i])) {
+                                if(!constant_values_equal(polymorphic_struct.parameter_types[i], parameters[i], resolve_polymorphic_struct->parameters[i])) {
                                     same_parameters = false;
                                     break;
                                 }
@@ -4046,7 +4049,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             if(same_parameters) {
                                 if(resolve_polymorphic_struct->done) {
                                     return has({
-                                        &type_type_singleton,
+                                        create_type_type(),
                                         new RuntimeConstantValue {
                                             wrap_type_constant(resolve_polymorphic_struct->type)
                                         }
@@ -4064,7 +4067,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 resolve_polymorphic_struct->waiting_for = nullptr;
                 resolve_polymorphic_struct->definition = definition;
                 resolve_polymorphic_struct->parameters = parameters;
-                resolve_polymorphic_struct->scope = polymorphic_struct->parent;
+                resolve_polymorphic_struct->scope = polymorphic_struct.parent;
 
                 append(jobs, (Job*)resolve_polymorphic_struct);
 
@@ -4106,8 +4109,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
                     auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
 
-                    if(expression_value.type->kind == TypeKind::FunctionTypeType) {
-                        auto function = (FunctionTypeType*)expression_value.type;
+                    if(expression_value.type.kind == TypeKind::FunctionTypeType) {
+                        auto function = expression_value.type.function;
 
                         auto function_value = unwrap_function_constant(constant_value);
 
@@ -4118,7 +4121,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                                 auto generate_function = (GenerateFunction*)job;
 
                                 if(
-                                    types_equal(generate_function->type, function) &&
+                                    types_equal(wrap_function_type(generate_function->type), wrap_function_type(function)) &&
                                     generate_function->value.declaration == function_value.declaration &&
                                     generate_function->value.body_scope == function_value.body_scope
                                 ) {
@@ -4151,13 +4154,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             unary_operation->range,
                             runtime_function
                         );
-                    } else if(expression_value.type->kind == TypeKind::TypeType) {
+                    } else if(expression_value.type.kind == TypeKind::Type) {
                         auto type = unwrap_type_constant(constant_value);
 
                         if(
                             !is_runtime_type(type) &&
-                            type->kind != TypeKind::Void &&
-                            type->kind != TypeKind::FunctionTypeType
+                            type.kind != TypeKind::Void &&
+                            type.kind != TypeKind::FunctionTypeType
                         ) {
                             error(scope, unary_operation->expression->range, "Cannot create pointers to type '%s'", type_description(type));
 
@@ -4165,11 +4168,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         }
 
                         return has({
-                            &type_type_singleton,
+                            create_type_type(),
                             new RuntimeConstantValue {
-                                wrap_type_constant(new Pointer {
-                                    type
-                                })
+                                wrap_type_constant(wrap_pointer_type({
+                                    heapify(type)
+                                }))
                             }
                         });
                     } else {
@@ -4193,9 +4196,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
 
                 return has({
-                    new Pointer {
-                        expression_value.type
-                    },
+                    wrap_pointer_type({
+                        heapify(expression_value.type)
+                    }),
                     new RegisterValue {
                         address_register
                     }
@@ -4203,7 +4206,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } break;
 
             case UnaryOperation::Operator::BooleanInvert: {
-                if(expression_value.type->kind != TypeKind::Boolean) {
+                if(expression_value.type.kind != TypeKind::Boolean) {
                     error(scope, unary_operation->expression->range, "Expected bool, got '%s'", type_description(expression_value.type));
 
                     return err;
@@ -4216,7 +4219,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     auto boolean_value = unwrap_boolean_constant(constant_value);
 
                     return has({
-                        &boolean_singleton,
+                        create_boolean_type(),
                         new RuntimeConstantValue {
                             wrap_boolean_constant(!boolean_value)
                         }
@@ -4232,7 +4235,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         context,
                         instructions,
                         unary_operation->expression->range,
-                        info.default_integer_size,
+                        info.architecture_sizes.boolean_size,
                         address_value->address_register
                     );
                 }
@@ -4240,7 +4243,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 auto result_register = generate_boolean_invert(info, context, instructions, unary_operation->expression->range, register_index);
 
                 return has({
-                    &boolean_singleton,
+                    create_boolean_type(),
                     new RegisterValue {
                         result_register
                     }
@@ -4248,19 +4251,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } break;
 
             case UnaryOperation::Operator::Negation: {
-                if(expression_value.type->kind == TypeKind::UndeterminedInteger) {
+                if(expression_value.type.kind == TypeKind::UndeterminedInteger) {
                     auto constant_value = unwrap_runtime_constant_value(expression_value.value);
 
                     auto integer_value = unwrap_integer_constant(constant_value);
 
                     return has({
-                        &undetermined_integer_singleton,
+                        create_undetermined_integer_type(),
                         new RuntimeConstantValue {
                             wrap_integer_constant(-integer_value)
                         }
                     });
-                } else if(expression_value.type->kind == TypeKind::Integer) {
-                    auto integer = (Integer*)expression_value.type;
+                } else if(expression_value.type.kind == TypeKind::Integer) {
+                    auto integer = expression_value.type.integer;
 
                     size_t register_index;
                     if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
@@ -4269,7 +4272,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         auto integer_value = unwrap_integer_constant(constant_value);
 
                         return has({
-                            &undetermined_integer_singleton,
+                            create_undetermined_integer_type(),
                             new RuntimeConstantValue {
                                 wrap_integer_constant(-integer_value)
                             }
@@ -4285,31 +4288,31 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             context,
                             instructions,
                             unary_operation->expression->range,
-                            integer->size,
+                            integer.size,
                             address_value->address_register
                         );
                     }
 
-                    auto zero_register = append_integer_constant(context, instructions, unary_operation->range, integer->size, 0);
+                    auto zero_register = append_integer_constant(context, instructions, unary_operation->range, integer.size, 0);
 
                     auto result_register = append_integer_arithmetic_operation(
                         context,
                         instructions,
                         unary_operation->range,
                         IntegerArithmeticOperation::Operation::Subtract,
-                        integer->size,
+                        integer.size,
                         zero_register,
                         register_index
                     );
 
                     return has({
-                        integer,
+                        wrap_integer_type(integer),
                         new RegisterValue {
                             result_register
                         }
                     });
-                } else if(expression_value.type->kind == TypeKind::FloatType) {
-                    auto float_type = (FloatType*)expression_value.type;
+                } else if(expression_value.type.kind == TypeKind::FloatType) {
+                    auto float_type = expression_value.type.float_;
 
                     size_t register_index;
                     if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
@@ -4318,7 +4321,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         auto float_value = unwrap_float_constant(constant_value);
 
                         return has({
-                            float_type,
+                            wrap_float_type(float_type),
                             new RuntimeConstantValue {
                                 wrap_float_constant(-float_value)
                             }
@@ -4334,36 +4337,36 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             context,
                             instructions,
                             unary_operation->expression->range,
-                            float_type->size,
+                            float_type.size,
                             address_value->address_register
                         );
                     }
 
-                    auto zero_register = append_float_constant(context, instructions, unary_operation->range, float_type->size, 0.0);
+                    auto zero_register = append_float_constant(context, instructions, unary_operation->range, float_type.size, 0.0);
 
                     auto result_register = append_float_arithmetic_operation(
                         context,
                         instructions,
                         unary_operation->range,
                         FloatArithmeticOperation::Operation::Subtract,
-                        float_type->size,
+                        float_type.size,
                         zero_register,
                         register_index
                     );
 
                     return has({
-                        float_type,
+                        wrap_float_type(float_type),
                         new RegisterValue {
                             result_register
                         }
                     });
-                } else if(expression_value.type->kind == TypeKind::UndeterminedFloat) {
+                } else if(expression_value.type.kind == TypeKind::UndeterminedFloat) {
                     auto constant_value = unwrap_runtime_constant_value(expression_value.value);
 
                     auto float_value = unwrap_float_constant(constant_value);
 
                     return has({
-                        &undetermined_float_singleton,
+                        create_undetermined_float_type(),
                         new RuntimeConstantValue {
                             wrap_float_constant(-float_value)
                         }
@@ -4427,11 +4430,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         if(coercion_result.status) {
             has_cast = true;
             register_index = coercion_result.value;
-        } else if(target_type->kind == TypeKind::Integer) {
-            auto target_integer = (Integer*)target_type;
+        } else if(target_type.kind == TypeKind::Integer) {
+            auto target_integer = target_type.integer;
 
-            if(expression_value.type->kind == TypeKind::Integer) {
-                auto integer = (Integer*)expression_value.type;
+            if(expression_value.type.kind == TypeKind::Integer) {
+                auto integer = expression_value.type.integer;
                 size_t value_register;
                 if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = (RegisterValue*)expression_value.value;
@@ -4444,7 +4447,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         context,
                         instructions,
                         cast->expression->range,
-                        integer->size,
+                        integer.size,
                         address_value->address_register
                     );
                 } else {
@@ -4453,14 +4456,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 has_cast = true;
 
-                if(target_integer->size > integer->size) {
+                if(target_integer.size > integer.size) {
                     register_index = append_integer_extension(
                         context,
                         instructions,
                         cast->range,
-                        integer->is_signed,
-                        integer->size,
-                        target_integer->size,
+                        integer.is_signed,
+                        integer.size,
+                        target_integer.size,
                         value_register
                     );
                 } else {
@@ -4468,13 +4471,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         context,
                         instructions,
                         cast->range,
-                        integer->size,
-                        target_integer->size,
+                        integer.size,
+                        target_integer.size,
                         value_register
                     );
                 }
-            } else if(expression_value.type->kind == TypeKind::FloatType) {
-                auto float_type = (FloatType*)expression_value.type;
+            } else if(expression_value.type.kind == TypeKind::FloatType) {
+                auto float_type = expression_value.type.float_;
                 size_t value_register;
                 if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = (RegisterValue*)expression_value.value;
@@ -4487,7 +4490,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         context,
                         instructions,
                         cast->expression->range,
-                        float_type->size,
+                        float_type.size,
                         address_value->address_register
                     );
                 } else {
@@ -4499,13 +4502,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     instructions,
                     cast->range,
-                    float_type->size,
-                    target_integer->size,
+                    float_type.size,
+                    target_integer.size,
                     value_register
                 );
-            } else if(expression_value.type->kind == TypeKind::Pointer) {
-                auto pointer = (Pointer*)expression_value.type;
-                if(target_integer->size == info.address_integer_size && !target_integer->is_signed) {
+            } else if(expression_value.type.kind == TypeKind::Pointer) {
+                auto pointer = expression_value.type.pointer;
+                if(target_integer.size == info.architecture_sizes.address_size && !target_integer.is_signed) {
                     has_cast = true;
 
                     if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
@@ -4519,7 +4522,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             context,
                             instructions,
                             cast->expression->range,
-                            info.address_integer_size,
+                            info.architecture_sizes.address_size,
                             address_value->address_register
                         );
                     } else {
@@ -4527,11 +4530,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     }
                 }
             }
-        } else if(target_type->kind == TypeKind::FloatType) {
-            auto target_float_type = (FloatType*)target_type;
+        } else if(target_type.kind == TypeKind::FloatType) {
+            auto target_float_type = target_type.float_;
 
-            if(expression_value.type->kind == TypeKind::Integer) {
-                auto integer = (Integer*)expression_value.type;
+            if(expression_value.type.kind == TypeKind::Integer) {
+                auto integer = expression_value.type.integer;
                 size_t value_register;
                 if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = (RegisterValue*)expression_value.value;
@@ -4544,7 +4547,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         context,
                         instructions,
                         cast->expression->range,
-                        integer->size,
+                        integer.size,
                         address_value->address_register
                     );
                 } else {
@@ -4556,13 +4559,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     instructions,
                     cast->range,
-                    integer->is_signed,
-                    integer->size,
-                    target_float_type->size,
+                    integer.is_signed,
+                    integer.size,
+                    target_float_type.size,
                     value_register
                 );
-            } else if(expression_value.type->kind == TypeKind::FloatType) {
-                auto float_type = (FloatType*)expression_value.type;
+            } else if(expression_value.type.kind == TypeKind::FloatType) {
+                auto float_type = expression_value.type.float_;
                 size_t value_register;
                 if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = (RegisterValue*)expression_value.value;
@@ -4575,7 +4578,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         context,
                         instructions,
                         cast->expression->range,
-                        float_type->size,
+                        float_type.size,
                         address_value->address_register
                     );
                 } else {
@@ -4587,17 +4590,17 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     instructions,
                     cast->range,
-                    float_type->size,
-                    target_float_type->size,
+                    float_type.size,
+                    target_float_type.size,
                     value_register
                 );
             }
-        } else if(target_type->kind == TypeKind::Pointer) {
-            auto target_pointer = (Pointer*)target_type;
+        } else if(target_type.kind == TypeKind::Pointer) {
+            auto target_pointer = target_type.pointer;
 
-            if(expression_value.type->kind == TypeKind::Integer) {
-                auto integer = (Integer*)expression_value.type;
-                if(integer->size == info.address_integer_size && !integer->is_signed) {
+            if(expression_value.type.kind == TypeKind::Integer) {
+                auto integer = expression_value.type.integer;
+                if(integer.size == info.architecture_sizes.address_size && !integer.is_signed) {
                     has_cast = true;
 
                     if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
@@ -4611,15 +4614,15 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             context,
                             instructions,
                             cast->expression->range,
-                            info.address_integer_size,
+                            info.architecture_sizes.address_size,
                             address_value->address_register
                         );
                     } else {
                         abort();
                     }
                 }
-            } else if(expression_value.type->kind == TypeKind::Pointer) {
-                auto pointer = (Pointer*)expression_value.type;
+            } else if(expression_value.type.kind == TypeKind::Pointer) {
+                auto pointer = expression_value.type.pointer;
                 has_cast = true;
 
                 if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
@@ -4633,7 +4636,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         context,
                         instructions,
                         cast->expression->range,
-                        info.address_integer_size,
+                        info.architecture_sizes.address_size,
                         address_value->address_register
                     );
                 } else {
@@ -4672,7 +4675,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             call_parameters[i] = parameter_value;
         }
 
-        if(expression_value.type->kind == TypeKind::PolymorphicFunction) {
+        if(expression_value.type.kind == TypeKind::PolymorphicFunction) {
             auto constant_value = unwrap_runtime_constant_value(expression_value.value);
 
             auto polymorphic_function_value = unwrap_polymorphic_function_constant(constant_value);
@@ -4759,7 +4762,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         if(resolve_polymorphic_function->done) {
                             return has({
-                                resolve_polymorphic_function->type,
+                                wrap_function_type(resolve_polymorphic_function->type),
                                 new RuntimeConstantValue {
                                     wrap_function_constant(resolve_polymorphic_function->value)
                                 }
@@ -4789,19 +4792,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             append(jobs, (Job*)resolve_polymorphic_function);
 
             return wait(resolve_polymorphic_function);
-        } else if(expression_value.type->kind == TypeKind::FunctionTypeType) {
-            auto function_type = (FunctionTypeType*)expression_value.type;
+        } else if(expression_value.type.kind == TypeKind::FunctionTypeType) {
+            auto function_type = expression_value.type.function;
 
             auto constant_value = unwrap_runtime_constant_value(expression_value.value);
 
             auto function_value = unwrap_function_constant(constant_value);
 
-            if(call_parameter_count != function_type->parameters.count) {
+            if(call_parameter_count != function_type.parameters.count) {
                 error(
                     scope,
                     function_call->range,
                     "Incorrect number of parameters. Expected %zu, got %zu",
-                    function_type->parameters.count,
+                    function_type.parameters.count,
                     call_parameter_count
                 );
 
@@ -4809,7 +4812,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             }
 
             return has({
-                function_type,
+                wrap_function_type(function_type),
                 new RuntimeConstantValue {
                     wrap_function_constant(function_value)
                 }
@@ -4838,29 +4841,29 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 array_type->index->range,
                 index_value.type,
                 index_value.value,
-                new Integer {
-                    info.address_integer_size,
+                {
+                    info.architecture_sizes.address_size,
                     false
                 },
                 false
             ));
 
             return has({
-                &type_type_singleton,
+                create_type_type(),
                 new RuntimeConstantValue {
-                    wrap_type_constant(new StaticArray {
+                    wrap_type_constant(wrap_static_array_type({
                         length,
-                        type
-                    })
+                        heapify(type)
+                    }))
                 }
             });
         } else {
             return has({
-                &type_type_singleton,
+                create_type_type(),
                 new RuntimeConstantValue {
-                    wrap_type_constant(new ArrayTypeType {
-                        type
-                    })
+                    wrap_type_constant(wrap_array_type({
+                        heapify(type)
+                    }))
                 }
             });
         }
@@ -4869,7 +4872,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto parameter_count = function_type->parameters.count;
 
-        auto parameters = allocate<Type*>(parameter_count);
+        auto parameters = allocate<AnyType>(parameter_count);
 
         for(size_t i = 0; i < parameter_count; i += 1) {
             auto parameter = function_type->parameters[i];
@@ -4933,9 +4936,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             }
         }
 
-        Type *return_type;
+        AnyType return_type;
         if(function_type->return_type == nullptr) {
-            return_type = &void_singleton;
+            return_type = create_void_type();
         } else {
             expect_delayed(return_type_value, evaluate_type_expression_runtime(info, jobs, scope, context, instructions, function_type->return_type));
 
@@ -4949,13 +4952,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         }
 
         return has({
-            &type_type_singleton,
+            create_type_type(),
             new RuntimeConstantValue {
-                wrap_type_constant(new FunctionTypeType {
+                wrap_type_constant(wrap_function_type({
                     { parameter_count, parameters },
-                    return_type,
+                    heapify(return_type),
                     calling_convention
-                })
+                }))
             }
         });
     } else {
@@ -4995,7 +4998,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
     } else if(statement->kind == StatementKind::VariableDeclaration) {
         auto variable_declaration = (VariableDeclaration*)statement;
 
-        Type *type;
+        AnyType type;
         size_t address_register;
 
         for(auto tag : variable_declaration->tags) {
@@ -5031,8 +5034,8 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
                 context,
                 instructions,
                 variable_declaration->range,
-                get_type_size(info, type),
-                get_type_alignment(info, type)
+                get_type_size(info.architecture_sizes, type),
+                get_type_alignment(info.architecture_sizes, type)
             );
 
             if(!coerce_to_type_write(
@@ -5063,8 +5066,8 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
                 context,
                 instructions,
                 variable_declaration->range,
-                get_type_size(info, type),
-                get_type_alignment(info, type)
+                get_type_size(info.architecture_sizes, type),
+                get_type_alignment(info.architecture_sizes, type)
             );
         } else if(variable_declaration->initializer != nullptr) {
             expect_delayed_void_ret(initializer_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->initializer));
@@ -5083,8 +5086,8 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
                 context,
                 instructions,
                 variable_declaration->range,
-                get_type_size(info, type),
-                get_type_alignment(info, type)
+                get_type_size(info.architecture_sizes, type),
+                get_type_alignment(info.architecture_sizes, type)
             );
 
             if(!coerce_to_type_write(
@@ -5197,7 +5200,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 
         expect_delayed_void_ret(condition, generate_expression(info, jobs, scope, context, instructions, if_statement->condition));
 
-        if(condition.type->kind != TypeKind::Boolean) {
+        if(condition.type.kind != TypeKind::Boolean) {
             error(scope, if_statement->condition->range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
 
             return err;
@@ -5243,7 +5246,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         for(size_t i = 0; i < if_statement->else_ifs.count; i += 1) {
             expect_delayed_void_ret(condition, generate_expression(info, jobs, scope, context, instructions, if_statement->else_ifs[i].condition));
 
-            if(condition.type->kind != TypeKind::Boolean) {
+            if(condition.type.kind != TypeKind::Boolean) {
                 error(scope, if_statement->else_ifs[i].condition->range, "Non-boolean if statement condition. Got %s", type_description(condition.type));
 
                 return err;
@@ -5330,7 +5333,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 
         expect_delayed_void_ret(condition, generate_expression(info, jobs, scope, context, instructions, while_loop->condition));
 
-        if(condition.type->kind != TypeKind::Boolean) {
+        if(condition.type.kind != TypeKind::Boolean) {
             error(scope, while_loop->condition->range, "Non-boolean while loop condition. Got %s", type_description(condition.type));
 
             return err;
@@ -5426,8 +5429,8 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 
         size_t condition_index;
         size_t to_register;
-        Integer *index_type;
-        if(from_value.type->kind == TypeKind::UndeterminedInteger) {
+        Integer index_type;
+        if(from_value.type.kind == TypeKind::UndeterminedInteger) {
             auto constant_value = unwrap_runtime_constant_value(from_value.value);
 
             auto from_integer_constant = unwrap_integer_constant(constant_value);
@@ -5454,15 +5457,15 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 
             expect(determined_index_type, coerce_to_default_type(info, scope, for_loop->range, to_value.type));
 
-            if(determined_index_type->kind == TypeKind::Integer) {
-                auto integer = (Integer*)determined_index_type;
+            if(determined_index_type.kind == TypeKind::Integer) {
+                auto integer = determined_index_type.integer;
 
-                allocate_local->size = register_size_to_byte_size(integer->size);
-                allocate_local->alignment = register_size_to_byte_size(integer->size);
+                allocate_local->size = register_size_to_byte_size(integer.size);
+                allocate_local->alignment = register_size_to_byte_size(integer.size);
 
-                integer_constant->size = integer->size;
+                integer_constant->size = integer.size;
 
-                store_integer->size = integer->size;
+                store_integer->size = integer.size;
 
                 if(!check_undetermined_integer_to_integer_coercion(scope, for_loop->range, integer, (int64_t)from_integer_constant, false)) {
                     return err;
@@ -5489,11 +5492,11 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         } else {
             expect(determined_index_type, coerce_to_default_type(info, scope, for_loop->range, from_value.type));
 
-            if(determined_index_type->kind == TypeKind::Integer) {
-                auto integer = (Integer*)determined_index_type;
+            if(determined_index_type.kind == TypeKind::Integer) {
+                auto integer = determined_index_type.integer;
 
-                allocate_local->size = register_size_to_byte_size(integer->size);
-                allocate_local->alignment = register_size_to_byte_size(integer->size);
+                allocate_local->size = register_size_to_byte_size(integer.size);
+                allocate_local->alignment = register_size_to_byte_size(integer.size);
 
                 expect(from_register, coerce_to_integer_register_value(
                     scope,
@@ -5506,7 +5509,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
                     false
                 ));
 
-                append_store_integer(context, instructions, for_loop->range, integer->size, from_register, index_address_register);
+                append_store_integer(context, instructions, for_loop->range, integer.size, from_register, index_address_register);
 
                 condition_index = instructions->count;
 
@@ -5536,12 +5539,12 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
             context,
             instructions,
             for_loop->range,
-            index_type->size,
+            index_type.size,
             index_address_register
         );
 
         IntegerComparisonOperation::Operation operation;
-        if(index_type->is_signed) {
+        if(index_type.is_signed) {
             operation = IntegerComparisonOperation::Operation::SignedGreaterThan;
         } else {
             operation = IntegerComparisonOperation::Operation::UnsignedGreaterThan;
@@ -5552,7 +5555,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
             instructions,
             for_loop->range,
             operation,
-            index_type->size,
+            index_type.size,
             current_index_regsiter,
             to_register
         );
@@ -5578,7 +5581,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         context->in_breakable_scope = true;
         context->break_jumps = {};
 
-        if(!add_new_variable(context, index_name, index_address_register, index_type)) {
+        if(!add_new_variable(context, index_name, index_address_register, wrap_integer_type(index_type))) {
             return err;
         }
 
@@ -5595,19 +5598,19 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 
         context->variable_scope_stack.count -= 1;
 
-        auto one_register = append_integer_constant(context, instructions, for_loop->range, index_type->size, 1);
+        auto one_register = append_integer_constant(context, instructions, for_loop->range, index_type.size, 1);
 
         auto next_index_register = append_integer_arithmetic_operation(
             context,
             instructions,
             for_loop->range,
             IntegerArithmeticOperation::Operation::Add,
-            index_type->size,
+            index_type.size,
             current_index_regsiter,
             one_register
         );
 
-        append_store_integer(context, instructions, for_loop->range, index_type->size, next_index_register, index_address_register);
+        append_store_integer(context, instructions, for_loop->range, index_type.size, next_index_register, index_address_register);
 
         append_jump(context, instructions, for_loop->range, condition_index);
 
@@ -5625,7 +5628,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         return_instruction->range = return_statement->range;
 
         if(return_statement->value != nullptr) {
-            if(context->return_type->kind == TypeKind::Void) {
+            if(context->return_type.kind == TypeKind::Void) {
                 error(scope, return_statement->range, "Erroneous return value");
 
                 return err;
@@ -5664,7 +5667,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
                     }
                 }
             }
-        } else if(context->return_type->kind != TypeKind::Void) {
+        } else if(context->return_type.kind != TypeKind::Void) {
             error(scope, return_statement->range, "Missing return value");
 
             return err;
@@ -5698,7 +5701,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     GlobalInfo info,
     List<Job*> *jobs,
-    FunctionTypeType *type,
+    FunctionTypeType type,
     FunctionConstant value,
     Function *function
 ), (
@@ -5714,23 +5717,14 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
     GenerationContext context {};
 
-    const char *file_path;
-    {
-        auto current_scope = value.body_scope;
+    auto file_path = get_scope_file_path(*value.body_scope);
 
-        while(!current_scope->is_top_level) {
-            current_scope = current_scope->parent;
-        }
-
-        file_path = current_scope->file_path;
-    }
-
-    auto parameter_count = type->parameters.count;
+    auto parameter_count = type.parameters.count;
     auto ir_parameter_count = parameter_count;
 
     RegisterRepresentation return_representation;
-    if(type->return_type->kind != TypeKind::Void) {
-        return_representation = get_type_representation(info, type->return_type);
+    if(type.return_type->kind != TypeKind::Void) {
+        return_representation = get_type_representation(info, *type.return_type);
 
         if(!return_representation.is_in_register) {
             ir_parameter_count += 1;
@@ -5742,7 +5736,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     size_t parameter_index = 0;
     for(size_t i = 0; i < declaration_parameter_count; i += 1) {
         if(!declaration->parameters[i].is_constant)  {
-            auto representation = get_type_representation(info, type->parameters[parameter_index]);
+            auto representation = get_type_representation(info, type.parameters[parameter_index]);
 
             if(representation.is_in_register) {
                 ir_parameters[parameter_index] = {
@@ -5751,7 +5745,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
                 };
             } else {
                 ir_parameters[parameter_index] = {
-                    info.address_integer_size,
+                    info.architecture_sizes.address_size,
                     false
                 };
             }
@@ -5762,21 +5756,21 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
     assert(parameter_index == parameter_count);
 
-    if(type->return_type->kind != TypeKind::Void && !return_representation.is_in_register) {
+    if(type.return_type->kind != TypeKind::Void && !return_representation.is_in_register) {
         ir_parameters[ir_parameter_count - 1] = {
-            info.address_integer_size,
+            info.architecture_sizes.address_size,
             false
         };
     }
 
     function->name = declaration->name.text;
     function->range = declaration->range;
-    function->scope = value.body_scope;
+    function->path = get_scope_file_path(*value.body_scope);
     function->parameters = { ir_parameter_count, ir_parameters };
-    function->has_return = type->return_type->kind != TypeKind::Void && return_representation.is_in_register;
-    function->calling_convention = type->calling_convention;
+    function->has_return = type.return_type->kind != TypeKind::Void && return_representation.is_in_register;
+    function->calling_convention = type.calling_convention;
 
-    if(type->return_type->kind != TypeKind::Void && return_representation.is_in_register) {
+    if(type.return_type->kind != TypeKind::Void && return_representation.is_in_register) {
         function->return_size = return_representation.value_size;
         function->is_return_float = return_representation.is_float;
     }
@@ -5794,8 +5788,8 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
         GenerationContext context {};
 
-        context.return_type = type->return_type;
-        if(type->return_type->kind != TypeKind::Void && !return_representation.is_in_register) {
+        context.return_type = *type.return_type;
+        if(type.return_type->kind != TypeKind::Void && !return_representation.is_in_register) {
             context.return_parameter_register = ir_parameter_count - 1;
         }
 
@@ -5813,10 +5807,10 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         size_t parameter_index = 0;
         for(size_t i = 0; i < declaration->parameters.count; i += 1) {
             if(!declaration->parameters[i].is_constant) {
-                auto parameter_type = type->parameters[i];
+                auto parameter_type = type.parameters[i];
 
-                auto size = get_type_size(info, parameter_type);
-                auto alignment = get_type_alignment(info, parameter_type);
+                auto size = get_type_size(info.architecture_sizes, parameter_type);
+                auto alignment = get_type_alignment(info.architecture_sizes, parameter_type);
 
                 auto address_register = append_allocate_local(
                     &context,
@@ -5891,7 +5885,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         }
 
         if(!has_return_at_end) {
-            if(type->return_type->kind != TypeKind::Void) {
+            if(type.return_type->kind != TypeKind::Void) {
                 error(value.body_scope, declaration->range, "Function '%.*s' must end with a return", STRING_PRINT(declaration->name.text));
 
                 return err;
@@ -5984,14 +5978,14 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             return err;
         }
 
-        auto size = get_type_size(info, type);
-        auto alignment = get_type_alignment(info, type);
+        auto size = get_type_size(info.architecture_sizes, type);
+        auto alignment = get_type_alignment(info.architecture_sizes, type);
 
         auto static_variable = new StaticVariable;
         static_variable->name = declaration->name.text;
         static_variable->is_no_mangle = true;
+        static_variable->path = get_scope_file_path(*scope);
         static_variable->range = declaration->range;
-        static_variable->scope = scope;
         static_variable->size = size;
         static_variable->alignment = alignment;
         static_variable->is_external = true;
@@ -6023,8 +6017,8 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
                 false
             ));
 
-            auto size = get_type_size(info, type);
-            auto alignment = get_type_alignment(info, type);
+            auto size = get_type_size(info.architecture_sizes, type);
+            auto alignment = get_type_alignment(info.architecture_sizes, type);
 
             auto data = allocate<uint8_t>(size);
 
@@ -6033,7 +6027,8 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             auto static_variable = new StaticVariable;
             static_variable->name = declaration->name.text;
             static_variable->is_no_mangle = is_no_mangle;
-            static_variable->scope = scope;
+            static_variable->path = get_scope_file_path(*scope);
+            static_variable->range = declaration->range;
             static_variable->size = size;
             static_variable->alignment = alignment;
             static_variable->is_external = false;
@@ -6053,12 +6048,13 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
                 return err;
             }
 
-            auto size = get_type_size(info, type);
-            auto alignment = get_type_alignment(info, type);
+            auto size = get_type_size(info.architecture_sizes, type);
+            auto alignment = get_type_alignment(info.architecture_sizes, type);
 
             auto static_variable = new StaticVariable;
             static_variable->name = declaration->name.text;
-            static_variable->scope = scope;
+            static_variable->path = get_scope_file_path(*scope);
+            static_variable->range = declaration->range;
             static_variable->size = size;
             static_variable->alignment = alignment;
             static_variable->is_no_mangle = is_no_mangle;
@@ -6079,8 +6075,8 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
                 return err;
             }
 
-            auto size = get_type_size(info, type);
-            auto alignment = get_type_alignment(info, type);
+            auto size = get_type_size(info.architecture_sizes, type);
+            auto alignment = get_type_alignment(info.architecture_sizes, type);
 
             auto data = allocate<uint8_t>(size);
 
@@ -6088,7 +6084,8 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
 
             auto static_variable = new StaticVariable;
             static_variable->name = declaration->name.text;
-            static_variable->scope = scope;
+            static_variable->path = get_scope_file_path(*scope);
+            static_variable->range = declaration->range;
             static_variable->size = size;
             static_variable->alignment = alignment;
             static_variable->is_no_mangle = is_no_mangle;

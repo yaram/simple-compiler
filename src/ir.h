@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "array.h"
 #include "register_size.h"
-#include "constant.h"
+#include "util.h"
 
 enum struct CallingConvention {
     Default,
@@ -334,8 +334,8 @@ struct RuntimeStatic {
     String name;
     bool is_no_mangle;
 
+    const char* path;
     FileRange range;
-    ConstantScope *scope;
 };
 
 struct Function : RuntimeStatic {

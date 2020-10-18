@@ -45,22 +45,22 @@ static void print_help_message(FILE *file) {
     fprintf(file, "  -help  Display this help message then exit\n");
 }
 
-inline void append_global_type(List<GlobalConstant> *global_constants, String name, Type *type) {
+inline void append_global_type(List<GlobalConstant> *global_constants, String name, AnyType type) {
     append(global_constants, {
         name,
-        &type_type_singleton,
+        create_type_type(),
         wrap_type_constant(type)
     });
 }
 
 inline void append_base_integer_type(List<GlobalConstant> *global_constants, String name, RegisterSize size, bool is_signed) {
-    append_global_type(global_constants, name, new Integer { size, is_signed });
+    append_global_type(global_constants, name, wrap_integer_type({ size, is_signed }));
 }
 
 inline void append_builtin(List<GlobalConstant> *global_constants, String name) {
     append(global_constants, {
         name,
-        &builtin_function_singleton,
+        create_builtin_function_type(),
         wrap_builtin_function_constant({
             name
         })
@@ -197,7 +197,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         output_file_path = get_default_output_file(os, no_link);
     }
 
-    auto regsiter_sizes = get_register_sizes(architecture);
+    auto architecture_sizes = get_architecture_sizes(architecture);
 
     List<GlobalConstant> global_constants{};
 
@@ -211,64 +211,64 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     append_base_integer_type(&global_constants, "i32"_S, RegisterSize::Size32, true);
     append_base_integer_type(&global_constants, "i64"_S, RegisterSize::Size64, true);
 
-    append_base_integer_type(&global_constants, "usize"_S, regsiter_sizes.address_size, false);
-    append_base_integer_type(&global_constants, "isize"_S, regsiter_sizes.address_size, true);
+    append_base_integer_type(&global_constants, "usize"_S, architecture_sizes.address_size, false);
+    append_base_integer_type(&global_constants, "isize"_S, architecture_sizes.address_size, true);
 
-    append_base_integer_type(&global_constants, "uint"_S, regsiter_sizes.default_size, false);
-    append_base_integer_type(&global_constants, "int"_S, regsiter_sizes.default_size, true);
+    append_base_integer_type(&global_constants, "uint"_S, architecture_sizes.default_integer_size, false);
+    append_base_integer_type(&global_constants, "int"_S, architecture_sizes.default_integer_size, true);
 
     append_global_type(
         &global_constants,
         "bool"_S,
-        &boolean_singleton
+        create_boolean_type()
     );
 
     append_global_type(
         &global_constants,
         "void"_S,
-        &void_singleton
+        create_void_type()
     );
 
     append_global_type(
         &global_constants,
         "f32"_S,
-        new FloatType {
+        wrap_float_type({
             RegisterSize::Size32
-        }
+        })
     );
 
     append_global_type(
         &global_constants,
         "f64"_S,
-        new FloatType {
+        wrap_float_type({
             RegisterSize::Size64
-        }
+        })
     );
 
     append_global_type(
         &global_constants,
         "float"_S,
-        new FloatType {
-            regsiter_sizes.default_size
-        }
+        wrap_float_type({
+            architecture_sizes.default_float_size
+        })
     );
 
     append(&global_constants, GlobalConstant {
         "true"_S,
-        &boolean_singleton,
+        create_boolean_type(),
         wrap_boolean_constant(true)
     });
 
     append(&global_constants, GlobalConstant {
         "false"_S,
-        &boolean_singleton,
+        create_boolean_type(),
         wrap_boolean_constant(false)
     });
 
     append_global_type(
         &global_constants,
         "type"_S,
-        &type_type_singleton
+        create_type_type()
     );
 
     append_builtin(&global_constants, "size_of"_S);
@@ -278,56 +278,55 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
     append(&global_constants, GlobalConstant {
         "X86"_S,
-        &boolean_singleton,
+        create_boolean_type(),
         wrap_boolean_constant(strcmp(architecture, "x86") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "X64"_S,
-        &boolean_singleton,
+        create_boolean_type(),
         wrap_boolean_constant(strcmp(architecture, "x64") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "WASM32"_S,
-        &boolean_singleton,
+        create_boolean_type(),
         wrap_boolean_constant(strcmp(config, "wasm32") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "WINDOWS"_S,
-        &boolean_singleton,
+        create_boolean_type(),
         wrap_boolean_constant(strcmp(os, "windows") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "LINUX"_S,
-        &boolean_singleton,
+        create_boolean_type(),
         wrap_boolean_constant(strcmp(os, "linux") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "EMSCRIPTEN"_S,
-        &boolean_singleton,
+        create_boolean_type(),
         wrap_boolean_constant(strcmp(os, "emscripten") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "DEBUG"_S,
-        &boolean_singleton,
+        create_boolean_type(),
         wrap_boolean_constant(strcmp(config, "debug") == 0)
     });
 
     append(&global_constants, GlobalConstant {
         "RELEASE"_S,
-        &boolean_singleton,
+        create_boolean_type(),
         wrap_boolean_constant(strcmp(config, "release") == 0)
     });
 
     GlobalInfo info {
         to_array(global_constants),
-        regsiter_sizes.address_size,
-        regsiter_sizes.default_size
+        architecture_sizes
     };
 
     List<Job*> jobs {};
@@ -445,8 +444,8 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             resolve_function_declaration->type = result.value.type;
                             resolve_function_declaration->value = result.value.value;
 
-                            if(resolve_function_declaration->type->kind == TypeKind::FunctionTypeType) {
-                                auto function_type = (FunctionTypeType*)resolve_function_declaration->type;
+                            if(resolve_function_declaration->type.kind == TypeKind::FunctionTypeType) {
+                                auto function_type = resolve_function_declaration->type.function;
 
                                 auto function_value = unwrap_function_constant(resolve_function_declaration->value);
 
@@ -649,12 +648,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         total_generator_time += end_time - start_time;
 
                         if(generate_function->done && print_ir) {
-                            auto current_scope = generate_function->function->scope;
-                            while(!current_scope->is_top_level) {
-                                current_scope = current_scope->parent;
-                            }
-
-                            printf("%s:\n", current_scope->file_path);
+                            printf("%s:\n", generate_function->function->path);
                             print_static(generate_function->function);
                             printf("\n");
 
@@ -770,34 +764,31 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                 return false;
             }
 
-            if(result.value.type->kind != TypeKind::FunctionTypeType) {
+            if(result.value.type.kind != TypeKind::FunctionTypeType) {
                 fprintf(stderr, "Error: 'main' must be a function. Got '%s'\n", type_description(result.value.type));
 
                 return false;
             }
 
-            auto function_type = (FunctionTypeType*)result.value.type;
+            auto function_type = result.value.type.function;
 
             auto function_value = unwrap_function_constant(result.value.value);
 
-            if(function_type->parameters.count != 0) {
+            if(function_type.parameters.count != 0) {
                 error(main_file_parse_job->scope, function_value.declaration->range, "'main' must have zero parameters");
 
                 return false;
             }
 
-            Integer expected_main_return_integer {
-                RegisterSize::Size32,
-                true
-            };
+            auto expected_main_return_integer = wrap_integer_type({ RegisterSize::Size32, true });
 
-            if(!types_equal(function_type->return_type, &expected_main_return_integer)) {
+            if(!types_equal(*function_type.return_type, expected_main_return_integer)) {
                 error(
                     main_file_parse_job->scope,
                     function_value.declaration->range,
                     "Incorrect 'main' return type. Expected '%s', got '%s'",
-                    type_description(&expected_main_return_integer),
-                    type_description(function_type->return_type)
+                    type_description(expected_main_return_integer),
+                    type_description(*function_type.return_type)
                 );
 
                 return false;
@@ -809,7 +800,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                     auto generate_function = (GenerateFunction*)job;
 
                     if(
-                        types_equal(generate_function->type, function_type) &&
+                        types_equal(wrap_function_type(generate_function->type), wrap_function_type(function_type)) &&
                         generate_function->value.declaration == function_value.declaration &&
                         generate_function->value.body_scope == function_value.body_scope
                     ) {

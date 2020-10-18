@@ -21,16 +21,21 @@
 #error Unsupported architecture
 #endif
 
-struct RegisterSizes {
-    RegisterSize address_size;
-    RegisterSize default_size;
-};
-
 bool does_os_exist(const char *os);
 bool does_architecture_exist(const char *architecture);
 bool is_supported_target(const char *os, const char *architecture);
 
-RegisterSizes get_register_sizes(const char *architecture);
+struct ArchitectureSizes {
+    RegisterSize address_size;
+
+    RegisterSize default_integer_size;
+
+    RegisterSize default_float_size;
+
+    RegisterSize boolean_size;
+};
+
+ArchitectureSizes get_architecture_sizes(const char *architecture);
 
 const char *get_llvm_triple(const char *architecture, const char *os);
 

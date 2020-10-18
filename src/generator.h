@@ -3,13 +3,14 @@
 #include "ast.h"
 #include "ir.h"
 #include "result.h"
+#include "constant.h"
 
 struct Job;
 
 DelayedResult<Array<StaticConstant*>> do_generate_function(
     GlobalInfo info,
     List<Job*> *jobs,
-    FunctionTypeType *type,
+    FunctionTypeType type,
     FunctionConstant value,
     Function *function
 );
@@ -17,7 +18,7 @@ DelayedResult<Array<StaticConstant*>> do_generate_function(
 struct StaticVariableResult {
     StaticVariable *static_variable;
 
-    Type *type;
+    AnyType type;
 };
 
 DelayedResult<StaticVariableResult> do_generate_static_variable(

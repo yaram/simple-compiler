@@ -5,6 +5,7 @@
 #include <llvm-c/Analysis.h>
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 #include "util.h"
 #include "list.h"
 #include "platform.h"
@@ -59,7 +60,7 @@ LLVMTypeRef get_llvm_type(RegisterSize size, bool is_float) {
 }
 
 Result<LLVMCallConv> get_llvm_calling_convention(
-    ConstantScope *scope,
+    const char *path,
     FileRange range,
     const char *os,
     const char *architecture,
@@ -104,7 +105,7 @@ Result<LLVMCallConv> get_llvm_calling_convention(
     }
 
     error(
-        scope,
+        path,
         range,
         "Cannot use '%s' calling convention with %s %s",
         calling_convention_name(calling_convention),
@@ -196,8 +197,8 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         if(runtime_static->is_no_mangle) {
             for(auto name_mapping : name_mappings) {
                 if(equal(name_mapping.name, runtime_static->name)) {
-                    error(runtime_static->scope, runtime_static->range, "Conflicting no_mangle name '%.*s'", STRING_PRINT(name_mapping.name));
-                    error(name_mapping.runtime_static->scope, name_mapping.runtime_static->range, "Conflicing declaration here");
+                    error(runtime_static->path, runtime_static->range, "Conflicting no_mangle name '%.*s'", STRING_PRINT(name_mapping.name));
+                    error(name_mapping.runtime_static->path, name_mapping.runtime_static->range, "Conflicing declaration here");
 
                     return err;
                 }
@@ -205,7 +206,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
             for(auto reserved_name : reserved_names) {
                 if(equal(reserved_name, runtime_static->name)) {
-                    error(runtime_static->scope, runtime_static->range, "Runtime name '%.*s' is reserved", STRING_PRINT(reserved_name));
+                    error(runtime_static->path, runtime_static->range, "Runtime name '%.*s' is reserved", STRING_PRINT(reserved_name));
 
                     return err;
                 }
@@ -265,7 +266,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
     assert(name_mappings.count == statics.count);
 
-    auto register_sizes = get_register_sizes(architecture);
+    auto architecture_sizes = get_architecture_sizes(architecture);
 
     auto builder = LLVMCreateBuilder();
 
@@ -315,7 +316,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
             }
 
-            expect(calling_convention, get_llvm_calling_convention(function->scope, function->range, os, architecture, function->calling_convention));
+            expect(calling_convention, get_llvm_calling_convention(function->path, function->range, os, architecture, function->calling_convention));
 
             LLVMSetFunctionCallConv(global_value, calling_convention);
         } else if(runtime_static->kind == RuntimeStaticKind::StaticConstant) {
@@ -552,7 +553,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildICmp(builder, predicate, value_a, value_b, name);
 
-                        auto extended_value = LLVMBuildZExt(builder, value, get_llvm_integer_type(register_sizes.default_size), "extend");
+                        auto extended_value = LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend");
 
                         append(&registers, {
                             integer_comparison_operation->destination_register,
@@ -661,7 +662,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildFCmp(builder, predicate, value_a, value_b, name);
 
-                        auto extended_value = LLVMBuildZExt(builder, value, get_llvm_integer_type(register_sizes.default_size), "extend");
+                        auto extended_value = LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend");
 
                         append(&registers, {
                             float_comparison_operation->destination_register,
@@ -788,7 +789,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         auto value = LLVMBuildCall(builder, function_pointer_value, parameter_values, (unsigned int)parameter_count, name);
 
                         expect(calling_convention, get_llvm_calling_convention(
-                            function->scope,
+                            function->path,
                             function_call->range,
                             os,
                             architecture,
@@ -830,7 +831,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         }
                         assert(found);
 
-                        auto address_value = LLVMBuildPtrToInt(builder, pointer_value, get_llvm_integer_type(register_sizes.address_size), "local_address");
+                        auto address_value = LLVMBuildPtrToInt(builder, pointer_value, get_llvm_integer_type(architecture_sizes.address_size), "local_address");
 
                         append(&registers, {
                             allocate_local->destination_register,
@@ -910,7 +911,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         }
                         assert(found);
 
-                        auto address_value = LLVMBuildPtrToInt(builder, global_value, get_llvm_integer_type(register_sizes.address_size), "static_address");
+                        auto address_value = LLVMBuildPtrToInt(builder, global_value, get_llvm_integer_type(architecture_sizes.address_size), "static_address");
 
                         append(&registers, {
                             reference_static->destination_register,
@@ -929,7 +930,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto destination_pointer_value = LLVMBuildIntToPtr(builder, destination_address_value, pointer_type, "destination");
 
-                        auto length_value = LLVMConstInt(get_llvm_integer_type(register_sizes.address_size), copy_memory->length, false);
+                        auto length_value = LLVMConstInt(get_llvm_integer_type(architecture_sizes.address_size), copy_memory->length, false);
 
                         LLVMBuildMemCpyInline(
                             builder,

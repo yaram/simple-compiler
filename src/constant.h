@@ -3,13 +3,12 @@
 #include <assert.h>
 #include "result.h"
 #include "ast.h"
+#include "types.h"
 #include "register_size.h"
+#include "platform.h"
 #include "list.h"
 
 struct Job;
-struct Type;
-struct FunctionTypeType;
-struct Integer;
 struct ConstantScope;
 struct AnyConstantValue;
 
@@ -83,7 +82,7 @@ struct AnyConstantValue {
         StaticArrayConstant static_array;
         StructConstant struct_;
         FileModuleConstant file_module;
-        Type *type;
+        AnyType type;
     };
 };
 
@@ -248,16 +247,16 @@ inline FileModuleConstant unwrap_file_module_constant(AnyConstantValue value) {
     return value.file_module;
 }
 
-inline AnyConstantValue wrap_type_constant(Type *value) {
+inline AnyConstantValue wrap_type_constant(AnyType value) {
     AnyConstantValue result;
-    result.kind = ConstantValueKind::IntegerConstant;
+    result.kind = ConstantValueKind::TypeConstant;
     result.type = value;
 
     return result;
 }
 
-inline Type *unwrap_type_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::IntegerConstant);
+inline AnyType unwrap_type_constant(AnyConstantValue value) {
+    assert(value.kind == ConstantValueKind::TypeConstant);
 
     return value.type;
 }
@@ -276,7 +275,7 @@ Statement *search_in_declaration_hash_table(DeclarationHashTable declaration_has
 struct ScopeConstant {
     String name;
 
-    Type *type;
+    AnyType type;
 
     AnyConstantValue value;
 };
@@ -294,10 +293,12 @@ struct ConstantScope {
     const char *file_path;
 };
 
+const char *get_scope_file_path(ConstantScope scope);
+
 struct GlobalConstant {
     String name;
 
-    Type *type;
+    AnyType type;
 
     AnyConstantValue value;
 };
@@ -305,12 +306,11 @@ struct GlobalConstant {
 struct GlobalInfo {
     Array<GlobalConstant> global_constants;
 
-    RegisterSize address_integer_size;
-    RegisterSize default_integer_size;
+    ArchitectureSizes architecture_sizes;
 };
 
 struct TypedConstantValue {
-    Type *type;
+    AnyType type;
 
     AnyConstantValue value;
 };
@@ -344,67 +344,67 @@ struct DelayedResult<void> {
 #define expect_delayed_void_both(expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,__##name##_result.waiting_for}
 void error(ConstantScope *scope, FileRange range, const char *format, ...);
 
-Result<const char *> static_array_to_c_string(ConstantScope *scope, FileRange range, Type *type, AnyConstantValue value);
+Result<const char *> static_array_to_c_string(ConstantScope *scope, FileRange range, AnyType type, AnyConstantValue value);
 
-bool check_undetermined_integer_to_integer_coercion(ConstantScope *scope, FileRange range, Integer *target_type, int64_t value, bool probing);
+bool check_undetermined_integer_to_integer_coercion(ConstantScope *scope, FileRange range, Integer target_type, int64_t value, bool probing);
 Result<uint64_t> coerce_constant_to_integer_type(
     ConstantScope *scope,
     FileRange range,
-    Type *type,
+    AnyType type,
     AnyConstantValue value,
-    Integer *target_type,
+    Integer target_type,
     bool probing
 );
 Result<AnyConstantValue> coerce_constant_to_type(
     GlobalInfo info,
     ConstantScope *scope,
     FileRange range,
-    Type *type,
+    AnyType type,
     AnyConstantValue value,
-    Type *target_type,
+    AnyType target_type,
     bool probing
 );
 Result<TypedConstantValue> evaluate_constant_index(
     GlobalInfo info,
     ConstantScope *scope,
-    Type *type,
+    AnyType type,
     AnyConstantValue value,
     FileRange range,
-    Type *index_type,
+    AnyType index_type,
     AnyConstantValue index_value,
     FileRange index_range
 );
-Result<Type*> determine_binary_operation_type(ConstantScope *scope, FileRange range, Type *left, Type *right);
+Result<AnyType> determine_binary_operation_type(ConstantScope *scope, FileRange range, AnyType left, AnyType right);
 Result<TypedConstantValue> evaluate_constant_binary_operation(
     GlobalInfo info,
     ConstantScope *scope,
     FileRange range,
     BinaryOperation::Operator binary_operator,
     FileRange left_range,
-    Type *left_type,
+    AnyType left_type,
     AnyConstantValue left_value,
     FileRange right_range,
-    Type *right_type,
+    AnyType right_type,
     AnyConstantValue right_value
 );
 Result<AnyConstantValue> evaluate_constant_cast(
     GlobalInfo info,
     ConstantScope *scope,
-    Type *type,
+    AnyType type,
     AnyConstantValue value,
     FileRange value_range,
-    Type *target_type,
+    AnyType target_type,
     FileRange target_range,
     bool probing
 );
-DelayedResult<Type*> evaluate_type_expression(
+DelayedResult<AnyType> evaluate_type_expression(
     GlobalInfo info,
     List<Job*> *jobs,
     ConstantScope *scope,
     Statement *ignore_statement,
     Expression *expression
 );
-Result<Type*> coerce_to_default_type(GlobalInfo info, ConstantScope *scope, FileRange range, Type *type);
+Result<AnyType> coerce_to_default_type(GlobalInfo info, ConstantScope *scope, FileRange range, AnyType type);
 bool is_declaration_public(Statement *declaration);
 bool match_public_declaration(Statement *statement, String name);
 bool match_declaration(Statement *statement, String name);
@@ -414,12 +414,12 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
     ConstantScope *scope,
     Statement *declaration
 );
-bool constant_values_equal(Type *type, AnyConstantValue a, AnyConstantValue b);
+bool constant_values_equal(AnyType type, AnyConstantValue a, AnyConstantValue b);
 
 struct DeclarationSearchValue {
     bool found;
 
-    Type *type;
+    AnyType type;
     AnyConstantValue value;
 };
 
@@ -461,7 +461,8 @@ DelayedResult<TypedConstantValue> do_resolve_function_declaration(
 );
 
 struct FunctionResolutionValue {
-    FunctionTypeType *type;
+    FunctionTypeType type;
+
     FunctionConstant value;
 };
 
@@ -475,14 +476,14 @@ DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
     FileRange *call_parameter_ranges
 );
 
-DelayedResult<Type*> do_resolve_struct_definition(
+DelayedResult<AnyType> do_resolve_struct_definition(
     GlobalInfo info,
     List<Job*> *jobs,
     StructDefinition *struct_definition,
     ConstantScope *scope
 );
 
-DelayedResult<Type*> do_resolve_polymorphic_struct(
+DelayedResult<AnyType> do_resolve_polymorphic_struct(
     GlobalInfo info,
     List<Job*> *jobs,
     StructDefinition *struct_definition,
