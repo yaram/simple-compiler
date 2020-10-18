@@ -118,45 +118,98 @@ static bool add_new_variable(GenerationContext *context, Identifier name, size_t
     return true;
 }
 
+struct AnyRuntimeValue;
+
+struct RegisterValue {
+    size_t register_index;
+};
+
+struct AddressValue {
+    size_t address_register;
+};
+
+struct UndeterminedStructValue {
+    AnyRuntimeValue *members;
+};
+
 enum struct RuntimeValueKind {
-    RuntimeConstantValue,
+    ConstantValue,
     RegisterValue,
     AddressValue,
     UndeterminedStructValue
 };
 
-struct RuntimeValue {
+struct AnyRuntimeValue {
     RuntimeValueKind kind;
+
+    union {
+        AnyConstantValue constant;
+        RegisterValue register_;
+        AddressValue address;
+        UndeterminedStructValue undetermined_struct;
+    };
 };
 
-struct RuntimeConstantValue : RuntimeValue {
-    AnyConstantValue value;
+inline AnyRuntimeValue wrap_constant_value(AnyConstantValue value) {
+    AnyRuntimeValue result;
+    result.kind = RuntimeValueKind::ConstantValue;
+    result.constant = value;
 
-    RuntimeConstantValue(AnyConstantValue value) : RuntimeValue { RuntimeValueKind::RuntimeConstantValue }, value { value } {}
-};
+    return result;
+}
 
-struct RegisterValue : RuntimeValue {
-    size_t register_index;
+inline AnyConstantValue unwrap_constant_value(AnyRuntimeValue value) {
+    assert(value.kind == RuntimeValueKind::ConstantValue);
 
-    RegisterValue(size_t register_index) : RuntimeValue { RuntimeValueKind::RegisterValue }, register_index { register_index } {}
-};
+    return value.constant;
+}
 
-struct AddressValue : RuntimeValue {
-    size_t address_register;
+inline AnyRuntimeValue wrap_register_value(RegisterValue value) {
+    AnyRuntimeValue result;
+    result.kind = RuntimeValueKind::RegisterValue;
+    result.register_ = value;
 
-    AddressValue(size_t address_register) : RuntimeValue { RuntimeValueKind::AddressValue }, address_register { address_register } {}
-};
+    return result;
+}
 
-struct UndeterminedStructValue : RuntimeValue {
-    RuntimeValue **members;
+inline RegisterValue unwrap_register_value(AnyRuntimeValue value) {
+    assert(value.kind == RuntimeValueKind::RegisterValue);
 
-    UndeterminedStructValue(RuntimeValue **members) : RuntimeValue { RuntimeValueKind::UndeterminedStructValue }, members { members } {}
-};
+    return value.register_;
+}
+
+inline AnyRuntimeValue wrap_address_value(AddressValue value) {
+    AnyRuntimeValue result;
+    result.kind = RuntimeValueKind::AddressValue;
+    result.address = value;
+
+    return result;
+}
+
+inline AddressValue unwrap_address_value(AnyRuntimeValue value) {
+    assert(value.kind == RuntimeValueKind::AddressValue);
+
+    return value.address;
+}
+
+inline AnyRuntimeValue wrap_undetermined_struct_value(UndeterminedStructValue value) {
+    AnyRuntimeValue result;
+    result.kind = RuntimeValueKind::UndeterminedStructValue;
+    result.undetermined_struct = value;
+
+    return result;
+}
+
+inline UndeterminedStructValue unwrap_undetermined_struct_value(AnyRuntimeValue value) {
+    assert(value.kind == RuntimeValueKind::UndeterminedStructValue);
+
+    return value.undetermined_struct;
+}
 
 struct TypedRuntimeValue {
     AnyType type;
 
-    RuntimeValue *value;
+    AnyRuntimeValue value;
 };
 
 static size_t allocate_register(GenerationContext *context) {
@@ -798,62 +851,56 @@ static size_t generate_in_register_integer_value(
     List<Instruction*> *instructions,
     FileRange range,
     Integer type,
-    RuntimeValue *value
+    AnyRuntimeValue value
 ) {
-    if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto constant_value = (RuntimeConstantValue*)value;
-
-        auto integer_value = unwrap_integer_constant(constant_value->value);
+    if(value.kind == RuntimeValueKind::ConstantValue) {
+        auto integer_value = unwrap_integer_constant(value.constant);
 
         return append_integer_constant(context, instructions, range, type.size, integer_value);
-    } else if(value->kind == RuntimeValueKind::RegisterValue) {
-        auto regsiter_value = (RegisterValue*)value;
+    } else if(value.kind == RuntimeValueKind::RegisterValue) {
+        auto register_value = value.register_;
 
-        return regsiter_value->register_index;
-    } else if(value->kind == RuntimeValueKind::AddressValue) {
-        auto address_value = (AddressValue*)value;
+        return register_value.register_index;
+    } else if(value.kind == RuntimeValueKind::AddressValue) {
+        auto address_value = value.address;
 
-        return append_load_integer(context, instructions, range, type.size, address_value->address_register);
+        return append_load_integer(context, instructions, range, type.size, address_value.address_register);
     } else {
         abort();
     }
 }
 
-static size_t generate_in_register_boolean_value(GlobalInfo info, GenerationContext *context, List<Instruction*> *instructions, FileRange range, RuntimeValue *value) {
-    if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto constant_value = (RuntimeConstantValue*)value;
-
-        auto boolean_value = unwrap_boolean_constant(constant_value->value);
+static size_t generate_in_register_boolean_value(GlobalInfo info, GenerationContext *context, List<Instruction*> *instructions, FileRange range, AnyRuntimeValue value) {
+    if(value.kind == RuntimeValueKind::ConstantValue) {
+        auto boolean_value = unwrap_boolean_constant(value.constant);
 
         return append_integer_constant(context, instructions, range, info.architecture_sizes.boolean_size, boolean_value);
-    } else if(value->kind == RuntimeValueKind::RegisterValue) {
-        auto regsiter_value = (RegisterValue*)value;
+    } else if(value.kind == RuntimeValueKind::RegisterValue) {
+        auto register_value = value.register_;
 
-        return regsiter_value->register_index;
-    } else if(value->kind == RuntimeValueKind::AddressValue) {
-        auto address_value = (AddressValue*)value;
+        return register_value.register_index;
+    } else if(value.kind == RuntimeValueKind::AddressValue) {
+        auto address_value = value.address;
 
-        return append_load_integer(context, instructions, range, info.architecture_sizes.boolean_size, address_value->address_register);
+        return append_load_integer(context, instructions, range, info.architecture_sizes.boolean_size, address_value.address_register);
     } else {
         abort();
     }
 }
 
-static size_t generate_in_register_pointer_value(GlobalInfo info, GenerationContext *context, List<Instruction*> *instructions, FileRange range, RuntimeValue *value) {
-    if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto constant_value = (RuntimeConstantValue*)value;
-
-        auto pointer_value = unwrap_pointer_constant(constant_value->value);
+static size_t generate_in_register_pointer_value(GlobalInfo info, GenerationContext *context, List<Instruction*> *instructions, FileRange range, AnyRuntimeValue value) {
+    if(value.kind == RuntimeValueKind::ConstantValue) {
+        auto pointer_value = unwrap_pointer_constant(value.constant);
 
         return append_integer_constant(context, instructions, range, info.architecture_sizes.address_size, pointer_value);
-    } else if(value->kind == RuntimeValueKind::RegisterValue) {
-        auto regsiter_value = (RegisterValue*)value;
+    } else if(value.kind == RuntimeValueKind::RegisterValue) {
+        auto register_value = value.register_;
 
-        return regsiter_value->register_index;
-    } else if(value->kind == RuntimeValueKind::AddressValue) {
-        auto address_value = (AddressValue*)value;
+        return register_value.register_index;
+    } else if(value.kind == RuntimeValueKind::AddressValue) {
+        auto address_value = value.address;
 
-        return append_load_integer(context, instructions, range, info.architecture_sizes.address_size, address_value->address_register);
+        return append_load_integer(context, instructions, range, info.architecture_sizes.address_size, address_value.address_register);
     } else {
         abort();
     }
@@ -865,7 +912,7 @@ static Result<size_t> coerce_to_integer_register_value(
     List<Instruction*> *instructions,
     FileRange range,
     AnyType type,
-    RuntimeValue *value,
+    AnyRuntimeValue value,
     Integer target_type,
     bool probing
 ) {
@@ -878,9 +925,7 @@ static Result<size_t> coerce_to_integer_register_value(
             return ok(register_index);
         }
     } else if(type.kind == TypeKind::UndeterminedInteger) {
-        auto constant_value = (RuntimeConstantValue*)value;
-
-        auto integer_value = unwrap_integer_constant(constant_value->value);
+        auto integer_value = unwrap_integer_constant(value.constant);
 
         if(!check_undetermined_integer_to_integer_coercion(scope, range, target_type, (int64_t)integer_value, probing)) {
             return err;
@@ -904,14 +949,12 @@ static Result<size_t> coerce_to_float_register_value(
     List<Instruction*> *instructions,
     FileRange range,
     AnyType type,
-    RuntimeValue *value,
+    AnyRuntimeValue value,
     FloatType target_type,
     bool probing
 ) {
     if(type.kind == TypeKind::UndeterminedInteger) {
-        auto constant_value = (RuntimeConstantValue*)value;
-
-        auto integer_value = unwrap_integer_constant(constant_value->value);
+        auto integer_value = unwrap_integer_constant(value.constant);
 
         auto register_index = append_float_constant(context, instructions, range, target_type.size, (double)integer_value);
 
@@ -921,20 +964,18 @@ static Result<size_t> coerce_to_float_register_value(
 
         if(target_type.size == float_type.size) {
             size_t register_index;
-            if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto constant_value = (RuntimeConstantValue*)value;
-
-                auto float_value = unwrap_float_constant(constant_value->value);
+            if(value.kind == RuntimeValueKind::ConstantValue) {
+                auto float_value = unwrap_float_constant(value.constant);
 
                 register_index = append_float_constant(context, instructions, range, float_type.size, float_value);
-            } else if(value->kind == RuntimeValueKind::RegisterValue) {
-                auto regsiter_value = (RegisterValue*)value;
+            } else if(value.kind == RuntimeValueKind::RegisterValue) {
+                auto register_value = value.register_;
 
-                register_index = regsiter_value->register_index;
-            } else if(value->kind == RuntimeValueKind::AddressValue) {
-                auto address_value = (AddressValue*)value;
+                register_index = register_value.register_index;
+            } else if(value.kind == RuntimeValueKind::AddressValue) {
+                auto address_value = value.address;
 
-                register_index = append_load_float(context, instructions, range, float_type.size, address_value->address_register);
+                register_index = append_load_float(context, instructions, range, float_type.size, address_value.address_register);
             } else {
                 abort();
             }
@@ -942,9 +983,7 @@ static Result<size_t> coerce_to_float_register_value(
             return ok(register_index);
         }
     } else if(type.kind == TypeKind::UndeterminedFloat) {
-        auto constant_value = (RuntimeConstantValue*)value;
-
-        auto float_value = unwrap_float_constant(constant_value->value);
+        auto float_value = unwrap_float_constant(value.constant);
 
         auto register_index = append_float_constant(context, instructions, range, target_type.size, float_value);
 
@@ -965,14 +1004,12 @@ static Result<size_t> coerce_to_pointer_register_value(
     List<Instruction*> *instructions,
     FileRange range,
     AnyType type,
-    RuntimeValue *value,
+    AnyRuntimeValue value,
     Pointer target_type,
     bool probing
 ) {
     if(type.kind == TypeKind::UndeterminedInteger) {
-        auto constant_value = (RuntimeConstantValue*)value;
-
-        auto integer_value = unwrap_integer_constant(constant_value->value);
+        auto integer_value = unwrap_integer_constant(value.constant);
 
         auto register_index = append_integer_constant(
             context,
@@ -1007,7 +1044,7 @@ static bool coerce_to_type_write(
     List<Instruction*> *instructions,
     FileRange range,
     AnyType type,
-    RuntimeValue *value,
+    AnyRuntimeValue value,
     AnyType target_type,
     size_t address_register
 );
@@ -1019,7 +1056,7 @@ static Result<size_t> coerce_to_type_register(
     List<Instruction*> *instructions,
     FileRange range,
     AnyType type,
-    RuntimeValue *value,
+    AnyRuntimeValue value,
     AnyType target_type,
     bool probing
 ) {
@@ -1082,14 +1119,14 @@ static Result<size_t> coerce_to_type_register(
             auto array_type = type.array;
             if(types_equal(*target_array.element_type, *array_type.element_type)) {
                 size_t register_index;
-                if(value->kind == RuntimeValueKind::RegisterValue) {
-                    auto regsiter_value = (RegisterValue*)value;
+                if(value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = value.register_;
 
-                    register_index = regsiter_value->register_index;
-                } else if(value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)value;
+                    register_index = register_value.register_index;
+                } else if(value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = value.address;
 
-                    register_index = address_value->address_register;
+                    register_index = address_value.address_register;
                 } else {
                     abort();
                 }
@@ -1101,10 +1138,8 @@ static Result<size_t> coerce_to_type_register(
 
             if(types_equal(*target_array.element_type, *static_array.element_type)) {
                 size_t pointer_register;
-                if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = (RuntimeConstantValue*)value;
-
-                    auto static_array_value = unwrap_static_array_constant(constant_value->value);
+                if(value.kind == RuntimeValueKind::ConstantValue) {
+                    auto static_array_value = unwrap_static_array_constant(value.constant);
 
                     auto static_constant = register_static_array_constant(
                         info,
@@ -1116,14 +1151,14 @@ static Result<size_t> coerce_to_type_register(
                     );
 
                     pointer_register = append_reference_static(context, instructions, range, static_constant);
-                } else if(value->kind == RuntimeValueKind::RegisterValue) {
-                    auto regsiter_value = (RegisterValue*)value;
+                } else if(value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = value.register_;
 
-                    pointer_register = regsiter_value->register_index;
-                } else if(value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)value;
+                    pointer_register = register_value.register_index;
+                } else if(value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = value.address;
 
-                    pointer_register = address_value->address_register;
+                    pointer_register = address_value.address_register;
                 } else {
                     abort();
                 }
@@ -1161,8 +1196,7 @@ static Result<size_t> coerce_to_type_register(
                 equal(undetermined_struct.members[0].name, "pointer"_S) &&
                 equal(undetermined_struct.members[1].name, "length"_S)
             ) {
-                auto undetermined_struct_value = (UndeterminedStructValue*)value;
-                assert(value->kind == RuntimeValueKind::UndeterminedStructValue);
+                auto undetermined_struct_value = unwrap_undetermined_struct_value(value);
 
                 auto pointer_result = coerce_to_pointer_register_value(
                     info,
@@ -1171,7 +1205,7 @@ static Result<size_t> coerce_to_type_register(
                     instructions,
                     range,
                     undetermined_struct.members[0].type,
-                    undetermined_struct_value->members[0],
+                    undetermined_struct_value.members[0],
                     {
                         target_array.element_type
                     },
@@ -1185,7 +1219,7 @@ static Result<size_t> coerce_to_type_register(
                         instructions,
                         range,
                         undetermined_struct.members[1].type,
-                        undetermined_struct_value->members[1],
+                        undetermined_struct_value.members[1],
                         {
                             info.architecture_sizes.address_size,
                             false
@@ -1235,14 +1269,14 @@ static Result<size_t> coerce_to_type_register(
 
             if(types_equal(*target_static_array.element_type, *static_array.element_type) && target_static_array.length == static_array.length) {
                 size_t register_index;
-                if(value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)value;
+                if(value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = value.register_;
 
-                    register_index = register_value->register_index;
-                } else if(value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)value;
+                    register_index = register_value.register_index;
+                } else if(value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = value.address;
 
-                    register_index = address_value->address_register;
+                    register_index = address_value.address_register;
                 } else {
                     abort();
                 }
@@ -1271,14 +1305,14 @@ static Result<size_t> coerce_to_type_register(
 
                 if(same_members) {
                     size_t register_index;
-                    if(value->kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = (RegisterValue*)value;
+                    if(value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = value.register_;
 
-                        register_index = register_value->register_index;
-                    } else if(value->kind == RuntimeValueKind::AddressValue) {
-                        auto address_value = (AddressValue*)value;
+                        register_index = register_value.register_index;
+                    } else if(value.kind == RuntimeValueKind::AddressValue) {
+                        auto address_value = value.address;
 
-                        register_index = address_value->address_register;
+                        register_index = address_value.address_register;
                     } else {
                         abort();
                     }
@@ -1289,8 +1323,7 @@ static Result<size_t> coerce_to_type_register(
         } else if(type.kind == TypeKind::UndeterminedStruct) {
             auto undetermined_struct = type.undetermined_struct;
 
-            auto undetermined_struct_value = (UndeterminedStructValue*)value;
-            assert(value->kind == RuntimeValueKind::UndeterminedStructValue);
+            auto undetermined_struct_value = unwrap_undetermined_struct_value(value);
 
             if(target_struct_type.definition->is_union) {
                 if(undetermined_struct.members.count == 1) {
@@ -1311,7 +1344,7 @@ static Result<size_t> coerce_to_type_register(
                                 instructions,
                                 range,
                                 undetermined_struct.members[0].type,
-                                undetermined_struct_value->members[0],
+                                undetermined_struct_value.members[0],
                                 target_struct_type.members[i].type,
                                 address_register
                             )) {
@@ -1360,7 +1393,7 @@ static Result<size_t> coerce_to_type_register(
                                 instructions,
                                 range,
                                 undetermined_struct.members[i].type,
-                                undetermined_struct_value->members[i],
+                                undetermined_struct_value.members[i],
                                 target_struct_type.members[i].type,
                                 member_address_register
                             )) {
@@ -1395,7 +1428,7 @@ static bool coerce_to_type_write(
     List<Instruction*> *instructions,
     FileRange range,
     AnyType type,
-    RuntimeValue *value,
+    AnyRuntimeValue value,
     AnyType target_type,
     size_t address_register
 ) {
@@ -1434,9 +1467,7 @@ static bool coerce_to_type_write(
         auto target_pointer = target_type.pointer;
 
         if(type.kind == TypeKind::UndeterminedInteger) {
-            auto constant_value = (RuntimeConstantValue*)value;
-
-            auto integer_value = unwrap_integer_constant(constant_value->value);
+            auto integer_value = unwrap_integer_constant(value.constant);
 
             auto register_index = append_integer_constant(
                 context,
@@ -1475,10 +1506,8 @@ static bool coerce_to_type_write(
 
             if(types_equal(*target_array.element_type, *array_type.element_type)) {
                 size_t source_address_register;
-                if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = (RuntimeConstantValue*)value;
-
-                    auto array_value = unwrap_array_constant(constant_value->value);
+                if(value.kind == RuntimeValueKind::ConstantValue) {
+                    auto array_value = unwrap_array_constant(value.constant);
 
                     auto pointer_register = append_integer_constant(
                         context,
@@ -1510,14 +1539,14 @@ static bool coerce_to_type_write(
                     append_store_integer(context, instructions, range, info.architecture_sizes.address_size, length_register, length_address_register);
 
                     return true;
-                } else if(value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)value;
+                } else if(value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = value.register_;
 
-                    source_address_register = register_value->register_index;
-                } else if(value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)value;
+                    source_address_register = register_value.register_index;
+                } else if(value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = value.address;
 
-                    source_address_register = address_value->address_register;
+                    source_address_register = address_value.address_register;
                 } else {
                     abort();
                 }
@@ -1538,10 +1567,8 @@ static bool coerce_to_type_write(
             auto static_array = type.static_array;
             if(types_equal(*target_array.element_type, *static_array.element_type)) {
                 size_t pointer_register;
-                if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = (RuntimeConstantValue*)value;
-
-                    auto static_array_value = unwrap_static_array_constant(constant_value->value);
+                if(value.kind == RuntimeValueKind::ConstantValue) {
+                    auto static_array_value = unwrap_static_array_constant(value.constant);
 
                     auto static_constant = register_static_array_constant(
                         info,
@@ -1553,14 +1580,14 @@ static bool coerce_to_type_write(
                     );
 
                     pointer_register = append_reference_static(context, instructions, range, static_constant);
-                } else if(value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)value;
+                } else if(value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = value.register_;
 
-                    pointer_register = register_value->register_index;
-                } else if(value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)value;
+                    pointer_register = register_value.register_index;
+                } else if(value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = value.address;
 
-                    pointer_register = address_value->address_register;
+                    pointer_register = address_value.address_register;
                 } else {
                     abort();
                 }
@@ -1590,8 +1617,7 @@ static bool coerce_to_type_write(
                 equal(undetermined_struct.members[0].name, "pointer"_S) &&
                 equal(undetermined_struct.members[1].name, "length"_S)
             ) {
-                auto undetermined_struct_value = (UndeterminedStructValue*)value;
-                assert(value->kind == RuntimeValueKind::UndeterminedStructValue);
+                auto undetermined_struct_value = unwrap_undetermined_struct_value(value);
 
                 auto pointer_result = coerce_to_pointer_register_value(
                     info,
@@ -1600,7 +1626,7 @@ static bool coerce_to_type_write(
                     instructions,
                     range,
                     undetermined_struct.members[0].type,
-                    undetermined_struct_value->members[0],
+                    undetermined_struct_value.members[0],
                     {
                         target_array.element_type
                     },
@@ -1614,7 +1640,7 @@ static bool coerce_to_type_write(
                         instructions,
                         range,
                         undetermined_struct.members[1].type,
-                        undetermined_struct_value->members[1],
+                        undetermined_struct_value.members[1],
                         {
                             info.architecture_sizes.address_size,
                             false
@@ -1656,10 +1682,8 @@ static bool coerce_to_type_write(
 
             if(types_equal(*target_static_array.element_type, *static_array.element_type) && target_static_array.length == static_array.length) {
                 size_t source_address_register;
-                if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = (RuntimeConstantValue*)value;
-
-                    auto static_array_value = unwrap_static_array_constant(constant_value->value);
+                if(value.kind == RuntimeValueKind::ConstantValue) {
+                    auto static_array_value = unwrap_static_array_constant(value.constant);
 
                     auto static_constant = register_static_array_constant(
                         info,
@@ -1671,14 +1695,14 @@ static bool coerce_to_type_write(
                     );
 
                     source_address_register = append_reference_static(context, instructions, range, static_constant);
-                } else if(value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)value;
+                } else if(value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = value.register_;
 
-                    source_address_register = register_value->register_index;
-                } else if(value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)value;
+                    source_address_register = register_value.register_index;
+                } else if(value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = value.address;
 
-                    source_address_register = address_value->address_register;
+                    source_address_register = address_value.address_register;
                 } else {
                     abort();
                 }
@@ -1717,10 +1741,8 @@ static bool coerce_to_type_write(
 
                 if(same_members) {
                     size_t source_address_register;
-                    if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto constant_value = (RuntimeConstantValue*)value;
-
-                        auto struct_value = unwrap_struct_constant(constant_value->value);
+                    if(value.kind == RuntimeValueKind::ConstantValue) {
+                        auto struct_value = unwrap_struct_constant(value.constant);
 
                         auto static_constant = register_struct_constant(
                             info,
@@ -1732,14 +1754,14 @@ static bool coerce_to_type_write(
                         );
 
                         source_address_register = append_reference_static(context, instructions, range, static_constant);
-                    } else if(value->kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = (RegisterValue*)value;
+                    } else if(value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = value.register_;
 
-                        source_address_register = register_value->register_index;
-                    } else if(value->kind == RuntimeValueKind::AddressValue) {
-                        auto address_value = (AddressValue*)value;
+                        source_address_register = register_value.register_index;
+                    } else if(value.kind == RuntimeValueKind::AddressValue) {
+                        auto address_value = value.address;
 
-                        source_address_register = address_value->address_register;
+                        source_address_register = address_value.address_register;
                     } else {
                         abort();
                     }
@@ -1764,19 +1786,15 @@ static bool coerce_to_type_write(
                 if(undetermined_struct.members.count == 1) {
                     for(size_t i = 0; i < target_struct_type.members.count; i += 1) {
                         if(equal(target_struct_type.members[i].name, undetermined_struct.members[0].name)) {
-                            RuntimeValue *variant_value;
-                            if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                                auto constant_value = (RuntimeConstantValue*)value;
+                            AnyRuntimeValue variant_value;
+                            if(value.kind == RuntimeValueKind::ConstantValue) {
+                                auto struct_value = unwrap_struct_constant(value.constant);
 
-                                auto struct_value = unwrap_struct_constant(constant_value->value);
+                                variant_value = wrap_constant_value(struct_value.members[0]);
+                            } else if(value.kind == RuntimeValueKind::UndeterminedStructValue) {
+                                auto undetermined_struct_value = value.undetermined_struct;
 
-                                variant_value = new RuntimeConstantValue {
-                                    struct_value.members[0]
-                                };
-                            } else if(value->kind == RuntimeValueKind::UndeterminedStructValue) {
-                                auto undetermined_struct_value = (UndeterminedStructValue*)value;
-
-                                variant_value = undetermined_struct_value->members[0];
+                                variant_value = undetermined_struct_value.members[0];
                             } else {
                                 abort();
                             }
@@ -1813,19 +1831,15 @@ static bool coerce_to_type_write(
                     if(same_members) {
                         auto success = true;
                         for(size_t i = 0; i < undetermined_struct.members.count; i += 1) {
-                            RuntimeValue *member_value;
-                            if(value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                                auto constant_value = (RuntimeConstantValue*)value;
+                            AnyRuntimeValue member_value;
+                            if(value.kind == RuntimeValueKind::ConstantValue) {
+                                auto struct_value = unwrap_struct_constant(value.constant);
 
-                                auto struct_value = unwrap_struct_constant(constant_value->value);
+                                member_value = wrap_constant_value(struct_value.members[i]);
+                            } else if(value.kind == RuntimeValueKind::UndeterminedStructValue) {
+                                auto undetermined_struct_value = value.undetermined_struct;
 
-                                member_value = new RuntimeConstantValue {
-                                    struct_value.members[i]
-                                };
-                            } else if(value->kind == RuntimeValueKind::UndeterminedStructValue) {
-                                auto undetermined_struct_value = (UndeterminedStructValue*)value;
-
-                                member_value = undetermined_struct_value->members[i];
+                                member_value = undetermined_struct_value.members[i];
                             } else {
                                 abort();
                             }
@@ -1892,9 +1906,9 @@ static DelayedResult<AnyType> evaluate_type_expression_runtime(
     expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, expression));
 
     if(expression_value.type.kind == TypeKind::Type) {
-        auto constant_value = (RuntimeConstantValue*)expression_value.value;
+        auto constant_value = unwrap_constant_value(expression_value.value);
 
-        return has(unwrap_type_constant(constant_value->value));
+        return has(unwrap_type_constant(constant_value));
     } else {
         error(scope, expression->range, "Expected a type, got %s", type_description(expression_value.type));
 
@@ -1917,11 +1931,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
     expect_delayed(right, generate_expression(info, jobs, scope, context, instructions, right_expression));
 
-    if(left.value->kind == RuntimeValueKind::RuntimeConstantValue && right.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-        auto left_constant_value = (RuntimeConstantValue*)left.value;
-
-        auto right_constant_value = (RuntimeConstantValue*)right.value;
-
+    if(left.value.kind == RuntimeValueKind::ConstantValue && right.value.kind == RuntimeValueKind::ConstantValue) {
         expect(constant, evaluate_constant_binary_operation(
             info,
             scope,
@@ -1929,17 +1939,15 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             binary_operator,
             left_expression->range,
             left.type,
-            left_constant_value->value,
+            left.value.constant,
             right_expression->range,
             right.type,
-            right_constant_value->value
+            right.value.constant
         ));
 
         return has({
             constant.type,
-            new RuntimeConstantValue {
-                constant.value
-            }
+            wrap_constant_value(constant.value)
         });
     }
 
@@ -2085,9 +2093,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
         return has({
             result_type,
-            new RegisterValue {
-                result_register
-            }
+            wrap_register_value({ result_register })
         });
     } else if(determined_type.kind == TypeKind::Boolean) {
         if(left.type.kind != TypeKind::Boolean) {
@@ -2170,9 +2176,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
         return has({
             create_boolean_type(),
-            new RegisterValue {
-                result_register
-            }
+            wrap_register_value({ result_register })
         });
     } else if(determined_type.kind == TypeKind::FloatType) {
         auto float_type = determined_type.float_;
@@ -2284,9 +2288,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
         return has({
             result_type,
-            new RegisterValue {
-                result_register
-            }
+            wrap_register_value({ result_register })
         });
     } else if(determined_type.kind == TypeKind::Pointer) {
         auto pointer = determined_type.pointer;
@@ -2350,26 +2352,18 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
         return has({
             create_boolean_type(),
-            new RegisterValue {
-                result_register
-            }
+            wrap_register_value({ result_register })
         });
     } else {
         abort();
     }
 }
 
-inline AnyConstantValue unwrap_runtime_constant_value(RuntimeValue *value) {
-    assert(value->kind == RuntimeValueKind::RuntimeConstantValue);
-
-    return ((RuntimeConstantValue*)value)->value;
-}
-
 struct RuntimeDeclarationSearchValue {
     bool found;
 
     AnyType type;
-    RuntimeValue *value;
+    AnyRuntimeValue value;
 };
 
 static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_for_declaration, (
@@ -2411,9 +2405,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
         return has({
             true,
             value.type,
-            new RuntimeConstantValue {
-                value.value
-            }
+            wrap_constant_value(value.value)
         });
     }
 
@@ -2545,9 +2537,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
                                     return has({
                                         true,
                                         generate_static_variable->type,
-                                        new AddressValue {
-                                            address_register
-                                        }
+                                        wrap_address_value({ address_register })
                                     });
                                 } else {
                                     return wait(generate_static_variable);
@@ -2567,9 +2557,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
             return has({
                 true,
                 scope_constant.type,
-                new RuntimeConstantValue {
-                    scope_constant.value
-                }
+                wrap_constant_value(scope_constant.value)
             });
         }
     }
@@ -2606,9 +2594,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 if(equal(variable.name.text, named_reference->name.text)) {
                     return has({
                         variable.type,
-                        new AddressValue {
-                            variable.address_register
-                        }
+                        wrap_address_value({ variable.address_register })
                     });
                 }
             }
@@ -2673,9 +2659,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             if(equal(named_reference->name.text, global_constant.name)) {
                 return has({
                     global_constant.type,
-                    new RuntimeConstantValue {
-                        global_constant.value
-                    }
+                    wrap_constant_value(global_constant.value)
                 });
             }
         }
@@ -2690,27 +2674,21 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         expect_delayed(index, generate_expression(info, jobs, scope, context, instructions, index_reference->index));
 
-        if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue && index.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-            auto expression_value_constant = (RuntimeConstantValue*)expression_value.value;
-
-            auto index_constant = (RuntimeConstantValue*)index.value;
-
-            expect(constant, evaluate_constant_index(
+        if(expression_value.value.kind == RuntimeValueKind::ConstantValue && index.value.kind == RuntimeValueKind::ConstantValue) {
+             expect(constant, evaluate_constant_index(
                 info,
                 scope,
                 expression_value.type,
-                expression_value_constant->value,
+                expression_value.value.constant,
                 index_reference->expression->range,
                 index.type,
-                index_constant->value,
+                index.value.constant,
                 index_reference->index->range
             ));
 
             return has({
                 constant.type,
-                new RuntimeConstantValue {
-                    constant.value
-                }
+                wrap_constant_value(constant.value)
             });
         }
 
@@ -2734,10 +2712,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto array_type = expression_value.type.array;
             element_type = *array_type.element_type;
 
-            if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto constant_value = (RuntimeConstantValue*)expression_value.value;
-
-                auto pointer_value = unwrap_pointer_constant(constant_value->value);
+            if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
+                auto pointer_value = unwrap_pointer_constant(expression_value.value.constant);
 
                 base_address_register = append_integer_constant(
                     context,
@@ -2746,25 +2722,25 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     info.architecture_sizes.address_size,
                     pointer_value
                 );
-            } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                auto register_value = (RegisterValue*)expression_value.value;
+            } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                auto register_value = expression_value.value.register_;
 
                 base_address_register = append_load_integer(
                     context,
                     instructions,
                     index_reference->expression->range,
                     info.architecture_sizes.address_size,
-                    register_value->register_index
+                    register_value.register_index
                 );
-            } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                auto address_value = (AddressValue*)expression_value.value;
+            } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                auto address_value = expression_value.value.address;
 
                 base_address_register = append_load_integer(
                     context,
                     instructions,
                     index_reference->expression->range,
                     info.architecture_sizes.address_size,
-                    address_value->address_register
+                    address_value.address_register
                 );
             } else {
                 abort();
@@ -2773,10 +2749,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto static_array = expression_value.type.static_array;
             element_type = *static_array.element_type;
 
-            if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto constant_value = (RuntimeConstantValue*)expression_value.value;
-
-                auto static_array_value = unwrap_static_array_constant(constant_value->value);
+            if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
+                auto static_array_value = unwrap_static_array_constant(expression_value.value.constant);
 
                 auto static_constant = register_static_array_constant(
                     info,
@@ -2793,14 +2767,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     index_reference->expression->range,
                     static_constant
                 );
-            } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                auto register_value = (RegisterValue*)expression_value.value;
+            } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                auto register_value = expression_value.value.register_;
 
-                base_address_register = register_value->register_index;
-            } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                auto address_value = (AddressValue*)expression_value.value;
+                base_address_register = register_value.register_index;
+            } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                auto address_value = expression_value.value.address;
 
-                base_address_register = address_value->address_register;
+                base_address_register = address_value.address_register;
             } else {
                 abort();
             }
@@ -2836,9 +2810,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         return has({
             element_type,
-            new AddressValue {
-                address_register
-            }
+            wrap_address_value({ address_register })
         });
     } else if(expression->kind == ExpressionKind::MemberReference) {
         auto member_reference = (MemberReference*)expression;
@@ -2846,16 +2818,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, member_reference->expression));
 
         AnyType actual_type;
-        RuntimeValue *actual_value;
+        AnyRuntimeValue actual_value;
         if(expression_value.type.kind == TypeKind::Pointer) {
             auto pointer = expression_value.type.pointer;
             actual_type = *pointer.type;
 
             size_t address_register;
-            if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                auto constant_value = (RuntimeConstantValue*)expression_value.value;
-
-                auto integer_value = unwrap_integer_constant(constant_value->value);
+            if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
+                auto integer_value = unwrap_integer_constant(expression_value.value.constant);
 
                 address_register = append_integer_constant(
                     context,
@@ -2864,27 +2834,25 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     info.architecture_sizes.address_size,
                     integer_value
                 );
-            } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                auto register_value = (RegisterValue*)expression_value.value;
+            } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                auto register_value = expression_value.value.register_;
 
-                address_register = register_value->register_index;
-            } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                auto address_value = (AddressValue*)expression_value.value;
+                address_register = register_value.register_index;
+            } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                auto address_value = expression_value.value.address;
 
                 address_register = append_load_integer(
                     context,
                     instructions,
                     member_reference->expression->range,
                     info.architecture_sizes.address_size,
-                    address_value->address_register
+                    address_value.address_register
                 );
             } else {
                 abort();
             }
 
-            actual_value = new AddressValue {
-                address_register
-            };
+            actual_value = wrap_address_value({ address_register });
         } else {
             actual_type = expression_value.type;
             actual_value = expression_value.value;
@@ -2899,24 +2867,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     false
                 };
 
-                RuntimeValue *value;
-                if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = (RuntimeConstantValue*)expression_value.value;
+                AnyRuntimeValue value;
+                if(actual_value.kind == RuntimeValueKind::ConstantValue) {
+                    auto array_value = unwrap_array_constant(expression_value.value.constant);
 
-                    auto array_value = unwrap_array_constant(constant_value->value);
-
-                    value = new RuntimeConstantValue {
-                        wrap_integer_constant(array_value.length)
-                    };
-                } else if(actual_value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)actual_value;
+                    value = wrap_constant_value(wrap_integer_constant(array_value.length));
+                } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = actual_value.register_;
 
                     auto address_register = generate_address_offset(
                         info,
                         context,
                         instructions,
                         member_reference->range,
-                        register_value->register_index,
+                        register_value.register_index,
                         register_size_to_byte_size(info.architecture_sizes.address_size)
                     );
 
@@ -2928,24 +2892,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         address_register
                     );
 
-                    value = new RegisterValue {
-                        length_register
-                    };
-                } else if(actual_value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)actual_value;
+                    value = wrap_register_value({ length_register });
+                } else if(actual_value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = actual_value.address;
 
                     auto address_register = generate_address_offset(
                         info,
                         context,
                         instructions,
                         member_reference->range,
-                        address_value->address_register,
+                        address_value.address_register,
                         register_size_to_byte_size(info.architecture_sizes.address_size)
                     );
 
-                    value = new AddressValue {
-                        address_register
-                    };
+                    value = wrap_address_value({ address_register });
                 } else {
                     abort();
                 }
@@ -2958,35 +2918,27 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     value
                 });
             } else if(equal(member_reference->name.text, "pointer"_S)) {
-                RuntimeValue *value;
-                if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = (RuntimeConstantValue*)expression_value.value;
+                AnyRuntimeValue value;
+                if(actual_value.kind == RuntimeValueKind::ConstantValue) {
+                    auto array_value = unwrap_array_constant(expression_value.value.constant);
 
-                    auto array_value = unwrap_array_constant(constant_value->value);
-
-                    value = new RuntimeConstantValue {
-                        wrap_pointer_constant(array_value.pointer)
-                    };
-                } else if(actual_value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)actual_value;
+                    value = wrap_constant_value(wrap_pointer_constant(array_value.pointer));
+                } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = actual_value.register_;
 
                     auto length_register = append_load_integer(
                         context,
                         instructions,
                         member_reference->range,
                         info.architecture_sizes.address_size,
-                        register_value->register_index
+                        register_value.register_index
                     );
 
-                    value = new RegisterValue {
-                        length_register
-                    };
-                } else if(actual_value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)actual_value;
+                    value = wrap_register_value({ length_register });
+                } else if(actual_value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = actual_value.address;
 
-                    value = new AddressValue {
-                        address_value->address_register
-                    };
+                    value = wrap_address_value({ address_value.address_register });
                 } else {
                     abort();
                 }
@@ -3011,16 +2963,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         info.architecture_sizes.address_size,
                         false
                     }),
-                    new RuntimeConstantValue {
-                        wrap_integer_constant(static_array.length)
-                    }
+                    wrap_constant_value(wrap_integer_constant(static_array.length))
                 });
             } else if(equal(member_reference->name.text, "pointer"_S)) {
                 size_t address_regsiter;
-                if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = (RuntimeConstantValue*)expression_value.value;
-
-                    auto static_array_value = unwrap_static_array_constant(constant_value->value);
+                if(actual_value.kind == RuntimeValueKind::ConstantValue) {
+                    auto static_array_value = unwrap_static_array_constant(expression_value.value.constant);
 
                     auto static_constant = register_static_array_constant(
                         info,
@@ -3032,14 +2980,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     );
 
                     address_regsiter = append_reference_static(context, instructions, member_reference->range, static_constant);
-                } else if(actual_value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)actual_value;
+                } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = actual_value.register_;
 
-                    address_regsiter = register_value->register_index;
-                } else if(actual_value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)actual_value;
+                    address_regsiter = register_value.register_index;
+                } else if(actual_value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = actual_value.address;
 
-                    address_regsiter = address_value->address_register;
+                    address_regsiter = address_value.address_register;
                 } else {
                     abort();
                 }
@@ -3048,9 +2996,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     wrap_pointer_type({
                         static_array.element_type
                     }),
-                    new RegisterValue {
-                        address_regsiter
-                    }
+                    wrap_register_value({ address_regsiter })
                 });
             } else {
                 error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINT(member_reference->name.text));
@@ -3064,28 +3010,24 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 if(equal(struct_type.members[i].name, member_reference->name.text)) {
                     auto member_type = struct_type.members[i].type;
 
-                    if(actual_value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto constant_value = (RuntimeConstantValue*)expression_value.value;
-
-                        auto struct_value = unwrap_struct_constant(constant_value->value);
+                    if(actual_value.kind == RuntimeValueKind::ConstantValue) {
+                        auto struct_value = unwrap_struct_constant(expression_value.value.constant);
 
                         assert(!struct_type.definition->is_union);
 
                         return has({
                             member_type,
-                            new RuntimeConstantValue {
-                                struct_value.members[i]
-                            }
+                            wrap_constant_value(struct_value.members[i])
                         });
-                    } else if(actual_value->kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = (RegisterValue*)actual_value;
+                    } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = actual_value.register_;
 
                         auto address_register = generate_address_offset(
                             info,
                             context,
                             instructions,
                             member_reference->range,
-                            register_value->register_index,
+                            register_value.register_index,
                             get_struct_member_offset(info.architecture_sizes, struct_type, i)
                         );
 
@@ -3116,27 +3058,23 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         return has({
                             member_type,
-                            new RegisterValue {
-                                register_index
-                            }
+                            wrap_register_value({ register_index })
                         });
-                    } else if(actual_value->kind == RuntimeValueKind::AddressValue) {
-                        auto address_value = (AddressValue*)actual_value;
+                    } else if(actual_value.kind == RuntimeValueKind::AddressValue) {
+                        auto address_value = actual_value.address;
 
                         auto address_register = generate_address_offset(
                             info,
                             context,
                             instructions,
                             member_reference->range,
-                            address_value->address_register,
+                            address_value.address_register,
                             get_struct_member_offset(info.architecture_sizes, struct_type, i)
                         );
 
                         return has({
                             member_type,
-                            new AddressValue {
-                                address_register
-                            }
+                            wrap_address_value({ address_register })
                         });
                     } else {
                         abort();
@@ -3150,13 +3088,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         } else if(actual_type.kind == TypeKind::UndeterminedStruct) {
             auto undetermined_struct = actual_type.undetermined_struct;
 
-            auto undetermined_struct_value = (UndeterminedStructValue*)actual_value;
+            auto undetermined_struct_value = actual_value.undetermined_struct;
 
             for(size_t i = 0; i < undetermined_struct.members.count; i += 1) {
                 if(equal(undetermined_struct.members[i].name, member_reference->name.text)) {
                     return has({
                         undetermined_struct.members[i].type,
-                        undetermined_struct_value->members[i]
+                        undetermined_struct_value.members[i]
                     });
                 }
             }
@@ -3165,9 +3103,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             return err;
         } else if(actual_type.kind == TypeKind::FileModule) {
-            auto constant_value = (RuntimeConstantValue*)expression_value.value;
-
-            auto file_module_value = unwrap_file_module_constant(constant_value->value);
+            auto file_module_value = unwrap_file_module_constant(expression_value.value.constant);
 
             expect_delayed(search_value, search_for_declaration(
                 info,
@@ -3204,18 +3140,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         return has({
             create_undetermined_integer_type(),
-            new RuntimeConstantValue {
-                wrap_integer_constant(integer_literal->value)
-            }
+            wrap_constant_value(wrap_integer_constant(integer_literal->value))
         });
     } else if(expression->kind == ExpressionKind::FloatLiteral) {
         auto float_literal = (FloatLiteral*)expression;
 
         return has({
             create_undetermined_float_type(),
-            new RuntimeConstantValue {
-                wrap_float_constant(float_literal->value)
-            }
+            wrap_constant_value(wrap_float_constant(float_literal->value))
         });
     } else if(expression->kind == ExpressionKind::StringLiteral) {
         auto string_literal = (StringLiteral*)expression;
@@ -3236,11 +3168,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     false
                 }))
             }),
-            new RuntimeConstantValue {
-                wrap_static_array_constant({
-                    characters
-                })
-            }
+            wrap_constant_value(wrap_static_array_constant({
+                characters
+            }))
         });
     } else if(expression->kind == ExpressionKind::ArrayLiteral) {
         auto array_literal = (ArrayLiteral*)expression;
@@ -3272,24 +3202,22 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             elements[i] = element;
 
-            if(element.value->kind != RuntimeValueKind::RuntimeConstantValue) {
+            if(element.value.kind != RuntimeValueKind::ConstantValue) {
                 all_constant = false;
             }
         }
 
-        RuntimeValue *value;
+        AnyRuntimeValue value;
         if(all_constant) {
             auto element_values = allocate<AnyConstantValue>(element_count);
 
             for(size_t i = 0; i < element_count; i += 1) {
-                auto constant_value = ((RuntimeConstantValue*)elements[i].value)->value;
-
                 expect(coerced_constant_value, coerce_constant_to_type(
                     info,
                     scope,
                     array_literal->elements[i]->range,
                     elements[i].type,
-                    constant_value,
+                    elements[i].value.constant,
                     determined_element_type,
                     false
                 ));
@@ -3297,11 +3225,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 element_values[i] = coerced_constant_value;
             }
 
-            value = new RuntimeConstantValue {
-                wrap_static_array_constant({
-                    element_values
-                })
-            };
+            value = wrap_constant_value(wrap_static_array_constant({
+                element_values
+            }));
         } else {
             auto element_size = get_type_size(info.architecture_sizes, determined_element_type);
 
@@ -3350,9 +3276,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             }
 
-            value = new RegisterValue {
-                address_register
-            };
+            value = wrap_register_value({ address_register });
         }
 
         return has({
@@ -3374,7 +3298,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         auto member_count = struct_literal->members.count;
 
         auto type_members = allocate<StructTypeMember>(member_count);
-        auto member_values = allocate<RuntimeValue*>(member_count);
+        auto member_values = allocate<AnyRuntimeValue>(member_count);
         auto all_constant = true;
 
         for(size_t i = 0; i < member_count; i += 1) {
@@ -3395,30 +3319,26 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             member_values[i] = member.value;
 
-            if(member.value->kind != RuntimeValueKind::RuntimeConstantValue) {
+            if(member.value.kind != RuntimeValueKind::ConstantValue) {
                 all_constant = false;
             }
         }
 
-        RuntimeValue *value;
+        AnyRuntimeValue value;
         if(all_constant) {
             auto constant_member_values = allocate<AnyConstantValue>(member_count);
 
             for(size_t i = 0; i < member_count; i += 1) {
-                auto constant_value = ((RuntimeConstantValue*)member_values[i])->value;
-
-                constant_member_values[i] = constant_value;
+                constant_member_values[i] = member_values[i].constant;
             }
 
-            value = new RuntimeConstantValue {
-                wrap_struct_constant({
-                    constant_member_values
-                })
-            };
+            value = wrap_constant_value(wrap_struct_constant({
+                constant_member_values
+            }));
         } else {
-            value = new UndeterminedStructValue {
+            value = wrap_undetermined_struct_value({
                 member_values
-            };
+            });
         }
 
         return has({
@@ -3448,7 +3368,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             FunctionTypeType function_type;
             FunctionConstant function_value;
             if(expression_value.type.kind == TypeKind::PolymorphicFunction) {
-                auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+                auto constant_value = unwrap_constant_value(expression_value.value);
 
                 auto polymorphic_function_value = unwrap_polymorphic_function_constant(constant_value);
 
@@ -3477,7 +3397,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     }
 
                     if(declaration_parameter.is_constant) {
-                        if(call_parameters[i].value->kind != RuntimeValueKind::RuntimeConstantValue) {
+                        if(call_parameters[i].value.kind != RuntimeValueKind::ConstantValue) {
                             error(
                                 scope,
                                 function_call->parameters[i]->range,
@@ -3488,11 +3408,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             return err;
                         }
 
-                        auto constant_value = ((RuntimeConstantValue*)call_parameters[i].value)->value;
-
                         polymorphic_parameters[i] = {
                             call_parameters[i].type,
-                            constant_value
+                            call_parameters[i].value.constant
                         };
                     }
                 }
@@ -3570,7 +3488,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else {
                 function_type = expression_value.type.function;
 
-                auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+                auto constant_value = unwrap_constant_value(expression_value.value);
 
                 function_value = unwrap_function_constant(constant_value);
 
@@ -3696,7 +3614,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
             function_call_instruction->calling_convention = function_type.calling_convention;
 
-            RuntimeValue *value;
+            AnyRuntimeValue value;
             if(has_return) {
                 if(return_type_representation.is_in_register) {
                     auto return_register = allocate_register(context);
@@ -3705,18 +3623,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     function_call_instruction->is_return_float = return_type_representation.is_float;
                     function_call_instruction->return_register = return_register;
 
-                    value = new RegisterValue {
-                        return_register
-                    };
+                    value = wrap_register_value({ return_register });
                 } else {
-                    value = new RegisterValue {
-                        instruction_parameters[instruction_parameter_count - 1].register_index
-                    };
+                    value = wrap_register_value({ instruction_parameters[instruction_parameter_count - 1].register_index });
                 }
             } else {
-                value = new RuntimeConstantValue {
-                    create_void_constant()
-                };
+                value = wrap_constant_value(create_void_constant());
             }
 
             append(instructions, (Instruction*)function_call_instruction);
@@ -3726,7 +3638,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 value
             });
         } else if(expression_value.type.kind == TypeKind::BuiltinFunction) {
-            auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+            auto constant_value = unwrap_constant_value(expression_value.value);
 
             auto builtin_function_value = unwrap_builtin_function_constant(constant_value);
 
@@ -3741,7 +3653,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 AnyType type;
                 if(parameter_value.type.kind == TypeKind::Type) {
-                    auto constant_value = unwrap_runtime_constant_value(parameter_value.value);
+                    auto constant_value = unwrap_constant_value(parameter_value.value);
 
                     type = unwrap_type_constant(constant_value);
                 } else {
@@ -3761,9 +3673,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         info.architecture_sizes.address_size,
                         false
                     }),
-                    new RuntimeConstantValue {
-                        wrap_integer_constant(size)
-                    }
+                    wrap_constant_value(wrap_integer_constant(size))
                 });
             } else if(equal(builtin_function_value.name, "type_of"_S)) {
                 if(function_call->parameters.count != 1) {
@@ -3776,9 +3686,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 return has({
                     create_type_type(),
-                    new RuntimeConstantValue {
-                        wrap_type_constant(parameter_value.type)
-                    }
+                    wrap_constant_value(wrap_type_constant(parameter_value.type))
                 });
             } else if(equal(builtin_function_value.name, "memcpy"_S)) {
                 if(function_call->parameters.count != 3) {
@@ -3865,9 +3773,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 return has({
                     create_void_type(),
-                    new RuntimeConstantValue {
-                        create_void_constant()
-                    }
+                    wrap_constant_value(create_void_constant())
                 });
             } else {
                 abort();
@@ -3967,7 +3873,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             function_call_instruction->has_return = has_return && return_type_representation.is_in_register;
             function_call_instruction->calling_convention = function.calling_convention;
 
-            RuntimeValue *value;
+            AnyRuntimeValue value;
             if(has_return) {
                 if(return_type_representation.is_in_register) {
                     auto return_register = allocate_register(context);
@@ -3976,18 +3882,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     function_call_instruction->is_return_float = return_type_representation.is_float;
                     function_call_instruction->return_register = return_register;
 
-                    value = new RegisterValue {
-                        return_register
-                    };
+                    value = wrap_register_value({ return_register });
                 } else {
-                    value = new RegisterValue {
-                        instruction_parameters[instruction_parameter_count - 1].register_index
-                    };
+                    value = wrap_register_value({ instruction_parameters[instruction_parameter_count - 1].register_index });
                 }
             } else {
-                value = new RuntimeConstantValue {
-                    create_void_constant()
-                };
+                value = wrap_constant_value(create_void_constant());
             }
 
             append(instructions, (Instruction*)function_call_instruction);
@@ -3997,7 +3897,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 value
             });
         } else if(expression_value.type.kind == TypeKind::Type) {
-            auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+            auto constant_value = unwrap_constant_value(expression_value.value);
 
             auto type = unwrap_type_constant(constant_value);
 
@@ -4050,9 +3950,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                                 if(resolve_polymorphic_struct->done) {
                                     return has({
                                         create_type_type(),
-                                        new RuntimeConstantValue {
-                                            wrap_type_constant(resolve_polymorphic_struct->type)
-                                        }
+                                        wrap_constant_value(wrap_type_constant(resolve_polymorphic_struct->type))
                                     });
                                 } else {
                                     return wait(resolve_polymorphic_struct);
@@ -4106,8 +4004,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         switch(unary_operation->unary_operator) {
             case UnaryOperation::Operator::Pointer: {
                 size_t address_register;
-                if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
+                if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
+                    auto constant_value = expression_value.value.constant;
 
                     if(expression_value.type.kind == TypeKind::FunctionTypeType) {
                         auto function = expression_value.type.function;
@@ -4169,11 +4067,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         return has({
                             create_type_type(),
-                            new RuntimeConstantValue {
-                                wrap_type_constant(wrap_pointer_type({
-                                    heapify(type)
-                                }))
-                            }
+                            wrap_constant_value(wrap_type_constant(wrap_pointer_type({
+                                heapify(type)
+                            })))
                         });
                     } else {
                         error(scope, unary_operation->expression->range, "Cannot take pointers to constants of type '%s'", type_description(expression_value.type));
@@ -4181,16 +4077,16 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         return err;
                     }
                 } else if(
-                    expression_value.value->kind == RuntimeValueKind::RegisterValue ||
-                    expression_value.value->kind == RuntimeValueKind::UndeterminedStructValue
+                    expression_value.value.kind == RuntimeValueKind::RegisterValue ||
+                    expression_value.value.kind == RuntimeValueKind::UndeterminedStructValue
                 ) {
                     error(scope, unary_operation->expression->range, "Cannot take pointers to anonymous values");
 
                     return err;
-                } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)expression_value.value;
+                } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = expression_value.value.address;
 
-                    address_register = address_value->address_register;
+                    address_register = address_value.address_register;
                 } else {
                     abort();
                 }
@@ -4199,9 +4095,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     wrap_pointer_type({
                         heapify(expression_value.type)
                     }),
-                    new RegisterValue {
-                        address_register
-                    }
+                    wrap_register_value({ address_register })
                 });
             } break;
 
@@ -4213,30 +4107,26 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
 
                 size_t register_index;
-                if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                    auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
-
-                    auto boolean_value = unwrap_boolean_constant(constant_value);
+                if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
+                    auto boolean_value = unwrap_boolean_constant(expression_value.value.constant);
 
                     return has({
                         create_boolean_type(),
-                        new RuntimeConstantValue {
-                            wrap_boolean_constant(!boolean_value)
-                        }
+                        wrap_constant_value(wrap_boolean_constant(!boolean_value))
                     });
-                } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)expression_value.value;
+                } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = expression_value.value.register_;
 
-                    register_index = register_value->register_index;
-                } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)expression_value.value;
+                    register_index = register_value.register_index;
+                } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = expression_value.value.address;
 
                     register_index = append_load_integer(
                         context,
                         instructions,
                         unary_operation->expression->range,
                         info.architecture_sizes.boolean_size,
-                        address_value->address_register
+                        address_value.address_register
                     );
                 }
 
@@ -4244,52 +4134,44 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 return has({
                     create_boolean_type(),
-                    new RegisterValue {
-                        result_register
-                    }
+                    wrap_register_value({ result_register })
                 });
             } break;
 
             case UnaryOperation::Operator::Negation: {
                 if(expression_value.type.kind == TypeKind::UndeterminedInteger) {
-                    auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+                    auto constant_value = unwrap_constant_value(expression_value.value);
 
                     auto integer_value = unwrap_integer_constant(constant_value);
 
                     return has({
                         create_undetermined_integer_type(),
-                        new RuntimeConstantValue {
-                            wrap_integer_constant(-integer_value)
-                        }
+                        wrap_constant_value(wrap_integer_constant(-integer_value))
                     });
                 } else if(expression_value.type.kind == TypeKind::Integer) {
                     auto integer = expression_value.type.integer;
 
                     size_t register_index;
-                    if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
-
-                        auto integer_value = unwrap_integer_constant(constant_value);
+                    if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
+                        auto integer_value = unwrap_integer_constant(expression_value.value.constant);
 
                         return has({
                             create_undetermined_integer_type(),
-                            new RuntimeConstantValue {
-                                wrap_integer_constant(-integer_value)
-                            }
+                            wrap_constant_value(wrap_integer_constant(-integer_value))
                         });
-                    } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = (RegisterValue*)expression_value.value;
+                    } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = expression_value.value.register_;
 
-                        register_index = register_value->register_index;
-                    } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                        auto address_value = (AddressValue*)expression_value.value;
+                        register_index = register_value.register_index;
+                    } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                        auto address_value = expression_value.value.address;
 
                         register_index = append_load_integer(
                             context,
                             instructions,
                             unary_operation->expression->range,
                             integer.size,
-                            address_value->address_register
+                            address_value.address_register
                         );
                     }
 
@@ -4307,38 +4189,32 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     return has({
                         wrap_integer_type(integer),
-                        new RegisterValue {
-                            result_register
-                        }
+                        wrap_register_value({ result_register })
                     });
                 } else if(expression_value.type.kind == TypeKind::FloatType) {
                     auto float_type = expression_value.type.float_;
 
                     size_t register_index;
-                    if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-                        auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
-
-                        auto float_value = unwrap_float_constant(constant_value);
+                    if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
+                        auto float_value = unwrap_float_constant(expression_value.value.constant);
 
                         return has({
                             wrap_float_type(float_type),
-                            new RuntimeConstantValue {
-                                wrap_float_constant(-float_value)
-                            }
+                            wrap_constant_value(wrap_float_constant(-float_value))
                         });
-                    } else if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = (RegisterValue*)expression_value.value;
+                    } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = expression_value.value.register_;
 
-                        register_index = register_value->register_index;
-                    } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                        auto address_value = (AddressValue*)expression_value.value;
+                        register_index = register_value.register_index;
+                    } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                        auto address_value = expression_value.value.address;
 
                         register_index = append_load_float(
                             context,
                             instructions,
                             unary_operation->expression->range,
                             float_type.size,
-                            address_value->address_register
+                            address_value.address_register
                         );
                     }
 
@@ -4356,20 +4232,16 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     return has({
                         wrap_float_type(float_type),
-                        new RegisterValue {
-                            result_register
-                        }
+                        wrap_register_value({ result_register })
                     });
                 } else if(expression_value.type.kind == TypeKind::UndeterminedFloat) {
-                    auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+                    auto constant_value = unwrap_constant_value(expression_value.value);
 
                     auto float_value = unwrap_float_constant(constant_value);
 
                     return has({
                         create_undetermined_float_type(),
-                        new RuntimeConstantValue {
-                            wrap_float_constant(-float_value)
-                        }
+                        wrap_constant_value(wrap_float_constant(-float_value))
                     });
                 } else {
                     error(scope, unary_operation->expression->range, "Cannot negate '%s'", type_description(expression_value.type));
@@ -4389,14 +4261,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         expect_delayed(target_type, evaluate_type_expression_runtime(info, jobs, scope, context, instructions, cast->type));
 
-        if(expression_value.value->kind == RuntimeValueKind::RuntimeConstantValue) {
-            auto constant_value = ((RuntimeConstantValue*)expression_value.value)->value;
-
+        if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
             auto constant_cast_result = evaluate_constant_cast(
                 info,
                 scope,
                 expression_value.type,
-                constant_value,
+                expression_value.value.constant,
                 cast->expression->range,
                 target_type,
                 cast->type->range,
@@ -4406,9 +4276,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             if(constant_cast_result.status) {
                 return has({
                     target_type,
-                    new RuntimeConstantValue {
-                        constant_cast_result.value
-                    }
+                    wrap_constant_value(constant_cast_result.value)
                 });
             }
         }
@@ -4436,19 +4304,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             if(expression_value.type.kind == TypeKind::Integer) {
                 auto integer = expression_value.type.integer;
                 size_t value_register;
-                if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)expression_value.value;
+                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = expression_value.value.register_;
 
-                    value_register = register_value->register_index;
-                } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)expression_value.value;
+                    value_register = register_value.register_index;
+                } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = expression_value.value.address;
 
                     value_register = append_load_integer(
                         context,
                         instructions,
                         cast->expression->range,
                         integer.size,
-                        address_value->address_register
+                        address_value.address_register
                     );
                 } else {
                     abort();
@@ -4479,19 +4347,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else if(expression_value.type.kind == TypeKind::FloatType) {
                 auto float_type = expression_value.type.float_;
                 size_t value_register;
-                if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)expression_value.value;
+                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = expression_value.value.register_;
 
-                    value_register = register_value->register_index;
-                } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)expression_value.value;
+                    value_register = register_value.register_index;
+                } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = expression_value.value.address;
 
                     value_register = append_load_float(
                         context,
                         instructions,
                         cast->expression->range,
                         float_type.size,
-                        address_value->address_register
+                        address_value.address_register
                     );
                 } else {
                     abort();
@@ -4511,19 +4379,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 if(target_integer.size == info.architecture_sizes.address_size && !target_integer.is_signed) {
                     has_cast = true;
 
-                    if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = (RegisterValue*)expression_value.value;
+                    if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = expression_value.value.register_;
 
-                        register_index = register_value->register_index;
-                    } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                        auto address_value = (AddressValue*)expression_value.value;
+                        register_index = register_value.register_index;
+                    } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                        auto address_value = expression_value.value.address;
 
                         register_index = append_load_integer(
                             context,
                             instructions,
                             cast->expression->range,
                             info.architecture_sizes.address_size,
-                            address_value->address_register
+                            address_value.address_register
                         );
                     } else {
                         abort();
@@ -4536,19 +4404,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             if(expression_value.type.kind == TypeKind::Integer) {
                 auto integer = expression_value.type.integer;
                 size_t value_register;
-                if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)expression_value.value;
+                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = expression_value.value.register_;
 
-                    value_register = register_value->register_index;
-                } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)expression_value.value;
+                    value_register = register_value.register_index;
+                } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = expression_value.value.address;
 
                     value_register = append_load_integer(
                         context,
                         instructions,
                         cast->expression->range,
                         integer.size,
-                        address_value->address_register
+                        address_value.address_register
                     );
                 } else {
                     abort();
@@ -4567,19 +4435,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else if(expression_value.type.kind == TypeKind::FloatType) {
                 auto float_type = expression_value.type.float_;
                 size_t value_register;
-                if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)expression_value.value;
+                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = expression_value.value.register_;
 
-                    value_register = register_value->register_index;
-                } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)expression_value.value;
+                    value_register = register_value.register_index;
+                } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = expression_value.value.address;
 
                     value_register = append_load_float(
                         context,
                         instructions,
                         cast->expression->range,
                         float_type.size,
-                        address_value->address_register
+                        address_value.address_register
                     );
                 } else {
                     abort();
@@ -4603,19 +4471,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 if(integer.size == info.architecture_sizes.address_size && !integer.is_signed) {
                     has_cast = true;
 
-                    if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = (RegisterValue*)expression_value.value;
+                    if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = expression_value.value.register_;
 
-                        register_index = register_value->register_index;
-                    } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                        auto address_value = (AddressValue*)expression_value.value;
+                        register_index = register_value.register_index;
+                    } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                        auto address_value = expression_value.value.address;
 
                         register_index = append_load_integer(
                             context,
                             instructions,
                             cast->expression->range,
                             info.architecture_sizes.address_size,
-                            address_value->address_register
+                            address_value.address_register
                         );
                     } else {
                         abort();
@@ -4625,19 +4493,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 auto pointer = expression_value.type.pointer;
                 has_cast = true;
 
-                if(expression_value.value->kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = (RegisterValue*)expression_value.value;
+                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = expression_value.value.register_;
 
-                    register_index = register_value->register_index;
-                } else if(expression_value.value->kind == RuntimeValueKind::AddressValue) {
-                    auto address_value = (AddressValue*)expression_value.value;
+                    register_index = register_value.register_index;
+                } else if(expression_value.value.kind == RuntimeValueKind::AddressValue) {
+                    auto address_value = expression_value.value.address;
 
                     register_index = append_load_integer(
                         context,
                         instructions,
                         cast->expression->range,
                         info.architecture_sizes.address_size,
-                        address_value->address_register
+                        address_value.address_register
                     );
                 } else {
                     abort();
@@ -4650,9 +4518,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         if(has_cast) {
             return has({
                 target_type,
-                new RegisterValue {
-                    register_index
-                }
+                wrap_register_value({ register_index })
             });
         } else {
             error(scope, cast->range, "Cannot cast from '%s' to '%s'", type_description(expression_value.type), type_description(target_type));
@@ -4676,7 +4542,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         }
 
         if(expression_value.type.kind == TypeKind::PolymorphicFunction) {
-            auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+            auto constant_value = unwrap_constant_value(expression_value.value);
 
             auto polymorphic_function_value = unwrap_polymorphic_function_constant(constant_value);
 
@@ -4705,7 +4571,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
 
                 if(declaration_parameter.is_constant) {
-                    if(call_parameters[i].value->kind != RuntimeValueKind::RuntimeConstantValue) {
+                    if(call_parameters[i].value.kind != RuntimeValueKind::ConstantValue) {
                         error(
                             scope,
                             function_call->parameters[i]->range,
@@ -4716,11 +4582,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         return err;
                     }
 
-                    auto constant_value = ((RuntimeConstantValue*)call_parameters[i].value)->value;
-
                     polymorphic_parameters[i] = {
                         call_parameters[i].type,
-                        constant_value
+                        call_parameters[i].value.constant
                     };
                 }
             }
@@ -4763,9 +4627,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         if(resolve_polymorphic_function->done) {
                             return has({
                                 wrap_function_type(resolve_polymorphic_function->type),
-                                new RuntimeConstantValue {
-                                    wrap_function_constant(resolve_polymorphic_function->value)
-                                }
+                                wrap_constant_value(wrap_function_constant(resolve_polymorphic_function->value))
                             });
                         } else {
                             return wait(resolve_polymorphic_function);
@@ -4795,7 +4657,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         } else if(expression_value.type.kind == TypeKind::FunctionTypeType) {
             auto function_type = expression_value.type.function;
 
-            auto constant_value = unwrap_runtime_constant_value(expression_value.value);
+            auto constant_value = unwrap_constant_value(expression_value.value);
 
             auto function_value = unwrap_function_constant(constant_value);
 
@@ -4813,9 +4675,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             return has({
                 wrap_function_type(function_type),
-                new RuntimeConstantValue {
-                    wrap_function_constant(function_value)
-                }
+                wrap_constant_value(wrap_function_constant(function_value))
             });
         } else {
             error(scope, function_call->expression->range, "Expected a function, got '%s'", type_description(expression_value.type));
@@ -4850,21 +4710,17 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             return has({
                 create_type_type(),
-                new RuntimeConstantValue {
-                    wrap_type_constant(wrap_static_array_type({
-                        length,
-                        heapify(type)
-                    }))
-                }
+                wrap_constant_value(wrap_type_constant(wrap_static_array_type({
+                    length,
+                    heapify(type)
+                })))
             });
         } else {
             return has({
                 create_type_type(),
-                new RuntimeConstantValue {
-                    wrap_type_constant(wrap_array_type({
-                        heapify(type)
-                    }))
-                }
+                wrap_constant_value(wrap_type_constant(wrap_array_type({
+                    heapify(type)
+                })))
             });
         }
     } else if(expression->kind == ExpressionKind::FunctionType) {
@@ -4953,13 +4809,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         return has({
             create_type_type(),
-            new RuntimeConstantValue {
-                wrap_type_constant(wrap_function_type({
-                    { parameter_count, parameters },
-                    heapify(return_type),
-                    calling_convention
-                }))
-            }
+            wrap_constant_value(wrap_type_constant(wrap_function_type({
+                { parameter_count, parameters },
+                heapify(return_type),
+                calling_convention
+            })))
         });
     } else {
         abort();
@@ -5123,10 +4977,10 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         expect_delayed_void_ret(target, generate_expression(info, jobs, scope, context, instructions, assignment->target));
 
         size_t address_register;
-        if(target.value->kind == RuntimeValueKind::AddressValue){
-            auto address_value = (AddressValue*)target.value;
+        if(target.value.kind == RuntimeValueKind::AddressValue){
+            auto address_value = target.value.address;
 
-            address_register = address_value->address_register;
+            address_register = address_value.address_register;
         } else {
             error(scope, assignment->target->range, "Value is not assignable");
 
@@ -5156,10 +5010,10 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         expect_delayed_void_ret(target, generate_expression(info, jobs, scope, context, instructions, binary_operation_assignment->target));
 
         size_t address_register;
-        if(target.value->kind == RuntimeValueKind::AddressValue){
-            auto address_value = (AddressValue*)target.value;
+        if(target.value.kind == RuntimeValueKind::AddressValue){
+            auto address_value = target.value.address;
 
-            address_register = address_value->address_register;
+            address_register = address_value.address_register;
         } else {
             error(scope, binary_operation_assignment->target->range, "Value is not assignable");
 
@@ -5431,7 +5285,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         size_t to_register;
         Integer index_type;
         if(from_value.type.kind == TypeKind::UndeterminedInteger) {
-            auto constant_value = unwrap_runtime_constant_value(from_value.value);
+            auto constant_value = unwrap_constant_value(from_value.value);
 
             auto from_integer_constant = unwrap_integer_constant(constant_value);
 
