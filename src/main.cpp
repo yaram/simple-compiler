@@ -329,14 +329,17 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         architecture_sizes
     };
 
-    List<Job*> jobs {};
+    List<AnyJob> jobs {};
 
-    auto main_file_parse_job = new ParseFile;
-    main_file_parse_job->done = false;
-    main_file_parse_job->waiting_for = nullptr;
-    main_file_parse_job->path = absolute_source_file_path;
+    size_t main_file_parse_job_index;
+    {
+        AnyJob job;
+        job.kind = JobKind::ParseFile;
+        job.state = JobState::Working;
+        job.parse_file.path = absolute_source_file_path;
 
-    append(&jobs, (Job*)main_file_parse_job);
+        main_file_parse_job_index = append(&jobs, job);
+    }
 
     List<RuntimeStatic*> runtime_statics {};
     List<const char*> libraries {};
@@ -345,42 +348,36 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         append(&libraries, "kernel32.lib");
     }
 
-    Job *main_function_waiting_for = main_file_parse_job;
-    Function *main_function = nullptr;
+    auto main_function_state = JobState::Waiting;
+    auto main_function_waiting_for = main_file_parse_job_index;
+    Function *main_function;
 
     uint64_t total_parser_time = 0;
     uint64_t total_generator_time = 0;
 
     while(true) {
         auto did_work = false;
-        for(auto job : jobs) {
-            if(!job->done) {
-                if(job->waiting_for != nullptr) {
-                    if(!job->waiting_for->done) {
+        for(size_t job_index = 0; job_index < jobs.count; job_index += 1) {
+            auto job = &jobs[job_index];
+
+            if(job->state != JobState::Done) {
+                if(job->state == JobState::Waiting) {
+                    if(jobs[job->waiting_for].state != JobState::Done) {
                         continue;
                     }
 
-                    job->waiting_for = nullptr;
+                    job->state = JobState::Working;
                 }
 
                 switch(job->kind) {
                     case JobKind::ParseFile: {
-                        auto parse_file = (ParseFile*)job;
+                        auto parse_file = &job->parse_file;
 
                         auto start_time = get_timer_counts();
 
                         expect(tokens, tokenize_source(parse_file->path));
 
                         expect(statements, parse_tokens(parse_file->path, tokens));
-
-                        if(print_ast) {
-                            printf("%s:\n", parse_file->path);
-
-                            for(auto statement : statements) {
-                                print_statement(statement);
-                                printf("\n");
-                            }
-                        }
 
                         auto scope = new ConstantScope;
                         scope->statements = statements;
@@ -390,7 +387,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         scope->file_path = parse_file->path;
 
                         parse_file->scope = scope;
-                        parse_file->done = true;
+                        job->state = JobState::Done;
 
                         if(!process_scope(&jobs, scope, statements, nullptr, true)) {
                             return false;
@@ -399,24 +396,38 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         auto end_time = get_timer_counts();
 
                         total_parser_time += end_time - start_time;
+
+                        auto job_after = jobs[job_index];
+
+                        if(print_ast) {
+                            printf("%s:\n", job_after.parse_file.path);
+
+                            for(auto statement : statements) {
+                                print_statement(statement);
+                                printf("\n");
+                            }
+                        }
                     } break;
 
                     case JobKind::ResolveStaticIf: {
-                        auto resolve_static_if = (ResolveStaticIf*)job;
+                        auto resolve_static_if = job->resolve_static_if;
 
                         auto start_time = get_timer_counts();
 
-                        auto result = do_resolve_static_if(info, &jobs, resolve_static_if->static_if, resolve_static_if->scope);
+                        auto result = do_resolve_static_if(info, &jobs, resolve_static_if.static_if, resolve_static_if.scope);
                         if(!result.status) {
                             return false;
                         }
 
+                        auto job_after = &jobs[job_index];
+
                         if(result.has_value) {
-                            resolve_static_if->done = true;
-                            resolve_static_if->condition = result.value.condition;
-                            resolve_static_if->declarations = result.value.declarations;
+                            job_after->state = JobState::Done;
+                            job_after->resolve_static_if.condition = result.value.condition;
+                            job_after->resolve_static_if.declarations = result.value.declarations;
                         } else {
-                            resolve_static_if->waiting_for = result.waiting_for;
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -425,38 +436,40 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                     } break;
 
                     case JobKind::ResolveFunctionDeclaration: {
-                        auto resolve_function_declaration = (ResolveFunctionDeclaration*)job;
+                        auto resolve_function_declaration = job->resolve_function_declaration;
 
                         auto start_time = get_timer_counts();
 
                         auto result = do_resolve_function_declaration(
                             info,
                             &jobs,
-                            resolve_function_declaration->declaration,
-                            resolve_function_declaration->scope
+                            resolve_function_declaration.declaration,
+                            resolve_function_declaration.scope
                         );
                         if(!result.status) {
                             return false;
                         }
 
+                        auto job_after = &jobs[job_index];
+
                         if(result.has_value) {
-                            resolve_function_declaration->done = true;
-                            resolve_function_declaration->type = result.value.type;
-                            resolve_function_declaration->value = result.value.value;
+                            job_after->state = JobState::Done;
+                            job_after->resolve_function_declaration.type = result.value.type;
+                            job_after->resolve_function_declaration.value = result.value.value;
 
-                            if(resolve_function_declaration->type.kind == TypeKind::FunctionTypeType) {
-                                auto function_type = resolve_function_declaration->type.function;
+                            if(job_after->resolve_function_declaration.type.kind == TypeKind::FunctionTypeType) {
+                                auto function_type = job_after->resolve_function_declaration.type.function;
 
-                                auto function_value = unwrap_function_constant(resolve_function_declaration->value);
+                                auto function_value = unwrap_function_constant(job_after->resolve_function_declaration.value);
 
                                 auto found = false;
                                 for(auto job : jobs) {
-                                    if(job->kind == JobKind::GenerateFunction) { 
-                                        auto generate_function = (GenerateFunction*)job;
+                                    if(job.kind == JobKind::GenerateFunction) { 
+                                        auto generate_function = job.generate_function;
 
                                         if(
-                                            generate_function->value.declaration == function_value.declaration &&
-                                            generate_function->value.body_scope == function_value.body_scope
+                                            generate_function.value.declaration == function_value.declaration &&
+                                            generate_function.value.body_scope == function_value.body_scope
                                         ) {
                                             found = true;
                                             break;
@@ -465,18 +478,19 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                                 }
 
                                 if(!found) {
-                                    auto generate_function = new GenerateFunction;
-                                    generate_function->done = false;
-                                    generate_function->waiting_for = nullptr;
-                                    generate_function->type = function_type;
-                                    generate_function->value = function_value;
-                                    generate_function->function = new Function;
+                                    AnyJob job;
+                                    job.kind = JobKind::GenerateFunction;
+                                    job.state = JobState::Working;
+                                    job.generate_function.type = function_type;
+                                    job.generate_function.value = function_value;
+                                    job.generate_function.function = new Function;
 
-                                    append(&jobs, (Job*)generate_function);
+                                    append(&jobs, job);
                                 }
                             }
                         } else {
-                            resolve_function_declaration->waiting_for = result.waiting_for;
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -485,29 +499,32 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                     } break;
 
                     case JobKind::ResolvePolymorphicFunction: {
-                        auto resolve_polymorphic_function = (ResolvePolymorphicFunction*)job;
+                        auto resolve_polymorphic_function = job->resolve_polymorphic_function;
 
                         auto start_time = get_timer_counts();
 
                         auto result = do_resolve_polymorphic_function(
                             info,
                             &jobs,
-                            resolve_polymorphic_function->declaration,
-                            resolve_polymorphic_function->parameters,
-                            resolve_polymorphic_function->scope,
-                            resolve_polymorphic_function->call_scope,
-                            resolve_polymorphic_function->call_parameter_ranges
+                            resolve_polymorphic_function.declaration,
+                            resolve_polymorphic_function.parameters,
+                            resolve_polymorphic_function.scope,
+                            resolve_polymorphic_function.call_scope,
+                            resolve_polymorphic_function.call_parameter_ranges
                         );
                         if(!result.status) {
                             return false;
                         }
 
+                        auto job_after = &jobs[job_index];
+
                         if(result.has_value) {
-                            resolve_polymorphic_function->done = true;
-                            resolve_polymorphic_function->type = result.value.type;
-                            resolve_polymorphic_function->value = result.value.value;
+                            job_after->state = JobState::Done;
+                            job_after->resolve_polymorphic_function.type = result.value.type;
+                            job_after->resolve_polymorphic_function.value = result.value.value;
                         } else {
-                            resolve_polymorphic_function->waiting_for = result.waiting_for;
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -516,27 +533,30 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                     } break;
 
                     case JobKind::ResolveConstantDefinition: {
-                        auto resolve_constant_definition = (ResolveConstantDefinition*)job;
+                        auto resolve_constant_definition = job->resolve_constant_definition;
 
                         auto start_time = get_timer_counts();
 
                         auto result = evaluate_constant_expression(
                             info,
                             &jobs,
-                            resolve_constant_definition->scope,
+                            resolve_constant_definition.scope,
                             nullptr,
-                            resolve_constant_definition->definition->expression
+                            resolve_constant_definition.definition->expression
                         );
                         if(!result.status) {
                             return false;
                         }
 
+                        auto job_after = &jobs[job_index];
+
                         if(result.has_value) {
-                            resolve_constant_definition->done = true;
-                            resolve_constant_definition->type = result.value.type;
-                            resolve_constant_definition->value = result.value.value;
+                            job_after->state = JobState::Done;
+                            job_after->resolve_constant_definition.type = result.value.type;
+                            job_after->resolve_constant_definition.value = result.value.value;
                         } else {
-                            resolve_constant_definition->waiting_for = result.waiting_for;
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -545,25 +565,28 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                     } break;
 
                     case JobKind::ResolveStructDefinition: {
-                        auto resolve_struct_definition = (ResolveStructDefinition*)job;
+                        auto resolve_struct_definition = job->resolve_struct_definition;
 
                         auto start_time = get_timer_counts();
 
                         auto result = do_resolve_struct_definition(
                             info,
                             &jobs,
-                            resolve_struct_definition->definition,
-                            resolve_struct_definition->scope
+                            resolve_struct_definition.definition,
+                            resolve_struct_definition.scope
                         );
                         if(!result.status) {
                             return false;
                         }
 
+                        auto job_after = &jobs[job_index];
+
                         if(result.has_value) {
-                            resolve_struct_definition->done = true;
-                            resolve_struct_definition->type = result.value;
+                            job_after->state = JobState::Done;
+                            job_after->resolve_struct_definition.type = result.value;
                         } else {
-                            resolve_struct_definition->waiting_for = result.waiting_for;
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -572,26 +595,29 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                     } break;
 
                     case JobKind::ResolvePolymorphicStruct: {
-                        auto resolve_polymorphic_struct = (ResolvePolymorphicStruct*)job;
+                        auto resolve_polymorphic_struct = job->resolve_polymorphic_struct;
 
                         auto start_time = get_timer_counts();
 
                         auto result = do_resolve_polymorphic_struct(
                             info,
                             &jobs,
-                            resolve_polymorphic_struct->definition,
-                            resolve_polymorphic_struct->parameters,
-                            resolve_polymorphic_struct->scope
+                            resolve_polymorphic_struct.definition,
+                            resolve_polymorphic_struct.parameters,
+                            resolve_polymorphic_struct.scope
                         );
                         if(!result.status) {
                             return false;
                         }
 
+                        auto job_after = &jobs[job_index];
+
                         if(result.has_value) {
-                            resolve_polymorphic_struct->done = true;
-                            resolve_polymorphic_struct->type = result.value;
+                            job_after->state = JobState::Done;
+                            job_after->resolve_polymorphic_struct.type = result.value;
                         } else {
-                            resolve_polymorphic_struct->waiting_for = result.waiting_for;
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
@@ -600,32 +626,34 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                     } break;
 
                     case JobKind::GenerateFunction: {
-                        auto generate_function = (GenerateFunction*)job;
+                        auto generate_function = job->generate_function;
 
                         auto start_time = get_timer_counts();
 
                         auto result = do_generate_function(
                             info,
                             &jobs,
-                            generate_function->type,
-                            generate_function->value,
-                            generate_function->function
+                            generate_function.type,
+                            generate_function.value,
+                            generate_function.function
                         );
                         if(!result.status) {
                             return false;
                         }
 
-                        if(result.has_value) {
-                            generate_function->done = true;
+                        auto job_after = &jobs[job_index];
 
-                            append(&runtime_statics, (RuntimeStatic*)generate_function->function);
+                        if(result.has_value) {
+                            job_after->state = JobState::Done;
+
+                            append(&runtime_statics, (RuntimeStatic*)job_after->generate_function.function);
 
                             for(auto static_constant : result.value) {
                                 append(&runtime_statics, (RuntimeStatic*)static_constant);
                             }
 
-                            if(generate_function->function->is_external) {
-                                for(auto library : generate_function->function->libraries) {
+                            if(job_after->generate_function.function->is_external) {
+                                for(auto library : job_after->generate_function.function->libraries) {
                                     auto already_registered = false;
                                     for(auto registered_library : libraries) {
                                         if(strcmp(registered_library, library) == 0) {
@@ -640,16 +668,17 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                                 }
                             }
                         } else {
-                            generate_function->waiting_for = result.waiting_for;
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
 
                         total_generator_time += end_time - start_time;
 
-                        if(generate_function->done && print_ir) {
-                            printf("%s:\n", generate_function->function->path);
-                            print_static(generate_function->function);
+                        if(job_after->state == JobState::Done && print_ir) {
+                            printf("%s:\n", job_after->generate_function.function->path);
+                            print_static(job_after->generate_function.function);
                             printf("\n");
 
                             for(auto static_constant : result.value) {
@@ -660,29 +689,31 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                     } break;
 
                     case JobKind::GenerateStaticVariable: {
-                        auto generate_static_variable = (GenerateStaticVariable*)job;
+                        auto generate_static_variable = job->generate_static_variable;
 
                         auto start_time = get_timer_counts();
 
                         auto result = do_generate_static_variable(
                             info,
                             &jobs,
-                            generate_static_variable->declaration,
-                            generate_static_variable->scope
+                            generate_static_variable.declaration,
+                            generate_static_variable.scope
                         );
                         if(!result.status) {
                             return false;
                         }
 
+                        auto job_after = &jobs[job_index];
+
                         if(result.has_value) {
-                            generate_static_variable->done = true;
-                            generate_static_variable->static_variable = result.value.static_variable;
-                            generate_static_variable->type = result.value.type;
+                            job_after->state = JobState::Done;
+                            job_after->generate_static_variable.static_variable = result.value.static_variable;
+                            job_after->generate_static_variable.type = result.value.type;
 
                             append(&runtime_statics, (RuntimeStatic*)result.value.static_variable);
 
-                            if(generate_static_variable->static_variable->is_external) {
-                                for(auto library : generate_static_variable->static_variable->libraries) {
+                            if(job_after->generate_static_variable.static_variable->is_external) {
+                                for(auto library : job_after->generate_static_variable.static_variable->libraries) {
                                     auto already_registered = false;
                                     for(auto registered_library : libraries) {
                                         if(strcmp(registered_library, library) == 0) {
@@ -696,24 +727,20 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                                     }
                                 }
                             }
-
-                            if(print_ir) {
-                                auto current_scope = generate_static_variable->scope;
-                                while(!current_scope->is_top_level) {
-                                    current_scope = current_scope->parent;
-                                }
-
-                                printf("%s:\n", current_scope->file_path);
-                                print_static(result.value.static_variable);
-                                printf("\n");
-                            }
                         } else {
-                            generate_static_variable->waiting_for = result.waiting_for;
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
                         }
 
                         auto end_time = get_timer_counts();
 
                         total_generator_time += end_time - start_time;
+
+                        if(job_after->state == JobState::Done &&print_ir) {
+                            printf("%s:\n", get_scope_file_path(*job_after->generate_static_variable.scope));
+                            print_static(result.value.static_variable);
+                            printf("\n");
+                        }
                     } break;
 
                     default: abort();
@@ -724,16 +751,18 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             }
         }
 
-        if(main_function == nullptr) {
-            assert(main_file_parse_job->done);
-
-            if(main_function_waiting_for != nullptr) {
-                if(!main_function_waiting_for->done) {
+        if(main_function_state != JobState::Done) {
+            if(main_function_state == JobState::Waiting) {
+                if(jobs[main_function_waiting_for].state != JobState::Done) {
                     continue;
                 }
 
-                main_function_waiting_for = nullptr;
+                main_function_state = JobState::Working;
             }
+
+            assert(jobs[main_file_parse_job_index].state == JobState::Done);
+
+            auto scope = jobs[main_file_parse_job_index].parse_file.scope;
 
             did_work = true;
 
@@ -742,9 +771,9 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                 &jobs,
                 "main"_S,
                 calculate_string_hash("main"_S),
-                main_file_parse_job->scope,
-                main_file_parse_job->scope->statements,
-                main_file_parse_job->scope->declarations,
+                scope,
+                scope->statements,
+                scope->declarations,
                 false,
                 nullptr
             );
@@ -753,10 +782,13 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             }
 
             if(!result.has_value) {
+                main_function_state = JobState::Waiting;
                 main_function_waiting_for = result.waiting_for;
 
                 continue;
             }
+
+            main_function_state = JobState::Done;
 
             if(!result.value.found) {
                 fprintf(stderr, "Error: Cannot find 'main'\n");
@@ -775,7 +807,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             auto function_value = unwrap_function_constant(result.value.value);
 
             if(function_type.parameters.count != 0) {
-                error(main_file_parse_job->scope, function_value.declaration->range, "'main' must have zero parameters");
+                error(scope, function_value.declaration->range, "'main' must have zero parameters");
 
                 return false;
             }
@@ -784,7 +816,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
             if(!types_equal(*function_type.return_type, expected_main_return_integer)) {
                 error(
-                    main_file_parse_job->scope,
+                    scope,
                     function_value.declaration->range,
                     "Incorrect 'main' return type. Expected '%s', got '%s'",
                     type_description(expected_main_return_integer),
@@ -796,17 +828,17 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
             auto found = false;
             for(auto job : jobs) {
-                if(job->kind == JobKind::GenerateFunction) {
-                    auto generate_function = (GenerateFunction*)job;
+                if(job.kind == JobKind::GenerateFunction) {
+                    auto generate_function = job.generate_function;
 
                     if(
-                        types_equal(wrap_function_type(generate_function->type), wrap_function_type(function_type)) &&
-                        generate_function->value.declaration == function_value.declaration &&
-                        generate_function->value.body_scope == function_value.body_scope
+                        types_equal(wrap_function_type(generate_function.type), wrap_function_type(function_type)) &&
+                        generate_function.value.declaration == function_value.declaration &&
+                        generate_function.value.body_scope == function_value.body_scope
                     ) {
                         found = true;
 
-                        main_function = generate_function->function;
+                        main_function = generate_function.function;
 
                         break;
                     }
@@ -822,7 +854,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
     auto all_jobs_done = true;
     for(auto job : jobs) {
-        if(!job->done) {
+        if(job.state != JobState::Done) {
             all_jobs_done = false;
         }
     }
@@ -832,68 +864,68 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         fprintf(stderr, "Error: The following areas depend on eathother:\n");
 
         for(auto job : jobs) {
-            if(!job->done) {
+            if(job.state != JobState::Done) {
                 ConstantScope *scope;
                 FileRange range;
-                switch(job->kind) {
+                switch(job.kind) {
                     case JobKind::ParseFile: {
                         abort();
                     } break;
 
                     case JobKind::ResolveStaticIf: {
-                        auto resolve_static_if = (ResolveStaticIf*)job;
+                        auto resolve_static_if = job.resolve_static_if;
 
-                        scope = resolve_static_if->scope;
-                        range = resolve_static_if->static_if->range;
+                        scope = resolve_static_if.scope;
+                        range = resolve_static_if.static_if->range;
                     } break;
 
                     case JobKind::ResolveFunctionDeclaration: {
-                        auto resolve_function_declaration = (ResolveFunctionDeclaration*)job;
+                        auto resolve_function_declaration = job.resolve_function_declaration;
 
-                        scope = resolve_function_declaration->scope;
-                        range = resolve_function_declaration->declaration->range;
+                        scope = resolve_function_declaration.scope;
+                        range = resolve_function_declaration.declaration->range;
                     } break;
 
                     case JobKind::ResolvePolymorphicFunction: {
-                        auto resolve_polymorphic_function = (ResolvePolymorphicFunction*)job;
+                        auto resolve_polymorphic_function = job.resolve_polymorphic_function;
 
-                        scope = resolve_polymorphic_function->scope;
-                        range = resolve_polymorphic_function->declaration->range;
+                        scope = resolve_polymorphic_function.scope;
+                        range = resolve_polymorphic_function.declaration->range;
                     } break;
 
                     case JobKind::ResolveConstantDefinition: {
-                        auto resolve_constant_definition = (ResolveConstantDefinition*)job;
+                        auto resolve_constant_definition = job.resolve_constant_definition;
 
-                        scope = resolve_constant_definition->scope;
-                        range = resolve_constant_definition->definition->range;
+                        scope = resolve_constant_definition.scope;
+                        range = resolve_constant_definition.definition->range;
                     } break;
 
                     case JobKind::ResolveStructDefinition: {
-                        auto resolve_struct_definition = (ResolveStructDefinition*)job;
+                        auto resolve_struct_definition = job.resolve_struct_definition;
 
-                        scope = resolve_struct_definition->scope;
-                        range = resolve_struct_definition->definition->range;
+                        scope = resolve_struct_definition.scope;
+                        range = resolve_struct_definition.definition->range;
                     } break;
 
                     case JobKind::ResolvePolymorphicStruct: {
-                        auto resolve_polymorphic_struct = (ResolvePolymorphicStruct*)job;
+                        auto resolve_polymorphic_struct = job.resolve_polymorphic_struct;
 
-                        scope = resolve_polymorphic_struct->scope;
-                        range = resolve_polymorphic_struct->definition->range;
+                        scope = resolve_polymorphic_struct.scope;
+                        range = resolve_polymorphic_struct.definition->range;
                     } break;
 
                     case JobKind::GenerateFunction: {
-                        auto generate_function = (GenerateFunction*)job;
+                        auto generate_function = job.generate_function;
 
-                        scope = generate_function->value.body_scope->parent;
-                        range = generate_function->value.declaration->range;
+                        scope = generate_function.value.body_scope->parent;
+                        range = generate_function.value.declaration->range;
                     } break;
 
                     case JobKind::GenerateStaticVariable: {
-                        auto generate_static_variable = (GenerateStaticVariable*)job;
+                        auto generate_static_variable = job.generate_static_variable;
 
-                        scope = generate_static_variable->scope;
-                        range = generate_static_variable->declaration->range;
+                        scope = generate_static_variable.scope;
+                        range = generate_static_variable.declaration->range;
                     } break;
 
                     default: abort();

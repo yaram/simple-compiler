@@ -8,7 +8,7 @@
 #include "platform.h"
 #include "list.h"
 
-struct Job;
+struct AnyJob;
 struct ConstantScope;
 struct AnyConstantValue;
 
@@ -323,7 +323,7 @@ struct DelayedResult {
 
     T value;
 
-    Job *waiting_for;
+    size_t waiting_for;
 };
 
 template <>
@@ -332,7 +332,7 @@ struct DelayedResult<void> {
 
     bool has_value;
 
-    Job *waiting_for;
+    size_t waiting_for;
 };
 
 #define wait(job) {true,false,{},job}
@@ -342,6 +342,7 @@ struct DelayedResult<void> {
 #define expect_delayed_void_ret(name, expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,__##name##_result.waiting_for};auto name=__##name##_result.value
 #define expect_delayed_void_val(expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,{},__##name##_result.waiting_for}
 #define expect_delayed_void_both(expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,__##name##_result.waiting_for}
+
 void error(ConstantScope *scope, FileRange range, const char *format, ...);
 
 Result<const char *> static_array_to_c_string(ConstantScope *scope, FileRange range, AnyType type, AnyConstantValue value);
@@ -399,7 +400,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
 );
 DelayedResult<AnyType> evaluate_type_expression(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     Statement *ignore_statement,
     Expression *expression
@@ -410,7 +411,7 @@ bool match_public_declaration(Statement *statement, String name);
 bool match_declaration(Statement *statement, String name);
 DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     Statement *declaration
 );
@@ -425,7 +426,7 @@ struct DeclarationSearchValue {
 
 DelayedResult<DeclarationSearchValue> search_for_declaration(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     String name,
     uint32_t name_hash,
     ConstantScope *scope,
@@ -439,7 +440,7 @@ bool static_if_may_have_declaration(const char *name, bool external, StaticIf *s
 
 DelayedResult<TypedConstantValue> evaluate_constant_expression(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     Statement *ignore_statement,
     Expression *expression
@@ -451,11 +452,11 @@ struct StaticIfResolutionValue {
     DeclarationHashTable declarations;
 };
 
-DelayedResult<StaticIfResolutionValue> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope);
+DelayedResult<StaticIfResolutionValue> do_resolve_static_if(GlobalInfo info, List<AnyJob> *jobs, StaticIf *static_if, ConstantScope *scope);
 
 DelayedResult<TypedConstantValue> do_resolve_function_declaration(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     FunctionDeclaration *declaration,
     ConstantScope *scope
 );
@@ -468,7 +469,7 @@ struct FunctionResolutionValue {
 
 DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     FunctionDeclaration *declaration,
     TypedConstantValue *parameters,
     ConstantScope *scope,
@@ -478,17 +479,17 @@ DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
 
 DelayedResult<AnyType> do_resolve_struct_definition(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     StructDefinition *struct_definition,
     ConstantScope *scope
 );
 
 DelayedResult<AnyType> do_resolve_polymorphic_struct(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     StructDefinition *struct_definition,
     AnyConstantValue *parameters,
     ConstantScope *scope
 );
 
-bool process_scope(List<Job*> *jobs, ConstantScope *scope, Array<Statement*> statements, List<ConstantScope*> *child_scopes, bool is_top_level);
+bool process_scope(List<AnyJob> *jobs, ConstantScope *scope, Array<Statement*> statements, List<ConstantScope*> *child_scopes, bool is_top_level);

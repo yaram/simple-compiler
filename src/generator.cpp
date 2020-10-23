@@ -1888,7 +1888,7 @@ static bool coerce_to_type_write(
 
 static DelayedResult<TypedRuntimeValue> generate_expression(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -1897,7 +1897,7 @@ static DelayedResult<TypedRuntimeValue> generate_expression(
 
 static DelayedResult<AnyType> evaluate_type_expression_runtime(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -1918,7 +1918,7 @@ static DelayedResult<AnyType> evaluate_type_expression_runtime(
 
 static DelayedResult<TypedRuntimeValue> generate_binary_operation(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -2368,7 +2368,7 @@ struct RuntimeDeclarationSearchValue {
 
 static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_for_declaration, (
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -2451,18 +2451,20 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
             auto static_if = (StaticIf*)statement;
 
             auto found = false;
-            for(auto job : *jobs) {
-                if(job->kind == JobKind::ResolveStaticIf) {
-                    auto resolve_static_if = (ResolveStaticIf*)job;
+            for(size_t i = 0; i < jobs->count; i += 1) {
+                auto job = (*jobs)[i];
+
+                if(job.kind == JobKind::ResolveStaticIf) {
+                    auto resolve_static_if = job.resolve_static_if;
 
                     if(
-                        resolve_static_if->static_if == static_if &&
-                        resolve_static_if->scope == scope
+                        resolve_static_if.static_if == static_if &&
+                        resolve_static_if.scope == scope
                     ) {
                         found = true;
 
-                        if(resolve_static_if->done) {
-                            if(resolve_static_if->condition) {
+                        if(job.state == JobState::Done) {
+                            if(resolve_static_if.condition) {
                                 expect_delayed(search_value, search_for_declaration(
                                     info,
                                     jobs,
@@ -2474,7 +2476,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
                                     name_scope,
                                     name_range,
                                     static_if->statements,
-                                    resolve_static_if->declarations,
+                                    resolve_static_if.declarations,
                                     false
                                 ));
 
@@ -2508,7 +2510,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
                             }
 
                             if(have_to_wait) {
-                                return wait(resolve_static_if);
+                                return wait(i);
                             }
                         }
                     }
@@ -2521,26 +2523,28 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
                 auto variable_declaration = (VariableDeclaration*)statement;
 
                 if(equal(variable_declaration->name.text, name)) {
-                    for(auto job : *jobs) {
-                        if(job->kind == JobKind::GenerateStaticVariable) {
-                            auto generate_static_variable = (GenerateStaticVariable*)job;
+                    for(size_t i = 0; i < jobs->count; i += 1) {
+                        auto job = (*jobs)[i];
 
-                            if(generate_static_variable->declaration == variable_declaration) {
-                                if(generate_static_variable->done) {
+                        if(job.kind == JobKind::GenerateStaticVariable) {
+                            auto generate_static_variable = job.generate_static_variable;
+
+                            if(generate_static_variable.declaration == variable_declaration) {
+                                if(job.state == JobState::Done) {
                                     auto address_register = append_reference_static(
                                         context,
                                         instructions,
                                         name_range,
-                                        generate_static_variable->static_variable
+                                        generate_static_variable.static_variable
                                     );
 
                                     return has({
                                         true,
-                                        generate_static_variable->type,
+                                        generate_static_variable.type,
                                         wrap_address_value({ address_register })
                                     });
                                 } else {
-                                    return wait(generate_static_variable);
+                                    return wait(i);
                                 }
                             }
                         }
@@ -2567,7 +2571,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchValue>, search_fo
 
 static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, (
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -3416,19 +3420,21 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
 
                 auto found = false;
-                for(auto job : *jobs) {
-                    if(job->kind == JobKind::ResolvePolymorphicFunction) {
-                        auto resolve_polymorphic_function = (ResolvePolymorphicFunction*)job;
+                for(size_t i = 0; i < jobs->count; i += 1) {
+                    auto job = (*jobs)[i];
+
+                    if(job.kind == JobKind::ResolvePolymorphicFunction) {
+                        auto resolve_polymorphic_function = job.resolve_polymorphic_function;
 
                         if(
-                            resolve_polymorphic_function->declaration == polymorphic_function_value.declaration &&
-                            resolve_polymorphic_function->scope == polymorphic_function_value.scope
+                            resolve_polymorphic_function.declaration == polymorphic_function_value.declaration &&
+                            resolve_polymorphic_function.scope == polymorphic_function_value.scope
                         ) {
                             auto matching_polymorphic_parameters = true;
                             for(size_t i = 0; i < declaration_parameter_count; i += 1) {
                                 auto declaration_parameter = declaration_parameters[i];
                                 auto call_parameter = polymorphic_parameters[i];
-                                auto job_parameter = resolve_polymorphic_function->parameters[i];
+                                auto job_parameter = resolve_polymorphic_function.parameters[i];
 
                                 if(
                                     (declaration_parameter.is_polymorphic_determiner || declaration_parameter.is_constant) &&
@@ -3451,15 +3457,15 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                                 continue;
                             }
 
-                            if(resolve_polymorphic_function->done) {
+                            if(job.state == JobState::Done) {
                                 found = true;
 
-                                function_type = resolve_polymorphic_function->type;
-                                function_value = resolve_polymorphic_function->value;
+                                function_type = resolve_polymorphic_function.type;
+                                function_value = resolve_polymorphic_function.value;
 
                                 break;
                             } else {
-                                return wait(resolve_polymorphic_function);
+                                return wait(i);
                             }  
                         }
                     }
@@ -3472,18 +3478,18 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         call_parameter_ranges[i] = function_call->parameters[i]->range;
                     }
 
-                    auto resolve_polymorphic_function = new ResolvePolymorphicFunction;
-                    resolve_polymorphic_function->done = false;
-                    resolve_polymorphic_function->waiting_for = nullptr;
-                    resolve_polymorphic_function->declaration = polymorphic_function_value.declaration;
-                    resolve_polymorphic_function->parameters = polymorphic_parameters;
-                    resolve_polymorphic_function->scope = polymorphic_function_value.scope;
-                    resolve_polymorphic_function->call_scope = scope;
-                    resolve_polymorphic_function->call_parameter_ranges = call_parameter_ranges;
+                    AnyJob job;
+                    job.kind = JobKind::ResolvePolymorphicFunction;
+                    job.state = JobState::Working;
+                    job.resolve_polymorphic_function.declaration = polymorphic_function_value.declaration;
+                    job.resolve_polymorphic_function.parameters = polymorphic_parameters;
+                    job.resolve_polymorphic_function.scope = polymorphic_function_value.scope;
+                    job.resolve_polymorphic_function.call_scope = scope;
+                    job.resolve_polymorphic_function.call_parameter_ranges = call_parameter_ranges;
 
-                    append(jobs, (Job*)resolve_polymorphic_function);
+                    auto job_index = append(jobs, job);
 
-                    return wait(resolve_polymorphic_function);
+                    return wait(job_index);
                 }
             } else {
                 function_type = expression_value.type.function;
@@ -3507,18 +3513,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             auto found = false;
             Function *runtime_function;
-            for(auto job : *jobs) {
-                if(job->kind == JobKind::GenerateFunction) {
-                    auto generate_function = (GenerateFunction*)job;
+            for(size_t i = 0; i < jobs->count; i += 1) {
+                auto job = (*jobs)[i];
+
+                if(job.kind == JobKind::GenerateFunction) {
+                    auto generate_function = job.generate_function;
 
                     if(
-                        types_equal(wrap_function_type(generate_function->type), wrap_function_type(function_type)) &&
-                        generate_function->value.declaration == function_value.declaration &&
-                        generate_function->value.body_scope == function_value.body_scope
+                        types_equal(wrap_function_type(generate_function.type), wrap_function_type(function_type)) &&
+                        generate_function.value.declaration == function_value.declaration &&
+                        generate_function.value.body_scope == function_value.body_scope
                     ) {
                         found = true;
 
-                        runtime_function = generate_function->function;
+                        runtime_function = generate_function.function;
 
                         break;
                     }
@@ -3528,15 +3536,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             if(!found) {
                 runtime_function = new Function;
 
-                auto generate_function = new GenerateFunction;
-                generate_function->done = false;
-                generate_function->waiting_for = nullptr;
-                generate_function->type = function_type;
-                generate_function->value = function_value;
+                AnyJob job;
+                job.kind = JobKind::GenerateFunction;
+                job.state = JobState::Working;
+                job.generate_function.type = function_type;
+                job.generate_function.value = function_value;
+                job.generate_function.function = runtime_function;
 
-                generate_function->function = runtime_function;
-
-                append(jobs, (Job*)generate_function);
+                append(jobs, job);
             }
 
             auto has_return = function_type.return_type->kind != TypeKind::Void;
@@ -3933,43 +3940,45 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     };
                 }
 
-                for(auto job : *jobs) {
-                    if(job->kind == JobKind::ResolvePolymorphicStruct) {
-                        auto resolve_polymorphic_struct = (ResolvePolymorphicStruct*)job;
+                for(size_t i = 0; i < jobs->count; i += 1) {
+                    auto job = (*jobs)[i];
 
-                        if(resolve_polymorphic_struct->definition == definition && resolve_polymorphic_struct->parameters != nullptr) {
+                    if(job.kind == JobKind::ResolvePolymorphicStruct) {
+                        auto resolve_polymorphic_struct = job.resolve_polymorphic_struct;
+
+                        if(resolve_polymorphic_struct.definition == definition && resolve_polymorphic_struct.parameters != nullptr) {
                             auto same_parameters = true;
                             for(size_t i = 0; i < parameter_count; i += 1) {
-                                if(!constant_values_equal(polymorphic_struct.parameter_types[i], parameters[i], resolve_polymorphic_struct->parameters[i])) {
+                                if(!constant_values_equal(polymorphic_struct.parameter_types[i], parameters[i], resolve_polymorphic_struct.parameters[i])) {
                                     same_parameters = false;
                                     break;
                                 }
                             }
 
                             if(same_parameters) {
-                                if(resolve_polymorphic_struct->done) {
+                                if(job.state == JobState::Done) {
                                     return has({
                                         create_type_type(),
-                                        wrap_constant_value(wrap_type_constant(resolve_polymorphic_struct->type))
+                                        wrap_constant_value(wrap_type_constant(resolve_polymorphic_struct.type))
                                     });
                                 } else {
-                                    return wait(resolve_polymorphic_struct);
+                                    return wait(i);
                                 }
                             }
                         }
                     }
                 }
 
-                auto resolve_polymorphic_struct = new ResolvePolymorphicStruct;
-                resolve_polymorphic_struct->done = false;
-                resolve_polymorphic_struct->waiting_for = nullptr;
-                resolve_polymorphic_struct->definition = definition;
-                resolve_polymorphic_struct->parameters = parameters;
-                resolve_polymorphic_struct->scope = polymorphic_struct.parent;
+                AnyJob job;
+                job.kind = JobKind::ResolvePolymorphicStruct;
+                job.state = JobState::Working;
+                job.resolve_polymorphic_struct.definition = definition;
+                job.resolve_polymorphic_struct.parameters = parameters;
+                job.resolve_polymorphic_struct.scope = polymorphic_struct.parent;
 
-                append(jobs, (Job*)resolve_polymorphic_struct);
+                auto job_index = append(jobs, job);
 
-                return wait(resolve_polymorphic_struct);
+                return wait(job_index);
             } else {
                 error(scope, function_call->expression->range, "Type '%s' is not polymorphic", type_description(type));
 
@@ -4014,18 +4023,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         auto found = false;
                         Function *runtime_function;
-                        for(auto job : *jobs) {
-                            if(job->kind == JobKind::GenerateFunction) {
-                                auto generate_function = (GenerateFunction*)job;
+                        for(size_t i = 0; i < jobs->count; i += 1) {
+                            auto job = (*jobs)[i];
+
+                            if(job.kind == JobKind::GenerateFunction) {
+                                auto generate_function = job.generate_function;
 
                                 if(
-                                    types_equal(wrap_function_type(generate_function->type), wrap_function_type(function)) &&
-                                    generate_function->value.declaration == function_value.declaration &&
-                                    generate_function->value.body_scope == function_value.body_scope
+                                    types_equal(wrap_function_type(generate_function.type), wrap_function_type(function)) &&
+                                    generate_function.value.declaration == function_value.declaration &&
+                                    generate_function.value.body_scope == function_value.body_scope
                                 ) {
                                     found = true;
 
-                                    runtime_function = generate_function->function;
+                                    runtime_function = generate_function.function;
 
                                     break;
                                 }
@@ -4035,15 +4046,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         if(!found) {
                             runtime_function = new Function;
 
-                            auto generate_function = new GenerateFunction;
-                            generate_function->done = false;
-                            generate_function->waiting_for = nullptr;
-                            generate_function->type = function;
-                            generate_function->value = function_value;
+                            AnyJob job;
+                            job.kind = JobKind::GenerateFunction;
+                            job.state = JobState::Working;
+                            job.generate_function.type = function;
+                            job.generate_function.value = function_value;
+                            job.generate_function.function = runtime_function;
 
-                            generate_function->function = runtime_function;
-
-                            append(jobs, (Job*)generate_function);
+                            append(jobs, job);
                         }
 
                         address_register = append_reference_static(
@@ -4589,19 +4599,21 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             }
 
-            for(auto job : *jobs) {
-                if(job->kind == JobKind::ResolvePolymorphicFunction) {
-                    auto resolve_polymorphic_function = (ResolvePolymorphicFunction*)job;
+            for(size_t i = 0; i < jobs->count; i += 1) {
+                auto job = (*jobs)[i];
+
+                if(job.kind == JobKind::ResolvePolymorphicFunction) {
+                    auto resolve_polymorphic_function = job.resolve_polymorphic_function;
 
                     if(
-                        resolve_polymorphic_function->declaration == polymorphic_function_value.declaration &&
-                        resolve_polymorphic_function->scope == polymorphic_function_value.scope
+                        resolve_polymorphic_function.declaration == polymorphic_function_value.declaration &&
+                        resolve_polymorphic_function.scope == polymorphic_function_value.scope
                     ) {
                         auto matching_polymorphic_parameters = true;
                         for(size_t i = 0; i < declaration_parameter_count; i += 1) {
                             auto declaration_parameter = declaration_parameters[i];
                             auto call_parameter = polymorphic_parameters[i];
-                            auto job_parameter = resolve_polymorphic_function->parameters[i];
+                            auto job_parameter = resolve_polymorphic_function.parameters[i];
 
                             if(
                                 (declaration_parameter.is_polymorphic_determiner || declaration_parameter.is_constant) &&
@@ -4624,13 +4636,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             continue;
                         }
 
-                        if(resolve_polymorphic_function->done) {
+                        if(job.state == JobState::Done) {
                             return has({
-                                wrap_function_type(resolve_polymorphic_function->type),
-                                wrap_constant_value(wrap_function_constant(resolve_polymorphic_function->value))
+                                wrap_function_type(resolve_polymorphic_function.type),
+                                wrap_constant_value(wrap_function_constant(resolve_polymorphic_function.value))
                             });
                         } else {
-                            return wait(resolve_polymorphic_function);
+                            return wait(i);
                         }  
                     }
                 }
@@ -4642,18 +4654,18 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 call_parameter_ranges[i] = function_call->parameters[i]->range;
             }
 
-            auto resolve_polymorphic_function = new ResolvePolymorphicFunction;
-            resolve_polymorphic_function->done = false;
-            resolve_polymorphic_function->waiting_for = nullptr;
-            resolve_polymorphic_function->declaration = polymorphic_function_value.declaration;
-            resolve_polymorphic_function->parameters = polymorphic_parameters;
-            resolve_polymorphic_function->scope = polymorphic_function_value.scope;
-            resolve_polymorphic_function->call_scope = scope;
-            resolve_polymorphic_function->call_parameter_ranges = call_parameter_ranges;
+            AnyJob job;
+            job.kind = JobKind::ResolvePolymorphicFunction;
+            job.state = JobState::Working;
+            job.resolve_polymorphic_function.declaration = polymorphic_function_value.declaration;
+            job.resolve_polymorphic_function.parameters = polymorphic_parameters;
+            job.resolve_polymorphic_function.scope = polymorphic_function_value.scope;
+            job.resolve_polymorphic_function.call_scope = scope;
+            job.resolve_polymorphic_function.call_parameter_ranges = call_parameter_ranges;
 
-            append(jobs, (Job*)resolve_polymorphic_function);
+            auto job_index = append(jobs, job);
 
-            return wait(resolve_polymorphic_function);
+            return wait(job_index);
         } else if(expression_value.type.kind == TypeKind::FunctionTypeType) {
             auto function_type = expression_value.type.function;
 
@@ -4830,7 +4842,7 @@ static bool is_not_runtime_statement(Statement *statement) {
 
 static_profiled_function(DelayedResult<void>, generate_statement, (
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     GenerationContext *context,
     List<Instruction*> *instructions,
@@ -5554,7 +5566,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 
 profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     FunctionTypeType type,
     FunctionConstant value,
     Function *function
@@ -5761,7 +5773,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
 profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variable, (
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     VariableDeclaration *declaration,
     ConstantScope *scope
 ), (

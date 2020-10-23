@@ -5,11 +5,11 @@
 #include "result.h"
 #include "constant.h"
 
-struct Job;
+struct AnyJob;
 
 DelayedResult<Array<StaticConstant*>> do_generate_function(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     FunctionTypeType type,
     FunctionConstant value,
     Function *function
@@ -23,7 +23,7 @@ struct StaticVariableResult {
 
 DelayedResult<StaticVariableResult> do_generate_static_variable(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     VariableDeclaration *declaration,
     ConstantScope *scope
 );

@@ -1268,7 +1268,7 @@ bool match_declaration(Statement *statement, String name) {
 
 DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     Statement *declaration
 ) {
@@ -1288,18 +1288,20 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
                 }
             }
 
-            for(auto job : *jobs) {
-                if(job->kind == JobKind::ResolveFunctionDeclaration) {
-                    auto resolve_function_declaration = (ResolveFunctionDeclaration*)job;
+            for(size_t i = 0; i < jobs->count; i += 1) {
+                auto job = (*jobs)[i];
 
-                    if(resolve_function_declaration->declaration == function_declaration) {
-                        if(resolve_function_declaration->done) {
+                if(job.kind == JobKind::ResolveFunctionDeclaration) {
+                    auto resolve_function_declaration = job.resolve_function_declaration;
+
+                    if(resolve_function_declaration.declaration == function_declaration) {
+                        if(job.state == JobState::Done) {
                             return has({
-                                resolve_function_declaration->type,
-                                resolve_function_declaration->value
+                                resolve_function_declaration.type,
+                                resolve_function_declaration.value
                             });
                         } else {
-                            return wait(resolve_function_declaration);
+                            return wait(i);
                         }
                     }
                 }
@@ -1311,18 +1313,20 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
         case StatementKind::ConstantDefinition: {
             auto constant_definition = (ConstantDefinition*)declaration;
 
-            for(auto job : *jobs) {
-                if(job->kind == JobKind::ResolveConstantDefinition) {
-                    auto resolve_constant_definition = (ResolveConstantDefinition*)job;
+            for(size_t i = 0; i < jobs->count; i += 1) {
+                auto job = (*jobs)[i];
 
-                    if(resolve_constant_definition->definition == constant_definition) {
-                        if(resolve_constant_definition->done) {
+                if(job.kind == JobKind::ResolveConstantDefinition) {
+                    auto resolve_constant_definition = job.resolve_constant_definition;
+
+                    if(resolve_constant_definition.definition == constant_definition) {
+                        if(job.state == JobState::Done) {
                             return has({
-                                resolve_constant_definition->type,
-                                resolve_constant_definition->value
+                                resolve_constant_definition.type,
+                                resolve_constant_definition.value
                             });
                         } else {
-                            return wait(resolve_constant_definition);
+                            return wait(i);
                         }
                     }
                 }
@@ -1334,18 +1338,20 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
         case StatementKind::StructDefinition: {
             auto struct_definition = (StructDefinition*)declaration;
 
-            for(auto job : *jobs) {
-                if(job->kind == JobKind::ResolveStructDefinition) {
-                    auto resolve_struct_definition = (ResolveStructDefinition*)job;
+            for(size_t i = 0; i < jobs->count; i += 1) {
+                auto job = (*jobs)[i];
 
-                    if(resolve_struct_definition->definition == struct_definition) {
-                        if(resolve_struct_definition->done) {
+                if(job.kind == JobKind::ResolveStructDefinition) {
+                    auto resolve_struct_definition = job.resolve_struct_definition;
+
+                    if(resolve_struct_definition.definition == struct_definition) {
+                        if(job.state == JobState::Done) {
                             return has({
                                 create_type_type(),
-                                wrap_type_constant(resolve_struct_definition->type)
+                                wrap_type_constant(resolve_struct_definition.type)
                             });
                         } else {
-                            return wait(resolve_struct_definition);
+                            return wait(i);
                         }
                     }
                 }
@@ -1358,20 +1364,22 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
             auto import = (Import*)declaration;
 
             auto job_already_added = false;
-            for(auto job : *jobs) {
-                if(job->kind == JobKind::ParseFile) {
-                    auto parse_file = (ParseFile*)job;
+            for(size_t i = 0; i < jobs->count; i += 1) {
+                auto job = (*jobs)[i];
 
-                    if(strcmp(parse_file->path, import->absolute_path) == 0) {
-                        if(parse_file->done) {
+                if(job.kind == JobKind::ParseFile) {
+                    auto parse_file = job.parse_file;
+
+                    if(strcmp(parse_file.path, import->absolute_path) == 0) {
+                        if(job.state == JobState::Done) {
                             return has({
                                 create_file_module_type(),
                                 wrap_file_module_constant({
-                                    parse_file->scope
+                                    parse_file.scope
                                 })
                             });
                         } else {
-                            return wait(parse_file);
+                            return wait(i);
                         }
                     }
                 }
@@ -1580,7 +1588,7 @@ Statement *search_in_declaration_hash_table(DeclarationHashTable declaration_has
 
 profiled_function(DelayedResult<DeclarationSearchValue>, search_for_declaration, (
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     String name,
     uint32_t name_hash,
     ConstantScope *scope,
@@ -1648,19 +1656,21 @@ profiled_function(DelayedResult<DeclarationSearchValue>, search_for_declaration,
             auto static_if = (StaticIf*)statement;
 
             auto found = false;
-            for(auto job : *jobs) {
-                if(job->kind == JobKind::ResolveStaticIf) {
-                    auto resolve_static_if = (ResolveStaticIf*)job;
+            for(size_t i = 0; i < jobs->count; i += 1) {
+                auto job = (*jobs)[i];
+
+                if(job.kind == JobKind::ResolveStaticIf) {
+                    auto resolve_static_if = job.resolve_static_if;
 
                     if(
-                        resolve_static_if->static_if == static_if &&
-                        resolve_static_if->scope == scope
+                        resolve_static_if.static_if == static_if &&
+                        resolve_static_if.scope == scope
                     ) {
                         found = true;
 
-                        if(resolve_static_if->done) {
-                            if(resolve_static_if->condition) {
-                                expect_delayed(search_value, search_for_declaration(info, jobs, name, name_hash, scope, static_if->statements, resolve_static_if->declarations, false, nullptr));
+                        if(job.state == JobState::Done) {
+                            if(resolve_static_if.condition) {
+                                expect_delayed(search_value, search_for_declaration(info, jobs, name, name_hash, scope, static_if->statements, resolve_static_if.declarations, false, nullptr));
 
                                 if(search_value.found) {
                                     return has({
@@ -1692,7 +1702,7 @@ profiled_function(DelayedResult<DeclarationSearchValue>, search_for_declaration,
                             }
 
                             if(have_to_wait) {
-                                return wait(resolve_static_if);
+                                return wait(i);
                             }
                         }
                     }
@@ -1747,7 +1757,7 @@ Result<const char *> static_array_to_c_string(ConstantScope *scope, FileRange ra
 
 profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expression, (
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     Statement *ignore_statement,
     Expression *expression
@@ -2165,43 +2175,45 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     parameters[i] = parameter_value;
                 }
 
-                for(auto job : *jobs) {
-                    if(job->kind == JobKind::ResolvePolymorphicStruct) {
-                        auto resolve_polymorphic_struct = (ResolvePolymorphicStruct*)job;
+                for(size_t i = 0; i < jobs->count; i += 1) {
+                    auto job = (*jobs)[i];
 
-                        if(resolve_polymorphic_struct->definition == definition) {
+                    if(job.kind == JobKind::ResolvePolymorphicStruct) {
+                        auto resolve_polymorphic_struct = job.resolve_polymorphic_struct;
+
+                        if(resolve_polymorphic_struct.definition == definition) {
                             auto same_parameters = true;
                             for(size_t i = 0; i < parameter_count; i += 1) {
-                                if(!constant_values_equal(polymorphic_struct.parameter_types[i], parameters[i], resolve_polymorphic_struct->parameters[i])) {
+                                if(!constant_values_equal(polymorphic_struct.parameter_types[i], parameters[i], resolve_polymorphic_struct.parameters[i])) {
                                     same_parameters = false;
                                     break;
                                 }
                             }
 
                             if(same_parameters) {
-                                if(resolve_polymorphic_struct->done) {
+                                if(job.state == JobState::Done) {
                                     return has({
                                         create_type_type(),
-                                        wrap_type_constant(resolve_polymorphic_struct->type)
+                                        wrap_type_constant(resolve_polymorphic_struct.type)
                                     });
                                 } else {
-                                    return wait(resolve_polymorphic_struct);
+                                    return wait(i);
                                 }
                             }
                         }
                     }
                 }
 
-                auto resolve_polymorphic_struct = new ResolvePolymorphicStruct;
-                resolve_polymorphic_struct->done = false;
-                resolve_polymorphic_struct->waiting_for = nullptr;
-                resolve_polymorphic_struct->definition = definition;
-                resolve_polymorphic_struct->parameters = parameters;
-                resolve_polymorphic_struct->scope = polymorphic_struct.parent;
+                AnyJob job;
+                job.kind = JobKind::ResolvePolymorphicStruct;
+                job.state = JobState::Working;
+                job.resolve_polymorphic_struct.definition = definition;
+                job.resolve_polymorphic_struct.parameters = parameters;
+                job.resolve_polymorphic_struct.scope = polymorphic_struct.parent;
 
-                append(jobs, (Job*)resolve_polymorphic_struct);
+                auto job_index = append(jobs, job);
 
-                return wait(resolve_polymorphic_struct);
+                return wait(job_index);
             } else {
                 error(scope, function_call->expression->range, "Type '%s' is not polymorphic", type_description(type));
 
@@ -2365,19 +2377,21 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 return err;
             }
 
-            for(auto job : *jobs) {
-                if(job->kind == JobKind::ResolvePolymorphicFunction) {
-                    auto resolve_polymorphic_function = (ResolvePolymorphicFunction*)job;
+            for(size_t i = 0; i < jobs->count; i += 1) {
+                auto job = (*jobs)[i];
+
+                if(job.kind == JobKind::ResolvePolymorphicFunction) {
+                    auto resolve_polymorphic_function = job.resolve_polymorphic_function;
 
                     if(
-                        resolve_polymorphic_function->declaration == polymorphic_function_value.declaration &&
-                        resolve_polymorphic_function->scope == polymorphic_function_value.scope
+                        resolve_polymorphic_function.declaration == polymorphic_function_value.declaration &&
+                        resolve_polymorphic_function.scope == polymorphic_function_value.scope
                     ) {
                         auto matching_polymorphic_parameters = true;
                         for(size_t i = 0; i < declaration_parameter_count; i += 1) {
                             auto declaration_parameter = declaration_parameters[i];
                             auto call_parameter = parameters[i];
-                            auto job_parameter = resolve_polymorphic_function->parameters[i];
+                            auto job_parameter = resolve_polymorphic_function.parameters[i];
 
                             if(
                                 (declaration_parameter.is_polymorphic_determiner || declaration_parameter.is_constant) &&
@@ -2400,13 +2414,13 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                             continue;
                         }
 
-                        if(resolve_polymorphic_function->done) {
+                        if(job.state == JobState::Done) {
                             return has({
-                                wrap_function_type(resolve_polymorphic_function->type),
-                                wrap_function_constant(resolve_polymorphic_function->value)
+                                wrap_function_type(resolve_polymorphic_function.type),
+                                wrap_function_constant(resolve_polymorphic_function.value)
                             });
                         } else {
-                            return wait(resolve_polymorphic_function);
+                            return wait(i);
                         }  
                     }
                 }
@@ -2418,18 +2432,18 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 call_parameter_ranges[i] = function_call->parameters[i]->range;
             }
 
-            auto resolve_polymorphic_function = new ResolvePolymorphicFunction;
-            resolve_polymorphic_function->done = false;
-            resolve_polymorphic_function->waiting_for = nullptr;
-            resolve_polymorphic_function->declaration = polymorphic_function_value.declaration;
-            resolve_polymorphic_function->parameters = parameters;
-            resolve_polymorphic_function->scope = polymorphic_function_value.scope;
-            resolve_polymorphic_function->call_scope = scope;
-            resolve_polymorphic_function->call_parameter_ranges = call_parameter_ranges;
+            AnyJob job;
+            job.kind = JobKind::ResolvePolymorphicFunction;
+            job.state = JobState::Working;
+            job.resolve_polymorphic_function.declaration = polymorphic_function_value.declaration;
+            job.resolve_polymorphic_function.parameters = parameters;
+            job.resolve_polymorphic_function.scope = polymorphic_function_value.scope;
+            job.resolve_polymorphic_function.call_scope = scope;
+            job.resolve_polymorphic_function.call_parameter_ranges = call_parameter_ranges;
 
-            append(jobs, (Job*)resolve_polymorphic_function);
+            auto job_index = append(jobs, job);
 
-            return wait(resolve_polymorphic_function);
+            return wait(job_index);
         } else if(expression_value.type.kind == TypeKind::FunctionTypeType) {
             auto function_type = expression_value.type.function;
 
@@ -2605,7 +2619,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
 DelayedResult<AnyType> evaluate_type_expression(
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     Statement *ignore_statement,
     Expression *expression
@@ -2621,7 +2635,7 @@ DelayedResult<AnyType> evaluate_type_expression(
     }
 }
 
-DelayedResult<StaticIfResolutionValue> do_resolve_static_if(GlobalInfo info, List<Job*> *jobs, StaticIf *static_if, ConstantScope *scope) {
+DelayedResult<StaticIfResolutionValue> do_resolve_static_if(GlobalInfo info, List<AnyJob> *jobs, StaticIf *static_if, ConstantScope *scope) {
     expect_delayed(condition, evaluate_constant_expression(info, jobs, scope, static_if, static_if->condition));
 
     if(condition.type.kind != TypeKind::Boolean) {
@@ -2650,7 +2664,7 @@ DelayedResult<StaticIfResolutionValue> do_resolve_static_if(GlobalInfo info, Lis
 
 profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declaration, (
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     FunctionDeclaration *declaration,
     ConstantScope *scope
 ), (
@@ -2835,7 +2849,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
 
 profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_polymorphic_function, (
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     FunctionDeclaration *declaration,
     TypedConstantValue *parameters,
     ConstantScope *scope,
@@ -3044,7 +3058,7 @@ profiled_function(DelayedResult<FunctionResolutionValue>, do_resolve_polymorphic
 
 profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     StructDefinition *struct_definition,
     ConstantScope *scope
 ), (
@@ -3116,7 +3130,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
 
 profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
     GlobalInfo info,
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     StructDefinition *struct_definition,
     AnyConstantValue *parameters,
     ConstantScope *scope
@@ -3186,7 +3200,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
 }
 
 profiled_function(bool, process_scope, (
-    List<Job*> *jobs,
+    List<AnyJob> *jobs,
     ConstantScope *scope,
     Array<Statement*> statements,
     List<ConstantScope*> *child_scopes,
@@ -3212,51 +3226,51 @@ profiled_function(bool, process_scope, (
                 }
 
                 if(!is_polymorphic) {
-                    auto resolve_function_declaration = new ResolveFunctionDeclaration;
-                    resolve_function_declaration->done = false;
-                    resolve_function_declaration->waiting_for = nullptr;
-                    resolve_function_declaration->declaration = function_declaration;
-                    resolve_function_declaration->scope = scope;
+                    AnyJob job;
+                    job.kind = JobKind::ResolveFunctionDeclaration;
+                    job.state = JobState::Working;
+                    job.resolve_function_declaration.declaration = function_declaration;
+                    job.resolve_function_declaration.scope = scope;
 
-                    append(jobs, (Job*)resolve_function_declaration);
+                    append(jobs, job);
                 }
             } break;
 
             case StatementKind::ConstantDefinition: {
                 auto constant_definition = (ConstantDefinition*)statement;
 
-                auto resolve_constant_definition = new ResolveConstantDefinition;
-                resolve_constant_definition->done = false;
-                resolve_constant_definition->waiting_for = nullptr;
-                resolve_constant_definition->definition = constant_definition;
-                resolve_constant_definition->scope = scope;
+                AnyJob job;
+                job.kind = JobKind::ResolveConstantDefinition;
+                job.state = JobState::Working;
+                job.resolve_constant_definition.definition = constant_definition;
+                job.resolve_constant_definition.scope = scope;
 
-                append(jobs, (Job*)resolve_constant_definition);
+                append(jobs, job);
             } break;
 
             case StatementKind::StructDefinition: {
                 auto struct_definition = (StructDefinition*)statement;
 
-                auto resolve_struct_definition = new ResolveStructDefinition;
-                resolve_struct_definition->done = false;
-                resolve_struct_definition->waiting_for = nullptr;
-                resolve_struct_definition->definition = struct_definition;
-                resolve_struct_definition->scope = scope;
+                AnyJob job;
+                job.kind = JobKind::ResolveStructDefinition;
+                job.state = JobState::Working;
+                job.resolve_struct_definition.definition = struct_definition;
+                job.resolve_struct_definition.scope = scope;
 
-                append(jobs, (Job*)resolve_struct_definition);
+                append(jobs, job);
             } break;
 
             case StatementKind::VariableDeclaration: {
                 if(is_top_level) {
                     auto variable_declaration = (VariableDeclaration*)statement;
 
-                    auto generate_static_variable = new GenerateStaticVariable;
-                    generate_static_variable->done = false;
-                    generate_static_variable->waiting_for = nullptr;
-                    generate_static_variable->declaration = variable_declaration;
-                    generate_static_variable->scope = scope;
+                    AnyJob job;
+                    job.kind = JobKind::GenerateStaticVariable;
+                    job.state = JobState::Working;
+                    job.generate_static_variable.declaration = variable_declaration;
+                    job.generate_static_variable.scope = scope;
 
-                    append(jobs, (Job*)generate_static_variable);
+                    append(jobs, job);
                 }
             } break;
 
@@ -3353,11 +3367,13 @@ profiled_function(bool, process_scope, (
                 auto import = (Import*)statement;
 
                 auto job_already_added = false;
-                for(auto job : *jobs) {
-                    if(job->kind == JobKind::ParseFile) {
-                        auto parse_file = (ParseFile*)job;
+                for(size_t i = 0; i < jobs->count; i += 1) {
+                    auto job = (*jobs)[i];
 
-                        if(strcmp(parse_file->path, import->absolute_path) == 0) {
+                    if(job.kind == JobKind::ParseFile) {
+                        auto parse_file = job.parse_file;
+
+                        if(strcmp(parse_file.path, import->absolute_path) == 0) {
                             job_already_added = true;
                             break;
                         }
@@ -3365,12 +3381,12 @@ profiled_function(bool, process_scope, (
                 }
 
                 if(!job_already_added) {
-                    auto parse_file = new ParseFile;
-                    parse_file->done = false;
-                    parse_file->waiting_for = nullptr;
-                    parse_file->path = import->absolute_path;
+                    AnyJob job;
+                    job.kind = JobKind::ParseFile;
+                    job.state = JobState::Working;
+                    job.parse_file.path = import->absolute_path;
 
-                    append(jobs, (Job*)parse_file);
+                    append(jobs, job);
                 }
             } break;
 
@@ -3379,13 +3395,13 @@ profiled_function(bool, process_scope, (
             case StatementKind::StaticIf: {
                 auto static_if = (StaticIf*)statement;
 
-                auto resolve_static_if = new ResolveStaticIf;
-                resolve_static_if->done = false;
-                resolve_static_if->waiting_for = nullptr;
-                resolve_static_if->static_if = static_if;
-                resolve_static_if->scope = scope;
+                AnyJob job;
+                job.kind = JobKind::ResolveStaticIf;
+                job.state = JobState::Working;
+                job.resolve_static_if.static_if = static_if;
+                job.resolve_static_if.scope = scope;
 
-                append(jobs, (Job*)resolve_static_if);
+                append(jobs, job);
             } break;
 
             default: {
