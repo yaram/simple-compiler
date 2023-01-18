@@ -10,8 +10,11 @@
 #define LLVM_CODEGEN_BASICBLOCKSECTIONUTILS_H
 
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/CommandLine.h"
 
 namespace llvm {
+
+extern cl::opt<std::string> BBSectionsColdTextPrefix;
 
 class MachineFunction;
 class MachineBasicBlock;
@@ -21,6 +24,8 @@ using MachineBasicBlockComparator =
 
 void sortBasicBlocksAndUpdateBranches(MachineFunction &MF,
                                       MachineBasicBlockComparator MBBCmp);
+
+void avoidZeroOffsetLandingPad(MachineFunction &MF);
 
 } // end namespace llvm
 

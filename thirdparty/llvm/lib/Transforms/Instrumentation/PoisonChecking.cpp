@@ -60,15 +60,9 @@
 
 #include "llvm/Transforms/Instrumentation/PoisonChecking.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/Statistic.h"
-#include "llvm/Analysis/MemoryBuiltins.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/InstVisitor.h"
-#include "llvm/IR/IntrinsicInst.h"
-#include "llvm/IR/PatternMatch.h"
 #include "llvm/Support/CommandLine.h"
-#include "llvm/Support/Debug.h"
 
 using namespace llvm;
 
@@ -295,7 +289,7 @@ static bool rewrite(Function &F) {
           }
 
       SmallVector<Value*, 4> Checks;
-      if (propagatesPoison(&I))
+      if (propagatesPoison(cast<Operator>(&I)))
         for (Value *V : I.operands())
           Checks.push_back(getPoisonFor(ValToPoison, V));
 

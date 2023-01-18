@@ -786,7 +786,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             name = "";
                         }
 
-                        auto value = LLVMBuildCall(builder, function_pointer_value, parameter_values, (unsigned int)parameter_count, name);
+                        auto value = LLVMBuildCall2(builder, function_type, function_pointer_value, parameter_values, (unsigned int)parameter_count, name);
 
                         expect(calling_convention, get_llvm_calling_convention(
                             function->path,
@@ -842,11 +842,13 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto address_value = get_register_value(*function, function_value, registers, load_integer->address_register);
 
-                        auto pointer_type = LLVMPointerType(get_llvm_integer_type(load_integer->size), 0);
+                        auto integer_type = get_llvm_integer_type(load_integer->size);
+
+                        auto pointer_type = LLVMPointerType(integer_type, 0);
 
                         auto pointer_value = LLVMBuildIntToPtr(builder, address_value, pointer_type, "pointer");
 
-                        auto value = LLVMBuildLoad(builder, pointer_value, "load_integer");
+                        auto value = LLVMBuildLoad2(builder, integer_type, pointer_value, "load_integer");
 
                         append(&registers, {
                             load_integer->destination_register,
@@ -874,11 +876,13 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto address_value = get_register_value(*function, function_value, registers, load_float->address_register);
 
-                        auto pointer_type = LLVMPointerType(get_llvm_float_type(load_float->size), 0);
+                        auto float_type = get_llvm_float_type(load_float->size);
+
+                        auto pointer_type = LLVMPointerType(float_type, 0);
 
                         auto pointer_value = LLVMBuildIntToPtr(builder, address_value, pointer_type, "pointer");
 
-                        auto value = LLVMBuildLoad(builder, pointer_value, "load_float");
+                        auto value = LLVMBuildLoad2(builder, float_type, pointer_value, "load_float");
 
                         append(&registers, {
                             load_float->destination_register,
@@ -932,7 +936,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto length_value = LLVMConstInt(get_llvm_integer_type(architecture_sizes.address_size), copy_memory->length, false);
 
-                        LLVMBuildMemCpyInline(
+                        LLVMBuildMemCpy(
                             builder,
                             destination_pointer_value,
                             (unsigned int)copy_memory->alignment,

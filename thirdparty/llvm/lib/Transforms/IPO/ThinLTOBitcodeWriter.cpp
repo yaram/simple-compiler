@@ -14,13 +14,13 @@
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DebugInfo.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Object/ModuleSymbolTable.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/ScopedPrinter.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/FunctionAttrs.h"
@@ -31,6 +31,19 @@
 using namespace llvm;
 
 namespace {
+
+// Determine if a promotion alias should be created for a symbol name.
+static bool allowPromotionAlias(const std::string &Name) {
+  // Promotion aliases are used only in inline assembly. It's safe to
+  // simply skip unusual names. Subset of MCAsmInfo::isAcceptableChar()
+  // and MCAsmInfoXCOFF::isAcceptableChar().
+  for (const char &C : Name) {
+    if (isAlnum(C) || C == '_' || C == '.')
+      continue;
+    return false;
+  }
+  return true;
+}
 
 // Promote each local-linkage entity defined by ExportM and used by ImportM by
 // changing visibility and appending the given ModuleId.
@@ -54,6 +67,7 @@ void promoteInternals(Module &ExportM, Module &ImportM, StringRef ModuleId,
       }
     }
 
+    std::string OldName = Name.str();
     std::string NewName = (Name + ModuleId).str();
 
     if (const auto *C = ExportGV.getComdat())
@@ -67,6 +81,14 @@ void promoteInternals(Module &ExportM, Module &ImportM, StringRef ModuleId,
     if (ImportGV) {
       ImportGV->setName(NewName);
       ImportGV->setVisibility(GlobalValue::HiddenVisibility);
+    }
+
+    if (isa<Function>(&ExportGV) && allowPromotionAlias(OldName)) {
+      // Create a local alias with the original name to avoid breaking
+      // references from inline assembly.
+      std::string Alias =
+          ".lto_set_conditional " + OldName + "," + NewName + "\n";
+      ExportM.appendModuleInlineAsm(Alias);
     }
   }
 
@@ -110,6 +132,14 @@ void promoteTypeIds(Module &M, StringRef ModuleId) {
     }
   }
 
+  if (Function *PublicTypeTestFunc =
+          M.getFunction(Intrinsic::getName(Intrinsic::public_type_test))) {
+    for (const Use &U : PublicTypeTestFunc->uses()) {
+      auto CI = cast<CallInst>(U.getUser());
+      ExternalizeTypeId(CI, 1);
+    }
+  }
+
   if (Function *TypeCheckedLoadFunc =
           M.getFunction(Intrinsic::getName(Intrinsic::type_checked_load))) {
     for (const Use &U : TypeCheckedLoadFunc->uses()) {
@@ -142,8 +172,7 @@ void simplifyExternals(Module &M) {
   FunctionType *EmptyFT =
       FunctionType::get(Type::getVoidTy(M.getContext()), false);
 
-  for (auto I = M.begin(), E = M.end(); I != E;) {
-    Function &F = *I++;
+  for (Function &F : llvm::make_early_inc_range(M)) {
     if (F.isDeclaration() && F.use_empty()) {
       F.eraseFromParent();
       continue;
@@ -157,14 +186,17 @@ void simplifyExternals(Module &M) {
     Function *NewF =
         Function::Create(EmptyFT, GlobalValue::ExternalLinkage,
                          F.getAddressSpace(), "", &M);
-    NewF->setVisibility(F.getVisibility());
+    NewF->copyAttributesFrom(&F);
+    // Only copy function attribtues.
+    NewF->setAttributes(AttributeList::get(M.getContext(),
+                                           AttributeList::FunctionIndex,
+                                           F.getAttributes().getFnAttrs()));
     NewF->takeName(&F);
     F.replaceAllUsesWith(ConstantExpr::getBitCast(NewF, F.getType()));
     F.eraseFromParent();
   }
 
-  for (auto I = M.global_begin(), E = M.global_end(); I != E;) {
-    GlobalVariable &GV = *I++;
+  for (GlobalVariable &GV : llvm::make_early_inc_range(M.globals())) {
     if (GV.isDeclaration() && GV.use_empty()) {
       GV.eraseFromParent();
       continue;
@@ -192,6 +224,26 @@ void forEachVirtualFunction(Constant *C, function_ref<void(Function *)> Fn) {
     return;
   for (Value *Op : C->operands())
     forEachVirtualFunction(cast<Constant>(Op), Fn);
+}
+
+// Clone any @llvm[.compiler].used over to the new module and append
+// values whose defs were cloned into that module.
+static void cloneUsedGlobalVariables(const Module &SrcM, Module &DestM,
+                                     bool CompilerUsed) {
+  SmallVector<GlobalValue *, 4> Used, NewUsed;
+  // First collect those in the llvm[.compiler].used set.
+  collectUsedGlobalVariables(SrcM, Used, CompilerUsed);
+  // Next build a set of the equivalent values defined in DestM.
+  for (auto *V : Used) {
+    auto *GV = DestM.getNamedValue(V->getName());
+    if (GV && !GV->isDeclaration())
+      NewUsed.push_back(GV);
+  }
+  // Finally, add them to a llvm[.compiler].used variable in DestM.
+  if (CompilerUsed)
+    appendToCompilerUsed(DestM, NewUsed);
+  else
+    appendToUsed(DestM, NewUsed);
 }
 
 // If it's possible to split M into regular and thin LTO parts, do so and write
@@ -260,13 +312,14 @@ void splitAndWriteThinLTOBitcode(
         if (!RT || RT->getBitWidth() > 64 || F->arg_empty() ||
             !F->arg_begin()->use_empty())
           return;
-        for (auto &Arg : make_range(std::next(F->arg_begin()), F->arg_end())) {
+        for (auto &Arg : drop_begin(F->args())) {
           auto *ArgT = dyn_cast<IntegerType>(Arg.getType());
           if (!ArgT || ArgT->getBitWidth() > 64)
             return;
         }
         if (!F->isDeclaration() &&
-            computeFunctionBodyMemoryAccess(*F, AARGetter(*F)) == MAK_ReadNone)
+            computeFunctionBodyMemoryAccess(*F, AARGetter(*F)) ==
+                FMRB_DoesNotAccessMemory)
           EligibleVirtualFns.insert(F);
       });
     }
@@ -279,12 +332,18 @@ void splitAndWriteThinLTOBitcode(
             return true;
         if (auto *F = dyn_cast<Function>(GV))
           return EligibleVirtualFns.count(F);
-        if (auto *GVar = dyn_cast_or_null<GlobalVariable>(GV->getBaseObject()))
+        if (auto *GVar =
+                dyn_cast_or_null<GlobalVariable>(GV->getAliaseeObject()))
           return HasTypeMetadata(GVar);
         return false;
       }));
   StripDebugInfo(*MergedM);
   MergedM->setModuleInlineAsm("");
+
+  // Clone any llvm.*used globals to ensure the included values are
+  // not deleted.
+  cloneUsedGlobalVariables(M, *MergedM, /*CompilerUsed*/ false);
+  cloneUsedGlobalVariables(M, *MergedM, /*CompilerUsed*/ true);
 
   for (Function &F : *MergedM)
     if (!F.isDeclaration()) {
@@ -303,7 +362,7 @@ void splitAndWriteThinLTOBitcode(
   // Remove all globals with type metadata, globals with comdats that live in
   // MergedM, and aliases pointing to such globals from the thin LTO module.
   filterModule(&M, [&](const GlobalValue *GV) {
-    if (auto *GVar = dyn_cast_or_null<GlobalVariable>(GV->getBaseObject()))
+    if (auto *GVar = dyn_cast_or_null<GlobalVariable>(GV->getAliaseeObject()))
       if (HasTypeMetadata(GVar))
         return false;
     if (const auto *C = GV->getComdat())
@@ -333,8 +392,7 @@ void splitAndWriteThinLTOBitcode(
       Linkage = CFL_Declaration;
     Elts.push_back(ConstantAsMetadata::get(
         llvm::ConstantInt::get(Type::getInt8Ty(Ctx), Linkage)));
-    for (auto Type : Types)
-      Elts.push_back(Type);
+    append_range(Elts, Types);
     CfiFunctionMDs.push_back(MDTuple::get(Ctx, Elts));
   }
 
@@ -485,18 +543,18 @@ void writeThinLTOBitcode(raw_ostream &OS, raw_ostream *ThinLinkOS,
   // the information that is needed by thin link will be written in the
   // given OS.
   if (ThinLinkOS && Index)
-    WriteThinLinkBitcodeToFile(M, *ThinLinkOS, *Index, ModHash);
+    writeThinLinkBitcodeToFile(M, *ThinLinkOS, *Index, ModHash);
 }
 
 class WriteThinLTOBitcode : public ModulePass {
   raw_ostream &OS; // raw_ostream to print on
   // The output stream on which to emit a minimized module for use
   // just in the thin link, if requested.
-  raw_ostream *ThinLinkOS;
+  raw_ostream *ThinLinkOS = nullptr;
 
 public:
   static char ID; // Pass identification, replacement for typeid
-  WriteThinLTOBitcode() : ModulePass(ID), OS(dbgs()), ThinLinkOS(nullptr) {
+  WriteThinLTOBitcode() : ModulePass(ID), OS(dbgs()) {
     initializeWriteThinLTOBitcodePass(*PassRegistry::getPassRegistry());
   }
 

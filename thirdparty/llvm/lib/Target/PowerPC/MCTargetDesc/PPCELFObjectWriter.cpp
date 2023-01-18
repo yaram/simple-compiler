@@ -125,6 +125,7 @@ unsigned PPCELFObjectWriter::getRelocType(MCContext &Ctx, const MCValue &Target,
       }
       break;
     case PPC::fixup_ppc_half16ds:
+    case PPC::fixup_ppc_half16dq:
       Target.print(errs());
       errs() << '\n';
       report_fatal_error("Invalid PC-relative half16ds relocation");
@@ -140,6 +141,9 @@ unsigned PPCELFObjectWriter::getRelocType(MCContext &Ctx, const MCValue &Target,
         break;
       case MCSymbolRefExpr::VK_PPC_GOT_TLSGD_PCREL:
         Type = ELF::R_PPC64_GOT_TLSGD_PCREL34;
+        break;
+      case MCSymbolRefExpr::VK_PPC_GOT_TLSLD_PCREL:
+        Type = ELF::R_PPC64_GOT_TLSLD_PCREL34;
         break;
       case MCSymbolRefExpr::VK_PPC_GOT_TPREL_PCREL:
         Type = ELF::R_PPC64_GOT_TPREL_PCREL34;
@@ -346,6 +350,7 @@ unsigned PPCELFObjectWriter::getRelocType(MCContext &Ctx, const MCValue &Target,
       }
       break;
     case PPC::fixup_ppc_half16ds:
+    case PPC::fixup_ppc_half16dq:
       switch (Modifier) {
       default: llvm_unreachable("Unsupported Modifier");
       case MCSymbolRefExpr::VK_None:
@@ -419,7 +424,16 @@ unsigned PPCELFObjectWriter::getRelocType(MCContext &Ctx, const MCValue &Target,
       }
       break;
     case PPC::fixup_ppc_imm34:
-      report_fatal_error("Unsupported Modifier for fixup_ppc_imm34.");
+      switch (Modifier) {
+      default:
+        report_fatal_error("Unsupported Modifier for fixup_ppc_imm34.");
+      case MCSymbolRefExpr::VK_DTPREL:
+        Type = ELF::R_PPC64_DTPREL34;
+        break;
+      case MCSymbolRefExpr::VK_TPREL:
+        Type = ELF::R_PPC64_TPREL34;
+        break;
+      }
       break;
     case FK_Data_8:
       switch (Modifier) {

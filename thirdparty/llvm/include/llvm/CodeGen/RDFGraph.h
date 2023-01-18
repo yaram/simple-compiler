@@ -221,8 +221,8 @@
 // mark " indicates that the node is a shadow.
 //
 
-#ifndef LLVM_LIB_TARGET_HEXAGON_RDFGRAPH_H
-#define LLVM_LIB_TARGET_HEXAGON_RDFGRAPH_H
+#ifndef LLVM_CODEGEN_RDFGRAPH_H
+#define LLVM_CODEGEN_RDFGRAPH_H
 
 #include "RDFRegisters.h"
 #include "llvm/ADT/SmallVector.h"
@@ -749,13 +749,8 @@ namespace rdf {
 
     RegisterRef makeRegRef(unsigned Reg, unsigned Sub) const;
     RegisterRef makeRegRef(const MachineOperand &Op) const;
-    RegisterRef restrictRef(RegisterRef AR, RegisterRef BR) const;
 
     NodeAddr<RefNode*> getNextRelated(NodeAddr<InstrNode*> IA,
-        NodeAddr<RefNode*> RA) const;
-    NodeAddr<RefNode*> getNextImp(NodeAddr<InstrNode*> IA,
-        NodeAddr<RefNode*> RA, bool Create);
-    NodeAddr<RefNode*> getNextImp(NodeAddr<InstrNode*> IA,
         NodeAddr<RefNode*> RA) const;
     NodeAddr<RefNode*> getNextShadow(NodeAddr<InstrNode*> IA,
         NodeAddr<RefNode*> RA, bool Create);
@@ -965,4 +960,4 @@ namespace rdf {
 
 } // end namespace llvm
 
-#endif // LLVM_LIB_TARGET_HEXAGON_RDFGRAPH_H
+#endif // LLVM_CODEGEN_RDFGRAPH_H

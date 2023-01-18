@@ -78,7 +78,7 @@ struct SemiNCAInfo {
   using UpdateT = typename DomTreeT::UpdateType;
   using UpdateKind = typename DomTreeT::UpdateKind;
   struct BatchUpdateInfo {
-    // Note: Updates inside PreViewCFG are aleady legalized.
+    // Note: Updates inside PreViewCFG are already legalized.
     BatchUpdateInfo(GraphDiffT &PreViewCFG, GraphDiffT *PostViewCFG = nullptr)
         : PreViewCFG(PreViewCFG), PostViewCFG(PostViewCFG),
           NumLegalized(PreViewCFG.getNumLegalizedUpdates()) {}
@@ -430,7 +430,6 @@ struct SemiNCAInfo {
       // is unreachable. This is because we are still going to only visit each
       // unreachable node once, we may just visit it in two directions,
       // depending on how lucky we get.
-      SmallPtrSet<NodePtr, 4> ConnectToExitBlock;
       for (const NodePtr I : nodes(DT.Parent)) {
         if (SNCA.NodeToInfo.count(I) == 0) {
           LLVM_DEBUG(dbgs()
@@ -457,7 +456,6 @@ struct SemiNCAInfo {
           LLVM_DEBUG(dbgs() << "\t\t\tFound a new furthest away node "
                             << "(non-trivial root): "
                             << BlockNamePrinter(FurthestAway) << "\n");
-          ConnectToExitBlock.insert(FurthestAway);
           Roots.push_back(FurthestAway);
           LLVM_DEBUG(dbgs() << "\t\t\tPrev DFSNum: " << Num << ", new DFSNum: "
                             << NewNum << "\n\t\t\tRemoving DFS info\n");
@@ -528,7 +526,7 @@ struct SemiNCAInfo {
         // If we wound another root in a (forward) DFS walk, remove the current
         // root from the set of roots, as it is reverse-reachable from the other
         // one.
-        if (llvm::find(Roots, N) != Roots.end()) {
+        if (llvm::is_contained(Roots, N)) {
           LLVM_DEBUG(dbgs() << "\tForward DFS walk found another root "
                             << BlockNamePrinter(N) << "\n\tRemoving root "
                             << BlockNamePrinter(Root) << "\n");
@@ -643,7 +641,7 @@ struct SemiNCAInfo {
         Bucket;
     SmallDenseSet<TreeNodePtr, 8> Visited;
     SmallVector<TreeNodePtr, 8> Affected;
-#ifndef NDEBUG
+#ifdef LLVM_ENABLE_ABI_BREAKING_CHECKS
     SmallVector<TreeNodePtr, 8> VisitedUnaffected;
 #endif
   };
@@ -686,8 +684,7 @@ struct SemiNCAInfo {
     // root.
     if (!DT.isVirtualRoot(To->getIDom())) return false;
 
-    auto RIt = llvm::find(DT.Roots, To->getBlock());
-    if (RIt == DT.Roots.end())
+    if (!llvm::is_contained(DT.Roots, To->getBlock()))
       return false;  // To is not a root, nothing to update.
 
     LLVM_DEBUG(dbgs() << "\t\tAfter the insertion, " << BlockNamePrinter(To)
@@ -853,7 +850,7 @@ struct SemiNCAInfo {
       TN->setIDom(NCD);
     }
 
-#ifndef NDEBUG
+#if defined(LLVM_ENABLE_ABI_BREAKING_CHECKS) && !defined(NDEBUG)
     for (const TreeNodePtr TN : II.VisitedUnaffected)
       assert(TN->getLevel() == TN->getIDom()->getLevel() + 1 &&
              "TN should have been updated by an affected ancestor");
@@ -919,13 +916,13 @@ struct SemiNCAInfo {
     LLVM_DEBUG(dbgs() << "Deleting edge " << BlockNamePrinter(From) << " -> "
                       << BlockNamePrinter(To) << "\n");
 
-#ifndef NDEBUG
+#ifdef LLVM_ENABLE_ABI_BREAKING_CHECKS
     // Ensure that the edge was in fact deleted from the CFG before informing
     // the DomTree about it.
     // The check is O(N), so run it only in debug configuration.
     auto IsSuccessor = [BUI](const NodePtr SuccCandidate, const NodePtr Of) {
       auto Successors = getChildren<IsPostDom>(Of, BUI);
-      return llvm::find(Successors, SuccCandidate) != Successors.end();
+      return llvm::is_contained(Successors, SuccCandidate);
     };
     (void)IsSuccessor;
     assert(!IsSuccessor(To, From) && "Deleted edge still exists in the CFG!");
@@ -1059,7 +1056,7 @@ struct SemiNCAInfo {
       const TreeNodePtr TN = DT.getNode(To);
       assert(TN);
       if (TN->getLevel() > Level) return true;
-      if (llvm::find(AffectedQueue, To) == AffectedQueue.end())
+      if (!llvm::is_contained(AffectedQueue, To))
         AffectedQueue.push_back(To);
 
       return false;

@@ -4,6 +4,13 @@ enable_testing()
 
 project(SimpleCompiler LANGUAGES CXX)
 
+set(LLVM_INCLUDE_TOOLS OFF)
+set(LLVM_INCLUDE_TESTS OFF)
+set(LLVM_INCLUDE_EXAMPLES OFF)
+set(LLVM_INCLUDE_DOCS OFF)
+set(LLVM_INCLUDE_BENCHMARKS OFF)
+set(LLVM_TARGETS_TO_BUILD X86;WebAssembly)
+
 add_subdirectory(thirdparty/llvm)
 
 add_custom_target(

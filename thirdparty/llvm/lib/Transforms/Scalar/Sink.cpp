@@ -15,12 +15,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/LoopInfo.h"
-#include "llvm/Analysis/ValueTracking.h"
-#include "llvm/IR/CFG.h"
-#include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Dominators.h"
-#include "llvm/IR/IntrinsicInst.h"
-#include "llvm/IR/Module.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
@@ -48,7 +43,7 @@ static bool isSafeToMove(Instruction *Inst, AliasAnalysis &AA,
   }
 
   if (Inst->isTerminator() || isa<PHINode>(Inst) || Inst->isEHPad() ||
-      Inst->mayThrow())
+      Inst->mayThrow() || !Inst->willReturn())
     return false;
 
   if (auto *Call = dyn_cast<CallBase>(Inst)) {
@@ -135,6 +130,9 @@ static bool SinkInstruction(Instruction *Inst,
   for (Use &U : Inst->uses()) {
     Instruction *UseInst = cast<Instruction>(U.getUser());
     BasicBlock *UseBlock = UseInst->getParent();
+    // Don't worry about dead users.
+    if (!DT.isReachableFromEntry(UseBlock))
+      continue;
     if (PHINode *PN = dyn_cast<PHINode>(UseInst)) {
       // PHI nodes use the operand in the predecessor block, not the block with
       // the PHI.
@@ -199,7 +197,7 @@ static bool ProcessBlock(BasicBlock &BB, DominatorTree &DT, LoopInfo &LI,
     if (!ProcessedBegin)
       --I;
 
-    if (isa<DbgInfoIntrinsic>(Inst))
+    if (Inst->isDebugOrPseudoInst())
       continue;
 
     if (SinkInstruction(Inst, Stores, DT, LI, AA)) {

@@ -86,8 +86,12 @@ static MCOperand GetSymbolRef(const MachineOperand &MO, const MCSymbol *Symbol,
     RefKind = MCSymbolRefExpr::VK_PCREL;
   else if (MO.getTargetFlags() == (PPCII::MO_PCREL_FLAG | PPCII::MO_GOT_FLAG))
     RefKind = MCSymbolRefExpr::VK_PPC_GOT_PCREL;
+  else if (MO.getTargetFlags() == (PPCII::MO_PCREL_FLAG | PPCII::MO_TPREL_FLAG))
+    RefKind = MCSymbolRefExpr::VK_TPREL;
   else if (MO.getTargetFlags() == PPCII::MO_GOT_TLSGD_PCREL_FLAG)
     RefKind = MCSymbolRefExpr::VK_PPC_GOT_TLSGD_PCREL;
+  else if (MO.getTargetFlags() == PPCII::MO_GOT_TLSLD_PCREL_FLAG)
+    RefKind = MCSymbolRefExpr::VK_PPC_GOT_TLSLD_PCREL;
   else if (MO.getTargetFlags() == PPCII::MO_GOT_TPREL_PCREL_FLAG)
     RefKind = MCSymbolRefExpr::VK_PPC_GOT_TPREL_PCREL;
 
@@ -103,7 +107,7 @@ static MCOperand GetSymbolRef(const MachineOperand &MO, const MCSymbol *Symbol,
   if (Subtarget->isUsingPCRelativeCalls()) {
     if (MIOpcode == PPC::TAILB || MIOpcode == PPC::TAILB8 ||
         MIOpcode == PPC::TCRETURNdi || MIOpcode == PPC::TCRETURNdi8 ||
-        MIOpcode == PPC::BL8_NOTOC) {
+        MIOpcode == PPC::BL8_NOTOC || MIOpcode == PPC::BL8_NOTOC_RM) {
       RefKind = MCSymbolRefExpr::VK_PPC_NOTOC;
     }
     if (MO.getTargetFlags() == PPCII::MO_PCREL_OPT_FLAG)
@@ -148,9 +152,9 @@ void llvm::LowerPPCMachineInstrToMCInst(const MachineInstr *MI, MCInst &OutMI,
                                         AsmPrinter &AP) {
   OutMI.setOpcode(MI->getOpcode());
 
-  for (unsigned i = 0, e = MI->getNumOperands(); i != e; ++i) {
+  for (const MachineOperand &MO : MI->operands()) {
     MCOperand MCOp;
-    if (LowerPPCMachineOperandToMCOperand(MI->getOperand(i), MCOp, AP))
+    if (LowerPPCMachineOperandToMCOperand(MO, MCOp, AP))
       OutMI.addOperand(MCOp);
   }
 }

@@ -38,7 +38,6 @@
 #include <memory>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 namespace llvm {
 
@@ -61,7 +60,7 @@ template <class NodeT> class DomTreeNodeBase {
   NodeT *TheBB;
   DomTreeNodeBase *IDom;
   unsigned Level;
-  std::vector<DomTreeNodeBase *> Children;
+  SmallVector<DomTreeNodeBase *, 4> Children;
   mutable unsigned DFSNumIn = ~0;
   mutable unsigned DFSNumOut = ~0;
 
@@ -69,9 +68,9 @@ template <class NodeT> class DomTreeNodeBase {
   DomTreeNodeBase(NodeT *BB, DomTreeNodeBase *iDom)
       : TheBB(BB), IDom(iDom), Level(IDom ? IDom->Level + 1 : 0) {}
 
-  using iterator = typename std::vector<DomTreeNodeBase *>::iterator;
+  using iterator = typename SmallVector<DomTreeNodeBase *, 4>::iterator;
   using const_iterator =
-      typename std::vector<DomTreeNodeBase *>::const_iterator;
+      typename SmallVector<DomTreeNodeBase *, 4>::const_iterator;
 
   iterator begin() { return Children.begin(); }
   iterator end() { return Children.end(); }
@@ -261,7 +260,7 @@ protected:
   friend struct DomTreeBuilder::SemiNCAInfo<DominatorTreeBase>;
 
  public:
-  DominatorTreeBase() {}
+  DominatorTreeBase() = default;
 
   DominatorTreeBase(DominatorTreeBase &&Arg)
       : Roots(std::move(Arg.Roots)),
@@ -464,8 +463,8 @@ protected:
     return this->Roots[0];
   }
 
-  /// findNearestCommonDominator - Find nearest common dominator basic block
-  /// for basic block A and B. If there is no such block then return nullptr.
+  /// Find nearest common dominator basic block for basic block A and B. A and B
+  /// must have tree nodes.
   NodeT *findNearestCommonDominator(NodeT *A, NodeT *B) const {
     assert(A && B && "Pointers are not valid");
     assert(A->getParent() == B->getParent() &&
@@ -481,18 +480,18 @@ protected:
 
     DomTreeNodeBase<NodeT> *NodeA = getNode(A);
     DomTreeNodeBase<NodeT> *NodeB = getNode(B);
-
-    if (!NodeA || !NodeB) return nullptr;
+    assert(NodeA && "A must be in the tree");
+    assert(NodeB && "B must be in the tree");
 
     // Use level information to go up the tree until the levels match. Then
     // continue going up til we arrive at the same node.
-    while (NodeA && NodeA != NodeB) {
+    while (NodeA != NodeB) {
       if (NodeA->getLevel() < NodeB->getLevel()) std::swap(NodeA, NodeB);
 
       NodeA = NodeA->IDom;
     }
 
-    return NodeA ? NodeA->getBlock() : nullptr;
+    return NodeA->getBlock();
   }
 
   const NodeT *findNearestCommonDominator(const NodeT *A,
@@ -529,9 +528,9 @@ protected:
   /// of CFG edges must not delete the CFG nodes before calling this function.
   ///
   /// The applyUpdates function can reorder the updates and remove redundant
-  /// ones internally. The batch updater is also able to detect sequences of
-  /// zero and exactly one update -- it's optimized to do less work in these
-  /// cases.
+  /// ones internally (as long as it is done in a deterministic fashion). The
+  /// batch updater is also able to detect sequences of zero and exactly one
+  /// update -- it's optimized to do less work in these cases.
   ///
   /// Note that for postdominators it automatically takes care of applying
   /// updates on reverse edges internally (so there's no need to swap the
@@ -539,8 +538,8 @@ protected:
   /// The type of updates is the same for DomTreeBase<T> and PostDomTreeBase<T>
   /// with the same template parameter T.
   ///
-  /// \param Updates An unordered sequence of updates to perform. The current
-  /// CFG and the reverse of these updates provides the pre-view of the CFG.
+  /// \param Updates An ordered sequence of updates to perform. The current CFG
+  /// and the reverse of these updates provides the pre-view of the CFG.
   ///
   void applyUpdates(ArrayRef<UpdateType> Updates) {
     GraphDiff<NodePtr, IsPostDominator> PreViewCFG(
@@ -548,26 +547,28 @@ protected:
     DomTreeBuilder::ApplyUpdates(*this, PreViewCFG, nullptr);
   }
 
-  /// \param Updates An unordered sequence of updates to perform. The current
-  /// CFG and the reverse of these updates provides the pre-view of the CFG.
-  /// \param PostViewUpdates An unordered sequence of update to perform in order
-  /// to obtain a post-view of the CFG. The DT will be updates assuming the
+  /// \param Updates An ordered sequence of updates to perform. The current CFG
+  /// and the reverse of these updates provides the pre-view of the CFG.
+  /// \param PostViewUpdates An ordered sequence of update to perform in order
+  /// to obtain a post-view of the CFG. The DT will be updated assuming the
   /// obtained PostViewCFG is the desired end state.
   void applyUpdates(ArrayRef<UpdateType> Updates,
                     ArrayRef<UpdateType> PostViewUpdates) {
-    // GraphDiff<NodePtr, IsPostDom> *PostViewCFG = nullptr) {
     if (Updates.empty()) {
       GraphDiff<NodePtr, IsPostDom> PostViewCFG(PostViewUpdates);
       DomTreeBuilder::ApplyUpdates(*this, PostViewCFG, &PostViewCFG);
     } else {
-      // TODO:
       // PreViewCFG needs to merge Updates and PostViewCFG. The updates in
       // Updates need to be reversed, and match the direction in PostViewCFG.
-      // Normally, a PostViewCFG is created without reversing updates, so one
-      // of the internal vectors needs reversing in order to do the
-      // legalization of the merged vector of updates.
-      llvm_unreachable("Currently unsupported to update given a set of "
-                       "updates towards a PostView");
+      // The PostViewCFG is created with updates reversed (equivalent to changes
+      // made to the CFG), so the PreViewCFG needs all the updates reverse
+      // applied.
+      SmallVector<UpdateType> AllUpdates(Updates.begin(), Updates.end());
+      append_range(AllUpdates, PostViewUpdates);
+      GraphDiff<NodePtr, IsPostDom> PreViewCFG(AllUpdates,
+                                               /*ReverseApplyUpdates=*/true);
+      GraphDiff<NodePtr, IsPostDom> PostViewCFG(PostViewUpdates);
+      DomTreeBuilder::ApplyUpdates(*this, PreViewCFG, &PostViewCFG);
     }
   }
 
@@ -837,9 +838,7 @@ protected:
            "NewBB should have a single successor!");
     NodeRef NewBBSucc = *GraphT::child_begin(NewBB);
 
-    std::vector<NodeRef> PredBlocks;
-    for (auto Pred : children<Inverse<N>>(NewBB))
-      PredBlocks.push_back(Pred);
+    SmallVector<NodeRef, 4> PredBlocks(children<Inverse<N>>(NewBB));
 
     assert(!PredBlocks.empty() && "No predblocks?");
 

@@ -122,54 +122,78 @@ enum SpillOpcodeKey {
   SOK_VSXVectorSpill,
   SOK_VectorFloat8Spill,
   SOK_VectorFloat4Spill,
-  SOK_VRSaveSpill,
   SOK_SpillToVSR,
+  SOK_PairedVecSpill,
+  SOK_AccumulatorSpill,
+  SOK_UAccumulatorSpill,
   SOK_SPESpill,
+  SOK_PairedG8Spill,
   SOK_LastOpcodeSpill // This must be last on the enum.
 };
 
 // Define list of load and store spill opcodes.
+#define NoInstr PPC::INSTRUCTION_LIST_END
 #define Pwr8LoadOpcodes                                                        \
   {                                                                            \
     PPC::LWZ, PPC::LD, PPC::LFD, PPC::LFS, PPC::RESTORE_CR,                    \
         PPC::RESTORE_CRBIT, PPC::LVX, PPC::LXVD2X, PPC::LXSDX, PPC::LXSSPX,    \
-        PPC::RESTORE_VRSAVE, PPC::SPILLTOVSR_LD, PPC::EVLDD                    \
+        PPC::SPILLTOVSR_LD, NoInstr, NoInstr, NoInstr, PPC::EVLDD,             \
+        PPC::RESTORE_QUADWORD                                                  \
   }
 
 #define Pwr9LoadOpcodes                                                        \
   {                                                                            \
     PPC::LWZ, PPC::LD, PPC::LFD, PPC::LFS, PPC::RESTORE_CR,                    \
         PPC::RESTORE_CRBIT, PPC::LVX, PPC::LXV, PPC::DFLOADf64,                \
-        PPC::DFLOADf32, PPC::RESTORE_VRSAVE, PPC::SPILLTOVSR_LD                \
+        PPC::DFLOADf32, PPC::SPILLTOVSR_LD, NoInstr, NoInstr, NoInstr,         \
+        NoInstr, PPC::RESTORE_QUADWORD                                         \
+  }
+
+#define Pwr10LoadOpcodes                                                       \
+  {                                                                            \
+    PPC::LWZ, PPC::LD, PPC::LFD, PPC::LFS, PPC::RESTORE_CR,                    \
+        PPC::RESTORE_CRBIT, PPC::LVX, PPC::LXV, PPC::DFLOADf64,                \
+        PPC::DFLOADf32, PPC::SPILLTOVSR_LD, PPC::LXVP, PPC::RESTORE_ACC,       \
+        PPC::RESTORE_UACC, NoInstr, PPC::RESTORE_QUADWORD                      \
   }
 
 #define Pwr8StoreOpcodes                                                       \
   {                                                                            \
     PPC::STW, PPC::STD, PPC::STFD, PPC::STFS, PPC::SPILL_CR, PPC::SPILL_CRBIT, \
-        PPC::STVX, PPC::STXVD2X, PPC::STXSDX, PPC::STXSSPX, PPC::SPILL_VRSAVE, \
-        PPC::SPILLTOVSR_ST, PPC::EVSTDD                                        \
+        PPC::STVX, PPC::STXVD2X, PPC::STXSDX, PPC::STXSSPX,                    \
+        PPC::SPILLTOVSR_ST, NoInstr, NoInstr, NoInstr, PPC::EVSTDD,            \
+        PPC::SPILL_QUADWORD                                                    \
   }
 
 #define Pwr9StoreOpcodes                                                       \
   {                                                                            \
     PPC::STW, PPC::STD, PPC::STFD, PPC::STFS, PPC::SPILL_CR, PPC::SPILL_CRBIT, \
         PPC::STVX, PPC::STXV, PPC::DFSTOREf64, PPC::DFSTOREf32,                \
-        PPC::SPILL_VRSAVE, PPC::SPILLTOVSR_ST                                  \
+        PPC::SPILLTOVSR_ST, NoInstr, NoInstr, NoInstr, NoInstr,                \
+        PPC::SPILL_QUADWORD                                                    \
+  }
+
+#define Pwr10StoreOpcodes                                                      \
+  {                                                                            \
+    PPC::STW, PPC::STD, PPC::STFD, PPC::STFS, PPC::SPILL_CR, PPC::SPILL_CRBIT, \
+        PPC::STVX, PPC::STXV, PPC::DFSTOREf64, PPC::DFSTOREf32,                \
+        PPC::SPILLTOVSR_ST, PPC::STXVP, PPC::SPILL_ACC, PPC::SPILL_UACC,       \
+        NoInstr, PPC::SPILL_QUADWORD                                           \
   }
 
 // Initialize arrays for load and store spill opcodes on supported subtargets.
 #define StoreOpcodesForSpill                                                   \
-  { Pwr8StoreOpcodes, Pwr9StoreOpcodes }
+  { Pwr8StoreOpcodes, Pwr9StoreOpcodes, Pwr10StoreOpcodes }
 #define LoadOpcodesForSpill                                                    \
-  { Pwr8LoadOpcodes, Pwr9LoadOpcodes }
+  { Pwr8LoadOpcodes, Pwr9LoadOpcodes, Pwr10LoadOpcodes }
 
 class PPCSubtarget;
 class PPCInstrInfo : public PPCGenInstrInfo {
   PPCSubtarget &Subtarget;
   const PPCRegisterInfo RI;
-  const unsigned StoreSpillOpcodesArray[2][SOK_LastOpcodeSpill] =
+  const unsigned StoreSpillOpcodesArray[3][SOK_LastOpcodeSpill] =
       StoreOpcodesForSpill;
-  const unsigned LoadSpillOpcodesArray[2][SOK_LastOpcodeSpill] =
+  const unsigned LoadSpillOpcodesArray[3][SOK_LastOpcodeSpill] =
       LoadOpcodesForSpill;
 
   void StoreRegToStackSlot(MachineFunction &MF, unsigned SrcReg, bool isKill,
@@ -227,11 +251,17 @@ class PPCInstrInfo : public PPCGenInstrInfo {
   unsigned getSpillTarget() const;
   const unsigned *getStoreOpcodesForSpillArray() const;
   const unsigned *getLoadOpcodesForSpillArray() const;
+  unsigned getSpillIndex(const TargetRegisterClass *RC) const;
   int16_t getFMAOpIdxInfo(unsigned Opcode) const;
   void reassociateFMA(MachineInstr &Root, MachineCombinerPattern Pattern,
                       SmallVectorImpl<MachineInstr *> &InsInstrs,
                       SmallVectorImpl<MachineInstr *> &DelInstrs,
                       DenseMap<unsigned, unsigned> &InstrIdxForVirtReg) const;
+  bool isLoadFromConstantPool(MachineInstr *I) const;
+  Register
+  generateLoadForNewConst(unsigned Idx, MachineInstr *MI, Type *Ty,
+                          SmallVectorImpl<MachineInstr *> &InsInstrs) const;
+  const Constant *getConstantFromConstantPool(MachineInstr *I) const;
   virtual void anchor();
 
 protected:
@@ -263,6 +293,99 @@ public:
   }
   bool isPrefixed(unsigned Opcode) const {
     return get(Opcode).TSFlags & PPCII::Prefixed;
+  }
+
+  /// Check if Opcode corresponds to a call instruction that should be marked
+  /// with the NOTOC relocation.
+  bool isNoTOCCallInstr(unsigned Opcode) const {
+    if (!get(Opcode).isCall())
+      return false;
+
+    switch (Opcode) {
+    default:
+#ifndef NDEBUG
+      llvm_unreachable("Unknown call opcode");
+#endif
+      return false;
+    case PPC::BL8_NOTOC:
+    case PPC::BL8_NOTOC_TLS:
+    case PPC::BL8_NOTOC_RM:
+      return true;
+#ifndef NDEBUG
+    case PPC::BL8:
+    case PPC::BL:
+    case PPC::BL8_TLS:
+    case PPC::BL_TLS:
+    case PPC::BLA8:
+    case PPC::BLA:
+    case PPC::BCCL:
+    case PPC::BCCLA:
+    case PPC::BCL:
+    case PPC::BCLn:
+    case PPC::BL8_NOP:
+    case PPC::BL_NOP:
+    case PPC::BL8_NOP_TLS:
+    case PPC::BLA8_NOP:
+    case PPC::BCTRL8:
+    case PPC::BCTRL:
+    case PPC::BCCCTRL8:
+    case PPC::BCCCTRL:
+    case PPC::BCCTRL8:
+    case PPC::BCCTRL:
+    case PPC::BCCTRL8n:
+    case PPC::BCCTRLn:
+    case PPC::BL8_RM:
+    case PPC::BLA8_RM:
+    case PPC::BL8_NOP_RM:
+    case PPC::BLA8_NOP_RM:
+    case PPC::BCTRL8_RM:
+    case PPC::BCTRL8_LDinto_toc:
+    case PPC::BCTRL8_LDinto_toc_RM:
+    case PPC::BL8_TLS_:
+    case PPC::TCRETURNdi8:
+    case PPC::TCRETURNai8:
+    case PPC::TCRETURNri8:
+    case PPC::TAILBCTR8:
+    case PPC::TAILB8:
+    case PPC::TAILBA8:
+    case PPC::BCLalways:
+    case PPC::BLRL:
+    case PPC::BCCLRL:
+    case PPC::BCLRL:
+    case PPC::BCLRLn:
+    case PPC::BDZL:
+    case PPC::BDNZL:
+    case PPC::BDZLA:
+    case PPC::BDNZLA:
+    case PPC::BDZLp:
+    case PPC::BDNZLp:
+    case PPC::BDZLAp:
+    case PPC::BDNZLAp:
+    case PPC::BDZLm:
+    case PPC::BDNZLm:
+    case PPC::BDZLAm:
+    case PPC::BDNZLAm:
+    case PPC::BDZLRL:
+    case PPC::BDNZLRL:
+    case PPC::BDZLRLp:
+    case PPC::BDNZLRLp:
+    case PPC::BDZLRLm:
+    case PPC::BDNZLRLm:
+    case PPC::BL_RM:
+    case PPC::BLA_RM:
+    case PPC::BL_NOP_RM:
+    case PPC::BCTRL_RM:
+    case PPC::TCRETURNdi:
+    case PPC::TCRETURNai:
+    case PPC::TCRETURNri:
+    case PPC::BCTRL_LWZinto_toc:
+    case PPC::BCTRL_LWZinto_toc_RM:
+    case PPC::TAILBCTR:
+    case PPC::TAILB:
+    case PPC::TAILBA:
+      return false;
+#endif
+    }
   }
 
   static bool isSameClassPhysRegCopy(unsigned Opcode) {
@@ -323,14 +446,29 @@ public:
   /// chain ending in \p Root. All potential patterns are output in the \p
   /// P array.
   bool getFMAPatterns(MachineInstr &Root,
-                      SmallVectorImpl<MachineCombinerPattern> &P) const;
+                      SmallVectorImpl<MachineCombinerPattern> &P,
+                      bool DoRegPressureReduce) const;
 
   /// Return true when there is potentially a faster code sequence
   /// for an instruction chain ending in <Root>. All potential patterns are
   /// output in the <Pattern> array.
-  bool getMachineCombinerPatterns(
-      MachineInstr &Root,
-      SmallVectorImpl<MachineCombinerPattern> &P) const override;
+  bool getMachineCombinerPatterns(MachineInstr &Root,
+                                  SmallVectorImpl<MachineCombinerPattern> &P,
+                                  bool DoRegPressureReduce) const override;
+
+  /// On PowerPC, we leverage machine combiner pass to reduce register pressure
+  /// when the register pressure is high for one BB.
+  /// Return true if register pressure for \p MBB is high and ABI is supported
+  /// to reduce register pressure. Otherwise return false.
+  bool
+  shouldReduceRegisterPressure(MachineBasicBlock *MBB,
+                               RegisterClassInfo *RegClassInfo) const override;
+
+  /// Fixup the placeholders we put in genAlternativeCodeSequence() for
+  /// MachineCombiner.
+  void
+  finalizeInsInstrs(MachineInstr &Root, MachineCombinerPattern &P,
+                    SmallVectorImpl<MachineInstr *> &InsInstrs) const override;
 
   bool isAssociativeAndCommutative(const MachineInstr &Inst) const override;
 
@@ -348,15 +486,16 @@ public:
                              MachineInstr &NewMI1,
                              MachineInstr &NewMI2) const override;
 
-  void setSpecialOperandAttr(MachineInstr &MI, uint16_t Flags) const override;
+  // PowerPC specific version of setSpecialOperandAttr that copies Flags to MI
+  // and clears nuw, nsw, and exact flags.
+  void setSpecialOperandAttr(MachineInstr &MI, uint16_t Flags) const;
 
   bool isCoalescableExtInstr(const MachineInstr &MI,
                              Register &SrcReg, Register &DstReg,
                              unsigned &SubIdx) const override;
   unsigned isLoadFromStackSlot(const MachineInstr &MI,
                                int &FrameIndex) const override;
-  bool isReallyTriviallyReMaterializable(const MachineInstr &MI,
-                                         AAResults *AA) const override;
+  bool isReallyTriviallyReMaterializable(const MachineInstr &MI) const override;
   unsigned isStoreToStackSlot(const MachineInstr &MI,
                               int &FrameIndex) const override;
 
@@ -473,16 +612,17 @@ public:
   bool SubsumesPredicate(ArrayRef<MachineOperand> Pred1,
                          ArrayRef<MachineOperand> Pred2) const override;
 
-  bool DefinesPredicate(MachineInstr &MI,
-                        std::vector<MachineOperand> &Pred) const override;
+  bool ClobbersPredicate(MachineInstr &MI, std::vector<MachineOperand> &Pred,
+                         bool SkipDead) const override;
 
   // Comparison optimization.
 
   bool analyzeCompare(const MachineInstr &MI, Register &SrcReg,
-                      Register &SrcReg2, int &Mask, int &Value) const override;
+                      Register &SrcReg2, int64_t &Mask,
+                      int64_t &Value) const override;
 
   bool optimizeCompareInstr(MachineInstr &CmpInstr, Register SrcReg,
-                            Register SrcReg2, int Mask, int Value,
+                            Register SrcReg2, int64_t Mask, int64_t Value,
                             const MachineRegisterInfo *MRI) const override;
 
 
@@ -493,6 +633,20 @@ public:
                                     const MachineOperand *&BaseOp,
                                     int64_t &Offset, unsigned &Width,
                                     const TargetRegisterInfo *TRI) const;
+
+  /// Get the base operand and byte offset of an instruction that reads/writes
+  /// memory.
+  bool getMemOperandsWithOffsetWidth(
+      const MachineInstr &LdSt,
+      SmallVectorImpl<const MachineOperand *> &BaseOps, int64_t &Offset,
+      bool &OffsetIsScalable, unsigned &Width,
+      const TargetRegisterInfo *TRI) const override;
+
+  /// Returns true if the two given memory operations should be scheduled
+  /// adjacent.
+  bool shouldClusterMemOps(ArrayRef<const MachineOperand *> BaseOps1,
+                           ArrayRef<const MachineOperand *> BaseOps2,
+                           unsigned NumLoads, unsigned NumBytes) const override;
 
   /// Return true if two MIs access different memory addresses and false
   /// otherwise
@@ -505,7 +659,7 @@ public:
   ///
   unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
 
-  void getNoop(MCInst &NopInst) const override;
+  MCInst getNop() const override;
 
   std::pair<unsigned, unsigned>
   decomposeMachineOperandsTargetFlags(unsigned TF) const override;
@@ -551,6 +705,7 @@ public:
   bool convertToImmediateForm(MachineInstr &MI,
                               MachineInstr **KilledDef = nullptr) const;
   bool foldFrameOffset(MachineInstr &MI) const;
+  bool combineRLWINM(MachineInstr &MI, MachineInstr **ToErase = nullptr) const;
   bool isADDIInstrEligibleForFolding(MachineInstr &ADDIMI, int64_t &Imm) const;
   bool isADDInstrEligibleForFolding(MachineInstr &ADDMI) const;
   bool isImmInstrEligibleForFolding(MachineInstr &MI, unsigned &BaseReg,
@@ -589,6 +744,12 @@ public:
   // \p SeenIntermediate is set to true if uses between DefMI and \p MI exist.
   MachineInstr *getDefMIPostRA(unsigned Reg, MachineInstr &MI,
                                bool &SeenIntermediateUse) const;
+
+  // Materialize immediate after RA.
+  void materializeImmPostRA(MachineBasicBlock &MBB,
+                            MachineBasicBlock::iterator MBBI,
+                            const DebugLoc &DL, Register Reg,
+                            int64_t Imm) const;
 
   /// getRegNumForOperand - some operands use different numbering schemes
   /// for the same registers. For example, a VSX instruction may have any of

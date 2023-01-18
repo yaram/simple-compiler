@@ -42,8 +42,6 @@ public:
   void UpdateCustomCallPreservedMask(MachineFunction &MF,
                                      const uint32_t **Mask) const;
 
-  static bool hasSVEArgsOrReturn(const MachineFunction *MF);
-
   /// Code Generation virtual methods...
   const MCPhysReg *getCalleeSavedRegs(const MachineFunction *MF) const override;
   const MCPhysReg *getDarwinCalleeSavedRegs(const MachineFunction *MF) const;
@@ -107,9 +105,8 @@ public:
   bool needsFrameBaseReg(MachineInstr *MI, int64_t Offset) const override;
   bool isFrameOffsetLegal(const MachineInstr *MI, Register BaseReg,
                           int64_t Offset) const override;
-  void materializeFrameBaseRegister(MachineBasicBlock *MBB, Register BaseReg,
-                                    int FrameIdx,
-                                    int64_t Offset) const override;
+  Register materializeFrameBaseRegister(MachineBasicBlock *MBB, int FrameIdx,
+                                        int64_t Offset) const override;
   void resolveFrameIndex(MachineInstr &MI, Register BaseReg,
                          int64_t Offset) const override;
   void eliminateFrameIndex(MachineBasicBlock::iterator II, int SPAdj,
@@ -121,6 +118,9 @@ public:
   bool hasBasePointer(const MachineFunction &MF) const;
   unsigned getBaseRegister() const;
 
+  bool isArgumentRegister(const MachineFunction &MF,
+                          MCRegister Reg) const override;
+
   // Debug information queries.
   Register getFrameRegister(const MachineFunction &MF) const override;
 
@@ -129,6 +129,15 @@ public:
 
   unsigned getLocalAddressRegister(const MachineFunction &MF) const;
   bool regNeedsCFI(unsigned Reg, unsigned &RegToUseForCFI) const;
+
+  /// SrcRC and DstRC will be morphed into NewRC if this returns true
+  bool shouldCoalesce(MachineInstr *MI, const TargetRegisterClass *SrcRC,
+                      unsigned SubReg, const TargetRegisterClass *DstRC,
+                      unsigned DstSubReg, const TargetRegisterClass *NewRC,
+                      LiveIntervals &LIS) const override;
+
+  void getOffsetOpcodes(const StackOffset &Offset,
+                        SmallVectorImpl<uint64_t> &Ops) const override;
 };
 
 } // end namespace llvm

@@ -14,7 +14,7 @@
 #ifndef LLVM_TRANSFORMS_UTILS_SIMPLIFYLIBCALLS_H
 #define LLVM_TRANSFORMS_UTILS_SIMPLIFYLIBCALLS_H
 
-#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 
 namespace llvm {
@@ -59,6 +59,7 @@ private:
   Value *optimizeStrpCpyChk(CallInst *CI, IRBuilderBase &B, LibFunc Func);
   Value *optimizeStrpNCpyChk(CallInst *CI, IRBuilderBase &B, LibFunc Func);
   Value *optimizeStrLenChk(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeMemPCpyChk(CallInst *CI, IRBuilderBase &B);
   Value *optimizeMemCCpyChk(CallInst *CI, IRBuilderBase &B);
   Value *optimizeSNPrintfChk(CallInst *CI, IRBuilderBase &B);
   Value *optimizeSPrintfChk(CallInst *CI,IRBuilderBase &B);
@@ -104,7 +105,7 @@ private:
   OptimizationRemarkEmitter &ORE;
   BlockFrequencyInfo *BFI;
   ProfileSummaryInfo *PSI;
-  bool UnsafeFPShrink;
+  bool UnsafeFPShrink = false;
   function_ref<void(Instruction *, Value *)> Replacer;
   function_ref<void(Instruction *)> Eraser;
 
@@ -130,8 +131,6 @@ private:
     replaceAllUsesWith(I, With);
     eraseFromParent(I);
   }
-
-  Value *foldMallocMemset(CallInst *Memset, IRBuilderBase &B);
 
 public:
   LibCallSimplifier(
@@ -164,6 +163,7 @@ private:
   Value *optimizeStpCpy(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStrNCpy(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStrLen(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeStrNLen(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStrPBrk(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStrTo(CallInst *CI, IRBuilderBase &B);
   Value *optimizeStrSpn(CallInst *CI, IRBuilderBase &B);
@@ -208,7 +208,7 @@ private:
   Value *optimizeIsAscii(CallInst *CI, IRBuilderBase &B);
   Value *optimizeToAscii(CallInst *CI, IRBuilderBase &B);
   Value *optimizeAtoi(CallInst *CI, IRBuilderBase &B);
-  Value *optimizeStrtol(CallInst *CI, IRBuilderBase &B);
+  Value *optimizeStrToInt(CallInst *CI, IRBuilderBase &B, bool AsSigned);
 
   // Formatting and IO Library Call Optimizations
   Value *optimizeErrorReporting(CallInst *CI, IRBuilderBase &B,
@@ -235,10 +235,11 @@ private:
 
   /// hasFloatVersion - Checks if there is a float version of the specified
   /// function by checking for an existing function with name FuncName + f
-  bool hasFloatVersion(StringRef FuncName);
+  bool hasFloatVersion(const Module *M, StringRef FuncName);
 
-  /// Shared code to optimize strlen+wcslen.
-  Value *optimizeStringLength(CallInst *CI, IRBuilderBase &B, unsigned CharSize);
+  /// Shared code to optimize strlen+wcslen and strnlen+wcsnlen.
+  Value *optimizeStringLength(CallInst *CI, IRBuilderBase &B, unsigned CharSize,
+                              Value *Bound = nullptr);
 };
 } // End llvm namespace
 
