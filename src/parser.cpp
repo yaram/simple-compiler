@@ -1462,7 +1462,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                 expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
 
-                auto import_path = allocate<char>(string.count);
+                auto import_path = allocate<char>(string.count + 1);
                 memcpy(import_path, string.elements, string.count);
                 import_path[string.count] = 0;
 
