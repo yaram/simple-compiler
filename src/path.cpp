@@ -19,36 +19,37 @@ Result<const char *> path_relative_to_absolute(const char *path) {
         return err;
     }
 
-    auto output_buffer = allocate<char>(strlen(absolute_path) + 1);
-    strcpy(output_buffer, absolute_path);
+    auto output_buffer_size = strlen(absolute_path) + 1;
+    auto output_buffer = allocate<char>(output_buffer_size);
+    strcpy_s(output_buffer, output_buffer_size, absolute_path);
     
     return ok(output_buffer);
 }
 
 const char *path_get_file_component(const char *path) {
     char input_buffer[PATH_MAX];
-    strcpy(input_buffer, path);
+    strcpy_s(input_buffer, PATH_MAX, path);
 
     auto path_file = basename(input_buffer);
 
-    auto output_buffer = allocate<char>(strlen(path_file) + 1);
-    strcpy(output_buffer, path_file);
+    auto output_buffer_size = strlen(path_file) + 1;
+    auto output_buffer = allocate<char>(output_buffer_size);
+    strcpy_s(output_buffer, output_buffer_size, path_file);
 
     return output_buffer;
 }
 
 const char *path_get_directory_component(const char *path) {
     char input_buffer[PATH_MAX];
-    strcpy(input_buffer, path);
+    strcpy_s(input_buffer, PATH_MAX, path);
 
     auto path_directory = dirname(input_buffer);
 
-    auto path_directory_length = strlen(path_directory);
+    auto output_buffer_size = strlen(path_directory) + 2;
+    auto output_buffer = allocate<char>(output_buffer_size);
 
-    auto output_buffer = allocate<char>(path_directory_length + 2);
-
-    strcpy(output_buffer, path_directory);
-    strcat(output_buffer, "/");
+    strcpy_s(output_buffer, output_buffer_size, path_directory);
+    strcat_s(output_buffer, output_buffer_size, "/");
 
     return output_buffer;
 }
@@ -59,7 +60,7 @@ const char *path_get_directory_component(const char *path) {
 const char *get_executable_path() {
     const auto buffer_size = 1024;
     auto buffer = allocate<char>(buffer_size);
-    auto result = readlink("/proc/self/exe", buffer, buffer_size);
+    auto result = readlink("/proc/self/exe", buffer, buffer_size - 1);
     assert(result != -1);
 
     buffer[result] = '\0';
@@ -85,15 +86,15 @@ Result<const char *> path_relative_to_absolute(const char *path) {
 }
 
 const char *path_get_directory_component(const char *path) {
-    char path_drive[10];
+    char path_drive[_MAX_DRIVE];
     char path_directory[_MAX_DIR];
 
-    _splitpath(path, path_drive, path_directory, nullptr, nullptr);
+    _splitpath_s(path, path_drive, _MAX_DRIVE, path_directory, _MAX_DIR, nullptr, 0, nullptr, 0);
 
     auto buffer = allocate<char>(_MAX_DRIVE + _MAX_DIR);
 
-    strcpy(buffer, path_drive);
-    strcat(buffer, path_directory);
+    strcpy_s(buffer, _MAX_DRIVE + _MAX_DIR, path_drive);
+    strcat_s(buffer, _MAX_DRIVE + _MAX_DIR, path_directory);
 
     return buffer;
 }
@@ -102,12 +103,12 @@ const char *path_get_file_component(const char *path) {
     char path_name[_MAX_FNAME];
     char path_extension[_MAX_EXT];
 
-    _splitpath(path, nullptr, nullptr, path_name, path_extension);
+    _splitpath_s(path, nullptr, 0, nullptr, 0, path_name, _MAX_FNAME, path_extension, _MAX_EXT);
 
     auto buffer = allocate<char>(_MAX_FNAME + _MAX_EXT);
 
-    strcpy(buffer, path_name);
-    strcat(buffer, path_extension);
+    strcpy_s(buffer, _MAX_FNAME + _MAX_EXT, path_name);
+    strcat_s(buffer, _MAX_FNAME + _MAX_EXT, path_extension);
 
     return buffer;
 }

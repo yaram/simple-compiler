@@ -2301,7 +2301,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
                     return has({
                         expression_value.type,
-                        wrap_integer_constant(-integer_value)
+                        wrap_integer_constant((uint64_t)-(int64_t)integer_value)
                     });
                 } else if(expression_value.type.kind == TypeKind::FloatType || expression_value.type.kind == TypeKind::UndeterminedFloat) {
                     auto float_value = unwrap_float_constant(expression_value.value);

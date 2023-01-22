@@ -15,7 +15,8 @@ static void error(const char *path, unsigned int line, unsigned int character, c
     vfprintf(stderr, format, arguments);
     fprintf(stderr, "\n");
 
-    auto file = fopen(path, "rb");
+    FILE *file;
+    fopen_s(&file, path, "rb");
 
     if(file != nullptr) {
         unsigned int current_line = 1;
@@ -124,7 +125,8 @@ void append_double_character_token(unsigned int line, unsigned int first_charact
 profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (path)) {
     enter_region("read source file");
 
-    auto file = fopen(path, "rb");
+    FILE *file;
+    fopen_s(&file, path, "rb");
 
     if(file == nullptr) {
         fprintf(stderr, "Error: Unable to read source file at '%s'\n", path);

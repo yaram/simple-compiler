@@ -4156,7 +4156,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     return has({
                         create_undetermined_integer_type(),
-                        wrap_constant_value(wrap_integer_constant(-integer_value))
+                        wrap_constant_value(wrap_integer_constant((uint64_t)-(int64_t)integer_value))
                     });
                 } else if(expression_value.type.kind == TypeKind::Integer) {
                     auto integer = expression_value.type.integer;
@@ -4167,7 +4167,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         return has({
                             create_undetermined_integer_type(),
-                            wrap_constant_value(wrap_integer_constant(-integer_value))
+                            wrap_constant_value(wrap_integer_constant((uint64_t)-(int64_t)integer_value))
                         });
                     } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
                         auto register_value = expression_value.value.register_;

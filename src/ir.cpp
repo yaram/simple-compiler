@@ -474,7 +474,7 @@ void print_static(RuntimeStatic *runtime_static) {
             printf("\n");
 
             char buffer[20];
-            sprintf(buffer, "%zu", function->instructions.count - 1);
+            snprintf(buffer, 20, "%zu", function->instructions.count - 1);
             size_t max_index_digits = strlen(buffer);
 
             for(size_t i = 0; i < function->instructions.count; i += 1) {

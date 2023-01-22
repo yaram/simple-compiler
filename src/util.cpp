@@ -114,7 +114,8 @@ void error(const char *path, FileRange range, const char *format, va_list argume
     fprintf(stderr, "\n");
 
     if(range.first_line == range.last_line) {
-        auto file = fopen(path, "rb");
+        FILE *file;
+        fopen_s(&file, path, "rb");
 
         if(file != nullptr) {
             unsigned int current_line = 1;
