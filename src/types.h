@@ -12,7 +12,7 @@ struct StructTypeMember;
 struct FunctionTypeType {
     Array<AnyType> parameters;
 
-    AnyType *return_type;
+    AnyType* return_type;
 
     CallingConvention calling_convention;
 };
@@ -28,31 +28,35 @@ struct FloatType {
 };
 
 struct Pointer {
-    AnyType *type;
+    AnyType* type;
 };
 
 struct ArrayTypeType {
-    AnyType *element_type;
+    AnyType* element_type;
 };
 
 struct StaticArray {
     size_t length;
 
-    AnyType *element_type;
+    AnyType* element_type;
 };
 
 struct StructType {
-    StructDefinition *definition;
+    StructDefinition* definition;
 
     Array<StructTypeMember> members;
+
+    uint64_t get_alignment(ArchitectureSizes architecture_sizes);
+    uint64_t get_size(ArchitectureSizes architecture_sizes);
+    uint64_t get_member_offset(ArchitectureSizes architecture_sizes, size_t member_index);
 };
 
 struct PolymorphicStruct {
-    StructDefinition *definition;
+    StructDefinition* definition;
 
-    AnyType *parameter_types;
+    AnyType* parameter_types;
 
-    ConstantScope *parent;
+    ConstantScope* parent;
 };
 
 struct UndeterminedStruct {
@@ -93,6 +97,13 @@ struct AnyType {
         PolymorphicStruct polymorphic_struct;
         UndeterminedStruct undetermined_struct;
     };
+
+    bool operator==(AnyType other);
+    bool operator!=(AnyType other);
+    String get_description();
+    bool is_runtime_type();
+    uint64_t get_alignment(ArchitectureSizes architecture_sizes);
+    uint64_t get_size(ArchitectureSizes architecture_sizes);
 };
 
 struct StructTypeMember {
@@ -228,12 +239,3 @@ inline AnyType create_file_module_type() {
 
     return result;
 }
-
-bool types_equal(AnyType a, AnyType b);
-const char *type_description(AnyType type);
-bool is_runtime_type(AnyType type);
-uint64_t get_type_alignment(ArchitectureSizes architecture_sizes, AnyType type);
-uint64_t get_type_size(ArchitectureSizes architecture_sizes, AnyType type);
-uint64_t get_struct_alignment(ArchitectureSizes architecture_sizes, StructType type);
-uint64_t get_struct_size(ArchitectureSizes architecture_sizes, StructType type);
-uint64_t get_struct_member_offset(ArchitectureSizes architecture_sizes, StructType type, size_t member_index);

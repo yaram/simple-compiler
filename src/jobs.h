@@ -6,57 +6,57 @@
 #include "ir.h"
 
 struct ParseFile {
-    const char *path;
+    String path;
 
-    ConstantScope *scope;
+    ConstantScope* scope;
 };
 
 struct ResolveStaticIf {
-    StaticIf *static_if;
-    ConstantScope *scope;
+    StaticIf* static_if;
+    ConstantScope* scope;
 
     bool condition;
     DeclarationHashTable declarations;
 };
 
 struct ResolveFunctionDeclaration {
-    FunctionDeclaration *declaration;
-    ConstantScope *scope;
+    FunctionDeclaration* declaration;
+    ConstantScope* scope;
 
     AnyType type;
     AnyConstantValue value;
 };
 
 struct ResolvePolymorphicFunction {
-    FunctionDeclaration *declaration;
-    TypedConstantValue *parameters;
-    ConstantScope *scope;
-    ConstantScope *call_scope;
-    FileRange *call_parameter_ranges;
+    FunctionDeclaration* declaration;
+    TypedConstantValue* parameters;
+    ConstantScope* scope;
+    ConstantScope* call_scope;
+    FileRange* call_parameter_ranges;
 
     FunctionTypeType type;
     FunctionConstant value;
 };
 
 struct ResolveConstantDefinition {
-    ConstantDefinition *definition;
-    ConstantScope *scope;
+    ConstantDefinition* definition;
+    ConstantScope* scope;
 
     AnyType type;
     AnyConstantValue value;
 };
 
 struct ResolveStructDefinition {
-    StructDefinition *definition;
-    ConstantScope *scope;
+    StructDefinition* definition;
+    ConstantScope* scope;
 
     AnyType type;
 };
 
 struct ResolvePolymorphicStruct {
-    StructDefinition *definition;
-    AnyConstantValue *parameters;
-    ConstantScope *scope;
+    StructDefinition* definition;
+    AnyConstantValue* parameters;
+    ConstantScope* scope;
 
     AnyType type;
 };
@@ -65,14 +65,14 @@ struct GenerateFunction {
     FunctionTypeType type;
     FunctionConstant value;
 
-    Function *function;
+    Function* function;
 };
 
 struct GenerateStaticVariable {
-    VariableDeclaration *declaration;
-    ConstantScope *scope;
+    VariableDeclaration* declaration;
+    ConstantScope* scope;
 
-    StaticVariable *static_variable;
+    StaticVariable* static_variable;
     AnyType type;
 };
 

@@ -1,8 +1,11 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.21)
 
 enable_testing()
 
 project(SimpleCompiler LANGUAGES CXX)
+
+# Ensure below options are respected by llvm CMake config
+set(CMAKE_POLICY_DEFAULT_CMP0126 NEW)
 
 set(LLVM_INCLUDE_TOOLS OFF)
 set(LLVM_INCLUDE_TESTS OFF)
@@ -13,9 +16,16 @@ set(LLVM_TARGETS_TO_BUILD X86;WebAssembly)
 
 add_subdirectory(thirdparty/llvm)
 
+# Because CMake won't actually tell me where the output directory is in any variables or target properties, they're all blank, I hate this
+if(CMAKE_CONFIGURATION_TYPES)
+    set(ACTUAL_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>")
+else()
+    set(ACTUAL_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+endif()
+
 add_custom_target(
     copy_runtimes
-    COMMAND cmake -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/src/runtimes" "${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>"
+    COMMAND cmake -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/src/runtimes" "${ACTUAL_OUTPUT_DIRECTORY}"
 )
 
 set(sources
@@ -25,6 +35,9 @@ set(sources
     src/jobs.h
 
     src/profiler.h
+
+    src/string.h
+    src/string.cpp
 
     src/platform.h
     src/platform.cpp
@@ -77,7 +90,7 @@ endif()
 
 add_executable(compiler ${sources})
 
-target_compile_features(compiler PRIVATE cxx_std_11)
+target_compile_features(compiler PRIVATE cxx_std_20)
 if(PROFILING)
     target_compile_definitions(compiler PRIVATE PROFILING)
 endif()
@@ -90,7 +103,7 @@ add_executable(test_driver
 )
 add_dependencies(test_driver compiler)
 
-target_compile_features(test_driver PRIVATE cxx_std_11)
+target_compile_features(test_driver PRIVATE cxx_std_20)
 
 function(single_file_test TEST_NAME)
     add_test(NAME ${TEST_NAME}

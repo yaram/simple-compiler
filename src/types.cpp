@@ -1,52 +1,40 @@
 #include "types.h"
 #include <string.h>
 #include "util.h"
-#include "constant.h"
 
-bool types_equal(AnyType a, AnyType b) {
-    if(a.kind != b.kind) {
+bool AnyType::operator==(AnyType other) {
+    if(kind != other.kind) {
         return false;
     }
 
-    auto kind = a.kind;
-
     if(kind == TypeKind::FunctionTypeType) {
-        auto a_function_type = a.function;
-        auto b_function_type = b.function;
-
-        if(a_function_type.parameters.count != b_function_type.parameters.count) {
+        if(function.parameters.length != other.function.parameters.length) {
             return false;
         }
 
-        for(size_t i = 0; i < a_function_type.parameters.count; i += 1) {
-            if(!types_equal(a_function_type.parameters[i], b_function_type.parameters[i])) {
+        for(size_t i = 0; i < function.parameters.length; i += 1) {
+            if(function.parameters[i] != other.function.parameters[i]) {
                 return false;
             }
         }
 
-        if(a_function_type.calling_convention != b_function_type.calling_convention) {
+        if(function.calling_convention != other.function.calling_convention) {
             return false;
         }
 
-        return types_equal(*a_function_type.return_type, *b_function_type.return_type);
+        return *function.return_type == *other.function.return_type;
     } else if(kind == TypeKind::PolymorphicFunction) {
         return false;
     } else if(kind == TypeKind::BuiltinFunction) {
         return false;
     } else if(kind == TypeKind::Integer) {
-        auto a_integer = a.integer;
-        auto b_integer = b.integer;
-
-        return a_integer.size == b_integer.size && a_integer.is_signed == b_integer.is_signed;
+        return integer.size == other.integer.size && integer.is_signed == other.integer.is_signed;
     } else if(kind == TypeKind::UndeterminedInteger) {
         return true;
     } else if(kind == TypeKind::Boolean) {
         return true;
     } else if(kind == TypeKind::FloatType) {
-        auto a_float_type = a.float_;
-        auto b_float_type = b.float_;
-
-        return a_float_type.size == b_float_type.size;
+        return float_.size == other.float_.size;
     } else if(kind == TypeKind::UndeterminedFloat) {
         return true;
     } else if(kind == TypeKind::Type) {
@@ -54,36 +42,33 @@ bool types_equal(AnyType a, AnyType b) {
     } else if(kind == TypeKind::Void) {
         return true;
     } else if(kind == TypeKind::Pointer) {
-        auto a_pointer = a.pointer;
-        auto b_pointer = b.pointer;
+        auto a_pointer = pointer;
+        auto b_pointer = other.pointer;
 
-        return types_equal(*a_pointer.type, *b_pointer.type);
+        return *a_pointer.type == *b_pointer.type;
     } else if(kind == TypeKind::ArrayTypeType) {
-        auto a_array_type = a.array;
-        auto b_array_type = b.array;
-
-        return types_equal(*a_array_type.element_type, *b_array_type.element_type);
+        return *array.element_type == *other.array.element_type;
     } else if(kind == TypeKind::StaticArray) {
-        auto a_static_array = a.static_array;
-        auto b_static_array = b.static_array;
+        auto a_static_array = static_array;
+        auto b_static_array = other.static_array;
 
-        return types_equal(*a_static_array.element_type, *b_static_array.element_type) && a_static_array.length == b_static_array.length;
+        return *a_static_array.element_type == *b_static_array.element_type && a_static_array.length == b_static_array.length;
     } else if(kind == TypeKind::StructType) {
-        auto a_struct = a.struct_;
-        auto b_struct = b.struct_;
+        auto a_struct = struct_;
+        auto b_struct = other.struct_;
 
         if(a_struct.definition != b_struct.definition) {
             return false;
         }
 
-        if(a_struct.members.count != b_struct.members.count) {
+        if(a_struct.members.length != b_struct.members.length) {
             return false;
         }
 
-        for(size_t i = 0; i < a_struct.members.count; i += 1) {
+        for(size_t i = 0; i < a_struct.members.length; i += 1) {
             if(
-                !equal(a_struct.members[i].name, b_struct.members[i].name) ||
-                !types_equal(a_struct.members[i].type, b_struct.members[i].type)
+                a_struct.members[i].name != b_struct.members[i].name ||
+                a_struct.members[i].type !=  b_struct.members[i].type
             ) {
                 return false;
             }
@@ -91,22 +76,22 @@ bool types_equal(AnyType a, AnyType b) {
 
         return true;
     } else if(kind == TypeKind::PolymorphicStruct) {
-        auto a_polymorphic_struct = a.polymorphic_struct;
-        auto b_polymorphic_struct = b.polymorphic_struct;
+        auto a_polymorphic_struct = polymorphic_struct;
+        auto b_polymorphic_struct = other.polymorphic_struct;
 
         return a_polymorphic_struct.definition != b_polymorphic_struct.definition;
     } else if(kind == TypeKind::UndeterminedStruct) {
-        auto a_undetermined_struct = a.undetermined_struct;
-        auto b_undetermined_struct = b.undetermined_struct;
+        auto a_undetermined_struct = undetermined_struct;
+        auto b_undetermined_struct = other.undetermined_struct;
 
-        if(a_undetermined_struct.members.count != b_undetermined_struct.members.count) {
+        if(a_undetermined_struct.members.length != b_undetermined_struct.members.length) {
             return false;
         }
 
-        for(size_t i = 0; i < a_undetermined_struct.members.count; i += 1) {
+        for(size_t i = 0; i < a_undetermined_struct.members.length; i += 1) {
             if(
-                !equal(a_undetermined_struct.members[i].name, b_undetermined_struct.members[i].name) ||
-                !types_equal(a_undetermined_struct.members[i].type, b_undetermined_struct.members[i].type)
+                a_undetermined_struct.members[i].name != b_undetermined_struct.members[i].name ||
+                a_undetermined_struct.members[i].type != b_undetermined_struct.members[i].type
             ) {
                 return false;
             }
@@ -120,35 +105,37 @@ bool types_equal(AnyType a, AnyType b) {
     }
 }
 
-const char *type_description(AnyType type) {
-    if(type.kind == TypeKind::FunctionTypeType) {
-        auto function = type.function;
+bool AnyType::operator!=(AnyType other) {
+    return !(*this == other);
+}
 
+String AnyType::get_description() {
+    if(kind == TypeKind::FunctionTypeType) {
         StringBuffer buffer {};
 
-        string_buffer_append(&buffer, "(");
+        buffer.append("("_S);
 
-        for(size_t i = 0; i < function.parameters.count; i += 1) {
-            string_buffer_append(&buffer, type_description(function.parameters[i]));
+        for(size_t i = 0; i < function.parameters.length; i += 1) {
+            buffer.append(function.parameters[i].get_description());
 
-            if(i != function.parameters.count - 1) {
-                string_buffer_append(&buffer, ",");
+            if(i != function.parameters.length - 1) {
+                buffer.append(","_S);
             }
         }
 
-        string_buffer_append(&buffer, ")");
+        buffer.append(")"_S);
 
         if(function.return_type != nullptr) {
-            string_buffer_append(&buffer, " . ");
-            string_buffer_append(&buffer, type_description(*function.return_type));
+            buffer.append(" . "_S);
+            buffer.append(function.return_type->get_description());
         }
 
         if(function.calling_convention != CallingConvention::Default) {
-            string_buffer_append(&buffer, " #call_conv(\"");
+            buffer.append(" #call_conv(\""_S);
 
             switch(function.calling_convention) {
                 case CallingConvention::StdCall: {
-                    string_buffer_append(&buffer, "stdcall");
+                    buffer.append("stdcall"_S);
                 } break;
 
                 default: {
@@ -156,33 +143,31 @@ const char *type_description(AnyType type) {
                 }
             }
 
-            string_buffer_append(&buffer, "\")");
+            buffer.append("\")"_S);
         }
 
-        return buffer.data;
-    } else if(type.kind == TypeKind::PolymorphicFunction) {
-        return "{function}";
-    } else if(type.kind == TypeKind::BuiltinFunction) {
-        return "{builtin}";
-    } else if(type.kind == TypeKind::Integer) {
-        auto integer = type.integer;
-
+        return buffer;
+    } else if(kind == TypeKind::PolymorphicFunction) {
+        return "{function}"_S;
+    } else if(kind == TypeKind::BuiltinFunction) {
+        return "{builtin}"_S;
+    } else if(kind == TypeKind::Integer) {
         if(integer.is_signed) {
             switch(integer.size) {
                 case RegisterSize::Size8: {
-                    return "i8";
+                    return "i8"_S;
                 } break;
 
                 case RegisterSize::Size16: {
-                    return "i16";
+                    return "i16"_S;
                 } break;
 
                 case RegisterSize::Size32: {
-                    return "i32";
+                    return "i32"_S;
                 } break;
 
                 case RegisterSize::Size64: {
-                    return "i64";
+                    return "i64"_S;
                 } break;
 
                 default: {
@@ -192,19 +177,19 @@ const char *type_description(AnyType type) {
         } else {
             switch(integer.size) {
                 case RegisterSize::Size8: {
-                    return "u8";
+                    return "u8"_S;
                 } break;
 
                 case RegisterSize::Size16: {
-                    return "u16";
+                    return "u16"_S;
                 } break;
 
                 case RegisterSize::Size32: {
-                    return "u32";
+                    return "u32"_S;
                 } break;
 
                 case RegisterSize::Size64: {
-                    return "u64";
+                    return "u64"_S;
                 } break;
 
                 default: {
@@ -212,87 +197,75 @@ const char *type_description(AnyType type) {
                 } break;
             }
         }
-    } else if(type.kind == TypeKind::UndeterminedInteger) {
-        return "{integer}";
-    } else if(type.kind == TypeKind::Boolean) {
-        return "bool";
-    } else if(type.kind == TypeKind::FloatType) {
-        auto float_type = type.float_;
-
-        switch(float_type.size) {
+    } else if(kind == TypeKind::UndeterminedInteger) {
+        return "{integer}"_S;
+    } else if(kind == TypeKind::Boolean) {
+        return "bool"_S;
+    } else if(kind == TypeKind::FloatType) {
+        switch(float_.size) {
             case RegisterSize::Size32: {
-                return "f32";
+                return "f32"_S;
             } break;
 
             case RegisterSize::Size64: {
-                return "f64";
+                return "f64"_S;
             } break;
 
             default: {
                 abort();
             } break;
         }
-    } else if(type.kind == TypeKind::UndeterminedFloat) {
-        return "{float}";
-    } else if(type.kind == TypeKind::Type) {
-        return "{type}";
-    } else if(type.kind == TypeKind::Void) {
-        return "void";
-    } else if(type.kind == TypeKind::Pointer) {
-        auto pointer = type.pointer;
-
+    } else if(kind == TypeKind::UndeterminedFloat) {
+        return "{float}"_S;
+    } else if(kind == TypeKind::Type) {
+        return "{type}"_S;
+    } else if(kind == TypeKind::Void) {
+        return "void"_S;
+    } else if(kind == TypeKind::Pointer) {
         StringBuffer buffer {};
 
-        string_buffer_append(&buffer, "*");
-        string_buffer_append(&buffer, type_description(*pointer.type));
+        buffer.append("*"_S);
+        buffer.append(pointer.type->get_description());
 
-        return buffer.data;
-    } else if(type.kind == TypeKind::ArrayTypeType) {
-        auto array = type.array;
-
+        return buffer;
+    } else if(kind == TypeKind::ArrayTypeType) {
         StringBuffer buffer {};
 
-        string_buffer_append(&buffer, "[]");
-        string_buffer_append(&buffer, type_description(*array.element_type));
+        buffer.append("[]"_S);
+        buffer.append(array.element_type->get_description());
 
-        return buffer.data;
-    } else if(type.kind == TypeKind::StaticArray) {
-        auto static_array = type.static_array;
-
+        return buffer;
+    } else if(kind == TypeKind::StaticArray) {
         StringBuffer buffer {};
 
-        string_buffer_append(&buffer, "[");
-        string_buffer_append(&buffer, static_array.length);
-        string_buffer_append(&buffer, "]");
-        string_buffer_append(&buffer, type_description(*static_array.element_type));
+        buffer.append("["_S);
+        buffer.append_integer(static_array.length);
+        buffer.append("]"_S);
+        buffer.append(static_array.element_type->get_description());
 
-        return buffer.data;
-    } else if(type.kind == TypeKind::StructType) {
-        auto struct_type = type.struct_;
-
-        return string_to_c_string(struct_type.definition->name.text);
-    } else if(type.kind == TypeKind::PolymorphicStruct) {
-        auto polymorphic_struct = type.polymorphic_struct;
-
-        return string_to_c_string(polymorphic_struct.definition->name.text);
-    } else if(type.kind == TypeKind::UndeterminedStruct) {
-        return "{struct}";
-    } else if(type.kind == TypeKind::FileModule) {
-        return "{module}";
+        return buffer;
+    } else if(kind == TypeKind::StructType) {
+        return struct_.definition->name.text;
+    } else if(kind == TypeKind::PolymorphicStruct) {
+        return polymorphic_struct.definition->name.text;
+    } else if(kind == TypeKind::UndeterminedStruct) {
+        return "{struct}"_S;
+    } else if(kind == TypeKind::FileModule) {
+        return "{module}"_S;
     } else {
         abort();
     }
 }
 
-bool is_runtime_type(AnyType type) {
+bool AnyType::is_runtime_type() {
     if(
-        type.kind == TypeKind::Integer ||
-        type.kind == TypeKind::Boolean ||
-        type.kind == TypeKind::FloatType ||
-        type.kind == TypeKind::Pointer ||
-        type.kind == TypeKind::ArrayTypeType ||
-        type.kind == TypeKind::StaticArray ||
-        type.kind == TypeKind::StructType
+        kind == TypeKind::Integer ||
+        kind == TypeKind::Boolean ||
+        kind == TypeKind::FloatType ||
+        kind == TypeKind::Pointer ||
+        kind == TypeKind::ArrayTypeType ||
+        kind == TypeKind::StaticArray ||
+        kind == TypeKind::StructType
     ) {
         return true;
     } else {
@@ -300,138 +273,122 @@ bool is_runtime_type(AnyType type) {
     }
 }
 
-uint64_t get_type_alignment(ArchitectureSizes architecture_sizes, AnyType type) {
-    if(type.kind == TypeKind::Integer) {
-        auto integer = type.integer;
-
+uint64_t AnyType::get_alignment(ArchitectureSizes architecture_sizes) {
+    if(kind == TypeKind::Integer) {
         return register_size_to_byte_size(integer.size);
-    } else if(type.kind == TypeKind::Boolean) {
+    } else if(kind == TypeKind::Boolean) {
         return register_size_to_byte_size(architecture_sizes.boolean_size);
-    } else if(type.kind == TypeKind::FloatType) {
-        auto float_type = type.float_;
-
-        return register_size_to_byte_size(float_type.size);
-    } else if(type.kind == TypeKind::Pointer) {
+    } else if(kind == TypeKind::FloatType) {
+        return register_size_to_byte_size(float_.size);
+    } else if(kind == TypeKind::Pointer) {
         return register_size_to_byte_size(architecture_sizes.address_size);
-    } else if(type.kind == TypeKind::ArrayTypeType) {
+    } else if(kind == TypeKind::ArrayTypeType) {
         return register_size_to_byte_size(architecture_sizes.address_size);
-    } else if(type.kind == TypeKind::StaticArray) {
-        auto static_array = type.static_array;
-
-        return get_type_alignment(architecture_sizes, *static_array.element_type);
-    } else if(type.kind == TypeKind::StructType) {
-        auto struct_type = type.struct_;
-
-        return get_struct_alignment(architecture_sizes, struct_type);
+    } else if(kind == TypeKind::StaticArray) {
+        return static_array.element_type->get_alignment(architecture_sizes);
+    } else if(kind == TypeKind::StructType) {
+        return struct_.get_alignment(architecture_sizes);
     } else {
         abort();
     }
 }
 
-uint64_t get_type_size(ArchitectureSizes architecture_sizes, AnyType type) {
-    if(type.kind == TypeKind::Integer) {
-        auto integer = type.integer;
-
+uint64_t AnyType::get_size(ArchitectureSizes architecture_sizes) {
+    if(kind == TypeKind::Integer) {\
         return register_size_to_byte_size(integer.size);
-    } else if(type.kind == TypeKind::Boolean) {
+    } else if(kind == TypeKind::Boolean) {
         return register_size_to_byte_size(architecture_sizes.boolean_size);
-    } else if(type.kind == TypeKind::FloatType) {
-        auto float_type = type.float_;
-
-        return register_size_to_byte_size(float_type.size);
-    } else if(type.kind == TypeKind::Pointer) {
+    } else if(kind == TypeKind::FloatType) {
+        return register_size_to_byte_size(float_.size);
+    } else if(kind == TypeKind::Pointer) {
         return register_size_to_byte_size(architecture_sizes.address_size);
-    } else if(type.kind == TypeKind::ArrayTypeType) {
+    } else if(kind == TypeKind::ArrayTypeType) {
         return 2 * register_size_to_byte_size(architecture_sizes.address_size);
-    } else if(type.kind == TypeKind::StaticArray) {
-        auto static_array = type.static_array;
-
-        return static_array.length * get_type_alignment(architecture_sizes, *static_array.element_type);
-    } else if(type.kind == TypeKind::StructType) {
-        auto struct_type = type.struct_;
-
-        return get_struct_size(architecture_sizes, struct_type);
+    } else if(kind == TypeKind::StaticArray) {
+        return static_array.length * static_array.element_type->get_alignment(architecture_sizes);
+    } else if(kind == TypeKind::StructType) {
+        return struct_.get_size(architecture_sizes);
     } else {
         abort();
     }
 }
 
-uint64_t get_struct_alignment(ArchitectureSizes architecture_sizes, StructType type) {
+uint64_t StructType::get_alignment(ArchitectureSizes architecture_sizes) {
     size_t current_alignment = 1;
 
-    for(auto member : type.members) {
-        auto alignment = get_type_alignment(architecture_sizes, member.type);
+    for(auto member : members) {
+        auto member_alignment = member.type.get_alignment(architecture_sizes);
 
-        if(alignment > current_alignment) {
-            current_alignment = alignment;
+        if(member_alignment > current_alignment) {
+            current_alignment = member_alignment;
         }
     }
 
     return current_alignment;
 }
 
-uint64_t get_struct_size(ArchitectureSizes architecture_sizes, StructType type) {
+uint64_t StructType::get_size(ArchitectureSizes architecture_sizes) {
     uint64_t current_size = 0;
 
-    for(auto member : type.members) {
-        if(type.definition->is_union) {
-            auto size = get_type_size(architecture_sizes, member.type);
+    for(auto member : members) {
+        if(definition->is_union) {
+            auto member_size = member.type.get_size(architecture_sizes);
 
-            if(size > current_size) {
-                current_size = size;
+            if(member_size > current_size) {
+                current_size = member_size;
             }
         } else {
-            auto alignment = get_type_alignment(architecture_sizes, member.type);
+            auto member_alignment = member.type.get_alignment(architecture_sizes);
 
-            auto alignment_difference = current_size % alignment;
+            auto alignment_difference = current_size % member_alignment;
 
             uint64_t offset;
             if(alignment_difference != 0) {
-                offset = alignment - alignment_difference;
+                offset = member_alignment - alignment_difference;
             } else {
                 offset = 0;
             }
 
-            auto size = get_type_size(architecture_sizes, member.type);
+            auto member_size = member.type.get_size(architecture_sizes);
 
-            current_size += offset + size;
+            current_size += offset + member_size;
         }        
     }
 
     return current_size;
 }
 
-uint64_t get_struct_member_offset(ArchitectureSizes architecture_sizes, StructType type, size_t member_index) {
-    if(type.definition->is_union) {
+uint64_t StructType::get_member_offset(ArchitectureSizes architecture_sizes, size_t member_index) {
+    if(definition->is_union) {
         return 0;
     }
 
     uint64_t current_offset = 0;
 
     for(auto i = 0; i < member_index; i += 1) {
-        auto alignment = get_type_alignment(architecture_sizes, type.members[i].type);
+        auto member_alignment = members[i].type.get_alignment(architecture_sizes);
 
-        auto alignment_difference = current_offset % alignment;
+        auto alignment_difference = current_offset % member_alignment;
 
         uint64_t offset;
         if(alignment_difference != 0) {
-            offset = alignment - alignment_difference;
+            offset = member_alignment - alignment_difference;
         } else {
             offset = 0;
         }
 
-        auto size = get_type_size(architecture_sizes, type.members[i].type);
+        auto member_size = members[i].type.get_size(architecture_sizes);
 
-        current_offset += offset + size;
+        current_offset += offset + member_size;
     }
-    
-    auto alignment = get_type_alignment(architecture_sizes, type.members[member_index].type);
 
-    auto alignment_difference = current_offset % alignment;
+    auto member_alignment = members[member_index].type.get_alignment(architecture_sizes);
+
+    auto alignment_difference = current_offset % member_alignment;
 
     uint64_t offset;
     if(alignment_difference != 0) {
-        offset = alignment - alignment_difference;
+        offset = member_alignment - alignment_difference;
     } else {
         offset = 0;
     }

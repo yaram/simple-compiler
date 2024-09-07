@@ -11,61 +11,82 @@
 #include <limits.h>
 #include <libgen.h>
 
-Result<const char *> path_relative_to_absolute(const char *path) {
+Result<String> path_relative_to_absolute(String path) {
     char absolute_path[PATH_MAX];
-    if(realpath(path, absolute_path) == nullptr) {
-        fprintf(stderr, "Invalid path %s\n", path);
+    if(realpath(path.to_c_string(), absolute_path) == nullptr) {
+        fprintf(stderr, "Invalid path %.*s\n", STRING_PRINTF_ARGUMENTS(path));
 
-        return err;
+        return err();
     }
 
-    auto output_buffer_size = strlen(absolute_path) + 1;
+    auto output_buffer_size = strlen(absolute_path);
     auto output_buffer = allocate<char>(output_buffer_size);
-    strcpy_s(output_buffer, output_buffer_size, absolute_path);
-    
-    return ok(output_buffer);
+    memcpy(output_buffer, absolute_path, output_buffer_size);
+
+    String string {};
+    string.length = output_buffer_size;
+    string.elements = output_buffer;
+
+    return ok(string);
 }
 
-const char *path_get_file_component(const char *path) {
+String path_get_file_component(String path) {
     char input_buffer[PATH_MAX];
-    strcpy_s(input_buffer, PATH_MAX, path);
+    if(path.length > PATH_MAX) {
+        memcpy(input_buffer, path.elements, PATH_MAX);
+    } else {
+        memcpy(input_buffer, path.elements, path.length);
+    }
 
     auto path_file = basename(input_buffer);
 
-    auto output_buffer_size = strlen(path_file) + 1;
+    auto output_buffer_size = strlen(path_file);
     auto output_buffer = allocate<char>(output_buffer_size);
-    strcpy_s(output_buffer, output_buffer_size, path_file);
+    memcpy(output_buffer, path_file, output_buffer_size);
 
-    return output_buffer;
+    String string {};
+    string.length = output_buffer_size;
+    string.elements = output_buffer;
+
+    return string;
 }
 
-const char *path_get_directory_component(const char *path) {
+String path_get_directory_component(String path) {
     char input_buffer[PATH_MAX];
-    strcpy_s(input_buffer, PATH_MAX, path);
+    if(path.length > PATH_MAX) {
+        memcpy(input_buffer, path.elements, PATH_MAX);
+    } else {
+        memcpy(input_buffer, path.elements, path.length);
+    }
 
     auto path_directory = dirname(input_buffer);
 
-    auto output_buffer_size = strlen(path_directory) + 2;
+    auto output_buffer_size = strlen(path_directory) + 1;
     auto output_buffer = allocate<char>(output_buffer_size);
+    memcpy(output_buffer, path_directory, output_buffer_size);
+    output_buffer[output_buffer_size - 1] = '/';
 
-    strcpy_s(output_buffer, output_buffer_size, path_directory);
-    strcat_s(output_buffer, output_buffer_size, "/");
+    String string {};
+    string.length = output_buffer_size;
+    string.elements = output_buffer;
 
-    return output_buffer;
+    return string;
 }
 
 #if defined(OS_LINUX)
 #include <unistd.h>
 
-const char *get_executable_path() {
+String get_executable_path() {
     const auto buffer_size = 1024;
     auto buffer = allocate<char>(buffer_size);
-    auto result = readlink("/proc/self/exe", buffer, buffer_size - 1);
+    auto result = readlink("/proc/self/exe", buffer, buffer_size);
     assert(result != -1);
 
-    buffer[result] = '\0';
+    String string {};
+    string.length = (size_t)result;
+    string.elements = buffer;
 
-    return buffer;
+    return string;
 }
 #endif
 
@@ -73,19 +94,19 @@ const char *get_executable_path() {
 
 #include <Windows.h>
 
-Result<const char *> path_relative_to_absolute(const char *path) {
+Result<String> path_relative_to_absolute(String path) {
     auto absolute_path = allocate<char>(_MAX_PATH);
     
     if(_fullpath(absolute_path, path, _MAX_PATH) == nullptr) {
-        fprintf(stderr, "Invalid path %s\n", path);
+        fprintf(stderr, "Invalid path %.*s\n", path);
 
-        return err;
+        return err();
     }
 
-    return ok(absolute_path);
+    return ok(String::from_c_string(absolute_path));
 }
 
-const char *path_get_directory_component(const char *path) {
+String path_get_directory_component(String path) {
     char path_drive[_MAX_DRIVE];
     char path_directory[_MAX_DIR];
 
@@ -96,10 +117,10 @@ const char *path_get_directory_component(const char *path) {
     strcpy_s(buffer, _MAX_DRIVE + _MAX_DIR, path_drive);
     strcat_s(buffer, _MAX_DRIVE + _MAX_DIR, path_directory);
 
-    return buffer;
+    return String::from_c_string(buffer);
 }
 
-const char *path_get_file_component(const char *path) {
+String path_get_file_component(String path) {
     char path_name[_MAX_FNAME];
     char path_extension[_MAX_EXT];
 
@@ -110,15 +131,15 @@ const char *path_get_file_component(const char *path) {
     strcpy_s(buffer, _MAX_FNAME + _MAX_EXT, path_name);
     strcat_s(buffer, _MAX_FNAME + _MAX_EXT, path_extension);
 
-    return buffer;
+    return String::from_c_string(buffer);
 }
 
-const char *get_executable_path() {
+String get_executable_path() {
     auto file_name = allocate<CHAR>(1024);
     auto result = GetModuleFileNameA(nullptr, file_name, 1024);
     assert(result != 1024);
 
-    return file_name;
+    return String::from_c_string(file_name);
 }
 
 #endif

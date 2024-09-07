@@ -2,21 +2,19 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
-#include <ctype.h>
 #include "profiler.h"
 #include "list.h"
 #include "util.h"
 
-static void error(const char *path, unsigned int line, unsigned int character, const char *format, ...) {
+static void error(String path, unsigned int line, unsigned int column, const char* format, ...) {
     va_list arguments;
     va_start(arguments, format);
 
-    fprintf(stderr, "Error: %s(%u,%u): ", path, line, character);
+    fprintf(stderr, "Error: %.*s(%u,%u): ", STRING_PRINTF_ARGUMENTS(path), line, column);
     vfprintf(stderr, format, arguments);
     fprintf(stderr, "\n");
 
-    FILE *file;
-    fopen_s(&file, path, "rb");
+    auto file = fopen(path.to_c_string(), "rb");
 
     if(file != nullptr) {
         unsigned int current_line = 1;
@@ -90,7 +88,7 @@ static void error(const char *path, unsigned int line, unsigned int character, c
 
         fprintf(stderr, "\n");
 
-        for(unsigned int i = 1; i < character - skipped_spaces; i += 1) {
+        for(unsigned int i = 1; i < column - skipped_spaces; i += 1) {
             fprintf(stderr, " ");
         }
 
@@ -102,679 +100,817 @@ static void error(const char *path, unsigned int line, unsigned int character, c
     va_end(arguments);
 }
 
-void append_single_character_token(unsigned int line, unsigned int character, List<Token> *tokens, TokenType type) {
+void append_single_character_token(unsigned int line, unsigned int column, List<Token>* tokens, TokenKind type) {
     Token token;
-    token.type = type;
+    token.kind = type;
     token.line = line;
-    token.first_character = character;
-    token.last_character = character;
+    token.first_column = column;
+    token.last_column = column;
 
-    append(tokens, token);
+    tokens->append(token);
 }
 
-void append_double_character_token(unsigned int line, unsigned int first_character, List<Token> *tokens, TokenType type) {
+void append_double_character_token(unsigned int line, unsigned int first_column, List<Token>* tokens, TokenKind type) {
     Token token;
-    token.type = type;
+    token.kind = type;
     token.line = line;
-    token.first_character = first_character;
-    token.last_character = first_character + 1;
+    token.first_column = first_column;
+    token.last_column = first_column + 1;
 
-    append(tokens, token);
+    tokens->append(token);
 }
 
-profiled_function(Result<Array<Token>>, tokenize_source, (const char *path), (path)) {
+struct Lexer {
+    String path;
+
+    size_t length;
+    char* source;
+
+    size_t index;
+
+    unsigned int line;
+    unsigned int column;
+
+    inline Result<char> get_current_character() {
+        assert(index < length);
+
+        auto character = source[index];
+
+        if(character > 0x7F) {
+            error(path, line, column, "Non-ASCII character");
+
+            return err();
+        }
+
+        return ok(character);
+    }
+
+    inline void consume_current_character() {
+        index += 1;
+    }
+
+    Result<Array<Token>> tokenize() {
+        List<Token> tokens{};
+
+        while(index < length) {
+            expect(character, get_current_character());
+
+            if(character == ' ') {
+                consume_current_character();
+
+                column += 1;
+            } else if(character == '\r') {
+                consume_current_character();
+
+                if(index < length) {
+                    expect(character, get_current_character());
+
+                    if(character == '\n') {
+                        consume_current_character();
+                    }
+                }
+
+                line += 1;
+                column = 1;
+            } else if(character == '\n') {
+                consume_current_character();
+
+                line += 1;
+                column = 1;
+            } else if(character == '/') {
+                auto first_column = column;
+
+                consume_current_character();
+
+                expect(character, get_current_character());
+
+                column += 1;
+
+                if(index == length) {
+                    append_single_character_token(line, first_column, &tokens, TokenKind::ForwardSlash);
+                } else if(character == '/') {
+                    consume_current_character();
+
+                    while(index < length) {
+                        expect(character, get_current_character());
+
+                        if(character == '\r') {
+                            consume_current_character();
+
+                            if(character == '\n') {
+                                consume_current_character();
+                            }
+
+                            line += 1;
+                            column = 1;
+
+                            break;
+                        } else if(character == '\n') {
+                            consume_current_character();
+
+                            line += 1;
+                            column = 1;
+
+                            break;
+                        } else {
+                            consume_current_character();
+                        }
+                    }
+                } else if(character == '*') {
+                    consume_current_character();
+
+                    column += 1;
+
+                    unsigned int level = 1;
+
+                    while(level > 0) {
+                        expect(character, get_current_character());
+
+                        if(index == length) {
+                            error(path, line, column, "Unexpected end of file");
+
+                            return err();
+                        } else if(character == '\r') {
+                            consume_current_character();
+
+                            if(index < length) {
+                                expect(character, get_current_character());
+
+                                if(character == '\n') {
+                                    consume_current_character();
+                                }
+                            }
+
+                            line += 1;
+                            column = 1;
+                        } else if(character == '\n') {
+                            consume_current_character();
+
+                            line += 1;
+                            column = 1;
+                        } else if(character == '/') {
+                            consume_current_character();
+
+                            column += 1;
+
+                            if(index < length) {
+                                expect(character, get_current_character());
+
+                                if(character == '*') {
+                                    consume_current_character();
+
+                                    column += 1;
+
+                                    level += 1;
+                                }
+                            }
+                        } else if(character == '*') {
+                            consume_current_character();
+
+                            column += 1;
+
+                            if(index < length) {
+                                expect(character, get_current_character());
+
+                                if(character == '/') {
+                                    consume_current_character();
+
+                                    column += 1;
+
+                                    level -= 1;
+                                }
+                            }
+                        } else {
+                            consume_current_character();
+
+                            column += 1;
+                        }
+                    }
+                } else if(character == '=') {
+                    append_double_character_token(line, first_column, &tokens, TokenKind::ForwardSlashEquals);
+
+                    consume_current_character();
+
+                    column += 1;
+                } else {
+                    append_single_character_token(line, first_column, &tokens, TokenKind::ForwardSlash);
+                }
+            } else if(character == '.') {
+                auto first_column = column;
+
+                consume_current_character();
+
+                column += 1;
+
+                if(index != length) {
+                    expect(character, get_current_character());
+
+                    if(character == '.') {
+                        append_double_character_token(line, first_column, &tokens, TokenKind::DoubleDot);
+
+                        consume_current_character();
+
+                        column += 1;
+                    } else {
+                        append_single_character_token(line, first_column, &tokens, TokenKind::Dot);
+                    }
+                } else {
+                    append_single_character_token(line, first_column, &tokens, TokenKind::Dot);
+                }
+            } else if(character == ',') {
+                append_single_character_token(line, column, &tokens, TokenKind::Comma);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == ':') {
+                append_single_character_token(line, column, &tokens, TokenKind::Colon);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == ';') {
+                append_single_character_token(line, column, &tokens, TokenKind::Semicolon);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == '+') {
+                auto first_column = column;
+
+                consume_current_character();
+
+                column += 1;
+
+                if(index != length) {
+                    expect(character, get_current_character());
+
+                    if(character == '=') {
+                        append_double_character_token(line, first_column, &tokens, TokenKind::PlusEquals);
+
+                        consume_current_character();
+
+                        column += 1;
+                    } else {
+                        append_single_character_token(line, first_column, &tokens, TokenKind::Plus);
+                    }
+                } else {
+                    append_single_character_token(line, first_column, &tokens, TokenKind::Plus);
+                }
+            } else if(character == '-') {
+                auto first_column = column;
+
+                consume_current_character();
+
+                column += 1;
+
+                if(index != length) {
+                    expect(character, get_current_character());
+
+                    switch(character) {
+                        case '>': {
+                            append_double_character_token(line, first_column, &tokens, TokenKind::Arrow);
+
+                            consume_current_character();
+
+                            column += 1;
+                        } break;
+
+                        case '=': {
+                            append_double_character_token(line, first_column, &tokens, TokenKind::DashEquals);
+
+                            consume_current_character();
+
+                            column += 1;
+                        } break;
+
+                        default: {
+                            append_single_character_token(line, first_column, &tokens, TokenKind::Dash);
+                        } break;
+                    }
+                } else {
+                    append_single_character_token(line, first_column, &tokens, TokenKind::Dash);
+                }
+            } else if(character == '*') {
+                auto first_column = column;
+
+                consume_current_character();
+
+                column += 1;
+
+                if(index != length) {
+                    expect(character, get_current_character());
+
+                    if(character == '=') {
+                        append_double_character_token(line, first_column, &tokens, TokenKind::AsteriskEquals);
+
+                        consume_current_character();
+
+                        column += 1;
+                    } else {
+                        append_single_character_token(line, first_column, &tokens, TokenKind::Asterisk);
+                    }
+                } else {
+                    append_single_character_token(line, first_column, &tokens, TokenKind::Asterisk);
+                }
+            } else if(character == '%') {
+                auto first_column = column;
+
+                consume_current_character();
+
+                column += 1;
+
+                if(index != length) {
+                    expect(character, get_current_character());
+
+                    if(character == '=') {
+                        append_double_character_token(line, first_column, &tokens, TokenKind::PercentEquals);
+
+                        consume_current_character();
+
+                        column += 1;
+                    } else {
+                        append_single_character_token(line, first_column, &tokens, TokenKind::Percent);
+                    }
+                } else {
+                    append_single_character_token(line, first_column, &tokens, TokenKind::Percent);
+                }
+            } else if(character == '=') {
+                auto first_column = column;
+
+                consume_current_character();
+
+                column += 1;
+
+                if(index != length) {
+                    expect(character, get_current_character());
+
+                    if(character == '=') {
+                        append_double_character_token(line, first_column, &tokens, TokenKind::DoubleEquals);
+
+                        consume_current_character();
+
+                        column += 1;
+                    } else {
+                        append_single_character_token(line, first_column, &tokens, TokenKind::Equals);
+                    }
+                } else {
+                    append_single_character_token(line, first_column, &tokens, TokenKind::Equals);
+                }
+            } else if(character == '<') {
+                append_single_character_token(line, column, &tokens, TokenKind::LeftArrow);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == '>') {
+                append_single_character_token(line, column, &tokens, TokenKind::RightArrow);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == '&') {
+                auto first_column = column;
+
+                consume_current_character();
+
+                column += 1;
+
+                if(index != length) {
+                    expect(character, get_current_character());
+
+                    if(character == '&') {
+                        append_double_character_token(line, first_column, &tokens, TokenKind::DoubleAmpersand);
+
+                        consume_current_character();
+
+                        column += 1;
+                    } else {
+                        append_single_character_token(line, first_column, &tokens, TokenKind::Ampersand);
+                    }
+                } else {
+                    append_single_character_token(line, first_column, &tokens, TokenKind::Ampersand);
+                }
+            } else if(character == '|') {
+                auto first_column = column;
+
+                consume_current_character();
+
+                column += 1;
+
+                if(index != length) {
+                    expect(character, get_current_character());
+
+                    if(character == '|') {
+                        append_double_character_token(line, first_column, &tokens, TokenKind::DoublePipe);
+
+                        consume_current_character();
+
+                        column += 1;
+                    } else {
+                        append_single_character_token(line, first_column, &tokens, TokenKind::Pipe);
+                    }
+                } else {
+                    append_single_character_token(line, first_column, &tokens, TokenKind::Pipe);
+                }
+            } else if(character == '#') {
+                append_single_character_token(line, column, &tokens, TokenKind::Hash);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == '!') {
+                auto first_column = column;
+
+                consume_current_character();
+
+                column += 1;
+
+                if(index != length) {
+                    expect(character, get_current_character());
+
+                    if(character == '=') {
+                        append_double_character_token(line, first_column, &tokens, TokenKind::BangEquals);
+
+                        consume_current_character();
+
+                        column += 1;
+                    } else {
+                        append_single_character_token(line, first_column, &tokens, TokenKind::Bang);
+                    }
+                } else {
+                    append_single_character_token(line, first_column, &tokens, TokenKind::Bang);
+                }
+            } else if(character == '$') {
+                append_single_character_token(line, column, &tokens, TokenKind::Dollar);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == '(') {
+                append_single_character_token(line, column, &tokens, TokenKind::OpenRoundBracket);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == ')') {
+                append_single_character_token(line, column, &tokens, TokenKind::CloseRoundBracket);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == '{') {
+                append_single_character_token(line, column, &tokens, TokenKind::OpenCurlyBracket);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == '}') {
+                append_single_character_token(line, column, &tokens, TokenKind::CloseCurlyBracket);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == '[') {
+                append_single_character_token(line, column, &tokens, TokenKind::OpenSquareBracket);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == ']') {
+                append_single_character_token(line, column, &tokens, TokenKind::CloseSquareBracket);
+
+                consume_current_character();
+
+                column += 1;
+            } else if(character == '"') {
+                consume_current_character();
+
+                column += 1;
+
+                auto first_column = column;
+
+                StringBuffer buffer {};
+
+                while(true) {
+                    if(index == length) {
+                        error(path, line, column, "Unexpected end of file");
+
+                        return err();
+                    }
+
+                    expect(character, get_current_character());
+
+                    if(character == '\n' || character == '\r') {
+                        error(path, line, column, "Unexpected newline");
+
+                        return err();
+                    } else if(character == '"') {
+                        consume_current_character();
+
+                        column += 1;
+
+                        break;
+                    } else if(character == '\\') {
+                        consume_current_character();
+
+                        column += 1;
+
+                        if(index == length) {
+                            error(path, line, column, "Unexpected end of file");
+
+                            return err();
+                        }
+
+                        expect(character, get_current_character());
+
+                        if(character== '\\') {
+                            buffer.append_character('\\');
+                        } else if(character == '"') {
+                            buffer.append_character('"');
+                        } else if(character == '0') {
+                            buffer.append_character('\0');
+                        } else if(character == 'r') {
+                            buffer.append_character('\r');
+                        } else if(character == 'n') {
+                            buffer.append_character('\n');
+                        } else if(character == '\r' || character == '\n') {
+                            error(path, line, column, "Unexpected newline");
+
+                            return err();
+                        } else {
+                            error(path, line, column, "Unknown escape code '\\%c'", character);
+
+                            return err();
+                        }
+
+                        consume_current_character();
+
+                        column += 1;
+                    } else {
+                        buffer.append_character(character);
+
+                        consume_current_character();
+
+                        column += 1;
+                    }
+                }
+
+                Token token;
+                token.kind = TokenKind::String;
+                token.line = line;
+                token.first_column = first_column;
+                token.last_column = column - 2;
+                token.string = buffer;
+
+                tokens.append(token);
+            } else if(
+                (character >= 'a' && character <= 'z') ||
+                (character >= 'A' && character <= 'Z') ||
+                character == '_'
+            ) {
+                StringBuffer buffer {};
+
+                buffer.append_character(character);
+
+                auto first_column = column;
+
+                consume_current_character();
+
+                column += 1;
+
+                while(index < length) {
+                    expect(character, get_current_character());
+
+                    if(
+                        (character >= 'a' && character <= 'z') ||
+                        (character >= 'A' && character <= 'Z') ||
+                        (character >= '0' && character <= '9') ||
+                        character == '_'
+                    ) {
+                        buffer.append_character(character);
+
+                        consume_current_character();
+
+                        column += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                Token token;
+                token.kind = TokenKind::Identifier;
+                token.line = line;
+                token.first_column = first_column;
+                token.last_column = column - 1;
+                token.identifier = buffer;
+
+                tokens.append(token);
+            } else if((character >= '0' && character <= '9') || character == '.') {
+                size_t radix = 10;
+
+                auto first_column = column;
+
+                auto definitely_integer = false;
+                auto definitely_float = false;
+                auto seen_dot = false;
+                auto seen_e = false;
+
+                if(character == '.') {
+                    definitely_float = true;
+                } else if(character == '0' && index < length) {
+                    consume_current_character();
+
+                    column += 1;
+
+                    expect(character, get_current_character());
+
+                    if(character == 'b' || character == 'B') {
+                        definitely_integer = true;
+
+                        consume_current_character();
+
+                        column += 1;
+
+                        radix = 2;
+                    } else if(character == 'o' || character == 'O') {
+                        definitely_integer = true;
+
+                        consume_current_character();
+
+                        column += 1;
+
+                        radix = 8;
+                    } else if(character == 'x' || character == 'X') {
+                        definitely_integer = true;
+
+                        consume_current_character();
+
+                        column += 1;
+
+                        radix = 16;
+                    }
+                }
+
+                StringBuffer buffer {};
+
+                while(index < length) {
+                    expect(character, get_current_character());
+
+                    if(character == '.' && (!definitely_integer && !seen_dot && !seen_e)) {
+                        // Not quite happy about this, 2 character lookahead required here to differentiate . and ..
+
+                        auto original_index = index;
+
+                        consume_current_character();
+
+                        if(index < length) {
+                            expect(character, get_current_character());
+
+                            if(character == '.') {
+                                index = original_index;
+
+                                break;
+                            }
+                        }
+
+                        definitely_float = true;
+                        seen_dot = true;
+
+                        column += 1;
+                    } else if(character >= '0' && character <= '7') {
+                        consume_current_character();
+
+                        column += 1;
+                    } else if(character >= '8' && character <= '9' && radix >= 10) {
+                        consume_current_character();
+
+                        column += 1;
+                    } else if((character == 'e' || character == 'E') && (!definitely_integer && !seen_e)) {
+                        definitely_float = true;
+
+                        seen_e = true;
+
+                        consume_current_character();
+
+                        column += 1;
+                    } else if(
+                        (
+                            (character >= 'a' && character <= 'f' && radix == 16) ||
+                            (character >= 'A' && character <= 'F' && radix == 16)
+                        ) &&
+                        definitely_integer
+                    ) {
+                        consume_current_character();
+
+                        column += 1;
+                    } else {
+                        break;
+                    }
+
+                    buffer.append_character(character);
+                }
+
+                Token token;
+                token.line = line;
+                token.first_column = first_column;
+                token.last_column = column - 1;
+
+                if(definitely_integer || !definitely_float) {
+                    uint64_t value = 0;
+
+                    uint64_t place_offset = 1;
+
+                    for(size_t i = 0; i < buffer.length; i += 1) {
+                        auto offset = buffer.length - 1 - i;
+                        auto digit = buffer[offset];
+
+                        uint64_t digit_value;
+                        if((digit >= '0' && digit <= '7') || (digit >= '8' && digit <= '9' && radix >= 10)) {
+                            digit_value = digit - '0';
+                        } else if(digit >= 'a' && digit <= 'f' && radix == 16) {
+                            digit_value = digit - 'a' + 10;
+                        } else if(digit >= 'A' && digit <= 'F' && radix == 16) {
+                            digit_value = digit - 'A' + 10;
+                        } else {
+                            abort();
+                        }
+
+                        value += place_offset * digit_value;
+                        place_offset *= radix;
+                    }
+
+                    token.kind = TokenKind::Integer;
+                    token.integer = value;
+
+                    tokens.append(token);
+                } else {
+                    token.kind = TokenKind::FloatingPoint;
+                    token.floating_point = atof(buffer.to_c_string());
+
+                    tokens.append(token);
+                }
+            } else {
+                error(path, line, column, "Unexpected character '%c'", character);
+
+                return err();
+            }
+        }
+
+        return ok((Array<Token>)tokens);
+    }
+};
+
+profiled_function(Result<Array<Token>>, tokenize_source, (String path), (path)) {
+    Lexer lexer {};
+    lexer.path = path;
+
     enter_region("read source file");
 
-    FILE *file;
-    fopen_s(&file, path, "rb");
+    auto file = fopen(path.to_c_string(), "rb");
 
     if(file == nullptr) {
-        fprintf(stderr, "Error: Unable to read source file at '%s'\n", path);
+        fprintf(stderr, "Error: Unable to read source file at '%.*s'\n", STRING_PRINTF_ARGUMENTS(path));
 
         leave_region();
 
-        return err;
+        return err();
     }
 
     fseek(file, 0, SEEK_END);
 
-    auto length = ftell(file);
+    auto signed_length = ftell(file);
+
+    if(signed_length == -1) {
+        fprintf(stderr, "Error: Unable to determine length of source file at '%.*s'\n", STRING_PRINTF_ARGUMENTS(path));
+
+        leave_region();
+
+        return err();
+    }
+
+    lexer.length = (size_t)signed_length;
 
     fseek(file, 0, SEEK_SET);
 
-    auto source = allocate<char>(length + 1);
+    lexer.source = allocate<char>(lexer.length);
 
-    fread(source, 1, length, file);
+    if(fread(lexer.source, lexer.length, 1, file) != 1) {
+        fprintf(stderr, "Error: Unable to read source file at '%.*s'\n", STRING_PRINTF_ARGUMENTS(path));
 
-    source[length] = '\0';
+        leave_region();
+
+        return err();
+    }
+
+    fclose(file);
 
     leave_region();
 
-    size_t index = 0;
+    lexer.index = 0;
 
-    unsigned int line = 1;
-    unsigned int character = 1;
+    lexer.line = 1;
+    lexer.column = 1;
 
-    List<Token> tokens{};
-
-    while(index < length) {
-        if(source[index] == ' ') {
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == '\r') {
-            index += 1;
-
-            if(index < length && source[index] == '\n') {
-                index += 1;
-            }
-
-            line += 1;
-            character = 1;
-        } else if(source[index] == '\n') {
-            index += 1;
-
-            line += 1;
-            character = 1;
-        } else if(source[index] == '/') {
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            if(index == length) {
-                append_single_character_token(line, first_character, &tokens, TokenType::ForwardSlash);
-            } else if(source[index] == '/') {
-                index += 2;
-
-                while(true) {
-                    if(index == length) {
-                        break;
-                    } else if(source[index] == '\r') {
-                        index += 1;
-
-                        if(source[index] == '\n') {
-                            index += 1;
-                        }
-
-                        line += 1;
-                        character = 1;
-
-                        break;
-                    } else if(source[index] == '\n') {
-                        index += 1;
-
-                        line += 1;
-                        character = 1;
-
-                        break;
-                    } else {
-                        index += 1;
-                    }
-                }
-            } else if(source[index] == '*') {
-                index += 1;
-
-                character += 1;
-
-                unsigned int level = 1;
-
-                while(level > 0) {
-                    if(index == length) {
-                        error(path, line, character, "Unexpected end of file");
-
-                        return err;
-                    } else if(source[index] == '\r') {
-                        index += 1;
-
-                        if(source[index] == '\n') {
-                            index += 1;
-                        }
-
-                        line += 1;
-                        character = 1;
-                    } else if(source[index] == '\n') {
-                        index += 1;
-
-                        line += 1;
-                        character = 1;
-                    } else if(source[index] == '/') {
-                        index += 1;
-
-                        character += 1;
-
-                        if(source[index] == '*') {
-                            index += 1;
-
-                            character += 1;
-
-                            level += 1;
-                        }
-                    } else if(source[index] == '*') {
-                        index += 1;
-
-                        character += 1;
-
-                        if(source[index] == '/') {
-                            index += 1;
-
-                            character += 1;
-
-                            level -= 1;
-                        }
-                    } else {
-                        index += 1;
-
-                        character += 1;
-                    }
-                }
-            } else if(source[index + 1] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::ForwardSlashEquals);
-
-                index += 1;
-
-                character += 1;
-            } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::ForwardSlash);
-            }
-        } else if(source[index] == '.') {
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            if(index != length && source[index] == '.') {
-                append_double_character_token(line, first_character, &tokens, TokenType::DoubleDot);
-
-                index += 1;
-
-                character += 1;
-            } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Dot);
-            }
-        } else if(source[index] == ',') {
-            append_single_character_token(line, character, &tokens, TokenType::Comma);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == ':') {
-            append_single_character_token(line, character, &tokens, TokenType::Colon);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == ';') {
-            append_single_character_token(line, character, &tokens, TokenType::Semicolon);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == '+') {
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            if(index != length && source[index] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::PlusEquals);
-
-                index += 1;
-
-                character += 1;
-            } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Plus);
-            }
-        } else if(source[index] == '-') {
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            if(index != length) {
-                switch(source[index]) {
-                    case '>': {
-                        append_double_character_token(line, first_character, &tokens, TokenType::Arrow);
-
-                        index += 1;
-
-                        character += 1;
-                    } break;
-
-                    case '=': {
-                        append_double_character_token(line, first_character, &tokens, TokenType::DashEquals);
-
-                        index += 1;
-
-                        character += 1;
-                    } break;
-
-                    default: {
-                        append_single_character_token(line, first_character, &tokens, TokenType::Dash);
-                    } break;
-                }
-            } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Dash);
-            }
-        } else if(source[index] == '*') {
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            if(index != length && source[index] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::AsteriskEquals);
-
-                index += 1;
-
-                character += 1;
-            } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Asterisk);
-            }
-        } else if(source[index] == '%') {
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            if(index != length && source[index] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::PercentEquals);
-
-                index += 1;
-
-                character += 1;
-            } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Percent);
-            }
-        } else if(source[index] == '=') {
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            if(index != length && source[index] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::DoubleEquals);
-
-                index += 1;
-
-                character += 1;
-            } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Equals);
-            }
-        } else if(source[index] == '<') {
-            append_single_character_token(line, character, &tokens, TokenType::LeftArrow);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == '>') {
-            append_single_character_token(line, character, &tokens, TokenType::RightArrow);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == '&') {
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            if(index != length && source[index] == '&') {
-                append_double_character_token(line, first_character, &tokens, TokenType::DoubleAmpersand);
-
-                index += 1;
-
-                character += 1;
-            } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Ampersand);
-            }
-        } else if(source[index] == '|') {
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            if(index != length && source[index] == '|') {
-                append_double_character_token(line, first_character, &tokens, TokenType::DoublePipe);
-
-                index += 1;
-
-                character += 1;
-            } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Pipe);
-            }
-        } else if(source[index] == '#') {
-            append_single_character_token(line, character, &tokens, TokenType::Hash);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == '!') {
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            if(index != length && source[index] == '=') {
-                append_double_character_token(line, first_character, &tokens, TokenType::BangEquals);
-
-                index += 1;
-
-                character += 1;
-            } else {
-                append_single_character_token(line, first_character, &tokens, TokenType::Bang);
-            }
-        } else if(source[index] == '$') {
-            append_single_character_token(line, character, &tokens, TokenType::Dollar);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == '(') {
-            append_single_character_token(line, character, &tokens, TokenType::OpenRoundBracket);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == ')') {
-            append_single_character_token(line, character, &tokens, TokenType::CloseRoundBracket);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == '{') {
-            append_single_character_token(line, character, &tokens, TokenType::OpenCurlyBracket);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == '}') {
-            append_single_character_token(line, character, &tokens, TokenType::CloseCurlyBracket);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == '[') {
-            append_single_character_token(line, character, &tokens, TokenType::OpenSquareBracket);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == ']') {
-            append_single_character_token(line, character, &tokens, TokenType::CloseSquareBracket);
-
-            index += 1;
-
-            character += 1;
-        } else if(source[index] == '"') {
-            index += 1;
-
-            character += 1;
-
-            auto first_character = character;
-
-            List<char> buffer{};
-
-            while(true) {
-                if(index == length) {
-                    error(path, line, character, "Unexpected end of file");
-
-                    return err;
-                } else if(source[index] == '\n' || source[index] == '\r') {
-                    error(path, line, character, "Unexpected newline");
-
-                    return err;
-                } else if(source[index] == '"') {
-                    index += 1;
-
-                    character += 1;
-
-                    break;
-                } else if(source[index] == '\\') {
-                    index += 1;
-
-                    character += 1;
-
-                    if(index == length) {
-                        error(path, line, character, "Unexpected end of file");
-
-                        return err;
-                    } else if(source[index] == '\\') {
-                        append(&buffer, '\\');
-                    } else if(source[index] == '"') {
-                        append(&buffer, '"');
-                    } else if(source[index] == '0') {
-                        append(&buffer, '\0');
-                    } else if(source[index] == 'r') {
-                        append(&buffer, '\r');
-                    } else if(source[index] == 'n') {
-                        append(&buffer, '\n');
-                    } else if(source[index] == 'r' || source[index] == '\n') {
-                        error(path, line, character, "Unexpected newline");
-
-                        return err;
-                    } else {
-                        error(path, line, character, "Unknown escape code '\\%c'", source[index]);
-
-                        return err;
-                    }
-
-                    index += 1;
-
-                    character += 1;
-                } else {
-                    append(&buffer, source[index]);
-
-                    index += 1;
-
-                    character += 1;
-                }
-            }
-
-            Token token;
-            token.type = TokenType::String;
-            token.line = line;
-            token.first_character = first_character;
-            token.last_character = character - 2;
-            token.string = to_array(buffer);
-
-            append(&tokens, token);
-        } else if(
-            (source[index] >= 'a' && source[index] <= 'z') ||
-            (source[index] >= 'A' && source[index] <= 'Z') ||
-            source[index] == '_'
-        ) {
-            List<char> buffer{};
-
-            append(&buffer, source[index]);
-
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            while(
-                index < length &&
-                (
-                    (source[index] >= 'a' && source[index] <= 'z') ||
-                    (source[index] >= 'A' && source[index] <= 'Z') ||
-                    (source[index] >= '0' && source[index] <= '9') ||
-                    source[index] == '_'
-                )
-            ) {
-                append(&buffer, source[index]);
-
-                index += 1;
-
-                character += 1;
-            }
-
-            Token token;
-            token.type = TokenType::Identifier;
-            token.line = line;
-            token.first_character = first_character;
-            token.last_character = character - 1;
-            token.identifier = {
-                buffer.count,
-                buffer.elements
-            };
-
-            append(&tokens, token);
-        } else if((source[index] >= '0' && source[index] <= '9') || source[index] == '.') {
-            size_t radix = 10;
-
-            auto definitely_integer = false;
-            auto definitely_float = false;
-            auto seen_dot = false;
-            auto seen_e = false;
-
-            if(source[index] == '.') {
-                definitely_float = true;
-            } else if(source[index] == '0' && index + 1 < length) {
-                if(source[index + 1] == 'b' || source[index + 1] == 'B') {
-                    definitely_integer = true;
-
-                    index += 2;
-
-                    character += 2;
-
-                    radix = 2;
-                } else if(source[index + 1] == 'o' || source[index + 1] == 'O') {
-                    definitely_integer = true;
-
-                    index += 2;
-
-                    character += 2;
-
-                    radix = 8;
-                } else if(source[index + 1] == 'x' || source[index + 1] == 'X') {
-                    definitely_integer = true;
-
-                    index += 2;
-
-                    character += 2;
-
-                    radix = 16;
-                }
-            }
-
-            auto first_index = index;
-            auto first_character = character;
-
-            index += 1;
-
-            character += 1;
-
-            while(index < length) {
-                if(source[index] == '.' && (!definitely_integer && !seen_dot && !seen_e)) {
-                    // Not quite happy about this
-                    if(index + 1 < length && source[index + 1] == '.') {
-                        break;
-                    }
-
-                    definitely_float = true;
-                    seen_dot = true;
-
-                    index += 1;
-
-                    character += 1;
-                } else if(source[index] >= '0' && source[index] <= '7') {
-                    index += 1;
-
-                    character += 1;
-                } else if(source[index] >= '8' && source[index] <= '9' && radix >= 10) {
-                    index += 1;
-
-                    character += 1;
-                } else if((source[index] == 'e' || source[index] == 'E') && (!definitely_integer && !seen_e)) {
-                    definitely_float = true;
-
-                    seen_e = true;
-
-                    index += 1;
-
-                    character += 1;
-                } else if(
-                    (
-                        (source[index] >= 'a' && source[index] <= 'f' && radix == 16) ||
-                        (source[index] >= 'A' && source[index] <= 'F' && radix == 16)
-                    ) &&
-                    definitely_integer
-                ) {
-                    index += 1;
-
-                    character += 1;
-                } else {
-                    break;
-                }
-            }
-
-            auto count = index - first_index;
-
-            Token token;
-            token.line = line;
-            token.first_character = first_character;
-            token.last_character = character - 1;
-
-            if(definitely_integer || !definitely_float) {
-                uint64_t value = 0;
-
-                uint64_t place_offset = 1;
-
-                for(size_t i = 0; i < count; i += 1) {
-                    auto offset = count - 1 - i;
-                    auto digit = source[first_index + offset];
-
-                    uint64_t digit_value;
-                    if((digit >= '0' && digit <= '7') || (digit >= '8' && digit <= '9' && radix >= 10)) {
-                        digit_value = digit - '0';
-                    } else if(digit >= 'a' && digit <= 'f' && radix == 16) {
-                        digit_value = digit - 'a' + 10;
-                    } else if(digit >= 'A' && digit <= 'F' && radix == 16) {
-                        digit_value = digit - 'A' + 10;
-                    } else {
-                        abort();
-                    }
-
-                    value += place_offset * digit_value;
-                    place_offset *= radix;
-                }
-
-                token.type = TokenType::Integer;
-                token.integer = value;
-
-                append(&tokens, token);
-            } else {
-                auto buffer = allocate<char>(count + 1);
-
-                for(size_t i = 0; i < count; i += 1) {
-                    buffer[i] = source[first_index + i];
-                }
-
-                buffer[count] = '\0';
-
-                token.type = TokenType::FloatingPoint;
-                token.floating_point = atof(buffer);
-
-                append(&tokens, token);
-            }
-        } else {
-            error(path, line, character, "Unexpected character '%c'", source[index]);
-
-            return err;
-        }
-    }
-
-    return ok(to_array(tokens));
+    return lexer.tokenize();
 }

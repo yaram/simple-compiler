@@ -1,337 +1,347 @@
 #include "tokens.h"
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 #include "util.h"
 
-void print_token(Token token) {
-    printf("(%d, %d-%d): ", token.line, token.first_character, token.last_character);
+void Token::print() {
+    printf("(%d, %d-%d): ", line, first_column, last_column);
 
-    switch(token.type) {
-        case TokenType::Dot: {
+    switch(kind) {
+        case TokenKind::Dot: {
             printf("Dot");
         } break;
 
-        case TokenType::DoubleDot: {
+        case TokenKind::DoubleDot: {
             printf("DoubleDot");
         } break;
 
-        case TokenType::Comma: {
+        case TokenKind::Comma: {
             printf("Comma");
         } break;
 
-        case TokenType::Colon: {
+        case TokenKind::Colon: {
             printf("Colon");
         } break;
 
-        case TokenType::Semicolon: {
+        case TokenKind::Semicolon: {
             printf("Semicolon");
         } break;
 
-        case TokenType::Plus: {
+        case TokenKind::Plus: {
             printf("Plus");
         } break;
 
-        case TokenType::Dash: {
+        case TokenKind::Dash: {
             printf("Dash");
         } break;
 
-        case TokenType::Asterisk: {
+        case TokenKind::Asterisk: {
             printf("Asterisk");
         } break;
 
-        case TokenType::ForwardSlash: {
+        case TokenKind::ForwardSlash: {
             printf("ForwardSlash");
         } break;
 
-        case TokenType::Percent: {
+        case TokenKind::Percent: {
             printf("Percent");
         } break;
 
-        case TokenType::Equals: {
+        case TokenKind::Equals: {
             printf("Equals");
         } break;
 
-        case TokenType::DoubleEquals: {
+        case TokenKind::DoubleEquals: {
             printf("DoubleEquals");
         } break;
 
-        case TokenType::BangEquals: {
+        case TokenKind::BangEquals: {
             printf("BangEquals");
         } break;
 
-        case TokenType::PlusEquals: {
+        case TokenKind::PlusEquals: {
             printf("PlusEquals");
         } break;
 
-        case TokenType::DashEquals: {
+        case TokenKind::DashEquals: {
             printf("DashEquals");
         } break;
 
-        case TokenType::AsteriskEquals: {
+        case TokenKind::AsteriskEquals: {
             printf("AsteriskEquals");
         } break;
 
-        case TokenType::ForwardSlashEquals: {
+        case TokenKind::ForwardSlashEquals: {
             printf("ForwardSlashEquals");
         } break;
 
-        case TokenType::PercentEquals: {
+        case TokenKind::PercentEquals: {
             printf("PercentEquals");
         } break;
 
-        case TokenType::LeftArrow: {
+        case TokenKind::LeftArrow: {
             printf("LeftArrow");
         } break;
 
-        case TokenType::RightArrow: {
+        case TokenKind::RightArrow: {
             printf("RightArrow");
         } break;
 
-        case TokenType::Ampersand: {
+        case TokenKind::Ampersand: {
             printf("Ampersand");
         } break;
 
-        case TokenType::DoubleAmpersand: {
+        case TokenKind::DoubleAmpersand: {
             printf("DoubleAmpersand");
         } break;
 
-        case TokenType::Pipe: {
+        case TokenKind::Pipe: {
             printf("Pipe");
         } break;
 
-        case TokenType::DoublePipe: {
+        case TokenKind::DoublePipe: {
             printf("DoublePipe");
         } break;
 
-        case TokenType::Hash: {
+        case TokenKind::Hash: {
             printf("Hash");
         } break;
 
-        case TokenType::Bang: {
+        case TokenKind::Bang: {
             printf("Bang");
         } break;
 
-        case TokenType::Arrow: {
+        case TokenKind::Arrow: {
             printf("Arrow");
         } break;
 
-        case TokenType::Dollar: {
+        case TokenKind::Dollar: {
             printf("Dollar");
         } break;
 
-        case TokenType::OpenRoundBracket: {
+        case TokenKind::OpenRoundBracket: {
             printf("OpenRoundBracket");
         } break;
 
-        case TokenType::CloseRoundBracket: {
+        case TokenKind::CloseRoundBracket: {
             printf("CloseRoundBracket");
         } break;
 
-        case TokenType::OpenCurlyBracket: {
+        case TokenKind::OpenCurlyBracket: {
             printf("OpenCurlyBracket");
         } break;
 
-        case TokenType::CloseCurlyBracket: {
+        case TokenKind::CloseCurlyBracket: {
             printf("CloseCurlyBracket");
         } break;
 
-        case TokenType::OpenSquareBracket: {
+        case TokenKind::OpenSquareBracket: {
             printf("OpenSquareBracket");
         } break;
 
-        case TokenType::CloseSquareBracket: {
+        case TokenKind::CloseSquareBracket: {
             printf("CloseSquareBracket");
         } break;
 
-        case TokenType::Identifier: {
-            printf("Identifier(%.*s)", STRING_PRINT(token.identifier));
+        case TokenKind::Identifier: {
+            printf("Identifier(%.*s)", STRING_PRINTF_ARGUMENTS(identifier));
         } break;
 
-        case TokenType::String: {
-            printf("String(%.*s)", (int)token.string.count, token.string.elements);
+        case TokenKind::String: {
+            printf("String(%.*s)", STRING_PRINTF_ARGUMENTS(string));
         } break;
 
-        case TokenType::Integer: {
-            printf("Integer(%lld)", token.integer);
+        case TokenKind::Integer: {
+            printf("Integer(%" PRIu64 ")", integer);
         } break;
 
-        case TokenType::FloatingPoint: {
-            printf("FloatingPoint(%f)", token.floating_point);
+        case TokenKind::FloatingPoint: {
+            printf("FloatingPoint(%f)", floating_point);
         } break;
     }
 }
 
-const char *get_token_text(Token token) {
-    switch(token.type) {
-        case TokenType::Dot: {
-            return ".";
+String Token::get_text() {
+    switch(kind) {
+        case TokenKind::Dot: {
+            return "."_S;
         } break;
 
-        case TokenType::DoubleDot: {
-            return "..";
+        case TokenKind::DoubleDot: {
+            return ".."_S;
         } break;
 
-        case TokenType::Comma: {
-            return ",";
+        case TokenKind::Comma: {
+            return ","_S;
         } break;
 
-        case TokenType::Colon: {
-            return ":";
+        case TokenKind::Colon: {
+            return ":"_S;
         } break;
 
-        case TokenType::Semicolon: {
-            return ";";
+        case TokenKind::Semicolon: {
+            return "_S;"_S;
         } break;
 
-        case TokenType::Plus: {
-            return "+";
+        case TokenKind::Plus: {
+            return "+"_S;
         } break;
 
-        case TokenType::Dash: {
-            return "-";
+        case TokenKind::Dash: {
+            return "-"_S;
         } break;
 
-        case TokenType::Asterisk: {
-            return "*";
+        case TokenKind::Asterisk: {
+            return "*"_S;
         } break;
 
-        case TokenType::ForwardSlash: {
-            return "/";
+        case TokenKind::ForwardSlash: {
+            return "/"_S;
         } break;
 
-        case TokenType::Percent: {
-            return "%";
+        case TokenKind::Percent: {
+            return "%"_S;
         } break;
 
-        case TokenType::Equals: {
-            return "=";
+        case TokenKind::Equals: {
+            return "="_S;
         } break;
 
-        case TokenType::DoubleEquals: {
-            return "==";
+        case TokenKind::DoubleEquals: {
+            return "=="_S;
         } break;
 
-        case TokenType::BangEquals: {
-            return "!=";
+        case TokenKind::BangEquals: {
+            return "!="_S;
         } break;
 
-        case TokenType::PlusEquals: {
-            return "+=";
+        case TokenKind::PlusEquals: {
+            return "+="_S;
         } break;
 
-        case TokenType::DashEquals: {
-            return "-=";
+        case TokenKind::DashEquals: {
+            return "-="_S;
         } break;
 
-        case TokenType::AsteriskEquals: {
-            return "*=";
+        case TokenKind::AsteriskEquals: {
+            return "*="_S;
         } break;
 
-        case TokenType::ForwardSlashEquals: {
-            return "/=";
+        case TokenKind::ForwardSlashEquals: {
+            return "/="_S;
         } break;
 
-        case TokenType::PercentEquals: {
-            return "%=";
+        case TokenKind::PercentEquals: {
+            return "%="_S;
         } break;
 
-        case TokenType::LeftArrow: {
-            return "<";
+        case TokenKind::LeftArrow: {
+            return "<"_S;
         } break;
 
-        case TokenType::RightArrow: {
-            return ">";
+        case TokenKind::RightArrow: {
+            return ">"_S;
         } break;
 
-        case TokenType::Ampersand: {
-            return "&";
+        case TokenKind::Ampersand: {
+            return "&"_S;
         } break;
 
-        case TokenType::DoubleAmpersand: {
-            return "&&";
+        case TokenKind::DoubleAmpersand: {
+            return "&&"_S;
         } break;
 
-        case TokenType::Pipe: {
-            return "|";
+        case TokenKind::Pipe: {
+            return "|"_S;
         } break;
 
-        case TokenType::DoublePipe: {
-            return "||";
+        case TokenKind::DoublePipe: {
+            return "||"_S;
         } break;
 
-        case TokenType::Hash: {
-            return "#";
+        case TokenKind::Hash: {
+            return "#"_S;
         } break;
 
-        case TokenType::Bang: {
-            return "!";
+        case TokenKind::Bang: {
+            return "!"_S;
         } break;
 
-        case TokenType::Arrow: {
-            return "->";
+        case TokenKind::Arrow: {
+            return "->"_S;
         } break;
 
-        case TokenType::Dollar: {
-            return "$";
+        case TokenKind::Dollar: {
+            return "$"_S;
         } break;
 
-        case TokenType::OpenRoundBracket: {
-            return "(";
+        case TokenKind::OpenRoundBracket: {
+            return "("_S;
         } break;
 
-        case TokenType::CloseRoundBracket: {
-            return ")";
+        case TokenKind::CloseRoundBracket: {
+            return ")"_S;
         } break;
 
-        case TokenType::OpenCurlyBracket: {
-            return "{";
+        case TokenKind::OpenCurlyBracket: {
+            return "{"_S;
         } break;
 
-        case TokenType::CloseCurlyBracket: {
-            return "}";
+        case TokenKind::CloseCurlyBracket: {
+            return "}"_S;
         } break;
 
-        case TokenType::OpenSquareBracket: {
-            return "[";
+        case TokenKind::OpenSquareBracket: {
+            return "["_S;
         } break;
 
-        case TokenType::CloseSquareBracket: {
-            return "]";
+        case TokenKind::CloseSquareBracket: {
+            return "]"_S;
         } break;
 
-        case TokenType::Identifier: {
-            return string_to_c_string(token.identifier);
+        case TokenKind::Identifier: {
+            return identifier;
         } break;
 
-        case TokenType::String: {
-            auto buffer = allocate<char>(token.string.count + 3);
+        case TokenKind::String: {
+            auto buffer = allocate<char>(string.length + 2);
 
             buffer[0] = '"';
-            memcpy(buffer + 1, token.string.elements, token.string.count);
-            buffer[token.string.count + 1] = '"';
-            buffer[token.string.count + 2] = '\0';
+            memcpy(&buffer[1], string.elements, string.length);
+            buffer[string.length + 1] = '"';
 
-            return buffer;
+            String result {};
+            result.length = string.length + 2;
+            result.elements = buffer;
+
+            return result;
         } break;
 
-        case TokenType::Integer: {
+        case TokenKind::Integer: {
             const size_t buffer_size = 32;
 
             auto buffer = allocate<char>(buffer_size);
+            auto length = snprintf(buffer, buffer_size, "%" PRIu64, integer);
 
-            snprintf(buffer, buffer_size, "%lld", token.integer);
+            String string {};
+            string.length = (size_t)length;
+            string.elements = buffer;
 
-            return buffer;
+            return string;
         } break;
 
-        case TokenType::FloatingPoint: {
+        case TokenKind::FloatingPoint: {
             const size_t buffer_size = 32;
 
             auto buffer = allocate<char>(buffer_size);
+            auto length = snprintf(buffer, buffer_size, "%f", floating_point);
 
-            snprintf(buffer, buffer_size, "%f", token.floating_point);
+            String string {};
+            string.length = (size_t)length;
+            string.elements = buffer;
 
-            return buffer;
+            return string;
         } break;
 
         default: {

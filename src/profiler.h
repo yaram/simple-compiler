@@ -44,7 +44,7 @@
     } \
     inline void __##name##_internal##parameters
 
-extern uint8_t *profiler_buffer_pointer;
+extern uint8_t* profiler_buffer_pointer;
 extern uint64_t start_performance_counter;
 
 void init_profiler();
@@ -64,21 +64,21 @@ inline uint64_t read_performance_counter() {
 
 #endif
 
-inline void enter_region(const char *name) {
+inline void enter_region(String name) {
     // Write record type 0 (region entry)
     profiler_buffer_pointer[0] = 0;
 
     // Write region name pointer
-    *((const char**)&profiler_buffer_pointer[1]) = name;
+    *((String*)&profiler_buffer_pointer[1]) = name;
 
     // Read performance counter
     uint64_t performance_counter = read_performance_counter() - start_performance_counter;
 
     // Write performance counter
-    *((uint64_t*)&profiler_buffer_pointer[1 + sizeof(const char*)]) = performance_counter;
+    *((uint64_t*)&profiler_buffer_pointer[1 + sizeof(String)]) = performance_counter;
 
     // Increment buffer pointer
-    profiler_buffer_pointer = &profiler_buffer_pointer[1 + sizeof(const char*) + sizeof(uint64_t)];
+    profiler_buffer_pointer = &profiler_buffer_pointer[1 + sizeof(String) + sizeof(uint64_t)];
 }
 
 inline void leave_region() {

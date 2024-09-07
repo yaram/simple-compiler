@@ -1,57 +1,56 @@
 #include "platform.h"
-#include <string.h>
 #include "util.h"
 
-bool does_os_exist(const char *os) {
+bool does_os_exist(String os) {
     return
-        strcmp(os, "linux") == 0 ||
-        strcmp(os, "windows") == 0 ||
-        strcmp(os, "emscripten") == 0
+        os == "linux"_S ||
+        os == "windows"_S ||
+        os == "emscripten"_S
     ;
 }
 
-bool does_architecture_exist(const char *architecture) {
+bool does_architecture_exist(String architecture) {
     return
-        strcmp(architecture, "x86") == 0 ||
-        strcmp(architecture, "x64") == 0 ||
-        strcmp(architecture, "wasm32") == 0
+        architecture == "x86"_S ||
+        architecture == "x64"_S ||
+        architecture == "wasm32"_S
     ;
 }
 
-bool is_supported_target(const char *os, const char *architecture) {
-    if(strcmp(os, "linux") == 0) {
+bool is_supported_target(String os, String architecture) {
+    if(os == "linux"_S) {
         return 
-            strcmp(architecture, "x86") == 0 ||
-            strcmp(architecture, "x64") == 0
+            architecture == "x86"_S ||
+            architecture == "x64"_S
         ;
-    } else if(strcmp(os, "windows") == 0) {
+    } else if(os == "windows"_S) {
         return 
-            strcmp(architecture, "x86") == 0 ||
-            strcmp(architecture, "x64") == 0
+            architecture == "x86"_S ||
+            architecture == "x64"_S
         ;
-    } else if(strcmp(os, "emscripten") == 0) {
-        return strcmp(architecture, "wasm32") == 0;
+    } else if(os == "emscripten"_S) {
+        return architecture == "wasm32"_S;
     } else {
         abort();
     }
 }
 
-ArchitectureSizes get_architecture_sizes(const char *architecture) {
-    if(strcmp(architecture, "x86") == 0) {
+ArchitectureSizes get_architecture_sizes(String architecture) {
+    if(architecture == "x86"_S) {
         return {
             RegisterSize::Size32,
             RegisterSize::Size32,
             RegisterSize::Size32,
             RegisterSize::Size8
         };
-    } else if(strcmp(architecture, "x64") == 0) {
+    } else if(architecture == "x64"_S) {
         return {
             RegisterSize::Size64,
             RegisterSize::Size64,
             RegisterSize::Size64,
             RegisterSize::Size8
         };
-    } else if(strcmp(architecture, "wasm32") == 0) {
+    } else if(architecture == "wasm32"_S) {
         return {
             RegisterSize::Size32,
             RegisterSize::Size32,
@@ -63,60 +62,60 @@ ArchitectureSizes get_architecture_sizes(const char *architecture) {
     }
 }
 
-const char *get_llvm_triple(const char *architecture, const char *os) {
+String get_llvm_triple(String architecture, String os) {
     StringBuffer buffer {};
 
-    const char *triple_architecture;
-    if(strcmp(architecture, "x86") == 0) {
-        triple_architecture = "i686";
-    } else if(strcmp(architecture, "x64") == 0) {
-        triple_architecture = "x86_64";
-    } else if(strcmp(architecture, "wasm32") == 0) {
-        triple_architecture = "wasm32";
+    String triple_architecture;
+    if(architecture == "x86"_S) {
+        triple_architecture = "i686"_S;
+    } else if(architecture == "x64"_S) {
+        triple_architecture = "x86_64"_S;
+    } else if(architecture == "wasm32"_S) {
+        triple_architecture = "wasm32"_S;
     } else {
         abort();
     }
 
-    const char *triple_vendor;
-    const char *triple_system;
-    const char *triple_abi;
-    if(strcmp(os, "linux") == 0) {
-        triple_vendor = "unknown";
-        triple_system = "linux";
-        triple_abi = "gnu";
-    } else if(strcmp(os, "windows") == 0) {
-        triple_vendor = "pc";
-        triple_system = "windows";
-        triple_abi = "msvc";
-    } else if(strcmp(os, "emscripten") == 0) {
-        triple_vendor = "unknown";
-        triple_system = "emscripten";
-        triple_abi = "unknown";
+    String triple_vendor;
+    String triple_system;
+    String triple_abi;
+    if(os == "linux"_S) {
+        triple_vendor = "unknown"_S;
+        triple_system = "linux"_S;
+        triple_abi = "gnu"_S;
+    } else if(os == "windows"_S) {
+        triple_vendor = "pc"_S;
+        triple_system = "windows"_S;
+        triple_abi = "msvc"_S;
+    } else if(os == "emscripten"_S) {
+        triple_vendor = "unknown"_S;
+        triple_system = "emscripten"_S;
+        triple_abi = "unknown"_S;
     } else {
         abort();
     }
 
-    string_buffer_append(&buffer, triple_architecture);
-    string_buffer_append(&buffer, "-");
-    string_buffer_append(&buffer, triple_vendor);
-    string_buffer_append(&buffer, "-");
-    string_buffer_append(&buffer, triple_system);
-    string_buffer_append(&buffer, "-");
-    string_buffer_append(&buffer, triple_abi);
+    buffer.append(triple_architecture);
+    buffer.append("-"_S);
+    buffer.append(triple_vendor);
+    buffer.append("-"_S);
+    buffer.append(triple_system);
+    buffer.append("-"_S);
+    buffer.append(triple_abi);
 
-    return buffer.data;
+    return buffer;
 }
 
-const char *get_host_architecture() {
+String get_host_architecture() {
 #if defined(ARCH_X64)
-    return "x64";
+    return "x64"_S;
 #endif
 }
 
-const char *get_host_os() {
+String get_host_os() {
 #if defined(OS_LINUX)
-    return "linux";
+    return "linux"_S;
 #elif defined(OS_WINDOWS)
-    return "windows";
+    return "windows"_S;
 #endif
 }

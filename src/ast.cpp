@@ -1,4 +1,5 @@
 #include "ast.h"
+#include <inttypes.h>
 #include <stdio.h>
 
 static void indent(unsigned int level) {
@@ -8,12 +9,12 @@ static void indent(unsigned int level) {
 }
 
 static void print_range(FileRange range) {
-    printf("(%u:%u)-(%u:%u)", range.first_line, range.first_character, range.last_line, range.last_character);
+    printf("(%u:%u)-(%u:%u)", range.first_line, range.first_column, range.last_line, range.last_column);
 }
 
 static void print_identifier(Identifier identifier) {
     print_range(identifier.range);
-    printf(": %.*s", STRING_PRINT(identifier.text));
+    printf(": %.*s", STRING_PRINTF_ARGUMENTS(identifier.text));
 }
 
 static void print_binary_operator(BinaryOperation::Operator binary_operator) {
@@ -76,7 +77,7 @@ static void print_binary_operator(BinaryOperation::Operator binary_operator) {
     }
 }
 
-static void print_expression_internal(Expression *expression, unsigned int indentation_level) {
+static void print_expression_internal(Expression* expression, unsigned int indentation_level) {
     print_range(expression->range);
     printf(": ");
 
@@ -122,7 +123,7 @@ static void print_expression_internal(Expression *expression, unsigned int inden
     } else if(expression->kind == ExpressionKind::IntegerLiteral) {
         auto integer_literal = (IntegerLiteral*)expression;
 
-        printf("IntegerLiteral: %llu", integer_literal->value);
+        printf("IntegerLiteral: %" PRIu64, integer_literal->value);
     } else if(expression->kind == ExpressionKind::FloatLiteral) {
         auto float_literal = (FloatLiteral*)expression;
 
@@ -130,13 +131,13 @@ static void print_expression_internal(Expression *expression, unsigned int inden
     } else if(expression->kind == ExpressionKind::StringLiteral) {
         auto string_literal = (StringLiteral*)expression;
 
-        printf("StringLiteral: \"%.*s\"", (int)string_literal->characters.count, string_literal->characters.elements);
+        printf("StringLiteral: \"%.*s\"", STRING_PRINTF_ARGUMENTS(string_literal->characters));
     } else if(expression->kind == ExpressionKind::ArrayLiteral) {
         auto array_literal = (ArrayLiteral*)expression;
 
         printf("ArrayLiteral: [");
 
-        if(array_literal->elements.count != 0) {
+        if(array_literal->elements.length != 0) {
             printf("\n");
 
             for(auto element_expression : array_literal->elements) {
@@ -154,7 +155,7 @@ static void print_expression_internal(Expression *expression, unsigned int inden
 
         printf("StructLiteral: {");
 
-        if(struct_literal->members.count != 0) {
+        if(struct_literal->members.length != 0) {
             printf("\n");
 
             for(auto member : struct_literal->members) {
@@ -182,7 +183,7 @@ static void print_expression_internal(Expression *expression, unsigned int inden
         indent(indentation_level + 1);
         printf("parameters: [");
 
-        if(function_call->parameters.count != 0) {
+        if(function_call->parameters.length != 0) {
             printf("\n");
 
             for(auto parameter : function_call->parameters) {
@@ -302,7 +303,7 @@ static void print_expression_internal(Expression *expression, unsigned int inden
         indent(indentation_level + 1);
         printf("parameters: {");
 
-        if(function_type->parameters.count != 0) {
+        if(function_type->parameters.length != 0) {
             printf("\n");
 
             for(auto parameter : function_type->parameters) {
@@ -358,7 +359,7 @@ static void print_expression_internal(Expression *expression, unsigned int inden
         indent(indentation_level + 1);
         printf("tags: {");
 
-        if(function_type->tags.count != 0) {
+        if(function_type->tags.length != 0) {
             printf("\n");
 
             for(auto tag : function_type->tags) {
@@ -366,7 +367,7 @@ static void print_expression_internal(Expression *expression, unsigned int inden
                 print_identifier(tag.name);
                 printf(": [");
 
-                if(tag.parameters.count != 0) {
+                if(tag.parameters.length != 0) {
                     printf("\n");
 
                     for(auto parameter : tag.parameters) {
@@ -393,11 +394,11 @@ static void print_expression_internal(Expression *expression, unsigned int inden
     }
 }
 
-void print_expression(Expression *expression) {
-    print_expression_internal(expression, 0);
+void Expression::print() {
+    print_expression_internal(this, 0);
 }
 
-static void print_statement_internal(Statement *statement, unsigned int indentation_level) {
+static void print_statement_internal(Statement* statement, unsigned int indentation_level) {
     print_range(statement->range);
     printf(": ");
 
@@ -414,7 +415,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         indent(indentation_level + 1);
         printf("parameters: {");
 
-        if(function_declaration->parameters.count != 0) {
+        if(function_declaration->parameters.length != 0) {
             printf("\n");
 
             for(auto parameter : function_declaration->parameters) {
@@ -470,7 +471,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         indent(indentation_level + 1);
         printf("tags: {");
 
-        if(function_declaration->tags.count != 0) {
+        if(function_declaration->tags.length != 0) {
             printf("\n");
 
             for(auto tag : function_declaration->tags) {
@@ -478,7 +479,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
                 print_identifier(tag.name);
                 printf(": [");
 
-                if(tag.parameters.count != 0) {
+                if(tag.parameters.length != 0) {
                     printf("\n");
 
                     for(auto parameter : tag.parameters) {
@@ -506,7 +507,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
             indent(indentation_level + 1);
             printf("statements: {");
 
-            if(function_declaration->statements.count != 0) {
+            if(function_declaration->statements.length != 0) {
                 printf("\n");
 
                 for(auto statement : function_declaration->statements) {
@@ -552,7 +553,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         print_identifier(struct_definition->name);
         printf("\n");
 
-        if(struct_definition->parameters.count != 0) {
+        if(struct_definition->parameters.length != 0) {
             indent(indentation_level + 1);
             printf("parameters: {\n");
 
@@ -571,7 +572,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         indent(indentation_level + 1);
         printf("members: {");
 
-        if(struct_definition->members.count != 0) {
+        if(struct_definition->members.length != 0) {
             printf("\n");
 
             for(auto member : struct_definition->members) {
@@ -621,7 +622,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         indent(indentation_level + 1);
         printf("tags: {");
 
-        if(variable_declaration->tags.count != 0) {
+        if(variable_declaration->tags.length != 0) {
             printf("\n");
 
             for(auto tag : variable_declaration->tags) {
@@ -629,7 +630,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
                 print_identifier(tag.name);
                 printf(": [");
 
-                if(tag.parameters.count != 0) {
+                if(tag.parameters.length != 0) {
                     printf("\n");
 
                     for(auto parameter : tag.parameters) {
@@ -703,7 +704,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         indent(indentation_level + 1);
         printf("statements: [");
 
-        if(if_statement->statements.count != 0) {
+        if(if_statement->statements.length != 0) {
             printf("\n");
 
             for(auto statement : if_statement->statements) {
@@ -720,7 +721,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         indent(indentation_level + 1);
         printf("else_ifs: [");
 
-        if(if_statement->else_ifs.count != 0) {
+        if(if_statement->else_ifs.length != 0) {
             printf("\n");
 
             for(auto else_if : if_statement->else_ifs) {
@@ -735,7 +736,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
                 indent(indentation_level + 3);
                 printf("statements: [");
 
-                if(else_if.statements.count != 0) {
+                if(else_if.statements.length != 0) {
                     printf("\n");
 
                     for(auto statement : else_if.statements) {
@@ -761,7 +762,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         indent(indentation_level + 1);
         printf("else_statements: [");
 
-        if(if_statement->else_statements.count != 0) {
+        if(if_statement->else_statements.length != 0) {
             printf("\n");
 
             for(auto statement : if_statement->else_statements) {
@@ -789,7 +790,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         indent(indentation_level + 1);
         printf("statements: [");
 
-        if(while_loop->statements.count != 0) {
+        if(while_loop->statements.length != 0) {
             printf("\n");
 
             for(auto statement : while_loop->statements) {
@@ -820,7 +821,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         indent(indentation_level + 1);
         printf("statements: [");
 
-        if(for_loop->statements.count != 0) {
+        if(for_loop->statements.length != 0) {
             printf("\n");
 
             for(auto statement : for_loop->statements) {
@@ -843,13 +844,11 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
             print_expression_internal(return_statement->value, indentation_level);
         }
     } else if(statement->kind == StatementKind::BreakStatement) {
-        auto break_statement = (BreakStatement*)statement;
-
         printf("BreakStatement");
     } else if(statement->kind == StatementKind::Import) {
         auto import = (Import*)statement;
 
-        printf("Import: %s", import->path);
+        printf("Import: %.*s", STRING_PRINTF_ARGUMENTS(import->path));
     } else if(statement->kind == StatementKind::UsingStatement) {
         auto using_statement = (UsingStatement*)statement;
 
@@ -868,7 +867,7 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
         indent(indentation_level + 1);
         printf("statements: [");
 
-        if(static_if->statements.count != 0) {
+        if(static_if->statements.length != 0) {
             printf("\n");
 
             for(auto statement : static_if->statements) {
@@ -886,6 +885,6 @@ static void print_statement_internal(Statement *statement, unsigned int indentat
     }
 }
 
-void print_statement(Statement *statement) {
-    print_statement_internal(statement, 0);
+void Statement::print() {
+    print_statement_internal(this, 0);
 }

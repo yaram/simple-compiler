@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include "array.h"
 #include "register_size.h"
+#include "string.h"
 #include "util.h"
 
 enum struct CallingConvention {
@@ -10,7 +11,7 @@ enum struct CallingConvention {
     StdCall
 };
 
-const char *calling_convention_name(CallingConvention calling_convention);
+String calling_convention_name(CallingConvention calling_convention);
 
 enum struct InstructionKind {
     IntegerArithmeticOperation,
@@ -41,6 +42,8 @@ struct Instruction {
     InstructionKind kind;
 
     FileRange range;
+
+    void print(bool has_return);
 };
 
 struct IntegerArithmeticOperation : Instruction {
@@ -313,14 +316,12 @@ struct CopyMemory : Instruction {
 struct RuntimeStatic;
 
 struct ReferenceStatic : Instruction {
-    RuntimeStatic *runtime_static;
+    RuntimeStatic* runtime_static;
 
     size_t destination_register;
 
     ReferenceStatic() : Instruction { InstructionKind::ReferenceStatic } {}
 };
-
-void print_instruction(Instruction *instruction, bool has_return);
 
 enum struct RuntimeStaticKind {
     Function,
@@ -334,8 +335,10 @@ struct RuntimeStatic {
     String name;
     bool is_no_mangle;
 
-    const char* path;
+    String path;
     FileRange range;
+
+    void print();
 };
 
 struct Function : RuntimeStatic {
@@ -355,7 +358,7 @@ struct Function : RuntimeStatic {
 
     Array<Instruction*> instructions;
 
-    Array<const char*> libraries;
+    Array<String> libraries;
 
     CallingConvention calling_convention;
 
@@ -377,12 +380,10 @@ struct StaticVariable : RuntimeStatic {
 
     bool is_external;
 
-    Array<const char*> libraries;
+    Array<String> libraries;
 
     bool has_initial_data;
-    uint8_t *initial_data;
+    uint8_t* initial_data;
 
     StaticVariable() : RuntimeStatic { RuntimeStaticKind::StaticVariable } {}
 };
-
-void print_static(RuntimeStatic *runtime_static);

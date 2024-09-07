@@ -1,38 +1,38 @@
 #include "ir.h"
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
-const char *calling_convention_name(CallingConvention calling_convention) {
+String calling_convention_name(CallingConvention calling_convention) {
     switch(calling_convention) {
         case CallingConvention::Default: {
-            return "cdecl";
+            return "cdecl"_S;
         };
 
         case CallingConvention::StdCall: {
-            return "stdcall";
+            return "stdcall"_S;
         } break;
 
         default: abort();
     }
 }
 
-static const char *register_size_names[] = { "8", "16", "32", "64" };
-static const char *register_size_name(RegisterSize size) {
+inline String register_size_name(RegisterSize size){
     switch(size) {
         case RegisterSize::Size8: {
-            return "8";
+            return "8"_S;
         } break;
 
         case RegisterSize::Size16: {
-            return "16";
+            return "16"_S;
         } break;
 
         case RegisterSize::Size32: {
-            return "32";
+            return "32"_S;
         } break;
 
         case RegisterSize::Size64: {
-            return "64";
+            return "64"_S;
         } break;
 
         default: {
@@ -41,9 +41,9 @@ static const char *register_size_name(RegisterSize size) {
     }
 }
 
-void print_instruction(Instruction *instruction, bool has_return) {
-    if(instruction->kind == InstructionKind::IntegerArithmeticOperation) {
-        auto integer_arithmetic_operation = (IntegerArithmeticOperation*)instruction;
+void Instruction::print(bool has_return) {
+    if(kind == InstructionKind::IntegerArithmeticOperation) {
+        auto integer_arithmetic_operation = (IntegerArithmeticOperation*)this;
 
         switch(integer_arithmetic_operation->operation) {
             case IntegerArithmeticOperation::Operation::Add: {
@@ -88,14 +88,14 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(
-            " %s r%zu, r%zu, r%zu",
-            register_size_name(integer_arithmetic_operation->size),
+            " %.*s r%zu, r%zu, r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(integer_arithmetic_operation->size)),
             integer_arithmetic_operation->source_register_a,
             integer_arithmetic_operation->source_register_b,
             integer_arithmetic_operation->destination_register
         );
-    } else if(instruction->kind == InstructionKind::IntegerComparisonOperation) {
-        auto integer_comparison_operation = (IntegerComparisonOperation*)instruction;
+    } else if(kind == InstructionKind::IntegerComparisonOperation) {
+        auto integer_comparison_operation = (IntegerComparisonOperation*)this;
 
         switch(integer_comparison_operation->operation) {
             case IntegerComparisonOperation::Operation::Equal: {
@@ -124,14 +124,14 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(
-            " %s r%zu, r%zu, r%zu",
-            register_size_name(integer_comparison_operation->size),
+            " %.*s r%zu, r%zu, r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(integer_comparison_operation->size)),
             integer_comparison_operation->source_register_a,
             integer_comparison_operation->source_register_b,
             integer_comparison_operation->destination_register
         );
-    } else if(instruction->kind == InstructionKind::IntegerExtension) {
-        auto integer_extension = (IntegerExtension*)instruction;
+    } else if(kind == InstructionKind::IntegerExtension) {
+        auto integer_extension = (IntegerExtension*)this;
 
         if(integer_extension->is_signed) {
             printf("SEXTEND");
@@ -140,26 +140,26 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(
-            " %s r%zu, %s r%zu",
-            register_size_name(integer_extension->source_size),
+            " %.*s r%zu, %.*s r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(integer_extension->source_size)),
             integer_extension->source_register,
-            register_size_name(integer_extension->destination_size),
+            STRING_PRINTF_ARGUMENTS(register_size_name(integer_extension->destination_size)),
             integer_extension->destination_register
         );
-    } else if(instruction->kind == InstructionKind::IntegerTruncation) {
-        auto integer_truncation = (IntegerTruncation*)instruction;
+    } else if(kind == InstructionKind::IntegerTruncation) {
+        auto integer_truncation = (IntegerTruncation*)this;
 
         printf(
-            "TRUNC %s r%zu, %s r%zu",
-            register_size_name(integer_truncation->source_size),
+            "TRUNC %.*s r%zu, %.*s r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(integer_truncation->source_size)),
             integer_truncation->source_register,
-            register_size_name(integer_truncation->destination_size),
+            STRING_PRINTF_ARGUMENTS(register_size_name(integer_truncation->destination_size)),
             integer_truncation->destination_register
         );
-    } else if(instruction->kind == InstructionKind::IntegerConstantInstruction) {
-        auto integer_constant = (IntegerConstantInstruction*)instruction;
+    } else if(kind == InstructionKind::IntegerConstantInstruction) {
+        auto integer_constant = (IntegerConstantInstruction*)this;
 
-        printf("CONST %s ", register_size_name(integer_constant->size));
+        printf("CONST %.*s ", STRING_PRINTF_ARGUMENTS(register_size_name(integer_constant->size)));
 
         switch(integer_constant->size) {
             case RegisterSize::Size8: {
@@ -175,7 +175,7 @@ void print_instruction(Instruction *instruction, bool has_return) {
             } break;
 
             case RegisterSize::Size64: {
-                printf("%llx", integer_constant->value);
+                printf("%" PRIu64, integer_constant->value);
             } break;
 
             default: {
@@ -184,8 +184,8 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(", r%zu", integer_constant->destination_register);
-    } else if(instruction->kind == InstructionKind::FloatArithmeticOperation) {
-        auto float_arithmetic_operation = (FloatArithmeticOperation*)instruction;
+    } else if(kind == InstructionKind::FloatArithmeticOperation) {
+        auto float_arithmetic_operation = (FloatArithmeticOperation*)this;
 
         switch(float_arithmetic_operation->operation) {
             case FloatArithmeticOperation::Operation::Add: {
@@ -210,14 +210,14 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(
-            " f%s r%zu, r%zu, r%zu",
-            register_size_name(float_arithmetic_operation->size),
+            " f%.*s r%zu, r%zu, r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(float_arithmetic_operation->size)),
             float_arithmetic_operation->source_register_a,
             float_arithmetic_operation->source_register_b,
             float_arithmetic_operation->destination_register
         );
-    } else if(instruction->kind == InstructionKind::FloatComparisonOperation) {
-        auto float_comparison_operation = (FloatComparisonOperation*)instruction;
+    } else if(kind == InstructionKind::FloatComparisonOperation) {
+        auto float_comparison_operation = (FloatComparisonOperation*)this;
 
         switch(float_comparison_operation->operation) {
             case FloatComparisonOperation::Operation::Equal: {
@@ -238,34 +238,34 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(
-            " f%s r%zu, r%zu, r%zu",
-            register_size_name(float_comparison_operation->size),
+            " f%.*s r%zu, r%zu, r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(float_comparison_operation->size)),
             float_comparison_operation->source_register_a,
             float_comparison_operation->source_register_b,
             float_comparison_operation->destination_register
         );
-    } else if(instruction->kind == InstructionKind::FloatConversion) {
-        auto float_conversion = (FloatConversion*)instruction;
+    } else if(kind == InstructionKind::FloatConversion) {
+        auto float_conversion = (FloatConversion*)this;
 
         printf(
-            "FCAST f%s r%zu, f%s r%zu",
-            register_size_name(float_conversion->source_size),
+            "FCAST f%.*s r%zu, f%.*s r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(float_conversion->source_size)),
             float_conversion->source_register,
-            register_size_name(float_conversion->destination_size),
+            STRING_PRINTF_ARGUMENTS(register_size_name(float_conversion->destination_size)),
             float_conversion->destination_register
         );
-    } else if(instruction->kind == InstructionKind::FloatTruncation) {
-        auto float_truncation = (FloatTruncation*)instruction;
+    } else if(kind == InstructionKind::FloatTruncation) {
+        auto float_truncation = (FloatTruncation*)this;
 
         printf(
-            "FTRUNC f%s r%zu, %s r%zu",
-            register_size_name(float_truncation->source_size),
+            "FTRUNC f%.*s r%zu, %.*s r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(float_truncation->source_size)),
             float_truncation->source_register,
-            register_size_name(float_truncation->destination_size),
+            STRING_PRINTF_ARGUMENTS(register_size_name(float_truncation->destination_size)),
             float_truncation->destination_register
         );
-    } else if(instruction->kind == InstructionKind::FloatFromInteger) {
-        auto float_from_integer = (FloatFromInteger*)instruction;
+    } else if(kind == InstructionKind::FloatFromInteger) {
+        auto float_from_integer = (FloatFromInteger*)this;
 
         if(float_from_integer->is_signed) {
             printf("FSINT");
@@ -274,16 +274,16 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(
-            " %s r%zu, f%s r%zu",
-            register_size_name(float_from_integer->source_size),
+            " %.*s r%zu, f%.*s r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(float_from_integer->source_size)),
             float_from_integer->source_register,
-            register_size_name(float_from_integer->destination_size),
+            STRING_PRINTF_ARGUMENTS(register_size_name(float_from_integer->destination_size)),
             float_from_integer->destination_register
         );
-    } else if(instruction->kind == InstructionKind::FloatConstantInstruction) {
-        auto float_constant = (FloatConstantInstruction*)instruction;
+    } else if(kind == InstructionKind::FloatConstantInstruction) {
+        auto float_constant = (FloatConstantInstruction*)this;
 
-        printf("FCONST f%s ", register_size_name(float_constant->size));
+        printf("FCONST f%.*s ", STRING_PRINTF_ARGUMENTS(register_size_name(float_constant->size)));
 
         switch(float_constant->size) {
             case RegisterSize::Size32: {
@@ -300,33 +300,33 @@ void print_instruction(Instruction *instruction, bool has_return) {
         }
 
         printf(", r%zu", float_constant->destination_register);
-    } else if(instruction->kind == InstructionKind::Jump) {
-        auto jump = (Jump*)instruction;
+    } else if(kind == InstructionKind::Jump) {
+        auto jump = (Jump*)this;
 
         printf("JMP %zu", jump->destination_instruction);
-    } else if(instruction->kind == InstructionKind::Branch) {
-        auto branch = (Branch*)instruction;
+    } else if(kind == InstructionKind::Branch) {
+        auto branch = (Branch*)this;
 
         printf(
             "BR r%zu, %zu",
             branch->condition_register,
             branch->destination_instruction
         );
-    } else if(instruction->kind == InstructionKind::FunctionCallInstruction) {
-        auto function_call = (FunctionCallInstruction*)instruction;
+    } else if(kind == InstructionKind::FunctionCallInstruction) {
+        auto function_call = (FunctionCallInstruction*)this;
 
         printf("CALL r%zu (", function_call->address_register);
 
-        for(size_t i = 0; i < function_call->parameters.count; i += 1) {
+        for(size_t i = 0; i < function_call->parameters.length; i += 1) {
             printf("r%zu: ", function_call->parameters[i].register_index);
 
             if(function_call->parameters[i].is_float) {
                 printf("f");
             }
 
-            printf("%s", register_size_name(function_call->parameters[i].size));
+            printf("%.*s", STRING_PRINTF_ARGUMENTS(register_size_name(function_call->parameters[i].size)));
 
-            if(i != function_call->parameters.count - 1) {
+            if(i != function_call->parameters.length - 1) {
                 printf(", ");
             }
         }
@@ -340,7 +340,7 @@ void print_instruction(Instruction *instruction, bool has_return) {
                 printf("f");
             }
 
-            printf("%s", register_size_name(function_call->return_size));
+            printf("%.*s", STRING_PRINTF_ARGUMENTS(register_size_name(function_call->return_size)));
         }
 
         switch(function_call->calling_convention) {
@@ -352,16 +352,16 @@ void print_instruction(Instruction *instruction, bool has_return) {
 
             default: abort();
         }
-    } else if(instruction->kind == InstructionKind::ReturnInstruction) {
-        auto return_instruction = (ReturnInstruction*)instruction;
+    } else if(kind == InstructionKind::ReturnInstruction) {
+        auto return_instruction = (ReturnInstruction*)this;
 
         printf("RET");
 
         if(has_return) {
             printf(" r%zu", return_instruction->value_register);
         }
-    } else if(instruction->kind == InstructionKind::AllocateLocal) {
-        auto allocate_local = (AllocateLocal*)instruction;
+    } else if(kind == InstructionKind::AllocateLocal) {
+        auto allocate_local = (AllocateLocal*)this;
 
         printf(
             "LOCAL %zu(%zu), r%zu",
@@ -369,44 +369,44 @@ void print_instruction(Instruction *instruction, bool has_return) {
             allocate_local->alignment,
             allocate_local->destination_register
         );
-    } else if(instruction->kind == InstructionKind::LoadInteger) {
-        auto load_integer = (LoadInteger*)instruction;
+    } else if(kind == InstructionKind::LoadInteger) {
+        auto load_integer = (LoadInteger*)this;
 
         printf(
-            "LOAD %s r%zu, r%zu",
-            register_size_name(load_integer->size),
+            "LOAD %.*s r%zu, r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(load_integer->size)),
             load_integer->address_register,
             load_integer->destination_register
         );
-    } else if(instruction->kind == InstructionKind::StoreInteger) {
-        auto store_integer = (StoreInteger*)instruction;
+    } else if(kind == InstructionKind::StoreInteger) {
+        auto store_integer = (StoreInteger*)this;
 
         printf(
-            "STORE %s r%zu, r%zu",
-            register_size_name(store_integer->size),
+            "STORE %.*s r%zu, r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(store_integer->size)),
             store_integer->source_register,
             store_integer->address_register
         );
-    } else if(instruction->kind == InstructionKind::LoadFloat) {
-        auto load_float = (LoadFloat*)instruction;
+    } else if(kind == InstructionKind::LoadFloat) {
+        auto load_float = (LoadFloat*)this;
 
         printf(
-            "FLOAD %s r%zu, r%zu",
-            register_size_name(load_float->size),
+            "FLOAD %.*s r%zu, r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(load_float->size)),
             load_float->address_register,
             load_float->destination_register
         );
-    } else if(instruction->kind == InstructionKind::StoreFloat) {
-        auto store_float = (StoreFloat*)instruction;
+    } else if(kind == InstructionKind::StoreFloat) {
+        auto store_float = (StoreFloat*)this;
 
         printf(
-            "FSTORE %s r%zu, r%zu",
-            register_size_name(store_float->size),
+            "FSTORE %.*s r%zu, r%zu",
+            STRING_PRINTF_ARGUMENTS(register_size_name(store_float->size)),
             store_float->source_register,
             store_float->address_register
         );
-    } else if(instruction->kind == InstructionKind::CopyMemory) {
-        auto copy_memory = (CopyMemory*)instruction;
+    } else if(kind == InstructionKind::CopyMemory) {
+        auto copy_memory = (CopyMemory*)this;
 
         printf(
             "COPY %zu (%zu), r%zu, r%zu",
@@ -415,12 +415,12 @@ void print_instruction(Instruction *instruction, bool has_return) {
             copy_memory->source_address_register,
             copy_memory->destination_address_register
         );
-    } else if(instruction->kind == InstructionKind::ReferenceStatic) {
-        auto reference_static = (ReferenceStatic*)instruction;
+    } else if(kind == InstructionKind::ReferenceStatic) {
+        auto reference_static = (ReferenceStatic*)this;
 
         printf(
             "STATIC %.*s r%zu",
-            STRING_PRINT(reference_static->runtime_static->name),
+            STRING_PRINTF_ARGUMENTS(reference_static->runtime_static->name),
             reference_static->destination_register
         );
     } else {
@@ -428,19 +428,19 @@ void print_instruction(Instruction *instruction, bool has_return) {
     }
 }
 
-void print_static(RuntimeStatic *runtime_static) {
-    printf("%.*s", STRING_PRINT(runtime_static->name));
+void RuntimeStatic::print() {
+    printf("%.*s", STRING_PRINTF_ARGUMENTS(name));
 
-    if(runtime_static->is_no_mangle) {
+    if(is_no_mangle) {
         printf(" (no_mangle)");
     }
 
-    if(runtime_static->kind == RuntimeStaticKind::Function) {
-        auto function = (Function*)runtime_static;
+    if(kind == RuntimeStaticKind::Function) {
+        auto function = (Function*)this;
 
         printf(" (");
 
-        for(size_t i = 0; i < function->parameters.count; i += 1) {
+        for(size_t i = 0; i < function->parameters.length; i += 1) {
             printf(
                 "r%zu: ",
                 i
@@ -450,9 +450,9 @@ void print_static(RuntimeStatic *runtime_static) {
                 printf("f");
             }
 
-            printf("%s", register_size_name(function->parameters[i].size));
+            printf("%.*s", STRING_PRINTF_ARGUMENTS(register_size_name(function->parameters[i].size)));
 
-            if(i != function->parameters.count - 1) {
+            if(i != function->parameters.length - 1) {
                 printf(", ");
             }
         }
@@ -465,7 +465,7 @@ void print_static(RuntimeStatic *runtime_static) {
             if(function->is_return_float) {
                 printf("f");
             }
-            printf("%s", register_size_name(function->return_size));
+            printf("%.*s", STRING_PRINTF_ARGUMENTS(register_size_name(function->return_size)));
         }
 
         if(function->is_external) {
@@ -474,10 +474,10 @@ void print_static(RuntimeStatic *runtime_static) {
             printf("\n");
 
             char buffer[20];
-            snprintf(buffer, 20, "%zu", function->instructions.count - 1);
+            snprintf(buffer, 20, "%zu", function->instructions.length - 1);
             size_t max_index_digits = strlen(buffer);
 
-            for(size_t i = 0; i < function->instructions.count; i += 1) {
+            for(size_t i = 0; i < function->instructions.length; i += 1) {
                 auto index_digits = printf("%zu", i);
 
                 for(size_t j = 0; j < max_index_digits - index_digits; j += 1) {
@@ -486,19 +486,19 @@ void print_static(RuntimeStatic *runtime_static) {
 
                 printf(" : ");
 
-                print_instruction(function->instructions[i], function->has_return);
+                function->instructions[i]->print(function->has_return);
 
-                if(i != function->instructions.count - 1) {
+                if(i != function->instructions.length - 1) {
                     printf("\n");
                 }
             }
         }
-    } else if(runtime_static->kind == RuntimeStaticKind::StaticConstant) {
-        auto constant = (StaticConstant*)runtime_static;
+    } else if(kind == RuntimeStaticKind::StaticConstant) {
+        auto constant = (StaticConstant*)this;
 
-        printf(" %zu(%zu) (const)", constant->data.count, constant->alignment);
-    } else if(runtime_static->kind == RuntimeStaticKind::StaticVariable) {
-        auto variable = (StaticVariable*)runtime_static;
+        printf(" %zu(%zu) (const)", constant->data.length, constant->alignment);
+    } else if(kind == RuntimeStaticKind::StaticVariable) {
+        auto variable = (StaticVariable*)this;
 
         if(variable->is_external) {
             printf(" extern");

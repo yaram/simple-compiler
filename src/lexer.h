@@ -4,4 +4,4 @@
 #include "result.h"
 #include "array.h"
 
-Result<Array<Token>> tokenize_source(const char *path);
+Result<Array<Token>> tokenize_source(String path);

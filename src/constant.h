@@ -13,20 +13,20 @@ struct ConstantScope;
 struct AnyConstantValue;
 
 struct FunctionConstant {
-    FunctionDeclaration *declaration;
+    FunctionDeclaration* declaration;
 
     bool is_external;
-    Array<const char*> external_libraries;
+    Array<String> external_libraries;
 
-    ConstantScope *body_scope;
+    ConstantScope* body_scope;
     Array<ConstantScope*> child_scopes;
 
     bool is_no_mangle;
 };
 
 struct PolymorphicFunctionConstant {
-    FunctionDeclaration *declaration;
-    ConstantScope *scope;
+    FunctionDeclaration* declaration;
+    ConstantScope* scope;
 };
 
 struct BuiltinFunctionConstant {
@@ -40,15 +40,15 @@ struct ArrayConstant {
 };
 
 struct StaticArrayConstant {
-    AnyConstantValue *elements;
+    AnyConstantValue* elements;
 };
 
 struct StructConstant {
-    AnyConstantValue *members;
+    AnyConstantValue* members;
 };
 
 struct FileModuleConstant {
-    ConstantScope *scope;
+    ConstantScope* scope;
 };
 
 enum struct ConstantValueKind {
@@ -268,9 +268,9 @@ struct DeclarationHashTable {
 };
 
 uint32_t calculate_string_hash(String string);
-DeclarationHashTable construct_declaration_hash_table(Array<Statement*> statements);
-Statement *search_in_declaration_hash_table(DeclarationHashTable declaration_hash_table, String name);
-Statement *search_in_declaration_hash_table(DeclarationHashTable declaration_hash_table, uint32_t hash, String name);
+DeclarationHashTable create_declaration_hash_table(Array<Statement*> statements);
+Statement* search_in_declaration_hash_table(DeclarationHashTable declaration_hash_table, String name);
+Statement* search_in_declaration_hash_table(DeclarationHashTable declaration_hash_table, uint32_t hash, String name);
 
 struct ScopeConstant {
     String name;
@@ -288,12 +288,12 @@ struct ConstantScope {
 
     bool is_top_level;
 
-    ConstantScope *parent;
+    ConstantScope* parent;
 
-    const char *file_path;
+    String file_path;
 };
 
-const char *get_scope_file_path(ConstantScope scope);
+String get_scope_file_path(ConstantScope scope);
 
 struct GlobalConstant {
     String name;
@@ -310,6 +310,9 @@ struct GlobalInfo {
 };
 
 struct TypedConstantValue {
+    inline TypedConstantValue() {}
+    inline TypedConstantValue(AnyType type, AnyConstantValue value) : type(type), value(value) {}
+
     AnyType type;
 
     AnyConstantValue value;
@@ -317,39 +320,83 @@ struct TypedConstantValue {
 
 template <typename T>
 struct DelayedResult {
-    bool status;
+    inline DelayedResult() {}
+
+    inline DelayedResult(Result<T> result) {
+        has_value = true;
+        status = result.status;
+        value = result.value;
+    }
+
+    inline DelayedResult(ResultErrorHelper helper) {
+        has_value = true;
+        status = false;
+    }
 
     bool has_value;
 
-    T value;
+    union {
+        struct {
+            bool status;
+            T value;
+        };
 
-    size_t waiting_for;
+        size_t waiting_for;
+    };
 };
 
 template <>
 struct DelayedResult<void> {
-    bool status;
+    inline DelayedResult() {}
+
+    inline DelayedResult(Result<void> result) {
+        has_value = true;
+        status = result.status;
+    }
+
+    inline DelayedResult(ResultErrorHelper helper) {
+        has_value = true;
+        status = false;
+    }
 
     bool has_value;
 
-    size_t waiting_for;
+    union {
+        bool status;
+
+        size_t waiting_for;
+    };
 };
 
-#define wait(job) {true,false,{},job}
-#define has(...) {true,true,##__VA_ARGS__}
+struct DelayedResultWaitHelper {
+    size_t waiting_for;
 
-#define expect_delayed(name, expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,{},__##name##_result.waiting_for};auto name=__##name##_result.value
-#define expect_delayed_void_ret(name, expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,__##name##_result.waiting_for};auto name=__##name##_result.value
-#define expect_delayed_void_val(expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,{},__##name##_result.waiting_for}
-#define expect_delayed_void_both(expression) auto __##name##_result = expression;if(!__##name##_result.status)return{false};if(!__##name##_result.has_value)return{true,false,__##name##_result.waiting_for}
+    template <typename T>
+    inline operator DelayedResult<T>() {
+        DelayedResult<T> result {};
+        result.has_value = false;
+        result.waiting_for = waiting_for;
+        return result;
+    }
+};
 
-void error(ConstantScope *scope, FileRange range, const char *format, ...);
+inline DelayedResultWaitHelper wait(size_t job) {
+    DelayedResultWaitHelper helper {};
+    helper.waiting_for = job;
 
-Result<const char *> static_array_to_c_string(ConstantScope *scope, FileRange range, AnyType type, AnyConstantValue value);
+    return helper;
+}
 
-bool check_undetermined_integer_to_integer_coercion(ConstantScope *scope, FileRange range, Integer target_type, int64_t value, bool probing);
+#define expect_delayed(name, expression) auto __##name##_result=(expression);if(__##name##_result.has_value){if(!__##name##_result.status){return err();}}else return(wait(__##name##_result.waiting_for));auto name = __##name##_result.value
+#define expect_delayed_void(expression) auto __void_result=(expression);if(__void_result.has_value){if(!__void_result.status){return err();}}else return(wait(__void_result.waiting_for))
+
+void error(ConstantScope* scope, FileRange range, const char* format, ...);
+
+Result<String> static_array_to_string(ConstantScope* scope, FileRange range, AnyType type, AnyConstantValue value);
+
+bool check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, int64_t value, bool probing);
 Result<uint64_t> coerce_constant_to_integer_type(
-    ConstantScope *scope,
+    ConstantScope* scope,
     FileRange range,
     AnyType type,
     AnyConstantValue value,
@@ -358,7 +405,7 @@ Result<uint64_t> coerce_constant_to_integer_type(
 );
 Result<AnyConstantValue> coerce_constant_to_type(
     GlobalInfo info,
-    ConstantScope *scope,
+    ConstantScope* scope,
     FileRange range,
     AnyType type,
     AnyConstantValue value,
@@ -367,7 +414,7 @@ Result<AnyConstantValue> coerce_constant_to_type(
 );
 Result<TypedConstantValue> evaluate_constant_index(
     GlobalInfo info,
-    ConstantScope *scope,
+    ConstantScope* scope,
     AnyType type,
     AnyConstantValue value,
     FileRange range,
@@ -375,10 +422,10 @@ Result<TypedConstantValue> evaluate_constant_index(
     AnyConstantValue index_value,
     FileRange index_range
 );
-Result<AnyType> determine_binary_operation_type(ConstantScope *scope, FileRange range, AnyType left, AnyType right);
+Result<AnyType> determine_binary_operation_type(ConstantScope* scope, FileRange range, AnyType left, AnyType right);
 Result<TypedConstantValue> evaluate_constant_binary_operation(
     GlobalInfo info,
-    ConstantScope *scope,
+    ConstantScope* scope,
     FileRange range,
     BinaryOperation::Operator binary_operator,
     FileRange left_range,
@@ -390,7 +437,7 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
 );
 Result<AnyConstantValue> evaluate_constant_cast(
     GlobalInfo info,
-    ConstantScope *scope,
+    ConstantScope* scope,
     AnyType type,
     AnyConstantValue value,
     FileRange value_range,
@@ -400,96 +447,96 @@ Result<AnyConstantValue> evaluate_constant_cast(
 );
 DelayedResult<AnyType> evaluate_type_expression(
     GlobalInfo info,
-    List<AnyJob> *jobs,
-    ConstantScope *scope,
-    Statement *ignore_statement,
-    Expression *expression
+    List<AnyJob>* jobs,
+    ConstantScope* scope,
+    Statement* ignore_statement,
+    Expression* expression
 );
-Result<AnyType> coerce_to_default_type(GlobalInfo info, ConstantScope *scope, FileRange range, AnyType type);
-bool is_declaration_public(Statement *declaration);
-bool match_public_declaration(Statement *statement, String name);
-bool match_declaration(Statement *statement, String name);
+Result<AnyType> coerce_to_default_type(GlobalInfo info, ConstantScope* scope, FileRange range, AnyType type);
+bool is_declaration_public(Statement* declaration);
+bool match_public_declaration(Statement* statement, String name);
+bool match_declaration(Statement* statement, String name);
 DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
     GlobalInfo info,
-    List<AnyJob> *jobs,
-    ConstantScope *scope,
-    Statement *declaration
+    List<AnyJob>* jobs,
+    ConstantScope* scope,
+    Statement* declaration
 );
 bool constant_values_equal(AnyType type, AnyConstantValue a, AnyConstantValue b);
 
-struct DeclarationSearchValue {
+struct DeclarationSearchResult {
     bool found;
 
     AnyType type;
     AnyConstantValue value;
 };
 
-DelayedResult<DeclarationSearchValue> search_for_declaration(
+DelayedResult<DeclarationSearchResult> search_for_declaration(
     GlobalInfo info,
-    List<AnyJob> *jobs,
+    List<AnyJob>* jobs,
     String name,
     uint32_t name_hash,
-    ConstantScope *scope,
+    ConstantScope* scope,
     Array<Statement*> statements,
     DeclarationHashTable declarations,
     bool external,
-    Statement *ignore
+    Statement* ignore
 );
 
-bool static_if_may_have_declaration(const char *name, bool external, StaticIf *static_if);
+bool static_if_may_have_declaration(String name, bool external, StaticIf* static_if);
 
 DelayedResult<TypedConstantValue> evaluate_constant_expression(
     GlobalInfo info,
-    List<AnyJob> *jobs,
-    ConstantScope *scope,
-    Statement *ignore_statement,
-    Expression *expression
+    List<AnyJob>* jobs,
+    ConstantScope* scope,
+    Statement* ignore_statement,
+    Expression* expression
 );
 
-struct StaticIfResolutionValue {
+struct StaticIfResolutionResult {
     bool condition;
 
     DeclarationHashTable declarations;
 };
 
-DelayedResult<StaticIfResolutionValue> do_resolve_static_if(GlobalInfo info, List<AnyJob> *jobs, StaticIf *static_if, ConstantScope *scope);
+DelayedResult<StaticIfResolutionResult> do_resolve_static_if(GlobalInfo info, List<AnyJob>* jobs, StaticIf* static_if, ConstantScope* scope);
 
 DelayedResult<TypedConstantValue> do_resolve_function_declaration(
     GlobalInfo info,
-    List<AnyJob> *jobs,
-    FunctionDeclaration *declaration,
-    ConstantScope *scope
+    List<AnyJob>* jobs,
+    FunctionDeclaration* declaration,
+    ConstantScope* scope
 );
 
-struct FunctionResolutionValue {
+struct FunctionResolutionResult {
     FunctionTypeType type;
 
     FunctionConstant value;
 };
 
-DelayedResult<FunctionResolutionValue> do_resolve_polymorphic_function(
+DelayedResult<FunctionResolutionResult> do_resolve_polymorphic_function(
     GlobalInfo info,
-    List<AnyJob> *jobs,
-    FunctionDeclaration *declaration,
-    TypedConstantValue *parameters,
-    ConstantScope *scope,
-    ConstantScope *call_scope,
-    FileRange *call_parameter_ranges
+    List<AnyJob>* jobs,
+    FunctionDeclaration* declaration,
+    TypedConstantValue* parameters,
+    ConstantScope* scope,
+    ConstantScope* call_scope,
+    FileRange* call_parameter_ranges
 );
 
 DelayedResult<AnyType> do_resolve_struct_definition(
     GlobalInfo info,
-    List<AnyJob> *jobs,
-    StructDefinition *struct_definition,
-    ConstantScope *scope
+    List<AnyJob>* jobs,
+    StructDefinition* struct_definition,
+    ConstantScope* scope
 );
 
 DelayedResult<AnyType> do_resolve_polymorphic_struct(
     GlobalInfo info,
-    List<AnyJob> *jobs,
-    StructDefinition *struct_definition,
-    AnyConstantValue *parameters,
-    ConstantScope *scope
+    List<AnyJob>* jobs,
+    StructDefinition* struct_definition,
+    AnyConstantValue* parameters,
+    ConstantScope* scope
 );
 
-bool process_scope(List<AnyJob> *jobs, ConstantScope *scope, Array<Statement*> statements, List<ConstantScope*> *child_scopes, bool is_top_level);
+Result<void> process_scope(List<AnyJob>* jobs, ConstantScope* scope, Array<Statement*> statements, List<ConstantScope*>* child_scopes, bool is_top_level);

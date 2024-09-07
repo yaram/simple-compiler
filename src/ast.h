@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include "array.h"
+#include "string.h"
 #include "util.h"
 
 struct Identifier {
@@ -19,7 +20,7 @@ struct FunctionParameter {
 
     bool is_polymorphic_determiner;
 
-    Expression *type;
+    Expression* type;
 
     Identifier polymorphic_determiner;
 };
@@ -54,6 +55,8 @@ struct Expression {
     ExpressionKind kind;
 
     FileRange range;
+
+    void print();
 };
 
 struct NamedReference : Expression {
@@ -69,13 +72,13 @@ struct NamedReference : Expression {
 };
 
 struct MemberReference : Expression {
-    Expression *expression;
+    Expression* expression;
 
     Identifier name;
 
     MemberReference(
         FileRange range,
-        Expression *expression,
+        Expression* expression,
         Identifier name
     ) :
         Expression { ExpressionKind::MemberReference, range },
@@ -85,14 +88,14 @@ struct MemberReference : Expression {
 };
 
 struct IndexReference : Expression {
-    Expression *expression;
+    Expression* expression;
 
-    Expression *index;
+    Expression* index;
 
     IndexReference(
         FileRange range,
-        Expression *expression,
-        Expression *index
+        Expression* expression,
+        Expression* index
     ) :
         Expression { ExpressionKind::IndexReference, range },
         expression { expression },
@@ -125,11 +128,11 @@ struct FloatLiteral : Expression {
 };
 
 struct StringLiteral : Expression {
-    Array<char> characters;
+    String characters;
 
     StringLiteral(
         FileRange range,
-        Array<char> characters
+        String characters
     ) :
         Expression { ExpressionKind::StringLiteral, range },
         characters { characters }
@@ -152,7 +155,7 @@ struct StructLiteral : Expression {
     struct Member {
         Identifier name;
 
-        Expression *value;
+        Expression* value;
     };
 
     Array<Member> members;
@@ -167,13 +170,13 @@ struct StructLiteral : Expression {
 };
 
 struct FunctionCall : Expression {
-    Expression *expression;
+    Expression* expression;
 
     Array<Expression*> parameters;
 
     FunctionCall(
         FileRange range,
-        Expression *expression,
+        Expression* expression,
         Array<Expression*> parameters
     ) :
         Expression { ExpressionKind::FunctionCall, range },
@@ -201,15 +204,15 @@ struct BinaryOperation : Expression {
 
     Operator binary_operator;
 
-    Expression *left;
+    Expression* left;
 
-    Expression *right;
+    Expression* right;
 
     BinaryOperation(
         FileRange range,
         Operator binary_operator,
-        Expression *left,
-        Expression *right
+        Expression* left,
+        Expression* right
     ) :
         Expression { ExpressionKind::BinaryOperation, range },
         binary_operator { binary_operator },
@@ -227,12 +230,12 @@ struct UnaryOperation : Expression {
 
     Operator unary_operator;
 
-    Expression *expression;
+    Expression* expression;
 
     UnaryOperation(
         FileRange range,
         Operator unary_operator,
-        Expression *expression
+        Expression* expression
     ) :
         Expression { ExpressionKind::UnaryOperation, range },
         unary_operator { unary_operator },
@@ -241,14 +244,14 @@ struct UnaryOperation : Expression {
 };
 
 struct Cast : Expression {
-    Expression *expression;
+    Expression* expression;
 
-    Expression *type;
+    Expression* type;
 
     Cast(
         FileRange range,
-        Expression *expression,
-        Expression *type
+        Expression* expression,
+        Expression* type
     ) :
         Expression { ExpressionKind::Cast, range },
         expression { expression },
@@ -257,11 +260,11 @@ struct Cast : Expression {
 };
 
 struct Bake : Expression {
-    FunctionCall *function_call;
+    FunctionCall* function_call;
 
     Bake(
         FileRange range,
-        FunctionCall *function_call
+        FunctionCall* function_call
     ) :
         Expression { ExpressionKind::Bake, range },
         function_call { function_call }
@@ -269,14 +272,14 @@ struct Bake : Expression {
 };
 
 struct ArrayType : Expression {
-    Expression *expression;
+    Expression* expression;
 
-    Expression *index;
+    Expression* index;
 
     ArrayType(
         FileRange range,
-        Expression *expression,
-        Expression *index
+        Expression* expression,
+        Expression* index
     ) :
         Expression { ExpressionKind::ArrayType, range },
         expression { expression },
@@ -287,14 +290,14 @@ struct ArrayType : Expression {
 struct FunctionType : Expression {
     Array<FunctionParameter> parameters;
 
-    Expression *return_type;
+    Expression* return_type;
 
     Array<Tag> tags;
 
     FunctionType(
         FileRange range,
         Array<FunctionParameter> parameters,
-        Expression *return_type,
+        Expression* return_type,
         Array<Tag> tags
     ) :
         Expression { ExpressionKind::FunctionType, range },
@@ -303,8 +306,6 @@ struct FunctionType : Expression {
         tags { tags }
     {}
 };
-
-void print_expression(Expression *expression);
 
 enum struct StatementKind {
     FunctionDeclaration,
@@ -328,6 +329,8 @@ struct Statement {
     StatementKind kind;
 
     FileRange range;
+
+    void print();
 };
 
 struct FunctionDeclaration : Statement {
@@ -335,7 +338,7 @@ struct FunctionDeclaration : Statement {
 
     Array<FunctionParameter> parameters;
 
-    Expression *return_type;
+    Expression* return_type;
 
     Array<Tag> tags;
 
@@ -346,7 +349,7 @@ struct FunctionDeclaration : Statement {
         FileRange range,
         Identifier name,
         Array<FunctionParameter> parameters,
-        Expression *return_type,
+        Expression* return_type,
         Array<Tag> tags,
         Array<Statement*> statements
     ) :
@@ -363,7 +366,7 @@ struct FunctionDeclaration : Statement {
         FileRange range,
         Identifier name,
         Array<FunctionParameter> parameters,
-        Expression *return_type,
+        Expression* return_type,
         Array<Tag> tags
     ) :
         Statement { StatementKind::FunctionDeclaration, range },
@@ -378,12 +381,12 @@ struct FunctionDeclaration : Statement {
 struct ConstantDefinition : Statement {
     Identifier name;
 
-    Expression *expression;
+    Expression* expression;
 
     ConstantDefinition(
         FileRange range,
         Identifier name,
-        Expression *expression
+        Expression* expression
     ) :
         Statement { StatementKind::ConstantDefinition, range },
         name { name },
@@ -395,13 +398,13 @@ struct StructDefinition : Statement {
     struct Parameter {
         Identifier name;
 
-        Expression *type;
+        Expression* type;
     };
 
     struct Member {
         Identifier name;
 
-        Expression *type;
+        Expression* type;
     };
 
     Identifier name;
@@ -428,11 +431,11 @@ struct StructDefinition : Statement {
 };
 
 struct ExpressionStatement : Statement {
-    Expression *expression;
+    Expression* expression;
 
     ExpressionStatement(
         FileRange range,
-        Expression *expression
+        Expression* expression
     ) :
         Statement { StatementKind::ExpressionStatement, range },
         expression { expression }
@@ -442,16 +445,16 @@ struct ExpressionStatement : Statement {
 struct VariableDeclaration : Statement {
     Identifier name;
 
-    Expression *type;
-    Expression *initializer;
+    Expression* type;
+    Expression* initializer;
 
     Array<Tag> tags;
 
     VariableDeclaration(
         FileRange range,
         Identifier name,
-        Expression *type,
-        Expression *initializer,
+        Expression* type,
+        Expression* initializer,
         Array<Tag> tags
     ) :
         Statement { StatementKind::VariableDeclaration, range },
@@ -463,14 +466,14 @@ struct VariableDeclaration : Statement {
 };
 
 struct Assignment : Statement {
-    Expression *target;
+    Expression* target;
 
-    Expression *value;
+    Expression* value;
 
     Assignment(
         FileRange range,
-        Expression *target,
-        Expression *value
+        Expression* target,
+        Expression* value
     ) :
         Statement { StatementKind::Assignment, range },
         target { target },
@@ -479,17 +482,17 @@ struct Assignment : Statement {
 };
 
 struct BinaryOperationAssignment : Statement {
-    Expression *target;
+    Expression* target;
 
     BinaryOperation::Operator binary_operator;
 
-    Expression *value;
+    Expression* value;
 
     BinaryOperationAssignment(
         FileRange range,
-        Expression *target,
+        Expression* target,
         BinaryOperation::Operator binary_operator,
-        Expression *value
+        Expression* value
     ) :
         Statement { StatementKind::BinaryOperationAssignment, range },
         target { target },
@@ -500,12 +503,12 @@ struct BinaryOperationAssignment : Statement {
 
 struct IfStatement : Statement {
     struct ElseIf {
-        Expression *condition;
+        Expression* condition;
 
         Array<Statement*> statements;
     };
 
-    Expression *condition;
+    Expression* condition;
 
     Array<Statement*> statements;
 
@@ -515,7 +518,7 @@ struct IfStatement : Statement {
 
     IfStatement(
         FileRange range,
-        Expression *condition,
+        Expression* condition,
         Array<Statement*> statements,
         Array<ElseIf> else_ifs,
         Array<Statement*> else_statements
@@ -529,13 +532,13 @@ struct IfStatement : Statement {
 };
 
 struct WhileLoop : Statement {
-    Expression *condition;
+    Expression* condition;
 
     Array<Statement*> statements;
 
     WhileLoop(
         FileRange range,
-        Expression *condition,
+        Expression* condition,
         Array<Statement*> statements
     ) :
         Statement { StatementKind::WhileLoop, range },
@@ -548,15 +551,15 @@ struct ForLoop : Statement {
     bool has_index_name;
     Identifier index_name;
 
-    Expression *from;
-    Expression *to;
+    Expression* from;
+    Expression* to;
 
     Array<Statement*> statements;
 
     ForLoop(
         FileRange range,
-        Expression *from,
-        Expression *to,
+        Expression* from,
+        Expression* to,
         Array<Statement*> statements
     ) :
         Statement { StatementKind::ForLoop, range },
@@ -569,8 +572,8 @@ struct ForLoop : Statement {
     ForLoop(
         FileRange range,
         Identifier index_name,
-        Expression *from,
-        Expression *to,
+        Expression* from,
+        Expression* to,
         Array<Statement*> statements
     ) :
         Statement { StatementKind::ForLoop, range },
@@ -583,11 +586,11 @@ struct ForLoop : Statement {
 };
 
 struct ReturnStatement : Statement {
-    Expression *value;
+    Expression* value;
 
     ReturnStatement(
         FileRange range,
-        Expression *value
+        Expression* value
     ) :
         Statement { StatementKind::ReturnStatement, range },
         value { value }
@@ -603,14 +606,14 @@ struct BreakStatement : Statement {
 };
 
 struct Import : Statement {
-    const char *path;
-    const char *absolute_path;
+    String path;
+    String absolute_path;
     String name;
 
     Import(
         FileRange range,
-        const char *path,
-        const char *absolute_path,
+        String path,
+        String absolute_path,
         String name
     ) :
         Statement { StatementKind::Import, range },
@@ -621,11 +624,11 @@ struct Import : Statement {
 };
 
 struct UsingStatement : Statement {
-    Expression *module;
+    Expression* module;
 
     UsingStatement(
         FileRange range,
-        Expression *module
+        Expression* module
     ) :
         Statement { StatementKind::UsingStatement, range },
         module { module }
@@ -633,18 +636,16 @@ struct UsingStatement : Statement {
 };
 
 struct StaticIf : Statement {
-    Expression *condition;
+    Expression* condition;
     Array<Statement*> statements;
 
     StaticIf(
         FileRange range,
-        Expression *condition,
+        Expression* condition,
         Array<Statement*> statements
     ) :
         Statement { StatementKind::StaticIf, range },
-        statements { statements },
-        condition { condition }
+        condition { condition },
+        statements { statements }
     {}
 };
-
-void print_statement(Statement *statement);

@@ -1,10 +1,9 @@
 #pragma once
 
 #include <stdint.h>
-#include "array.h"
-#include "util.h"
+#include "string.h"
 
-enum struct TokenType {
+enum struct TokenKind {
     Dot,
     DoubleDot,
     Comma,
@@ -46,22 +45,22 @@ enum struct TokenType {
 };
 
 struct Token {
-    TokenType type;
+    TokenKind kind;
 
     unsigned int line;
-    unsigned int first_character;
-    unsigned int last_character;
+    unsigned int first_column;
+    unsigned int last_column;
 
     union {
         String identifier;
 
-        Array<char> string;
+        String string;
 
         uint64_t integer;
 
         double floating_point;
     };
-};
 
-void print_token(Token token);
-const char *get_token_text(Token token);
+    void print();
+    String get_text();
+};

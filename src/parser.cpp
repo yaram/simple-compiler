@@ -8,7 +8,7 @@
 #include "util.h"
 
 struct Context {
-    const char *path;
+    String path;
 
     Array<Token> tokens;
 
@@ -18,13 +18,13 @@ struct Context {
 static FileRange token_range(Token token) {
     return {
         token.line,
-        token.first_character,
+        token.first_column,
         token.line,
-        token.last_character
+        token.last_column
     };
 }
 
-static void error(Context context, const char *format, ...) {
+static void error(Context context, const char* format, ...) {
     va_list arguments;
     va_start(arguments, format);
 
@@ -36,55 +36,55 @@ static void error(Context context, const char *format, ...) {
 static FileRange span_range(FileRange first, FileRange last) {
     return {
         first.first_line,
-        first.first_character,
-        last.last_character,
+        first.first_column,
+        last.last_column,
         last.last_line
     };
 }
 
-static Result<Token> peek_token(Context context) {
-    if(context.next_token_index < context.tokens.count) {
+inline Result<Token> peek_token(Context context) {
+    if(context.next_token_index < context.tokens.length) {
         auto token = context.tokens[context.next_token_index];
 
         return ok(token);
     } else {
-        fprintf(stderr, "Error: %s: Unexpected end of file\n", context.path);
+        fprintf(stderr, "Error: %.*s: Unexpected end of file\n", STRING_PRINTF_ARGUMENTS(context.path));
 
-        return err;
+        return err();
     }
 }
 
-static void consume_token(Context *context) {
+inline void consume_token(Context* context) {
     context->next_token_index += 1;
 }
 
-static bool expect_basic_token(Context *context, TokenType type) {
+static Result<void> expect_basic_token(Context* context, TokenKind type) {
     expect(token, peek_token(*context));
 
-    if(token.type != type) {
+    if(token.kind != type) {
         Token expected_token;
-        expected_token.type = type;
+        expected_token.kind = type;
 
-        error(*context, "Expected '%s', got '%s'", get_token_text(expected_token), get_token_text(token));
+        error(*context, "Expected '%.*s', got '%.*s'", STRING_PRINTF_ARGUMENTS(expected_token.get_text()), STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-        return false;
+        return err();
     }
 
     consume_token(context);
 
-    return true;
+    return ok();
 }
 
-static Result<FileRange> expect_basic_token_with_range(Context *context, TokenType type) {
+static Result<FileRange> expect_basic_token_with_range(Context* context, TokenKind type) {
     expect(token, peek_token(*context));
 
-    if(token.type != type) {
+    if(token.kind != type) {
         Token expected_token;
-        expected_token.type = type;
+        expected_token.kind = type;
 
-        error(*context, "Expected '%s', got '%s'", get_token_text(expected_token), get_token_text(token));
+        error(*context, "Expected '%.*s', got '%.*s'", STRING_PRINTF_ARGUMENTS(expected_token.get_text()), STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-        return err;
+        return err();
     }
 
     consume_token(context);
@@ -94,13 +94,13 @@ static Result<FileRange> expect_basic_token_with_range(Context *context, TokenTy
     return ok(range);
 }
 
-static Result<Array<char>> expect_string(Context *context) {
+static Result<String> expect_string(Context* context) {
     expect(token, peek_token(*context));
 
-    if(token.type != TokenType::String) {
-        error(*context, "Expected a string, got '%s'", get_token_text(token));
+    if(token.kind != TokenKind::String) {
+        error(*context, "Expected a string, got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-        return err;
+        return err();
     }
 
     consume_token(context);
@@ -108,35 +108,36 @@ static Result<Array<char>> expect_string(Context *context) {
     return ok(token.string);
 }
 
-static Result<Identifier> expect_identifier(Context *context) {
-    expect(token, peek_token(*context));
+inline Identifier identifier_from_token(Context context, Token token) {
+    Identifier identifier {};
+    identifier.text = token.identifier;
+    identifier.range = token_range(token);
 
-    if(token.type != TokenType::Identifier) {
-        error(*context, "Expected an identifier, got '%s'", get_token_text(token));
-
-        return err;
-    }
-
-    consume_token(context);
-
-    return ok({
-        token.identifier,
-        token_range(token)
-    });
-}
-
-static Identifier identifier_from_token(Context context, Token token) {
     return {
         token.identifier,
         token_range(token)
     };
 }
 
-static Expression *named_reference_from_identifier(Identifier identifier) {
-    return new NamedReference {
+static Result<Identifier> expect_identifier(Context* context) {
+    expect(token, peek_token(*context));
+
+    if(token.kind != TokenKind::Identifier) {
+        error(*context, "Expected an identifier, got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+
+        return err();
+    }
+
+    consume_token(context);
+
+    return ok(identifier_from_token(*context, token));
+}
+
+inline Expression* named_reference_from_identifier(Identifier identifier) {
+    return new NamedReference(
         identifier.range,
         identifier
-    };
+    );
 }
 
 enum struct OperatorPrecedence {
@@ -153,21 +154,32 @@ enum struct OperatorPrecedence {
     PostfixUnary
 };
 
-static Result<FunctionParameter> parse_function_parameter_second_half(Context *context, Identifier name, bool is_constant);
+static Result<FunctionParameter> parse_function_parameter_second_half(Context* context, Identifier name, bool is_constant);
 
-static Result<Array<Tag>> parse_tags(Context *context);
+static Result<Array<Tag>> parse_tags(Context* context);
 
-static Result<Expression*> parse_expression_continuation(Context *context, OperatorPrecedence minimum_precedence, Expression *expression);
+static Result<Expression*> parse_expression_continuation(Context* context, OperatorPrecedence minimum_precedence, Expression* expression);
 
 // Precedence sorting based on https://eli.thegreenplace.net/2012/08/02/parsing-expressions-by-precedence-climbing
-static_profiled_function(Result<Expression*>, parse_expression, (Context *context, OperatorPrecedence minimum_precedence), (context, minimum_precedence)) {
-    Expression *left_expression;
+static_profiled_function(
+    Result<Expression*>,
+    parse_expression,
+    (
+        Context* context,
+        OperatorPrecedence minimum_precedence
+    ),
+    (
+        context,
+        minimum_precedence
+    )
+) {
+    Expression* left_expression;
 
     expect(token, peek_token(*context));
 
     // Parse atomic & prefix-unary expressions (non-left-recursive)
-    switch(token.type) {
-        case TokenType::Identifier: {
+    switch(token.kind) {
+        case TokenKind::Identifier: {
             consume_token(context);
 
             auto identifier = identifier_from_token(*context, token);
@@ -175,7 +187,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             left_expression = named_reference_from_identifier(identifier);
         } break;
 
-        case TokenType::Integer: {
+        case TokenKind::Integer: {
             consume_token(context);
 
             left_expression = new IntegerLiteral {
@@ -184,7 +196,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::FloatingPoint: {
+        case TokenKind::FloatingPoint: {
             consume_token(context);
 
             left_expression = new FloatLiteral {
@@ -193,7 +205,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::Asterisk: {
+        case TokenKind::Asterisk: {
             consume_token(context);
 
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
@@ -205,18 +217,18 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::Hash: {
+        case TokenKind::Hash: {
             consume_token(context);
 
             expect(identifier, expect_identifier(context));
 
-            if(equal(identifier.text, "bake"_S)) {
+            if(identifier.text == "bake"_S) {
                 expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
                 if(expression->kind != ExpressionKind::FunctionCall) {
                     error(context->path, expression->range, "Expected a function call");
 
-                    return err;
+                    return err();
                 }
 
                 auto function_call = (FunctionCall*)expression;
@@ -226,13 +238,13 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     function_call
                 };
             } else {
-                error(context->path, identifier.range, "Expected 'bake', got '%s'", identifier.text);
+                error(context->path, identifier.range, "Expected 'bake', got '%.*s'", STRING_PRINTF_ARGUMENTS(identifier.text));
 
-                return err;
+                return err();
             }
         } break;
 
-        case TokenType::Bang: {
+        case TokenKind::Bang: {
             consume_token(context);
 
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
@@ -244,7 +256,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::Dash: {
+        case TokenKind::Dash: {
             consume_token(context);
 
             expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
@@ -256,7 +268,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::String: {
+        case TokenKind::String: {
             consume_token(context);
 
             left_expression = new StringLiteral {
@@ -265,15 +277,15 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             };
         } break;
 
-        case TokenType::OpenRoundBracket: {
+        case TokenKind::OpenRoundBracket: {
             consume_token(context);
 
             auto first_range = token_range(token);
 
             expect(token, peek_token(*context));
 
-            switch(token.type) {
-                case TokenType::Dollar: {
+            switch(token.kind) {
+                case TokenKind::Dollar: {
                     consume_token(context);
 
                     List<FunctionParameter> parameters{};
@@ -282,20 +294,20 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                     expect(parameter, parse_function_parameter_second_half(context, name, true));
 
-                    append(&parameters, parameter);
+                    parameters.append(parameter);
 
                     expect(token, peek_token(*context));
 
                     FileRange last_range;
-                    switch(token.type) {
-                        case TokenType::Comma: {
+                    switch(token.kind) {
+                        case TokenKind::Comma: {
                             consume_token(context);
 
                             while(true) {
                                 expect(pre_token, peek_token(*context));
 
                                 bool is_constant;
-                                if(pre_token.type == TokenType::Dollar) {
+                                if(pre_token.kind == TokenKind::Dollar) {
                                     consume_token(context);
 
                                     is_constant = true;
@@ -307,26 +319,26 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                                 expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
 
-                                append(&parameters, parameter);
+                                parameters.append(parameter);
 
                                 expect(token, peek_token(*context));
 
                                 auto done = false;
-                                switch(token.type) {
-                                    case TokenType::Comma: {
+                                switch(token.kind) {
+                                    case TokenKind::Comma: {
                                         consume_token(context);
                                     } break;
 
-                                    case TokenType::CloseRoundBracket: {
+                                    case TokenKind::CloseRoundBracket: {
                                         consume_token(context);
 
                                         done = true;
                                     } break;
 
                                     default: {
-                                        error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+                                        error(*context, "Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                        return err;
+                                        return err();
                                     } break;
                                 }
 
@@ -338,23 +350,23 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                             }
                         } break;
 
-                        case TokenType::CloseRoundBracket: {
+                        case TokenKind::CloseRoundBracket: {
                             consume_token(context);
 
                             last_range = token_range(token);
                         } break;
 
                         default: {
-                            error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+                            error(*context, "Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                            return err;
+                            return err();
                         } break;
                     }
 
                     expect(post_token, peek_token(*context));
 
-                    Expression *return_type;
-                    if(post_token.type == TokenType::Arrow) {
+                    Expression* return_type;
+                    if(post_token.kind == TokenKind::Arrow) {
                         consume_token(context);
 
                         expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -369,13 +381,13 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                     left_expression = new FunctionType {
                         span_range(first_range, last_range),
-                        to_array(parameters),
+                        parameters,
                         return_type,
                         tags
                     };
                 } break;
 
-                case TokenType::CloseRoundBracket: {
+                case TokenKind::CloseRoundBracket: {
                     consume_token(context);
 
                     auto last_range = token_range(token);
@@ -383,7 +395,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     expect(token, peek_token(*context));
 
                     Expression* return_type;
-                    if(token.type == TokenType::Arrow) {
+                    if(token.kind == TokenKind::Arrow) {
                         consume_token(context);
 
                         expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -404,32 +416,32 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     };
                 } break;
 
-                case TokenType::Identifier: {
+                case TokenKind::Identifier: {
                     consume_token(context);
 
                     auto identifier = identifier_from_token(*context, token);
 
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::Colon) {
+                    if(token.kind == TokenKind::Colon) {
                         List<FunctionParameter> parameters{};
 
                         expect(parameter, parse_function_parameter_second_half(context, identifier, false));
 
-                        append(&parameters, parameter);
+                        parameters.append(parameter);
 
                         expect(token, peek_token(*context));
 
                         FileRange last_range;
-                        switch(token.type) {
-                            case TokenType::Comma: {
+                        switch(token.kind) {
+                            case TokenKind::Comma: {
                                 consume_token(context);
 
                                 while(true) {
                                     expect(pre_token, peek_token(*context));
 
                                     bool is_constant;
-                                    if(pre_token.type == TokenType::Dollar) {
+                                    if(pre_token.kind == TokenKind::Dollar) {
                                         consume_token(context);
 
                                         is_constant = true;
@@ -441,26 +453,26 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                                     expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
 
-                                    append(&parameters, parameter);
+                                    parameters.append(parameter);
 
                                     expect(token, peek_token(*context));
 
                                     auto done = false;
-                                    switch(token.type) {
-                                        case TokenType::Comma: {
+                                    switch(token.kind) {
+                                        case TokenKind::Comma: {
                                             consume_token(context);
                                         } break;
 
-                                        case TokenType::CloseRoundBracket: {
+                                        case TokenKind::CloseRoundBracket: {
                                             consume_token(context);
 
                                             done = true;
                                         } break;
 
                                         default: {
-                                            error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+                                            error(*context, "Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                            return err;
+                                            return err();
                                         } break;
                                     }
 
@@ -472,23 +484,23 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                 }
                             } break;
 
-                            case TokenType::CloseRoundBracket: {
+                            case TokenKind::CloseRoundBracket: {
                                 consume_token(context);
 
                                 last_range = token_range(token);
                             } break;
 
                             default: {
-                                error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+                                error(*context, "Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                return err;
+                                return err();
                             } break;
                         }
 
                         expect(post_token, peek_token(*context));
 
-                        Expression *return_type;
-                        if(post_token.type == TokenType::Arrow) {
+                        Expression* return_type;
+                        if(post_token.kind == TokenKind::Arrow) {
                             consume_token(context);
 
                             expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -503,7 +515,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                         left_expression = new FunctionType {
                             span_range(first_range, last_range),
-                            to_array(parameters),
+                            parameters,
                             return_type,
                             tags
                         };
@@ -512,9 +524,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                         expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
-                        if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
-                            return err;
-                        }
+                        expect_void(expect_basic_token(context, TokenKind::CloseRoundBracket));
 
                         left_expression = right_expression;
                     }
@@ -523,24 +533,22 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                 default: {
                     expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                    if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
-                        return err;
-                    }
+                    expect_void(expect_basic_token(context, TokenKind::CloseRoundBracket));
 
                     left_expression = expression;
                 } break;
             }
         } break;
 
-        case TokenType::OpenCurlyBracket: {
+        case TokenKind::OpenCurlyBracket: {
             consume_token(context);
 
             auto first_range = token_range(token);
 
             expect(token, peek_token(*context));
 
-            switch(token.type) {
-                case TokenType::CloseCurlyBracket: {
+            switch(token.kind) {
+                case TokenKind::CloseCurlyBracket: {
                     consume_token(context);
 
                     left_expression = new ArrayLiteral {
@@ -549,22 +557,22 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                     };
                 } break;
 
-                case TokenType::Identifier: {
+                case TokenKind::Identifier: {
                     consume_token(context);
 
                     auto identifier = identifier_from_token(*context, token);
 
                     expect(token, peek_token(*context));
 
-                    switch(token.type) {
-                        case TokenType::Equals: {
+                    switch(token.kind) {
+                        case TokenKind::Equals: {
                             consume_token(context);
 
                             expect(first_expression, parse_expression(context, OperatorPrecedence::None));
 
                             List<StructLiteral::Member> members{};
 
-                            append(&members, {
+                            members.append({
                                 identifier,
                                 first_expression
                             });
@@ -572,20 +580,18 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                             expect(token, peek_token(*context));
 
                             FileRange last_range;
-                            switch(token.type) {
-                                case TokenType::Comma: {
+                            switch(token.kind) {
+                                case TokenKind::Comma: {
                                     consume_token(context);
 
                                     while(true) {
                                         expect(identifier, expect_identifier(context));
 
-                                        if(!expect_basic_token(context, TokenType::Equals)) {
-                                            return err;
-                                        }
+                                        expect_void(expect_basic_token(context, TokenKind::Equals));
 
                                         expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                        append(&members, {
+                                        members.append({
                                             identifier,
                                             expression
                                         });
@@ -593,21 +599,21 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                         expect(token, peek_token(*context));
 
                                         auto done = false;
-                                        switch(token.type) {
-                                            case TokenType::Comma: {
+                                        switch(token.kind) {
+                                            case TokenKind::Comma: {
                                                 consume_token(context);
                                             } break;
 
-                                            case TokenType::CloseCurlyBracket: {
+                                            case TokenKind::CloseCurlyBracket: {
                                                 consume_token(context);
 
                                                 done = true;
                                             } break;
 
                                             default: {
-                                                error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
+                                                error(*context, "Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                                return err;
+                                                return err();
                                             } break;
                                         }
 
@@ -619,26 +625,26 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                     }
                                 } break;
 
-                                case TokenType::CloseCurlyBracket: {
+                                case TokenKind::CloseCurlyBracket: {
                                     consume_token(context);
 
                                     last_range = token_range(token);
                                 } break;
 
                                 default: {
-                                    error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
+                                    error(*context, "Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                    return err;
+                                    return err();
                                 } break;
                             }
 
                             left_expression = new StructLiteral {
                                 span_range(first_range, last_range),
-                                to_array(members)
+                                members
                             };
                         } break;
 
-                        case TokenType::CloseCurlyBracket: {
+                        case TokenKind::CloseCurlyBracket: {
                             consume_token(context);
 
                             auto first_element = named_reference_from_identifier(identifier);
@@ -659,38 +665,38 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                             List<Expression*> elements{};
 
-                            append(&elements, right_expression);
+                            elements.append(right_expression);
 
                             expect(token, peek_token(*context));
 
                             FileRange last_range;
-                            switch(token.type) {
-                                case TokenType::Comma: {
+                            switch(token.kind) {
+                                case TokenKind::Comma: {
                                     consume_token(context);
 
                                     while(true) {
                                         expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                        append(&elements, expression);
+                                        elements.append(expression);
 
                                         expect(token, peek_token(*context));
 
                                         auto done = false;
-                                        switch(token.type) {
-                                            case TokenType::Comma: {
+                                        switch(token.kind) {
+                                            case TokenKind::Comma: {
                                                 consume_token(context);
                                             } break;
 
-                                            case TokenType::CloseCurlyBracket: {
+                                            case TokenKind::CloseCurlyBracket: {
                                                 consume_token(context);
 
                                                 done = true;
                                             } break;
 
                                             default: {
-                                                error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
+                                                error(*context, "Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                                return err;
+                                                return err();
                                             } break;
                                         }
 
@@ -702,22 +708,22 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                                     }
                                 } break;
 
-                                case TokenType::CloseCurlyBracket: {
+                                case TokenKind::CloseCurlyBracket: {
                                     consume_token(context);
 
                                     last_range = token_range(token);
                                 } break;
 
                                 default: {
-                                    error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
+                                    error(*context, "Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                    return err;
+                                    return err();
                                 }
                             }
 
                             left_expression = new ArrayLiteral {
                                 span_range(first_range, last_range),
-                                to_array(elements)
+                                elements
                             };
                         } break;
                     }
@@ -728,38 +734,38 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                     List<Expression*> elements{};
 
-                    append(&elements, first_expression);
+                    elements.append(first_expression);
 
                     expect(token, peek_token(*context));
 
                     FileRange last_range;
-                    switch(token.type) {
-                        case TokenType::Comma: {
+                    switch(token.kind) {
+                        case TokenKind::Comma: {
                             consume_token(context);
 
                             while(true) {
                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                append(&elements, expression);
+                                elements.append(expression);
 
                                 expect(token, peek_token(*context));
 
                                 auto done = false;
-                                switch(token.type) {
-                                    case TokenType::Comma: {
+                                switch(token.kind) {
+                                    case TokenKind::Comma: {
                                         consume_token(context);
                                     } break;
 
-                                    case TokenType::CloseCurlyBracket: {
+                                    case TokenKind::CloseCurlyBracket: {
                                         consume_token(context);
 
                                         done = true;
                                     } break;
 
                                     default: {
-                                        error(*context, "Expected ',' or '}'. Got '%s'", get_token_text(token));
+                                        error(*context, "Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                        return err;
+                                        return err();
                                     } break;
                                 }
 
@@ -771,7 +777,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
                             }
                         } break;
 
-                        case TokenType::CloseCurlyBracket: {
+                        case TokenKind::CloseCurlyBracket: {
                             consume_token(context);
 
                             last_range = token_range(token);
@@ -780,20 +786,20 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 
                     left_expression = new ArrayLiteral {
                         span_range(first_range, last_range),
-                        to_array(elements)
+                        elements
                     };
                 } break;
             }
         } break;
 
-        case TokenType::OpenSquareBracket: {
+        case TokenKind::OpenSquareBracket: {
             consume_token(context);
 
             expect(token, peek_token(*context));
 
-            Expression *index;
+            Expression* index;
             FileRange last_range;
-            if(token.type == TokenType::CloseSquareBracket) {
+            if(token.kind == TokenKind::CloseSquareBracket) {
                 consume_token(context);
 
                 index = nullptr;
@@ -801,7 +807,7 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
             } else {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                expect(range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
+                expect(range, expect_basic_token_with_range(context, TokenKind::CloseSquareBracket));
 
                 index = expression;
                 last_range = range;
@@ -817,9 +823,9 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
         } break;
 
         default: {
-            error(*context, "Expected an expression. Got '%s'", get_token_text(token));
+            error(*context, "Expected an expression. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-            return err;
+            return err();
         } break;
     }
 
@@ -829,9 +835,9 @@ static_profiled_function(Result<Expression*>, parse_expression, (Context *contex
 }
 
 static_profiled_function(Result<Expression*>, parse_expression_continuation, (
-    Context *context,
+    Context* context,
     OperatorPrecedence minimum_precedence,
-    Expression *expression
+    Expression* expression
 ), (
     context,
     minimum_precedence,
@@ -844,8 +850,8 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
         expect(token, peek_token(*context));
 
         auto done = false;
-        switch(token.type) {
-            case TokenType::Dot: {
+        switch(token.kind) {
+            case TokenKind::Dot: {
                 if(OperatorPrecedence::PostfixUnary <= minimum_precedence) {
                     done = true;
 
@@ -863,7 +869,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Plus: {
+            case TokenKind::Plus: {
                 if(OperatorPrecedence::Additive <= minimum_precedence) {
                     done = true;
 
@@ -882,7 +888,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Dash: {
+            case TokenKind::Dash: {
                 if(OperatorPrecedence::Additive <= minimum_precedence) {
                     done = true;
 
@@ -901,7 +907,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Asterisk: {
+            case TokenKind::Asterisk: {
                 if(OperatorPrecedence::Multiplicitive <= minimum_precedence) {
                     done = true;
 
@@ -920,7 +926,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::ForwardSlash: {
+            case TokenKind::ForwardSlash: {
                 if(OperatorPrecedence::Multiplicitive <= minimum_precedence) {
                     done = true;
 
@@ -939,7 +945,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Percent: {
+            case TokenKind::Percent: {
                 if(OperatorPrecedence::Multiplicitive <= minimum_precedence) {
                     done = true;
 
@@ -958,7 +964,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Ampersand: {
+            case TokenKind::Ampersand: {
                 if(OperatorPrecedence::BitwiseAnd <= minimum_precedence) {
                     done = true;
 
@@ -977,7 +983,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::DoubleAmpersand: {
+            case TokenKind::DoubleAmpersand: {
                 if(OperatorPrecedence::BooleanAnd <= minimum_precedence) {
                     done = true;
 
@@ -996,7 +1002,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Pipe: {
+            case TokenKind::Pipe: {
                 if(OperatorPrecedence::BitwiseOr <= minimum_precedence) {
                     done = true;
 
@@ -1015,7 +1021,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::DoublePipe: {
+            case TokenKind::DoublePipe: {
                 if(OperatorPrecedence::BooleanOr <= minimum_precedence) {
                     done = true;
 
@@ -1034,7 +1040,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::DoubleEquals: {
+            case TokenKind::DoubleEquals: {
                 if(OperatorPrecedence::Comparison <= minimum_precedence) {
                     done = true;
 
@@ -1053,7 +1059,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::BangEquals: {
+            case TokenKind::BangEquals: {
                 if(OperatorPrecedence::Comparison <= minimum_precedence) {
                     done = true;
 
@@ -1072,7 +1078,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::LeftArrow: {
+            case TokenKind::LeftArrow: {
                 if(OperatorPrecedence::Comparison <= minimum_precedence) {
                     done = true;
 
@@ -1091,7 +1097,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::RightArrow: {
+            case TokenKind::RightArrow: {
                 if(OperatorPrecedence::Comparison <= minimum_precedence) {
                     done = true;
 
@@ -1110,7 +1116,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::OpenRoundBracket: {
+            case TokenKind::OpenRoundBracket: {
                 if(OperatorPrecedence::PostfixUnary <= minimum_precedence) {
                     done = true;
 
@@ -1124,7 +1130,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 expect(token, peek_token(*context));
 
                 FileRange last_range;
-                if(token.type == TokenType::CloseRoundBracket) {
+                if(token.kind == TokenKind::CloseRoundBracket) {
                     consume_token(context);
 
                     last_range = token_range(token);
@@ -1132,26 +1138,26 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                     while(true) {
                         expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                        append(&parameters, expression);
+                        parameters.append(expression);
 
                         expect(token, peek_token(*context));
 
                         auto done = false;
-                        switch(token.type) {
-                            case TokenType::Comma: {
+                        switch(token.kind) {
+                            case TokenKind::Comma: {
                                 consume_token(context);
                             } break;
 
-                            case TokenType::CloseRoundBracket: {
+                            case TokenKind::CloseRoundBracket: {
                                 consume_token(context);
 
                                 done = true;
                             } break;
 
                             default: {
-                                error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+                                error(*context, "Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                return err;
+                                return err();
                             } break;
                         }
 
@@ -1166,11 +1172,11 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 current_expression = new FunctionCall {
                     span_range(current_expression->range, last_range),
                     current_expression,
-                    to_array(parameters)
+                    parameters
                 };
             } break;
 
-            case TokenType::OpenSquareBracket: {
+            case TokenKind::OpenSquareBracket: {
                 if(OperatorPrecedence::PostfixUnary <= minimum_precedence) {
                     done = true;
 
@@ -1183,9 +1189,9 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
 
                 expect(token, peek_token(*context));
 
-                Expression *index;
+                Expression* index;
                 FileRange last_range;
-                if(token.type == TokenType::CloseSquareBracket) {
+                if(token.kind == TokenKind::CloseSquareBracket) {
                     consume_token(context);
 
                     index = nullptr;
@@ -1193,7 +1199,7 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 } else {
                     expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                    expect(range, expect_basic_token_with_range(context, TokenType::CloseSquareBracket));
+                    expect(range, expect_basic_token_with_range(context, TokenKind::CloseSquareBracket));
 
                     index = expression;
                     last_range = range;
@@ -1206,8 +1212,8 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
                 };
             } break;
 
-            case TokenType::Identifier: {
-                if(equal(token.identifier, "as"_S)) {
+            case TokenKind::Identifier: {
+                if(token.identifier == "as"_S) {
                     if(OperatorPrecedence::Cast <= minimum_precedence) {
                         done = true;
 
@@ -1241,10 +1247,8 @@ static_profiled_function(Result<Expression*>, parse_expression_continuation, (
     return ok(current_expression);
 }
 
-static Result<FunctionParameter> parse_function_parameter_second_half(Context *context, Identifier name, bool is_constant) {
-    if(!expect_basic_token(context, TokenType::Colon)) {
-        return err;
-    }
+static Result<FunctionParameter> parse_function_parameter_second_half(Context* context, Identifier name, bool is_constant) {
+    expect_void(expect_basic_token(context, TokenKind::Colon));
 
     FunctionParameter parameter;
     parameter.name = name;
@@ -1252,8 +1256,8 @@ static Result<FunctionParameter> parse_function_parameter_second_half(Context *c
 
     expect(token, peek_token(*context));
 
-    switch(token.type) {
-        case TokenType::Dollar: {
+    switch(token.kind) {
+        case TokenKind::Dollar: {
             consume_token(context);
 
             expect(name, expect_identifier(context));
@@ -1273,11 +1277,11 @@ static Result<FunctionParameter> parse_function_parameter_second_half(Context *c
     return ok(parameter);
 }
 
-static Result<Array<Tag>> parse_tags(Context *context) {
+static Result<Array<Tag>> parse_tags(Context* context) {
     expect(token, peek_token(*context));
 
-    if(token.type != TokenType::Hash) {
-        return ok({});
+    if(token.kind != TokenKind::Hash) {
+        return ok(Array<Tag> {});
     }
 
     auto first_range = token_range(token);
@@ -1293,12 +1297,12 @@ static Result<Array<Tag>> parse_tags(Context *context) {
         expect(token, peek_token(*context));
 
         List<Expression*> parameters {};
-        if(token.type == TokenType::OpenRoundBracket) {
+        if(token.kind == TokenKind::OpenRoundBracket) {
             consume_token(context);
 
             expect(token, peek_token(*context));
 
-            if(token.type == TokenType::CloseRoundBracket) {
+            if(token.kind == TokenKind::CloseRoundBracket) {
                 consume_token(context);
 
                 last_range = token_range(token);
@@ -1306,26 +1310,26 @@ static Result<Array<Tag>> parse_tags(Context *context) {
                 while(true) {
                     expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                    append(&parameters, expression);
+                    parameters.append(expression);
 
                     expect(token, peek_token(*context));
 
                     auto done = false;
-                    switch(token.type) {
-                        case TokenType::Comma: {
+                    switch(token.kind) {
+                        case TokenKind::Comma: {
                             consume_token(context);
                         } break;
 
-                        case TokenType::CloseRoundBracket: {
+                        case TokenKind::CloseRoundBracket: {
                             consume_token(context);
 
                             done = true;
                         } break;
 
                         default: {
-                            error(*context, "Expected ',' or ')'. Got '%s'", get_token_text(token));
+                            error(*context, "Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                            return err;
+                            return err();
                         } break;
                     }
 
@@ -1338,15 +1342,15 @@ static Result<Array<Tag>> parse_tags(Context *context) {
             }
         }
 
-        append(&tags, {
+        tags.append({
             name,
-            to_array(parameters),
+            parameters,
             span_range(first_range, last_range)
         });
 
         expect(post_token, peek_token(*context));
 
-        if(post_token.type == TokenType::Hash) {
+        if(post_token.kind == TokenKind::Hash) {
             consume_token(context);
 
             first_range = token_range(post_token);
@@ -1355,19 +1359,24 @@ static Result<Array<Tag>> parse_tags(Context *context) {
         }
     }
 
-    return ok(to_array(tags));
+    return ok((Array<Tag>)tags);
 }
 
-static Result<Statement*> parse_statement(Context *context);
+static Result<Statement*> parse_statement(Context* context);
 
-static Result<Statement*> continue_parsing_function_declaration(Context *context, Identifier name, Array<FunctionParameter> parameters, FileRange parameters_range) {
+static Result<Statement*> continue_parsing_function_declaration(
+    Context* context,
+    Identifier name,
+    Array<FunctionParameter> parameters,
+    FileRange parameters_range
+) {
     auto last_range = parameters_range;
 
     expect(pre_token, peek_token(*context));
 
-    Expression *return_type;
-    switch(pre_token.type) {
-        case TokenType::Arrow: {
+    Expression* return_type;
+    switch(pre_token.kind) {
+        case TokenKind::Arrow: {
             consume_token(context);
 
             last_range = token_range(pre_token);
@@ -1386,8 +1395,8 @@ static Result<Statement*> continue_parsing_function_declaration(Context *context
 
     expect(token, peek_token(*context));
 
-    switch(token.type) {
-        case TokenType::OpenCurlyBracket: {
+    switch(token.kind) {
+        case TokenKind::OpenCurlyBracket: {
             consume_token(context);
 
             List<Statement*> statements{};
@@ -1395,7 +1404,7 @@ static Result<Statement*> continue_parsing_function_declaration(Context *context
             while(true) {
                 expect(token, peek_token(*context));
 
-                if(token.type == TokenType::CloseCurlyBracket) {
+                if(token.kind == TokenKind::CloseCurlyBracket) {
                     consume_token(context);
 
                     last_range = token_range(token);
@@ -1404,94 +1413,85 @@ static Result<Statement*> continue_parsing_function_declaration(Context *context
                 } else {
                     expect(statement, parse_statement(context));
 
-                    append(&statements, statement);
+                    statements.append(statement);
                 }
             }
 
-            return ok(new FunctionDeclaration {
+            return ok((Statement*)new FunctionDeclaration(
                 span_range(name.range, last_range),
                 name,
                 parameters,
                 return_type,
                 tags,
-                to_array(statements)
-            });
+                statements
+            ));
         } break;
 
-        case TokenType::Semicolon: {
+        case TokenKind::Semicolon: {
             consume_token(context);
 
-            return ok(new FunctionDeclaration {
+            return ok((Statement*)new FunctionDeclaration(
                 span_range(name.range, last_range),
                 name,
                 parameters,
                 return_type,
                 tags
-            });
+            ));
         } break;
 
         default: {
-            error(*context, "Expected '->', '{', ';', or '#', got '%s'", get_token_text(token));
+            error(*context, "Expected '->', '{', ';', or '#', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-            return err;
+            return err();
         } break;
     }
 }
 
-static_profiled_function(Result<Statement*>, parse_statement, (Context *context), (context)) {
+static_profiled_function(Result<Statement*>, parse_statement, (Context* context), (context)) {
     expect(token, peek_token(*context));
 
     auto first_range = token_range(token);
 
-    switch(token.type) {
-        case TokenType::Hash: {
+    switch(token.kind) {
+        case TokenKind::Hash: {
             consume_token(context);
 
             expect(token, peek_token(*context));
 
-            if(token.type != TokenType::Identifier) {
-                error(*context, "Expected 'import', got '%s'", get_token_text(token));
+            if(token.kind != TokenKind::Identifier) {
+                error(*context, "Expected 'import', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                return err;
+                return err();
             }
 
             consume_token(context);
 
-            if(equal(token.identifier, "import"_S)) {
+            if(token.identifier == "import"_S) {
                 expect(string, expect_string(context));
 
-                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
-
-                auto import_path = allocate<char>(string.count + 1);
-                memcpy(import_path, string.elements, string.count);
-                import_path[string.count] = 0;
+                expect(last_range, expect_basic_token_with_range(context, TokenKind::Semicolon));
 
                 auto source_file_directory = path_get_directory_component(context->path);
 
                 StringBuffer import_file_path {};
 
-                string_buffer_append(&import_file_path, source_file_directory);
-                string_buffer_append(&import_file_path, import_path);
+                import_file_path.append(source_file_directory);
+                import_file_path.append(string);
 
-                expect(import_file_path_absolute, path_relative_to_absolute(import_file_path.data));
+                expect(import_file_path_absolute, path_relative_to_absolute(import_file_path));
 
-                auto name = path_get_file_component(import_path);
+                auto name = path_get_file_component(string);
 
-                return ok(new Import {
+                return ok((Statement*)new Import(
                     span_range(first_range, last_range),
-                    import_path,
+                    string,
                     import_file_path_absolute,
-                    {
-                        strlen(name),
-                        (char*)name
-                    }
-                });
-            } else if(equal(token.identifier, "if"_S)) {
+                    name
+                ));
+            } else if(token.identifier == "if"_S) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                    return err;
-                }
+                expect_void(expect_basic_token(context, TokenKind::OpenCurlyBracket));
 
                 List<Statement*> statements{};
 
@@ -1499,7 +1499,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 while(true) {
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::CloseCurlyBracket) {
+                    if(token.kind == TokenKind::CloseCurlyBracket) {
                         consume_token(context);
 
                         last_range = token_range(token);
@@ -1508,25 +1508,25 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     } else {
                         expect(statement, parse_statement(context));
 
-                        append(&statements, statement);
+                        statements.append(statement);
                     }
                 }
 
-                return ok(new StaticIf {
+                return ok((Statement*)new StaticIf(
                     span_range(first_range, last_range),
                     expression,
-                    to_array(statements)
-                });
-            } else if(equal(token.identifier, "bake"_S)) {
+                    statements
+                ));
+            } else if(token.identifier == "bake"_S) {
                 expect(expression, parse_expression(context, OperatorPrecedence::PrefixUnary));
 
                 if(expression->kind != ExpressionKind::FunctionCall) {
                     error(context->path, expression->range, "Expected a function call");
 
-                    return err;
+                    return err();
                 }
 
-                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                expect(last_range, expect_basic_token_with_range(context, TokenKind::Semicolon));
 
                 auto function_call = (FunctionCall*)expression;
 
@@ -1535,26 +1535,24 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     function_call
                 };
 
-                return ok(new ExpressionStatement {
+                return ok((Statement*)new ExpressionStatement(
                     span_range(first_range, last_range),
                     bake
-                });
+                ));
             } else {
-                error(*context, "Expected 'import', 'if' or 'bake', got '%s'", get_token_text(token));
+                error(*context, "Expected 'import', 'if' or 'bake', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                return err;
+                return err();
             }
         } break;
 
-        case TokenType::Identifier: {
+        case TokenKind::Identifier: {
             consume_token(context);
 
-            if(equal(token.identifier, "if"_S)) {
+            if(token.identifier == "if"_S) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                    return err;
-                }
+                expect_void(expect_basic_token(context, TokenKind::OpenCurlyBracket));
 
                 List<Statement*> statements{};
 
@@ -1562,7 +1560,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 while(true) {
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::CloseCurlyBracket) {
+                    if(token.kind == TokenKind::CloseCurlyBracket) {
                         consume_token(context);
 
                         last_range = token_range(token);
@@ -1571,7 +1569,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     } else {
                         expect(statement, parse_statement(context));
 
-                        append(&statements, statement);
+                        statements.append(statement);
                     }
                 }
 
@@ -1582,19 +1580,19 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 while(true) {
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::Identifier && equal(token.identifier, "else"_S)) {
+                    if(token.kind == TokenKind::Identifier && token.identifier == "else"_S) {
                         consume_token(context);
 
                         expect(token, peek_token(*context));
 
-                        switch(token.type) {
-                            case TokenType::OpenCurlyBracket: {
+                        switch(token.kind) {
+                            case TokenKind::OpenCurlyBracket: {
                                 consume_token(context);
 
                                 while(true) {
                                     expect(token, peek_token(*context));
 
-                                    if(token.type == TokenType::CloseCurlyBracket) {
+                                    if(token.kind == TokenKind::CloseCurlyBracket) {
                                         consume_token(context);
 
                                         last_range = token_range(token);
@@ -1603,32 +1601,30 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                     } else {
                                         expect(statement, parse_statement(context));
 
-                                        append(&else_statements, statement);
+                                        statements.append(statement);
                                     }
                                 }
                             } break;
 
-                            case TokenType::Identifier: {
-                                if(!equal(token.identifier, "if"_S)) {
-                                    error(*context, "Expected '{' or 'if', got '%s'", get_token_text(token));
+                            case TokenKind::Identifier: {
+                                if(token.identifier != "if"_S) {
+                                    error(*context, "Expected '{' or 'if', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                    return err;
+                                    return err();
                                 }
 
                                 consume_token(context);
 
                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                                    return err;
-                                }
+                                expect_void(expect_basic_token(context, TokenKind::OpenCurlyBracket));
                                 
                                 List<Statement*> statements{};
 
                                 while(true) {
                                     expect(token, peek_token(*context));
 
-                                    if(token.type == TokenType::CloseCurlyBracket) {
+                                    if(token.kind == TokenKind::CloseCurlyBracket) {
                                         consume_token(context);
 
                                         last_range = token_range(token);
@@ -1637,20 +1633,20 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                     } else {
                                         expect(statement, parse_statement(context));
 
-                                        append(&statements, statement);
+                                        statements.append(statement);
                                     }
                                 }
 
-                                append(&else_ifs, {
+                                else_ifs.append({
                                     expression,
-                                    to_array(statements)
+                                    statements
                                 });
                             } break;
 
                             default: {
-                                error(*context, "Expected '{' or 'if', got '%s'", get_token_text(token));
+                                error(*context, "Expected '{' or 'if', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                return err;
+                                return err();
                             } break;
                         }
 
@@ -1662,19 +1658,17 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     }
                 }
 
-                return ok(new IfStatement {
+                return ok((Statement*)new IfStatement(
                     span_range(first_range, last_range),
                     expression,
-                    to_array(statements),
-                    to_array(else_ifs),
-                    to_array(else_statements)
-                });
-            } else if(equal(token.identifier, "while"_S)) {
+                    statements,
+                    else_ifs,
+                    else_statements
+                ));
+            } else if(token.identifier == "while"_S) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                    return err;
-                }
+                expect_void(expect_basic_token(context, TokenKind::OpenCurlyBracket));
 
                 List<Statement*> statements{};
 
@@ -1682,7 +1676,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 while(true) {
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::CloseCurlyBracket) {
+                    if(token.kind == TokenKind::CloseCurlyBracket) {
                         consume_token(context);
 
                         last_range = token_range(token);
@@ -1691,29 +1685,29 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     } else {
                         expect(statement, parse_statement(context));
 
-                        append(&statements, statement);
+                        statements.append(statement);
                     }
                 }
 
-                return ok(new WhileLoop {
+                return ok((Statement*)new WhileLoop(
                     span_range(first_range, last_range),
                     expression,
-                    to_array(statements)
-                });
-            } else if(equal(token.identifier, "for"_S)) {
+                    statements
+                ));
+            } else if(token.identifier == "for"_S) {
                 expect(token, peek_token(*context));
 
                 bool has_index_name;
                 Identifier index_name;
-                Expression *from;
-                if(token.type == TokenType::Identifier) {
+                Expression* from;
+                if(token.kind == TokenKind::Identifier) {
                     consume_token(context);
 
                     auto identifier = identifier_from_token(*context, token);
 
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::Colon) {
+                    if(token.kind == TokenKind::Colon) {
                         consume_token(context);
 
                         expect(expression, parse_expression(context, OperatorPrecedence::None));
@@ -1739,15 +1733,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     from = expression;
                 }
 
-                if(!expect_basic_token(context, TokenType::DoubleDot)) {
-                    return err;
-                }
+                expect_void(expect_basic_token(context, TokenKind::DoubleDot));
 
                 expect(to, parse_expression(context, OperatorPrecedence::None));
 
-                if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                    return err;
-                }
+                { expect_void(expect_basic_token(context, TokenKind::OpenCurlyBracket)); }
 
                 List<Statement*> statements{};
 
@@ -1755,7 +1745,7 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 while(true) {
                     expect(token, peek_token(*context));
 
-                    if(token.type == TokenType::CloseCurlyBracket) {
+                    if(token.kind == TokenKind::CloseCurlyBracket) {
                         consume_token(context);
 
                         last_range = token_range(token);
@@ -1764,32 +1754,32 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                     } else {
                         expect(statement, parse_statement(context));
 
-                        append(&statements, statement);
+                        statements.append(statement);
                     }
                 }
 
                 if(has_index_name) {
-                    return ok(new ForLoop(
+                    return ok((Statement*)new ForLoop(
                         span_range(first_range, last_range),
                         index_name,
                         from,
                         to,
-                        to_array(statements)
+                        statements
                     ));
                 } else {
-                    return ok(new ForLoop(
+                    return ok((Statement*)new ForLoop(
                         span_range(first_range, last_range),
                         from,
                         to,
-                        to_array(statements)
+                        statements
                     ));
                 }
-            } else if(equal(token.identifier, "return"_S)) {
+            } else if(token.identifier == "return"_S) {
                 expect(token, peek_token(*context));
 
-                Expression *value;
+                Expression* value;
                 FileRange last_range;
-                if(token.type == TokenType::Semicolon) {
+                if(token.kind == TokenKind::Semicolon) {
                     consume_token(context);
 
                     last_range = token_range(token);
@@ -1798,57 +1788,57 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                 } else {
                     expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                    expect(range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                    expect(range, expect_basic_token_with_range(context, TokenKind::Semicolon));
 
                     last_range = range;
 
                     value = expression;
                 }
 
-                return ok(new ReturnStatement {
+                return ok((Statement*)new ReturnStatement(
                     span_range(first_range, last_range),
                     value
-                });
-            } else if(equal(token.identifier, "break"_S)) {
-                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                ));
+            } else if(token.identifier == "break"_S) {
+                expect(last_range, expect_basic_token_with_range(context, TokenKind::Semicolon));
 
-                return ok(new BreakStatement {
+                return ok((Statement*)new BreakStatement(
                     span_range(first_range, last_range)
-                });
-            } else if(equal(token.identifier, "using"_S)) {
+                ));
+            } else if(token.identifier == "using"_S) {
                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                expect(last_range, expect_basic_token_with_range(context, TokenKind::Semicolon));
 
-                return ok(new UsingStatement {
+                return ok((Statement*)new UsingStatement(
                     span_range(first_range, last_range),
                     expression
-                });
+                ));
             } else {
                 auto identifier = identifier_from_token(*context, token);
 
                 expect(token, peek_token(*context));
 
-                if(token.type == TokenType::Colon) {
+                if(token.kind == TokenKind::Colon) {
                     consume_token(context);
 
                     expect(token, peek_token(*context));
 
-                    switch(token.type) {
-                        case TokenType::Colon: {
+                    switch(token.kind) {
+                        case TokenKind::Colon: {
                             consume_token(context);
 
                             expect(token, peek_token(*context));
 
-                            switch(token.type) {
-                                case TokenType::OpenRoundBracket: {
+                            switch(token.kind) {
+                                case TokenKind::OpenRoundBracket: {
                                     consume_token(context);
 
                                     auto parameters_first_range = token_range(token);
 
                                     expect(token, peek_token(*context));
 
-                                    if(token.type == TokenType::Dollar) {
+                                    if(token.kind == TokenKind::Dollar) {
                                         consume_token(context);
 
                                         expect(name, expect_identifier(context));
@@ -1857,20 +1847,20 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                         expect(parameter, parse_function_parameter_second_half(context, name, true));
 
-                                        append(&parameters, parameter);
+                                        parameters.append(parameter);
 
                                         expect(token, peek_token(*context));
 
                                         FileRange last_range;
-                                        switch(token.type) {
-                                            case TokenType::Comma: {
+                                        switch(token.kind) {
+                                            case TokenKind::Comma: {
                                                 consume_token(context);
 
                                                 while(true) {
                                                     expect(pre_token, peek_token(*context));
 
                                                     bool is_constant;
-                                                    if(pre_token.type == TokenType::Dollar) {
+                                                    if(pre_token.kind == TokenKind::Dollar) {
                                                         consume_token(context);
 
                                                         is_constant = true;
@@ -1882,26 +1872,26 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                                     expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
 
-                                                    append(&parameters, parameter);
+                                                    parameters.append(parameter);
 
                                                     expect(token, peek_token(*context));
 
                                                     auto done = false;
-                                                    switch(token.type) {
-                                                        case TokenType::Comma: {
+                                                    switch(token.kind) {
+                                                        case TokenKind::Comma: {
                                                             consume_token(context);
                                                         } break;
 
-                                                        case TokenType::CloseRoundBracket: {
+                                                        case TokenKind::CloseRoundBracket: {
                                                             consume_token(context);
 
                                                             done = true;
                                                         } break;
 
                                                         default: {
-                                                            error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
+                                                            error(*context, "Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                                            return err;
+                                                            return err();
                                                         } break;
                                                     }
 
@@ -1913,26 +1903,26 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                 }
                                             } break;
 
-                                            case TokenType::CloseRoundBracket: {
+                                            case TokenKind::CloseRoundBracket: {
                                                 consume_token(context);
 
                                                 last_range = token_range(token);
                                             } break;
 
                                             default: {
-                                                error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
+                                                error(*context, "Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                                return err;
+                                                return err();
                                             } break;
                                         }
 
                                         return continue_parsing_function_declaration(
                                             context,
                                             identifier,
-                                            to_array(parameters),
+                                            parameters,
                                             span_range(parameters_first_range, last_range)
                                         );
-                                    } else if(token.type == TokenType::CloseRoundBracket) {
+                                    } else if(token.kind == TokenKind::CloseRoundBracket) {
                                         consume_token(context);
 
                                         return continue_parsing_function_declaration(
@@ -1941,32 +1931,32 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             {},
                                             span_range(parameters_first_range, token_range(token))
                                         );
-                                    } else if(token.type == TokenType::Identifier) {
+                                    } else if(token.kind == TokenKind::Identifier) {
                                         consume_token(context);
 
                                         auto first_identifier = identifier_from_token(*context, token);
 
                                         expect(token, peek_token(*context));
 
-                                        if(token.type == TokenType::Colon) {
+                                        if(token.kind == TokenKind::Colon) {
                                             List<FunctionParameter> parameters{};
 
                                             expect(parameter, parse_function_parameter_second_half(context, first_identifier, false));
 
-                                            append(&parameters, parameter);
+                                            parameters.append(parameter);
 
                                             expect(token, peek_token(*context));
 
                                             FileRange last_range;
-                                            switch(token.type) {
-                                                case TokenType::Comma: {
+                                            switch(token.kind) {
+                                                case TokenKind::Comma: {
                                                     consume_token(context);
 
                                                     while(true) {
                                                         expect(pre_token, peek_token(*context));
 
                                                         bool is_constant;
-                                                        if(pre_token.type == TokenType::Dollar) {
+                                                        if(pre_token.kind == TokenKind::Dollar) {
                                                             consume_token(context);
 
                                                             is_constant = true;
@@ -1978,26 +1968,26 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                                         expect(parameter, parse_function_parameter_second_half(context, identifier, is_constant));
 
-                                                        append(&parameters, parameter);
+                                                        parameters.append(parameter);
 
                                                         expect(token, peek_token(*context));
 
                                                         auto done = false;
-                                                        switch(token.type) {
-                                                            case TokenType::Comma: {
+                                                        switch(token.kind) {
+                                                            case TokenKind::Comma: {
                                                                 consume_token(context);
                                                             } break;
 
-                                                            case TokenType::CloseRoundBracket: {
+                                                            case TokenKind::CloseRoundBracket: {
                                                                 consume_token(context);
 
                                                                 done = true;
                                                             } break;
 
                                                             default: {
-                                                                error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
+                                                                error(*context, "Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                                                return err;
+                                                                return err();
                                                             } break;
                                                         }
 
@@ -2009,23 +1999,23 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                     }
                                                 } break;
 
-                                                case TokenType::CloseRoundBracket: {
+                                                case TokenKind::CloseRoundBracket: {
                                                     consume_token(context);
 
                                                     last_range = token_range(token);
                                                 } break;
 
                                                 default: {
-                                                    error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
+                                                    error(*context, "Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                                    return err;
+                                                    return err();
                                                 } break;
                                             }
 
                                             return continue_parsing_function_declaration(
                                                 context,
                                                 identifier,
-                                                to_array(parameters),
+                                                parameters,
                                                 span_range(parameters_first_range, last_range)
                                             );
                                         } else {
@@ -2033,47 +2023,43 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                             expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
-                                            if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
-                                                return err;
-                                            }
+                                            expect_void(expect_basic_token(context, TokenKind::CloseRoundBracket));
 
                                             expect(outer_right_expression, parse_expression_continuation(context, OperatorPrecedence::None, right_expression));
 
-                                            expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                                            expect(last_range, expect_basic_token_with_range(context, TokenKind::Semicolon));
 
-                                            return ok(new ConstantDefinition {
+                                            return ok((Statement*)new ConstantDefinition(
                                                 span_range(first_range, last_range),
                                                 identifier,
                                                 outer_right_expression
-                                            });
+                                            ));
                                         }
                                     } else {
                                         expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                        if(!expect_basic_token(context, TokenType::CloseRoundBracket)) {
-                                            return err;
-                                        }
+                                        expect_void(expect_basic_token(context, TokenKind::CloseRoundBracket));
 
                                         expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
-                                        expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                                        expect(last_range, expect_basic_token_with_range(context, TokenKind::Semicolon));
 
-                                        return ok(new ConstantDefinition {
+                                        return ok((Statement*)new ConstantDefinition(
                                             span_range(first_range, last_range),
                                             identifier,
                                             right_expression
-                                        });
+                                        ));
                                     }
                                 } break;
 
-                                case TokenType::Identifier: {
+                                case TokenKind::Identifier: {
                                     consume_token(context);
 
-                                    if(equal(token.identifier, "struct"_S)) {
+                                    if(token.identifier == "struct"_S) {
                                         expect(maybe_union_token, peek_token(*context));
 
                                         auto is_union = false;
-                                        if(maybe_union_token.type == TokenType::Identifier && equal(maybe_union_token.identifier, "union"_S)) {
+                                        if(maybe_union_token.kind == TokenKind::Identifier && maybe_union_token.identifier == "union"_S) {
                                             consume_token(context);
 
                                             is_union = true;
@@ -2083,24 +2069,22 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                         List<StructDefinition::Parameter> parameters{};
 
-                                        if(maybe_parameter_token.type == TokenType::OpenRoundBracket) {
+                                        if(maybe_parameter_token.kind == TokenKind::OpenRoundBracket) {
                                             consume_token(context);
 
                                             expect(token, peek_token(*context));
 
-                                            if(token.type == TokenType::CloseRoundBracket) {
+                                            if(token.kind == TokenKind::CloseRoundBracket) {
                                                 consume_token(context);
                                             } else {
                                                 while(true) {
                                                     expect(name, expect_identifier(context));
 
-                                                    if(!expect_basic_token(context, TokenType::Colon)) {
-                                                        return err;
-                                                    }
+                                                    expect_void(expect_basic_token(context, TokenKind::Colon));
 
                                                     expect(type, parse_expression(context, OperatorPrecedence::None));
 
-                                                    append(&parameters, {
+                                                    parameters.append({
                                                         name,
                                                         type
                                                     });
@@ -2108,19 +2092,19 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                     expect(token, peek_token(*context));
 
                                                     auto done = false;
-                                                    switch(token.type) {
-                                                        case TokenType::Comma: {
+                                                    switch(token.kind) {
+                                                        case TokenKind::Comma: {
                                                             consume_token(context);
                                                         } break;
 
-                                                        case TokenType::CloseRoundBracket: {
+                                                        case TokenKind::CloseRoundBracket: {
                                                             consume_token(context);
 
                                                             done = true;
                                                         } break;
 
                                                         default: {
-                                                            error(*context, "Expected ',' or ')', got '%s'", get_token_text(token));
+                                                            error(*context, "Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
                                                         } break;
                                                     }
 
@@ -2131,16 +2115,14 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             }
                                         }
 
-                                        if(!expect_basic_token(context, TokenType::OpenCurlyBracket)) {
-                                            return err;
-                                        }
+                                        expect_void(expect_basic_token(context, TokenKind::OpenCurlyBracket));
 
                                         List<StructDefinition::Member> members{};
 
                                         expect(token, peek_token(*context));
 
                                         FileRange last_range;
-                                        if(token.type == TokenType::CloseCurlyBracket) {
+                                        if(token.kind == TokenKind::CloseCurlyBracket) {
                                             consume_token(context);
 
                                             last_range = token_range(token);
@@ -2148,13 +2130,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             while(true) {
                                                 expect(identifier, expect_identifier(context));
 
-                                                if(!expect_basic_token(context, TokenType::Colon)) {
-                                                    return err;
-                                                }
+                                                expect_void(expect_basic_token(context, TokenKind::Colon));
 
                                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                                append(&members, {
+                                                members.append({
                                                     identifier,
                                                     expression
                                                 });
@@ -2162,21 +2142,21 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                                 expect(token, peek_token(*context));
 
                                                 auto done = false;
-                                                switch(token.type) {
-                                                    case TokenType::Comma: {
+                                                switch(token.kind) {
+                                                    case TokenKind::Comma: {
                                                         consume_token(context);
                                                     } break;
 
-                                                    case TokenType::CloseCurlyBracket: {
+                                                    case TokenKind::CloseCurlyBracket: {
                                                         consume_token(context);
 
                                                         done = true;
                                                     } break;
 
                                                     default: {
-                                                        error(*context, "Expected ',' or '}', got '%s'", get_token_text(token));
+                                                        error(*context, "Expected ',' or '}', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                                        return err;
+                                                        return err();
                                                     } break;
                                                 }
 
@@ -2188,13 +2168,13 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                             }
                                         }
 
-                                        return ok(new StructDefinition {
+                                        return ok((Statement*)new StructDefinition(
                                             span_range(first_range, token_range(token)),
                                             identifier,
                                             is_union,
-                                            to_array(parameters),
-                                            to_array(members)
-                                        });
+                                            parameters,
+                                            members
+                                        ));
                                     } else {
                                         auto sub_identifier = identifier_from_token(*context, token);
 
@@ -2202,33 +2182,33 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                                         expect(right_expression, parse_expression_continuation(context, OperatorPrecedence::None, expression));
 
-                                        expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                                        expect(last_range, expect_basic_token_with_range(context, TokenKind::Semicolon));
 
-                                        return ok(new ConstantDefinition {
+                                        return ok((Statement*)new ConstantDefinition(
                                             span_range(first_range, last_range),
                                             identifier,
                                             right_expression
-                                        });
+                                        ));
                                     }
                                 } break;
 
                                 default: {
                                     expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                    expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                                    expect(last_range, expect_basic_token_with_range(context, TokenKind::Semicolon));
 
-                                    return ok(new ConstantDefinition {
+                                    return ok((Statement*)new ConstantDefinition(
                                         span_range(first_range, last_range),
                                         identifier,
                                         expression
-                                    });
+                                    ));
                                 } break;
                             }
                         } break;
 
                         default: {
-                            Expression *type = nullptr;
-                            if(token.type != TokenType::Equals) {
+                            Expression* type = nullptr;
+                            if(token.kind != TokenKind::Equals) {
                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
                                 type = expression;
@@ -2236,11 +2216,9 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                             expect(pre_token, peek_token(*context));
 
-                            Expression *initializer = nullptr;
-                            if(pre_token.type == TokenType::Equals || !type) {
-                                if(!expect_basic_token(context, TokenType::Equals)) {
-                                    return err;
-                                }
+                            Expression* initializer = nullptr;
+                            if(pre_token.kind == TokenKind::Equals || !type) {
+                                expect_void(expect_basic_token(context, TokenKind::Equals));
 
                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
@@ -2249,17 +2227,15 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                             expect(tags, parse_tags(context));
 
-                            if(!expect_basic_token(context, TokenType::Semicolon)) {
-                                return err;
-                            }
+                            expect_void(expect_basic_token(context, TokenKind::Semicolon));
 
-                            return ok(new VariableDeclaration {
+                            return ok((Statement*)new VariableDeclaration(
                                 span_range(first_range, token_range(token)),
                                 identifier,
                                 type,
                                 initializer,
                                 tags
-                            });
+                            ));
                         } break;
                     }
                 } else {
@@ -2269,55 +2245,55 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
                     expect(token, peek_token(*context));
 
-                    switch(token.type) {
-                        case TokenType::Semicolon: {
+                    switch(token.kind) {
+                        case TokenKind::Semicolon: {
                             consume_token(context);
 
-                            return ok(new ExpressionStatement {
+                            return ok((Statement*)new ExpressionStatement(
                                 span_range(first_range, token_range(token)),
                                 right_expression
-                            });
+                            ));
                         } break;
 
                         default: {
                             bool is_binary_operation_assignment;
                             BinaryOperation::Operator binary_operator;
-                            switch(token.type) {
-                                case TokenType::Equals: {
+                            switch(token.kind) {
+                                case TokenKind::Equals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = false;
                                 } break;
 
-                                case TokenType::PlusEquals: {
+                                case TokenKind::PlusEquals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Addition;
                                 } break;
 
-                                case TokenType::DashEquals: {
+                                case TokenKind::DashEquals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Subtraction;
                                 } break;
 
-                                case TokenType::AsteriskEquals: {
+                                case TokenKind::AsteriskEquals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Multiplication;
                                 } break;
 
-                                case TokenType::ForwardSlashEquals: {
+                                case TokenKind::ForwardSlashEquals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = true;
                                     binary_operator = BinaryOperation::Operator::Division;
                                 } break;
 
-                                case TokenType::PercentEquals: {
+                                case TokenKind::PercentEquals: {
                                     consume_token(context);
 
                                     is_binary_operation_assignment = true;
@@ -2325,29 +2301,29 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
                                 } break;
 
                                 default: {
-                                    error(*context, "Expected '=', '+=', '-=', '*=', '/=', '%=' or ';', got '%s'", get_token_text(token));
+                                    error(*context, "Expected '=', '+=', '-=', '*=', '/=', '%=' or ';', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                                    return err;
+                                    return err();
                                 } break;
                             }
 
                             expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                            expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                            expect(last_range, expect_basic_token_with_range(context, TokenKind::Semicolon));
 
                             if(is_binary_operation_assignment) {
-                                return ok(new BinaryOperationAssignment {
+                                return ok((Statement*)new BinaryOperationAssignment(
                                     span_range(first_range, last_range),
                                     right_expression,
                                     binary_operator,
                                     expression
-                                });
+                                ));
                             } else {
-                                return ok(new Assignment {
+                                return ok((Statement*)new Assignment(
                                     span_range(first_range, last_range),
                                     right_expression,
                                     expression
-                                });
+                                ));
                             }
                         } break;
                     }
@@ -2360,41 +2336,41 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context *context)
 
             expect(token, peek_token(*context));
 
-            switch(token.type) {
-                case TokenType::Semicolon: {
+            switch(token.kind) {
+                case TokenKind::Semicolon: {
                     consume_token(context);
 
-                    return ok(new ExpressionStatement {
+                    return ok((Statement*)new ExpressionStatement(
                         span_range(first_range, token_range(token)),
                         expression
-                    });
+                    ));
                 } break;
 
-                case TokenType::Equals: {
+                case TokenKind::Equals: {
                     consume_token(context);
 
                     expect(value_expression, parse_expression(context, OperatorPrecedence::None));
 
-                    expect(last_range, expect_basic_token_with_range(context, TokenType::Semicolon));
+                    expect(last_range, expect_basic_token_with_range(context, TokenKind::Semicolon));
 
-                    return ok(new Assignment {
+                    return ok((Statement*)new Assignment(
                         span_range(first_range, last_range),
                         expression,
                         value_expression
-                    });
+                    ));
                 } break;
 
                 default: {
-                    error(*context, "Expected '=' or ';', got '%s'", get_token_text(token));
+                    error(*context, "Expected '=' or ';', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
-                    return err;
+                    return err();
                 } break;
             }
         } break;
     }
 }
 
-profiled_function(Result<Array<Statement*>>, parse_tokens, (const char *path, Array<Token> tokens), (path, tokens)) {
+profiled_function(Result<Array<Statement*>>, parse_tokens, (String path, Array<Token> tokens), (path, tokens)) {
     Context context {
         path,
         tokens
@@ -2402,11 +2378,11 @@ profiled_function(Result<Array<Statement*>>, parse_tokens, (const char *path, Ar
 
     List<Statement*> statements{};
 
-    while(context.next_token_index < tokens.count) {
+    while(context.next_token_index < tokens.length) {
         expect(statement, parse_statement(&context));
 
-        append(&statements, statement);
+        statements.append(statement);
     }
 
-    return ok(to_array(statements));
+    return ok((Array<Statement*>)statements);
 }

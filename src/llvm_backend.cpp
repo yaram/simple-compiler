@@ -60,18 +60,18 @@ LLVMTypeRef get_llvm_type(RegisterSize size, bool is_float) {
 }
 
 Result<LLVMCallConv> get_llvm_calling_convention(
-    const char *path,
+    String path,
     FileRange range,
-    const char *os,
-    const char *architecture,
+    String os,
+    String architecture,
     CallingConvention calling_convention
 ) {
-    if(strcmp(architecture, "x86") == 0) {
-        if(strcmp(os, "linux")) {
+    if(architecture == "x86"_S) {
+        if(os == "linux"_S) {
             if(calling_convention == CallingConvention::Default) {
                 return ok(LLVMCallConv::LLVMCCallConv);
             }
-        } else if(strcmp(os, "windows")) {
+        } else if(os == "windows"_S) {
             switch(calling_convention) {
                 case CallingConvention::Default: {
                     return ok(LLVMCallConv::LLVMCCallConv);
@@ -86,17 +86,17 @@ Result<LLVMCallConv> get_llvm_calling_convention(
         } else {
             abort();
         }
-    } else if(strcmp(architecture, "x64")) {
+    } else if(architecture == "x64"_S) {
         if(calling_convention == CallingConvention::Default) {
-            if(strcmp(os, "linux")) {
+            if(os == "linux"_S) {
                 return ok(LLVMCallConv::LLVMX8664SysVCallConv);
-            } else if(strcmp(os, "windows")) {
+            } else if(os == "windows"_S) {
                 return ok(LLVMCallConv::LLVMWin64CallConv);
             } else {
                 abort();
             }
         }
-    } else if(strcmp(architecture, "wasm32")) {
+    } else if(architecture == "wasm32"_S) {
         if(calling_convention == CallingConvention::Default) {
             return ok(LLVMCallConv::LLVMCCallConv);
         }
@@ -107,13 +107,13 @@ Result<LLVMCallConv> get_llvm_calling_convention(
     error(
         path,
         range,
-        "Cannot use '%s' calling convention with %s %s",
-        calling_convention_name(calling_convention),
-        os,
-        architecture
+        "Cannot use '%.*s' calling convention with %.*s %.*s",
+        STRING_PRINTF_ARGUMENTS(calling_convention_name(calling_convention)),
+        STRING_PRINTF_ARGUMENTS(os),
+        STRING_PRINTF_ARGUMENTS(architecture)
     );
 
-    return err;
+    return err();
 }
 
 struct Register {
@@ -123,7 +123,7 @@ struct Register {
 };
 
 LLVMValueRef get_register_value(Function function, LLVMValueRef function_value, List<Register> registers, size_t register_index) {
-    if(register_index < function.parameters.count) {
+    if(register_index < function.parameters.length) {
         auto parameter = LLVMGetParam(function_value, (unsigned int)register_index);
         assert(parameter);
 
@@ -140,24 +140,24 @@ LLVMValueRef get_register_value(Function function, LLVMValueRef function_value, 
 }
 
 struct InstructionBlock {
-    Instruction *instruction;
+    Instruction* instruction;
 
     LLVMBasicBlockRef block;
 };
 
-static void register_instruction_block(List<InstructionBlock> *blocks, LLVMValueRef function, Instruction *instruction) {
+static void register_instruction_block(List<InstructionBlock>* blocks, LLVMValueRef function, Instruction* instruction) {
     StringBuffer block_name {};
-    string_buffer_append(&block_name, "block_");
-    string_buffer_append(&block_name, blocks->count);
+    block_name.append("block_"_S);
+    block_name.append_integer(blocks->length);
 
-    append(blocks, {
+    blocks->append({
         instruction,
-        LLVMAppendBasicBlock(function, block_name.data)
+        LLVMAppendBasicBlock(function, block_name.to_c_string())
     });
 }
 
-static void maybe_register_instruction_block(List<InstructionBlock> *blocks, LLVMValueRef function, Instruction *instruction) {
-    for(auto block : *blocks) {
+static void maybe_register_instruction_block(List<InstructionBlock>* blocks, LLVMValueRef function, Instruction* instruction) {
+    for(auto block :* blocks) {
         if(block.instruction == instruction) {
             return;
         }
@@ -166,7 +166,7 @@ static void maybe_register_instruction_block(List<InstructionBlock> *blocks, LLV
     register_instruction_block(blocks, function, instruction);
 }
 
-static LLVMBasicBlockRef get_instruction_block(List<InstructionBlock> blocks, Instruction *instruction) {
+static LLVMBasicBlockRef get_instruction_block(List<InstructionBlock> blocks, Instruction* instruction) {
     for(auto block : blocks) {
         if(block.instruction == instruction) {
             return block.block;
@@ -178,10 +178,10 @@ static LLVMBasicBlockRef get_instruction_block(List<InstructionBlock> blocks, In
 
 profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     Array<RuntimeStatic*> statics,
-    const char *architecture,
-    const char *os,
-    const char *config,
-    const char *object_file_path,
+    String architecture,
+    String os,
+    String config,
+    String object_file_path,
     Array<String> reserved_names
 ), (
     statics,
@@ -196,23 +196,23 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     for(auto runtime_static : statics) {
         if(runtime_static->is_no_mangle) {
             for(auto name_mapping : name_mappings) {
-                if(equal(name_mapping.name, runtime_static->name)) {
-                    error(runtime_static->path, runtime_static->range, "Conflicting no_mangle name '%.*s'", STRING_PRINT(name_mapping.name));
+                if(name_mapping.name == runtime_static->name) {
+                    error(runtime_static->path, runtime_static->range, "Conflicting no_mangle name '%.*s'", STRING_PRINTF_ARGUMENTS(name_mapping.name));
                     error(name_mapping.runtime_static->path, name_mapping.runtime_static->range, "Conflicing declaration here");
 
-                    return err;
+                    return err();
                 }
             }
 
             for(auto reserved_name : reserved_names) {
-                if(equal(reserved_name, runtime_static->name)) {
-                    error(runtime_static->path, runtime_static->range, "Runtime name '%.*s' is reserved", STRING_PRINT(reserved_name));
+                if(reserved_name == runtime_static->name) {
+                    error(runtime_static->path, runtime_static->range, "Runtime name '%.*s' is reserved", STRING_PRINTF_ARGUMENTS(reserved_name));
 
-                    return err;
+                    return err();
                 }
             }
 
-            append(&name_mappings, {
+            name_mappings.append({
                 runtime_static,
                 runtime_static->name
             });
@@ -225,25 +225,23 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
             size_t number = 0;
             while(true) {
-                string_buffer_append(&name_buffer, runtime_static->name);
+                name_buffer.append(runtime_static->name);
                 if(number != 0) {
-                    string_buffer_append(&name_buffer, "_");
-                    string_buffer_append(&name_buffer, number);
+                    name_buffer.append("_"_S);
+                    name_buffer.append_integer(number);
                 }
-
-                auto name = string_buffer_string(name_buffer);
 
                 auto name_taken = false;
 
                 for(auto name_mapping : name_mappings) {
-                    if(equal(name_mapping.name, name)) {
+                    if(name_mapping.name == name_buffer) {
                         name_taken = true;
                         break;
                     }
                 }
 
                 for(auto reserved_name : reserved_names) {
-                    if(equal(reserved_name, name)) {
+                    if(reserved_name == name_buffer) {
                         name_taken = true;
                         break;
                     }
@@ -253,9 +251,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     name_buffer.length = 0;
                     number += 1;
                 } else {
-                    append(&name_mappings, {
+                    name_mappings.append({
                         runtime_static,
-                        name
+                        name_buffer
                     });
 
                     break;
@@ -264,7 +262,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         }
     }
 
-    assert(name_mappings.count == statics.count);
+    assert(name_mappings.length == statics.length);
 
     auto architecture_sizes = get_architecture_sizes(architecture);
 
@@ -272,9 +270,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
     auto module = LLVMModuleCreateWithName("module");
 
-    auto global_values = allocate<LLVMValueRef>(statics.count);
+    auto global_values = allocate<LLVMValueRef>(statics.length);
 
-    for(size_t i = 0; i < statics.count; i += 1) {
+    for(size_t i = 0; i < statics.length; i += 1) {
         auto runtime_static = statics[i];
 
         String name;
@@ -293,7 +291,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         if(runtime_static->kind == RuntimeStaticKind::Function) {
             auto function = (Function*)runtime_static;
 
-            auto parameter_count = function->parameters.count;
+            auto parameter_count = function->parameters.length;
             auto parameter_types = allocate<LLVMTypeRef>(parameter_count);
             for(size_t i = 0; i < parameter_count; i += 1) {
                 auto parameter = function->parameters[i];
@@ -310,7 +308,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
             auto function_type = LLVMFunctionType(return_type, parameter_types, (unsigned int)parameter_count, false);
 
-            global_value = LLVMAddFunction(module, string_to_c_string(name), function_type);
+            global_value = LLVMAddFunction(module, name.to_c_string(), function_type);
 
             if(function->is_external) {
                 LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
@@ -322,19 +320,19 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         } else if(runtime_static->kind == RuntimeStaticKind::StaticConstant) {
             auto constant = (StaticConstant*)runtime_static;
 
-            auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)constant->data.count);
+            auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)constant->data.length);
 
-            global_value = LLVMAddGlobal(module, byte_array_type, string_to_c_string(name));
+            global_value = LLVMAddGlobal(module, byte_array_type, name.to_c_string());
             LLVMSetAlignment(global_value, (unsigned int)constant->alignment);
             LLVMSetGlobalConstant(global_value, true);
 
-            auto element_values = allocate<LLVMValueRef>(constant->data.count);
+            auto element_values = allocate<LLVMValueRef>(constant->data.length);
 
-            for(size_t i = 0; i < constant->data.count; i += 1) {
+            for(size_t i = 0; i < constant->data.length; i += 1) {
                 element_values[i] = LLVMConstInt(LLVMInt8Type(), constant->data[i], false);
             }
 
-            auto array_constant = LLVMConstArray(LLVMInt8Type(), element_values, (unsigned int)constant->data.count);
+            auto array_constant = LLVMConstArray(LLVMInt8Type(), element_values, (unsigned int)constant->data.length);
 
             LLVMSetInitializer(global_value, array_constant);
         } else if(runtime_static->kind == RuntimeStaticKind::StaticVariable) {
@@ -342,7 +340,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
             auto byte_array_type = LLVMArrayType(LLVMInt8Type(), (unsigned int)variable->size);
 
-            global_value = LLVMAddGlobal(module, byte_array_type, string_to_c_string(name));
+            global_value = LLVMAddGlobal(module, byte_array_type, name.to_c_string());
             LLVMSetAlignment(global_value, (unsigned int)variable->alignment);
 
             if(variable->is_external) {
@@ -365,7 +363,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         global_values[i] = global_value;
     }
 
-    for(size_t i = 0; i < statics.count; i += 1) {
+    for(size_t i = 0; i < statics.length; i += 1) {
         auto runtime_static = statics[i];
 
         if(runtime_static->kind == RuntimeStaticKind::Function) {
@@ -378,7 +376,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                 register_instruction_block(&blocks, function_value, 0);
 
-                for(size_t i = 1; i < function->instructions.count; i += 1) {
+                for(size_t i = 1; i < function->instructions.length; i += 1) {
                     auto instruction = function->instructions[i];
 
                     if(instruction->kind == InstructionKind::Jump) {
@@ -399,7 +397,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 LLVMPositionBuilderAtEnd(builder, blocks[0].block);
 
                 struct Local {
-                    AllocateLocal *allocate_local;
+                    AllocateLocal* allocate_local;
 
                     LLVMValueRef pointer_value;
                 };
@@ -416,14 +414,14 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         LLVMSetAlignment(pointer_value, (unsigned int)allocate_local->alignment);
 
-                        append(&locals, {
+                        locals.append({
                             allocate_local,
                             pointer_value
                         });
                     }
                 }
 
-                for(size_t i = 0 ; i < function->instructions.count; i += 1) {
+                for(size_t i = 0 ; i < function->instructions.length; i += 1) {
                     auto instruction = function->instructions[i];
 
                     for(auto block : blocks) {
@@ -495,7 +493,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             } break;
                         }
 
-                        append(&registers, {
+                        registers.append({
                             integer_arithmetic_operation->destination_register,
                             value
                         });
@@ -519,7 +517,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         );
 
                         LLVMIntPredicate predicate;
-                        const char *name;
+                        const char* name;
                         switch(integer_comparison_operation->operation) {
                             case IntegerComparisonOperation::Operation::Equal: {
                                 predicate = LLVMIntPredicate::LLVMIntEQ;
@@ -555,7 +553,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto extended_value = LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend");
 
-                        append(&registers, {
+                        registers.append({
                             integer_comparison_operation->destination_register,
                             extended_value
                         });
@@ -571,7 +569,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             value = LLVMBuildZExt(builder, source_value, get_llvm_integer_type(integer_extension->destination_size), "extend");
                         }
 
-                        append(&registers, {
+                        registers.append({
                             integer_extension->destination_register,
                             value
                         });
@@ -585,7 +583,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             "truncate"
                         );
 
-                        append(&registers, {
+                        registers.append({
                             integer_truncation->destination_register,
                             value
                         });
@@ -594,7 +592,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMConstInt(get_llvm_integer_type(integer_constant->size), integer_constant->value, false);
 
-                        append(&registers, {
+                        registers.append({
                             integer_constant->destination_register,
                             value
                         });
@@ -627,7 +625,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             } break;
                         }
 
-                        append(&registers, {
+                        registers.append({
                             float_arithmetic_operation->destination_register,
                             value
                         });
@@ -638,7 +636,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         auto value_b = get_register_value(*function, function_value, registers, float_comparison_operation->source_register_b);
 
                         LLVMRealPredicate predicate;
-                        const char *name;
+                        const char* name;
                         switch(float_comparison_operation->operation) {
                             case FloatComparisonOperation::Operation::Equal: {
                                 predicate = LLVMRealPredicate::LLVMRealOEQ;
@@ -664,7 +662,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto extended_value = LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend");
 
-                        append(&registers, {
+                        registers.append({
                             float_comparison_operation->destination_register,
                             extended_value
                         });
@@ -675,7 +673,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildFPCast(builder, source_value, get_llvm_float_type(float_conversion->destination_size), "float_conversion");
 
-                        append(&registers, {
+                        registers.append({
                             float_conversion->destination_register,
                             value
                         });
@@ -686,7 +684,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildFPToSI(builder, source_value, get_llvm_integer_type(float_truncation->destination_size), "float_truncation");
 
-                        append(&registers, {
+                        registers.append({
                             float_truncation->destination_register,
                             value
                         });
@@ -702,7 +700,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildSIToFP(builder, source_value, get_llvm_float_type(float_from_integer->destination_size), "float_from_integer");
 
-                        append(&registers, {
+                        registers.append({
                             float_from_integer->destination_register,
                             value
                         });
@@ -711,7 +709,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMConstReal(get_llvm_float_type(float_constant->size), float_constant->value);
 
-                        append(&registers, {
+                        registers.append({
                             float_constant->destination_register,
                             value
                         });
@@ -740,7 +738,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     } else if(instruction->kind == InstructionKind::FunctionCallInstruction) {
                         auto function_call = (FunctionCallInstruction*)instruction;
 
-                        auto parameter_count = function_call->parameters.count;
+                        auto parameter_count = function_call->parameters.length;
 
                         auto parameter_types = allocate<LLVMTypeRef>(parameter_count);
                         auto parameter_values = allocate<LLVMValueRef>(parameter_count);
@@ -779,7 +777,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto function_pointer_value = LLVMBuildIntToPtr(builder, address_value, function_pointer_type, "pointer");
 
-                        const char *name;
+                        const char* name;
                         if(function_call->has_return) {
                             name = "call";
                         } else {
@@ -799,7 +797,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         LLVMSetInstructionCallConv(value, calling_convention);
 
                         if(function_call->has_return) {
-                            append(&registers, {
+                            registers.append({
                                 function_call->return_register,
                                 value
                             });
@@ -833,7 +831,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto address_value = LLVMBuildPtrToInt(builder, pointer_value, get_llvm_integer_type(architecture_sizes.address_size), "local_address");
 
-                        append(&registers, {
+                        registers.append({
                             allocate_local->destination_register,
                             address_value
                         });
@@ -850,7 +848,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildLoad2(builder, integer_type, pointer_value, "load_integer");
 
-                        append(&registers, {
+                        registers.append({
                             load_integer->destination_register,
                             value
                         });
@@ -884,7 +882,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildLoad2(builder, float_type, pointer_value, "load_float");
 
-                        append(&registers, {
+                        registers.append({
                             load_float->destination_register,
                             value
                         });
@@ -905,7 +903,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto found = false;
                         LLVMValueRef global_value;
-                        for(size_t i = 0; i < statics.count; i += 1) {
+                        for(size_t i = 0; i < statics.length; i += 1) {
                             if(statics[i] == reference_static->runtime_static) {
                                 global_value = global_values[i];
                                 found = true;
@@ -917,7 +915,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto address_value = LLVMBuildPtrToInt(builder, global_value, get_llvm_integer_type(architecture_sizes.address_size), "static_address");
 
-                        append(&registers, {
+                        registers.append({
                             reference_static->destination_register,
                             address_value
                         });
@@ -965,30 +963,30 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     auto triple = get_llvm_triple(architecture, os);
 
     LLVMTargetRef target;
-    if(strcmp(architecture, "x86") == 0 || strcmp(architecture, "x64") == 0) {
+    if(architecture == "x86"_S || architecture == "x64"_S) {
         LLVMInitializeX86TargetInfo();
         LLVMInitializeX86Target();
         LLVMInitializeX86TargetMC();
         LLVMInitializeX86AsmPrinter();
 
-        auto status = LLVMGetTargetFromTriple(triple, &target, nullptr);
+        auto status = LLVMGetTargetFromTriple(triple.to_c_string(), &target, nullptr);
         assert(status == 0);
-    } else if(strcmp(architecture, "wasm32") == 0) {
+    } else if(architecture == "wasm32"_S) {
         LLVMInitializeWebAssemblyTargetInfo();
         LLVMInitializeWebAssemblyTarget();
         LLVMInitializeWebAssemblyTargetMC();
         LLVMInitializeWebAssemblyAsmPrinter();
 
-        auto status = LLVMGetTargetFromTriple(triple, &target, nullptr);
+        auto status = LLVMGetTargetFromTriple(triple.to_c_string(), &target, nullptr);
         assert(status == 0);
     } else {
         abort();
     }
 
     LLVMCodeGenOptLevel optimization_level;
-    if(strcmp(config, "debug") == 0) {
+    if(config == "debug"_S) {
         optimization_level = LLVMCodeGenOptLevel::LLVMCodeGenLevelNone;
-    } else if(strcmp(config, "release") == 0) {
+    } else if(config == "release"_S) {
         optimization_level = LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault;
     } else {
         abort();
@@ -996,7 +994,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
     auto target_machine = LLVMCreateTargetMachine(
         target,
-        triple,
+        triple.to_c_string(),
         "",
         "",
         optimization_level,
@@ -1005,12 +1003,12 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     );
     assert(target_machine);
 
-    char *error_message;
-    if(LLVMTargetMachineEmitToFile(target_machine, module, (char*)object_file_path, LLVMCodeGenFileType::LLVMObjectFile, &error_message) != 0) {
-        fprintf(stderr, "Error: Unable to emit object file '%s' (%s)\n", object_file_path, error_message);
+    char* error_message;
+    if(LLVMTargetMachineEmitToFile(target_machine, module, object_file_path.to_c_string(), LLVMCodeGenFileType::LLVMObjectFile, &error_message) != 0) {
+        fprintf(stderr, "Error: Unable to emit object file '%.*s' (%s)\n", STRING_PRINTF_ARGUMENTS(object_file_path), error_message);
 
-        return err;
+        return err();
     }
 
-    return ok(to_array(name_mappings));
+    return ok((Array<NameMapping>)name_mappings);
 }

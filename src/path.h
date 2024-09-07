@@ -1,8 +1,9 @@
 #pragma once
 
 #include "result.h"
+#include "string.h"
 
-Result<const char *> path_relative_to_absolute(const char *path);
-const char *path_get_directory_component(const char *path);
-const char *path_get_file_component(const char *path);
-const char *get_executable_path();
+Result<String> path_relative_to_absolute(String path);
+String path_get_directory_component(String path);
+String path_get_file_component(String path);
+String get_executable_path();

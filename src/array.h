@@ -1,23 +1,21 @@
 #pragma once
 
-#include <stdlib.h>
+#include <stddef.h>
 
 template <typename T>
 struct Array {
-    size_t count;
-    T *elements;
+    size_t length;
+    T* elements;
 
-    T &operator[](size_t index) {
+    inline T &operator[](size_t index) {
         return elements[index];
     }
+
+    inline T* begin() {
+        return elements;
+    }
+
+    inline T* end() {
+        return elements + length;
+    }
 };
-
-template <typename T>
-T *begin(Array<T> &array) {
-    return array.elements;
-}
-
-template <typename T>
-T *end(Array<T> &array) {
-    return array.elements + array.count;
-}

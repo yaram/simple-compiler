@@ -7,7 +7,38 @@ struct Result {
     T value;
 };
 
-#define err {false}
-#define ok(...) {true,##__VA_ARGS__}
+template<>
+struct Result<void> {
+    bool status;
+};
 
-#define expect(name, expression) auto __##name##_result=expression;if(!__##name##_result.status)return{false};auto name=__##name##_result.value
+template <typename T>
+inline Result<T> ok(T value) {
+    Result<T> result {};
+    result.status = true;
+    result.value = value;
+    return result;
+}
+
+inline Result<void> ok() {
+    Result<void> result {};
+    result.status = true;
+    return result;
+}
+
+struct ResultErrorHelper {
+    template <typename T>
+    inline operator Result<T>() {
+        Result<T> result {};
+        result.status = false;
+        return result;
+    }
+};
+
+inline ResultErrorHelper err() {
+    ResultErrorHelper helper {};
+    return helper;
+}
+
+#define expect(name, expression) auto __##name##_result=(expression);if(!__##name##_result.status)return err();auto name=__##name##_result.value
+#define expect_void(expression) auto __void_result=(expression);if(!__void_result.status)return err()

@@ -4,15 +4,15 @@
 #include "result.h"
 
 struct NameMapping {
-    RuntimeStatic *runtime_static;
+    RuntimeStatic* runtime_static;
 
-    const char *name;
+    String name;
 };
 
 Result<Array<NameMapping>> generate_c_object(
     Array<RuntimeStatic*> statics,
-    const char *architecture,
-    const char *os,
-    const char *config,
-    const char *object_file_path
+    String architecture,
+    String os,
+    String config,
+    String object_file_path
 );

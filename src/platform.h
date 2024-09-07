@@ -1,6 +1,7 @@
 #pragma once
 
 #include "register_size.h"
+#include "string.h"
 
 #if defined(unix) || defined(__unix__) || defined(__unix)
 #define OS_UNIX
@@ -21,9 +22,9 @@
 #error Unsupported architecture
 #endif
 
-bool does_os_exist(const char *os);
-bool does_architecture_exist(const char *architecture);
-bool is_supported_target(const char *os, const char *architecture);
+bool does_os_exist(String os);
+bool does_architecture_exist(String architecture);
+bool is_supported_target(String os, String architecture);
 
 struct ArchitectureSizes {
     RegisterSize address_size;
@@ -35,9 +36,9 @@ struct ArchitectureSizes {
     RegisterSize boolean_size;
 };
 
-ArchitectureSizes get_architecture_sizes(const char *architecture);
+ArchitectureSizes get_architecture_sizes(String architecture);
 
-const char *get_llvm_triple(const char *architecture, const char *os);
+String get_llvm_triple(String architecture, String os);
 
-const char *get_host_architecture();
-const char *get_host_os();
+String get_host_architecture();
+String get_host_os();

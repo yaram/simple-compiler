@@ -15,124 +15,140 @@
 #include "generator.h"
 #include "types.h"
 
-static const char *get_default_output_file(const char *os, bool no_link) {
+static String get_default_output_file(String os, bool no_link) {
     if(no_link) {
-        return "out.o";
+        return "out.o"_S;
     } else {
-        if(strcmp(os, "windows") == 0) {
-            return "out.exe";
-        } else if(strcmp(os, "emscripten") == 0) {
-            return "out.js";
+        if(os == "windows"_S) {
+            return "out.exe"_S;
+        } else if(os == "emscripten"_S) {
+            return "out.js"_S;
         } else {
-            return "out";
+            return "out"_S;
         }
     }
 }
 
-static void print_help_message(FILE *file) {
+static void print_help_message(FILE* file) {
     fprintf(file, "Usage: compiler [options] <source file>\n\n");
 
+    auto default_architecture = get_host_architecture();
     auto default_os = get_host_os();
+    auto default_output_file = get_default_output_file(default_os, false);
 
     fprintf(file, "Options:\n");
-    fprintf(file, "  -output <output file>  (default: %s) Specify output file path\n", get_default_output_file(default_os, false));
+    fprintf(file, "  -output <output file>  (default: %.*s) Specify output file path\n", STRING_PRINTF_ARGUMENTS(default_output_file));
     fprintf(file, "  -config debug|release  (default: debug) Specify build configuration\n");
-    fprintf(file, "  -arch x64|wasm32  (default: %s) Specify CPU architecture to target\n", get_host_architecture());
-    fprintf(file, "  -os windows|linux|emscripten  (default: %s) Specify operating system to target\n", default_os);
+    fprintf(file, "  -arch x64|wasm32  (default: %.*s) Specify CPU architecture to target\n", STRING_PRINTF_ARGUMENTS(default_architecture));
+    fprintf(file, "  -os windows|linux|emscripten  (default: %.*s) Specify operating system to target\n", STRING_PRINTF_ARGUMENTS(default_os));
     fprintf(file, "  -no-link  Don't run the linker\n");
     fprintf(file, "  -print-ast  Print abstract syntax tree\n");
     fprintf(file, "  -print-ir  Print internal intermediate representation\n");
     fprintf(file, "  -help  Display this help message then exit\n");
 }
 
-inline void append_global_type(List<GlobalConstant> *global_constants, String name, AnyType type) {
-    append(global_constants, {
-        name,
-        create_type_type(),
-        wrap_type_constant(type)
-    });
+inline void append_global_constant(List<GlobalConstant>* global_constants, String name, AnyType type, AnyConstantValue value) {
+    GlobalConstant global_constant {};
+    global_constant.name = name;
+    global_constant.type = type;
+    global_constant.value = value;
+
+    global_constants->append(global_constant);
 }
 
-inline void append_base_integer_type(List<GlobalConstant> *global_constants, String name, RegisterSize size, bool is_signed) {
-    append_global_type(global_constants, name, wrap_integer_type({ size, is_signed }));
+inline void append_global_type(List<GlobalConstant>* global_constants, String name, AnyType type) {
+    append_global_constant(global_constants, name, create_type_type(), wrap_type_constant(type));
 }
 
-inline void append_builtin(List<GlobalConstant> *global_constants, String name) {
-    append(global_constants, {
+inline void append_base_integer_type(List<GlobalConstant>* global_constants, String name, RegisterSize size, bool is_signed) {
+    Integer integer {};
+    integer.size = size;
+    integer.is_signed = is_signed;
+
+    append_global_type(global_constants, name, wrap_integer_type(integer));
+}
+
+inline void append_builtin(List<GlobalConstant>* global_constants, String name) {
+    BuiltinFunctionConstant constant {};
+    constant.name = name;
+
+    append_global_constant(global_constants,
         name,
         create_builtin_function_type(),
-        wrap_builtin_function_constant({
-            name
-        })
-    });
+        wrap_builtin_function_constant(constant)
+    );
 }
 
-static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (arguments)) {
+static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments), (arguments)) {
     auto start_time = get_timer_counts();
 
-    const char *source_file_path = nullptr;
-    const char *output_file_path = nullptr;
+    bool has_source_file_path = false;
+    String source_file_path;
+    bool has_output_file_path = false;
+    String output_file_path;
 
     auto architecture = get_host_architecture();
 
     auto os = get_host_os();
 
-    auto config = "debug";
+    auto config = "debug"_S;
 
     auto no_link = false;
     auto print_ast = false;
     auto print_ir = false;
 
     int argument_index = 1;
-    while(argument_index < arguments.count) {
+    while(argument_index < arguments.length) {
         auto argument = arguments[argument_index];
 
-        if(argument_index == arguments.count - 1 && argument[0] != '-') {
-            source_file_path = argument;
+        if(argument_index == arguments.length - 1 && argument[0] != '-') {
+            has_source_file_path = true;
+            source_file_path = String::from_c_string(argument);
         } else if(strcmp(argument, "-output") == 0) {
             argument_index += 1;
 
-            if(argument_index == arguments.count - 1) {
+            if(argument_index == arguments.length - 1) {
                 fprintf(stderr, "Error: Missing value for '-output' option\n\n");
                 print_help_message(stderr);
 
-                return false;
+                return err();
             }
 
-            output_file_path = arguments[argument_index];
+            has_output_file_path = true;
+            output_file_path = String::from_c_string(arguments[argument_index]);
         } else if(strcmp(argument, "-arch") == 0) {
             argument_index += 1;
 
-            if(argument_index == arguments.count - 1) {
+            if(argument_index == arguments.length - 1) {
                 fprintf(stderr, "Error: Missing value for '-arch' option\n\n");
                 print_help_message(stderr);
 
-                return false;
+                return err();
             }
 
-            architecture = arguments[argument_index];
+            architecture = String::from_c_string(arguments[argument_index]);
         } else if(strcmp(argument, "-os") == 0) {
             argument_index += 1;
 
-            if(argument_index == arguments.count - 1) {
+            if(argument_index == arguments.length - 1) {
                 fprintf(stderr, "Error: Missing value for '-os' option\n\n");
                 print_help_message(stderr);
 
-                return false;
+                return err();
             }
 
-            os = arguments[argument_index];
+            os = String::from_c_string(arguments[argument_index]);
         } else if(strcmp(argument, "-config") == 0) {
             argument_index += 1;
 
-            if(argument_index == arguments.count - 1) {
+            if(argument_index == arguments.length - 1) {
                 fprintf(stderr, "Error: Missing value for '-config' option\n\n");
                 print_help_message(stderr);
 
-                return false;
+                return err();
             }
 
-            config = arguments[argument_index];
+            config = String::from_c_string(arguments[argument_index]);
         } else if(strcmp(argument, "-no-link") == 0) {
             no_link = true;
         } else if(strcmp(argument, "-print-ast") == 0) {
@@ -142,58 +158,58 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         } else if(strcmp(argument, "-help") == 0) {
             print_help_message(stdout);
 
-            return true;
+            return ok();
         } else {
             fprintf(stderr, "Error: Unknown option '%s'\n\n", argument);
             print_help_message(stderr);
 
-            return false;
+            return err();
         }
 
         argument_index += 1;
     }
 
     if(
-        strcmp(config, "debug") != 0 &&
-        strcmp(config, "release") != 0
+        config == "debug"_S &&
+        config == "release"_S
     ) {
-        fprintf(stderr, "Error: Unknown config '%s'\n\n", config);
+        fprintf(stderr, "Error: Unknown config '%.*s'\n\n", STRING_PRINTF_ARGUMENTS(config));
         print_help_message(stderr);
 
-        return false;
+        return err();
     }
 
     if(!does_os_exist(os)) {
-        fprintf(stderr, "Error: Unknown OS '%s'\n\n", os);
+        fprintf(stderr, "Error: Unknown OS '%.*s'\n\n", STRING_PRINTF_ARGUMENTS(os));
         print_help_message(stderr);
 
-        return false;
+        return err();
     }
 
     if(!does_architecture_exist(architecture)) {
-        fprintf(stderr, "Error: Unknown architecture '%s'\n\n", architecture);
+        fprintf(stderr, "Error: Unknown architecture '%.*s'\n\n", STRING_PRINTF_ARGUMENTS(architecture));
         print_help_message(stderr);
 
-        return false;
+        return err();
     }
 
     if(!is_supported_target(os, architecture)) {
-        fprintf(stderr, "Error: '%s' and '%s' is not a supported OS and architecture combination\n\n", os, architecture);
+        fprintf(stderr, "Error: '%.*s' and '%.*s' is not a supported OS and architecture combination\n\n", STRING_PRINTF_ARGUMENTS(os), STRING_PRINTF_ARGUMENTS(architecture));
         print_help_message(stderr);
 
-        return false;
+        return err();
     }
 
-    if(source_file_path == nullptr) {
+    if(!has_source_file_path) {
         fprintf(stderr, "Error: No source file provided\n\n");
         print_help_message(stderr);
 
-        return false;
+        return err();
     }
 
     expect(absolute_source_file_path, path_relative_to_absolute(source_file_path));
 
-    if(output_file_path == nullptr) {
+    if(!has_output_file_path) {
         output_file_path = get_default_output_file(os, no_link);
     }
 
@@ -253,17 +269,19 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         })
     );
 
-    append(&global_constants, GlobalConstant {
+    append_global_constant(
+        &global_constants,
         "true"_S,
         create_boolean_type(),
         wrap_boolean_constant(true)
-    });
+    );
 
-    append(&global_constants, GlobalConstant {
+    append_global_constant(
+        &global_constants,
         "false"_S,
         create_boolean_type(),
         wrap_boolean_constant(false)
-    });
+    );
 
     append_global_type(
         &global_constants,
@@ -276,56 +294,64 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
     append_builtin(&global_constants, "memcpy"_S);
 
-    append(&global_constants, GlobalConstant {
+    append_global_constant(
+        &global_constants,
         "X86"_S,
         create_boolean_type(),
-        wrap_boolean_constant(strcmp(architecture, "x86") == 0)
-    });
+        wrap_boolean_constant(architecture == "x86"_S)
+    );
 
-    append(&global_constants, GlobalConstant {
+    append_global_constant(
+        &global_constants,
         "X64"_S,
         create_boolean_type(),
-        wrap_boolean_constant(strcmp(architecture, "x64") == 0)
-    });
+        wrap_boolean_constant(architecture == "x64"_S)
+    );
 
-    append(&global_constants, GlobalConstant {
+    append_global_constant(
+        &global_constants,
         "WASM32"_S,
         create_boolean_type(),
-        wrap_boolean_constant(strcmp(config, "wasm32") == 0)
-    });
+        wrap_boolean_constant(config == "wasm32"_S)
+    );
 
-    append(&global_constants, GlobalConstant {
+    append_global_constant(
+        &global_constants,
         "WINDOWS"_S,
         create_boolean_type(),
-        wrap_boolean_constant(strcmp(os, "windows") == 0)
-    });
+        wrap_boolean_constant(os == "windows"_S)
+    );
 
-    append(&global_constants, GlobalConstant {
+    append_global_constant(
+        &global_constants,
         "LINUX"_S,
         create_boolean_type(),
-        wrap_boolean_constant(strcmp(os, "linux") == 0)
-    });
+        wrap_boolean_constant(os == "linux"_S)
+    );
 
-    append(&global_constants, GlobalConstant {
+    append_global_constant(
+        &global_constants,
         "EMSCRIPTEN"_S,
         create_boolean_type(),
-        wrap_boolean_constant(strcmp(os, "emscripten") == 0)
-    });
+        wrap_boolean_constant(os == "emscripten"_S)
+    );
 
-    append(&global_constants, GlobalConstant {
+    append_global_constant(
+        &global_constants,
         "DEBUG"_S,
         create_boolean_type(),
-        wrap_boolean_constant(strcmp(config, "debug") == 0)
-    });
+        wrap_boolean_constant(config == "debug"_S)
+    );
 
-    append(&global_constants, GlobalConstant {
+    append_global_constant(
+        &global_constants,
         "RELEASE"_S,
         create_boolean_type(),
-        wrap_boolean_constant(strcmp(config, "release") == 0)
-    });
+        wrap_boolean_constant(config == "release"_S)
+    );
 
     GlobalInfo info {
-        to_array(global_constants),
+        global_constants,
         architecture_sizes
     };
 
@@ -338,26 +364,26 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         job.state = JobState::Working;
         job.parse_file.path = absolute_source_file_path;
 
-        main_file_parse_job_index = append(&jobs, job);
+        main_file_parse_job_index = jobs.append(job);
     }
 
     List<RuntimeStatic*> runtime_statics {};
-    List<const char*> libraries {};
+    List<String> libraries {};
 
-    if(strcmp(os, "windows") == 0) {
-        append(&libraries, "kernel32.lib");
+    if(os == "windows"_S) {
+        libraries.append("kernel32.lib"_S);
     }
 
     auto main_function_state = JobState::Waiting;
     auto main_function_waiting_for = main_file_parse_job_index;
-    Function *main_function;
+    Function* main_function;
 
     uint64_t total_parser_time = 0;
     uint64_t total_generator_time = 0;
 
     while(true) {
         auto did_work = false;
-        for(size_t job_index = 0; job_index < jobs.count; job_index += 1) {
+        for(size_t job_index = 0; job_index < jobs.length; job_index += 1) {
             auto job = &jobs[job_index];
 
             if(job->state != JobState::Done) {
@@ -381,7 +407,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         auto scope = new ConstantScope;
                         scope->statements = statements;
-                        scope->declarations = construct_declaration_hash_table(statements);
+                        scope->declarations = create_declaration_hash_table(statements);
                         scope->scope_constants = {};
                         scope->is_top_level = true;
                         scope->file_path = parse_file->path;
@@ -389,9 +415,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         parse_file->scope = scope;
                         job->state = JobState::Done;
 
-                        if(!process_scope(&jobs, scope, statements, nullptr, true)) {
-                            return false;
-                        }
+                        expect_void(process_scope(&jobs, scope, statements, nullptr, true));
 
                         auto end_time = get_timer_counts();
 
@@ -400,10 +424,10 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         auto job_after = jobs[job_index];
 
                         if(print_ast) {
-                            printf("%s:\n", job_after.parse_file.path);
+                            printf("%.*s:\n", STRING_PRINTF_ARGUMENTS(job_after.parse_file.path));
 
                             for(auto statement : statements) {
-                                print_statement(statement);
+                                statement->print();
                                 printf("\n");
                             }
                         }
@@ -416,7 +440,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
                         auto result = do_resolve_static_if(info, &jobs, resolve_static_if.static_if, resolve_static_if.scope);
                         if(!result.status) {
-                            return false;
+                            return err();
                         }
 
                         auto job_after = &jobs[job_index];
@@ -447,7 +471,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             resolve_function_declaration.scope
                         );
                         if(!result.status) {
-                            return false;
+                            return err();
                         }
 
                         auto job_after = &jobs[job_index];
@@ -485,7 +509,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                                     job.generate_function.value = function_value;
                                     job.generate_function.function = new Function;
 
-                                    append(&jobs, job);
+                                    jobs.append(job);
                                 }
                             }
                         } else {
@@ -513,7 +537,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             resolve_polymorphic_function.call_parameter_ranges
                         );
                         if(!result.status) {
-                            return false;
+                            return err();
                         }
 
                         auto job_after = &jobs[job_index];
@@ -545,7 +569,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             resolve_constant_definition.definition->expression
                         );
                         if(!result.status) {
-                            return false;
+                            return err();
                         }
 
                         auto job_after = &jobs[job_index];
@@ -576,7 +600,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             resolve_struct_definition.scope
                         );
                         if(!result.status) {
-                            return false;
+                            return err();
                         }
 
                         auto job_after = &jobs[job_index];
@@ -607,7 +631,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             resolve_polymorphic_struct.scope
                         );
                         if(!result.status) {
-                            return false;
+                            return err();
                         }
 
                         auto job_after = &jobs[job_index];
@@ -638,7 +662,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             generate_function.function
                         );
                         if(!result.status) {
-                            return false;
+                            return err();
                         }
 
                         auto job_after = &jobs[job_index];
@@ -646,24 +670,24 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         if(result.has_value) {
                             job_after->state = JobState::Done;
 
-                            append(&runtime_statics, (RuntimeStatic*)job_after->generate_function.function);
+                            runtime_statics.append(job_after->generate_function.function);
 
                             for(auto static_constant : result.value) {
-                                append(&runtime_statics, (RuntimeStatic*)static_constant);
+                                runtime_statics.append(static_constant);
                             }
 
                             if(job_after->generate_function.function->is_external) {
                                 for(auto library : job_after->generate_function.function->libraries) {
                                     auto already_registered = false;
                                     for(auto registered_library : libraries) {
-                                        if(strcmp(registered_library, library) == 0) {
+                                        if(registered_library == library) {
                                             already_registered = true;
                                             break;
                                         }
                                     }
 
                                     if(!already_registered) {
-                                        append(&libraries, library);
+                                        libraries.append(library);
                                     }
                                 }
                             }
@@ -677,12 +701,12 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         total_generator_time += end_time - start_time;
 
                         if(job_after->state == JobState::Done && print_ir) {
-                            printf("%s:\n", job_after->generate_function.function->path);
-                            print_static(job_after->generate_function.function);
+                            printf("%.*s:\n", STRING_PRINTF_ARGUMENTS(job_after->generate_function.function->path));
+                            job_after->generate_function.function->print();
                             printf("\n");
 
                             for(auto static_constant : result.value) {
-                                print_static(static_constant);
+                                static_constant->print();
                                 printf("\n");
                             }
                         }
@@ -700,7 +724,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             generate_static_variable.scope
                         );
                         if(!result.status) {
-                            return false;
+                            return err();
                         }
 
                         auto job_after = &jobs[job_index];
@@ -710,20 +734,20 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                             job_after->generate_static_variable.static_variable = result.value.static_variable;
                             job_after->generate_static_variable.type = result.value.type;
 
-                            append(&runtime_statics, (RuntimeStatic*)result.value.static_variable);
+                            runtime_statics.append((RuntimeStatic*)result.value.static_variable);
 
                             if(job_after->generate_static_variable.static_variable->is_external) {
                                 for(auto library : job_after->generate_static_variable.static_variable->libraries) {
                                     auto already_registered = false;
                                     for(auto registered_library : libraries) {
-                                        if(strcmp(registered_library, library) == 0) {
+                                        if(registered_library == library) {
                                             already_registered = true;
                                             break;
                                         }
                                     }
 
                                     if(!already_registered) {
-                                        append(&libraries, library);
+                                        libraries.append(library);
                                     }
                                 }
                             }
@@ -737,8 +761,8 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                         total_generator_time += end_time - start_time;
 
                         if(job_after->state == JobState::Done &&print_ir) {
-                            printf("%s:\n", get_scope_file_path(*job_after->generate_static_variable.scope));
-                            print_static(result.value.static_variable);
+                            printf("%.*s:\n", STRING_PRINTF_ARGUMENTS(get_scope_file_path(*job_after->generate_static_variable.scope)));
+                            result.value.static_variable->print();
                             printf("\n");
                         }
                     } break;
@@ -778,7 +802,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                 nullptr
             );
             if(!result.status) {
-                return false;
+                return err();
             }
 
             if(!result.has_value) {
@@ -793,37 +817,37 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             if(!result.value.found) {
                 fprintf(stderr, "Error: Cannot find 'main'\n");
 
-                return false;
+                return err();
             }
 
             if(result.value.type.kind != TypeKind::FunctionTypeType) {
-                fprintf(stderr, "Error: 'main' must be a function. Got '%s'\n", type_description(result.value.type));
+                fprintf(stderr, "Error: 'main' must be a function. Got '%.*s'\n", STRING_PRINTF_ARGUMENTS(result.value.type.get_description()));
 
-                return false;
+                return err();
             }
 
             auto function_type = result.value.type.function;
 
             auto function_value = unwrap_function_constant(result.value.value);
 
-            if(function_type.parameters.count != 0) {
+            if(function_type.parameters.length != 0) {
                 error(scope, function_value.declaration->range, "'main' must have zero parameters");
 
-                return false;
+                return err();
             }
 
             auto expected_main_return_integer = wrap_integer_type({ RegisterSize::Size32, true });
 
-            if(!types_equal(*function_type.return_type, expected_main_return_integer)) {
+            if(*function_type.return_type != expected_main_return_integer) {
                 error(
                     scope,
                     function_value.declaration->range,
-                    "Incorrect 'main' return type. Expected '%s', got '%s'",
-                    type_description(expected_main_return_integer),
-                    type_description(*function_type.return_type)
+                    "Incorrect 'main' return type. Expected '%.*s', got '%.*s'",
+                    STRING_PRINTF_ARGUMENTS(expected_main_return_integer.get_description()),
+                    STRING_PRINTF_ARGUMENTS(function_type.return_type->get_description())
                 );
 
-                return false;
+                return err();
             }
 
             auto found = false;
@@ -832,7 +856,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
                     auto generate_function = job.generate_function;
 
                     if(
-                        types_equal(wrap_function_type(generate_function.type), wrap_function_type(function_type)) &&
+                        wrap_function_type(generate_function.type) == wrap_function_type(function_type) &&
                         generate_function.value.declaration == function_value.declaration &&
                         generate_function.value.body_scope == function_value.body_scope
                     ) {
@@ -865,7 +889,7 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
         for(auto job : jobs) {
             if(job.state != JobState::Done) {
-                ConstantScope *scope;
+                ConstantScope* scope;
                 FileRange range;
                 switch(job.kind) {
                     case JobKind::ParseFile: {
@@ -935,44 +959,49 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
             }
         }
 
-        return false;
+        return err();
     }
 
     auto output_file_directory = path_get_directory_component(output_file_path);
 
-    const char *object_file_path;
+    String object_file_path;
     if(no_link) {
         object_file_path = output_file_path;
     } else {
         auto full_name = path_get_file_component(output_file_path);
 
-        auto dot_pointer = strchr(full_name, '.');
+        auto found_dot = false;
+        size_t dot_index;
+        for(size_t i = 0; i < full_name.length; i += 1) {
+            if(full_name[i] == '.') {
+                found_dot = true;
+                dot_index = i;
+                break;
+            }
+        }
 
-        const char *output_file_name;
-        if(dot_pointer == nullptr) {
+        String output_file_name;
+        if(!found_dot) {
             output_file_name = full_name;
         } else {
-            auto length = (size_t)dot_pointer - (size_t)full_name;
+            auto length = dot_index - full_name.length;
 
             if(length == 0) {
-                output_file_name = "out";
+                output_file_name = "out"_S;
             } else {
-                auto buffer = allocate<char>(length + 1);
-
-                memcpy(buffer, full_name, length);
-                buffer[length] = 0;
-
-                output_file_name = buffer;
+                output_file_name = {};
+                output_file_name.elements = full_name.elements;
+                output_file_name.length = length;
             }
         }
 
         StringBuffer buffer {};
 
-        string_buffer_append(&buffer, output_file_directory);
-        string_buffer_append(&buffer, output_file_name);
-        string_buffer_append(&buffer, ".o");
+        buffer.append(output_file_directory);
+        buffer.append(output_file_name);
+        buffer.append(".o"_S);
 
-        object_file_path = buffer.data;
+        object_file_path = buffer;
     }
 
     uint64_t backend_time;
@@ -980,26 +1009,26 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
     {
         List<String> reserved_names {};
 
-        if(strcmp(os, "emscripten") == 0) {
-            append(&reserved_names, "main"_S);
+        if(os == "emscripten"_S) {
+            reserved_names.append("main"_S);
         } else {
-            append(&reserved_names, "entry"_S);
+            reserved_names.append("entry"_S);
         }
 
-        if(strcmp(os, "windows") == 0) {
-            append(&reserved_names, "_fltused"_S);
-            append(&reserved_names, "__chkstk"_S);
+        if(os == "windows"_S) {
+            reserved_names.append("_fltused"_S);
+            reserved_names.append("__chkstk"_S);
         }
 
         auto start_time = get_timer_counts();
 
         expect(name_mappings, generate_llvm_object(
-            to_array(runtime_statics),
+            runtime_statics,
             architecture,
             os,
             config,
             object_file_path,
-            to_array(reserved_names)
+            reserved_names
         ));
 
         auto found = false;
@@ -1024,97 +1053,97 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
 
         StringBuffer command_buffer {};
 
-        const char *frontend;
-        if(strcmp(os, "emscripten") == 0) {
-            frontend = "emcc";
+        String frontend;
+        if(os == "emscripten"_S) {
+            frontend = "emcc"_S;
         } else {
-            frontend = "clang";
+            frontend = "clang"_S;
         }
 
-        const char *linker_options;
-        if(strcmp(os, "windows") == 0) {
-            if(strcmp(config, "debug") == 0) {
-                linker_options = "/entry:entry,/DEBUG,/SUBSYSTEM:CONSOLE";
-            } else if(strcmp(config, "release") == 0) {
-                linker_options = "/entry:entry,/SUBSYSTEM:CONSOLE";
+        String linker_options;
+        if(os == "windows"_S) {
+            if(config == "debug"_S) {
+                linker_options = "/entry:entry,/DEBUG,/SUBSYSTEM:CONSOLE"_S;
+            } else if(config == "release"_S) {
+                linker_options = "/entry:entry,/SUBSYSTEM:CONSOLE"_S;
             } else {
                 abort();
             }
-        } else if(strcmp(os, "emscripten") == 0) {
-            linker_options = nullptr;
+        } else if(os == "emscripten"_S) {
+            linker_options = ""_S;
         } else {
-            linker_options = "--entry=entry";
+            linker_options = "--entry=entry"_S;
         }
 
         auto triple = get_llvm_triple(architecture, os);
 
-        string_buffer_append(&command_buffer, frontend);
+        command_buffer.append(frontend);
 
-        string_buffer_append(&command_buffer, " -nostdlib -fuse-ld=lld --target=");
+        command_buffer.append(" -nostdlib -fuse-ld=lld --target="_S);
 
-        string_buffer_append(&command_buffer, triple);
+        command_buffer.append(triple);
 
-        if(linker_options != nullptr) {
-            string_buffer_append(&command_buffer, " -Wl,"); 
-            string_buffer_append(&command_buffer, linker_options);
+        if(linker_options.length != 0) {
+            command_buffer.append(" -Wl,"_S); 
+            command_buffer.append(linker_options);
         }
 
-        string_buffer_append(&command_buffer, " -o");
-        string_buffer_append(&command_buffer, output_file_path);
+        command_buffer.append(" -o"_S);
+        command_buffer.append(output_file_path);
         
         for(auto library : libraries) {
-            string_buffer_append(&command_buffer, " -l");
-            string_buffer_append(&command_buffer, library);
+            command_buffer.append(" -l"_S);
+            command_buffer.append(library);
         }
 
-        if(strcmp(os, "emscripten") == 0) {
-            string_buffer_append(&command_buffer, " -lcompiler_rt");
+        if(os == "emscripten"_S) {
+            command_buffer.append(" -lcompiler_rt"_S);
         }
 
-        string_buffer_append(&command_buffer, " ");
-        string_buffer_append(&command_buffer, object_file_path);
+        command_buffer.append(" "_S);
+        command_buffer.append(object_file_path);
 
         auto executable_path = get_executable_path();
         auto executable_directory = path_get_directory_component(executable_path);
 
         StringBuffer runtime_command_buffer {};
 
-        string_buffer_append(&runtime_command_buffer, "clang -std=gnu99 -ffreestanding -nostdinc -c -target ");
+        runtime_command_buffer.append("clang -std=gnu99 -ffreestanding -nostdinc -c -target "_S);
 
-        string_buffer_append(&runtime_command_buffer, triple);
+        runtime_command_buffer.append(triple);
 
-        string_buffer_append(&runtime_command_buffer, " -DMAIN=");
-        string_buffer_append(&runtime_command_buffer, main_function_name);
+        runtime_command_buffer.append(" -DMAIN="_S);
+        runtime_command_buffer.append(main_function_name);
         
-        string_buffer_append(&runtime_command_buffer, " -o ");
-        string_buffer_append(&runtime_command_buffer, output_file_directory);
-        string_buffer_append(&runtime_command_buffer, "runtime.o ");
+        runtime_command_buffer.append(" -o "_S);
+        runtime_command_buffer.append(output_file_directory);
+        runtime_command_buffer.append("runtime.o "_S);
 
-        string_buffer_append(&runtime_command_buffer, executable_directory);
-        string_buffer_append(&runtime_command_buffer, "runtime_");
-        string_buffer_append(&runtime_command_buffer, os);
-        string_buffer_append(&runtime_command_buffer, "_");
-        string_buffer_append(&runtime_command_buffer, architecture);
-        string_buffer_append(&runtime_command_buffer, ".c");
+        runtime_command_buffer.append(executable_directory);
+        runtime_command_buffer.append("runtime_"_S);
+        runtime_command_buffer.append(os);
+        runtime_command_buffer.append("_"_S);
+        runtime_command_buffer.append(architecture);
+        runtime_command_buffer.append(".c"_S);
 
         enter_region("clang");
-        if(system(runtime_command_buffer.data) != 0) {
+        if(system(runtime_command_buffer.to_c_string()) != 0) {
             fprintf(stderr, "Error: 'clang' returned non-zero while compiling runtime\n");
 
-            return false;
+            return err();
         }
         leave_region();
 
-        string_buffer_append(&command_buffer, " ");
-        string_buffer_append(&command_buffer, output_file_directory);
-        string_buffer_append(&command_buffer, "runtime.o");
+        command_buffer.append(" "_S);
+        command_buffer.append(output_file_directory);
+        command_buffer.append("runtime.o"_S);
 
         enter_region("linker");
 
-        if(system(command_buffer.data) != 0) {
-            fprintf(stderr, "Error: '%s' returned non-zero while linking\n", frontend);
+        if(system(command_buffer.to_c_string()) != 0) {
+            fprintf(stderr, "Error: '%.*s' returned non-zero while linking\n", STRING_PRINTF_ARGUMENTS(frontend));
 
-            return false;
+            return err();
         }
 
         leave_region();
@@ -1138,15 +1167,19 @@ static_profiled_function(bool, cli_entry, (Array<const char*> arguments), (argum
         printf("  Linker time: %.2fms\n", (double)linker_time / counts_per_second * 1000);
     }
 
-    return true;
+    return ok();
 }
 
-int main(int argument_count, const char *arguments[]) {
+int main(int argument_count, const char* arguments[]) {
 #if defined(PROFILING)
     init_profiler();
 #endif
 
-    if(cli_entry({ (size_t)argument_count, arguments })) {
+    Array<const char*> arguments_array {};
+    arguments_array.length = (size_t)argument_count;
+    arguments_array.elements = arguments;
+
+    if(cli_entry(arguments_array).status) {
 #if defined(PROFILING)
         dump_profile();
 #endif

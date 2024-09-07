@@ -1,7 +1,7 @@
 # Simple Compiler
 A toy compiler handwritten in a weird subset of C++.
 
-The language is a staticly typed, low-level systems programming language very similar to Jonathan Blow's Jai. It is compiled to an internal IR, then LLVM is used to generate native machine code. 
+The language is a staticly typed, low-level systems programming language. It is compiled to an internal IR, then LLVM is used to generate native machine code.
 
 The compiler currently requires clang for compiling the runtime/bootstrap code and lld for linking.
 
@@ -10,7 +10,7 @@ The profiler trace logs are viewable with [speedscope](https://www.speedscope.ap
 
 ## Building
 1. Install LLVM 11 or higher (including clang and lld)
-1. Install CMake
+1. Install CMake 3.21 or higher
 1. Install target development depndencies
     - __(Windows)__ Install the Windows SDK (Only tested on Windows 10)
     - __(Linux)__ No development libraries are needed
