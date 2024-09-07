@@ -12,9 +12,11 @@ set(LLVM_INCLUDE_TESTS OFF)
 set(LLVM_INCLUDE_EXAMPLES OFF)
 set(LLVM_INCLUDE_DOCS OFF)
 set(LLVM_INCLUDE_BENCHMARKS OFF)
+set(LLVM_INCLUDE_RUNTIMES OFF)
+set(LLVM_INCLUDE_UTILS OFF)
 set(LLVM_TARGETS_TO_BUILD X86;WebAssembly)
 
-add_subdirectory(thirdparty/llvm)
+add_subdirectory(thirdparty/llvm-project/llvm)
 
 # Because CMake won't actually tell me where the output directory is in any variables or target properties, they're all blank, I hate this
 if(CMAKE_CONFIGURATION_TYPES)
@@ -95,7 +97,7 @@ if(PROFILING)
     target_compile_definitions(compiler PRIVATE PROFILING)
 endif()
 target_link_libraries(compiler PRIVATE LLVMCore LLVMAnalysis LLVMX86CodeGen LLVMWebAssemblyCodeGen)
-target_include_directories(compiler PRIVATE thirdparty/llvm/include "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/llvm/include")
+target_include_directories(compiler PRIVATE thirdparty/llvm-project/llvm/include "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/llvm-project/llvm/include")
 add_dependencies(compiler copy_runtimes)
 
 add_executable(test_driver
