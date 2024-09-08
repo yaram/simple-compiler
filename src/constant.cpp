@@ -396,10 +396,10 @@ Result<AnyType> determine_binary_operation_type(ConstantScope* scope, FileRange 
 
         auto is_either_signed = left_integer.is_signed || right_integer.is_signed;
 
-        return ok(wrap_integer_type({
+        return ok(wrap_integer_type(Integer(
             largest_size,
             is_either_signed
-        }));
+        )));
     } else if(left.kind == TypeKind::FloatType && right.kind == TypeKind::FloatType) {
         auto left_float = left.float_;
         auto right_float = right.float_;
@@ -411,9 +411,9 @@ Result<AnyType> determine_binary_operation_type(ConstantScope* scope, FileRange 
             largest_size = right_float.size;
         }
 
-        return ok(wrap_float_type({
+        return ok(wrap_float_type(FloatType(
             largest_size
-        }));
+        )));
     } else if(left.kind == TypeKind::FloatType) {
         return ok(left);
     } else if(right.kind == TypeKind::FloatType) {
@@ -1189,14 +1189,14 @@ Result<AnyConstantValue> evaluate_constant_cast(
 
 Result<AnyType> coerce_to_default_type(GlobalInfo info, ConstantScope* scope, FileRange range, AnyType type) {
     if(type.kind == TypeKind::UndeterminedInteger) {
-        return ok(wrap_integer_type({
+        return ok(wrap_integer_type(Integer(
             info.architecture_sizes.default_integer_size,
             true
-        }));
+        )));
     } else if(type.kind == TypeKind::UndeterminedFloat) {
-        return ok(wrap_float_type({
+        return ok(wrap_float_type(FloatType(
             info.architecture_sizes.default_float_size
-        }));
+        )));
     } else if(type.kind == TypeKind::UndeterminedStruct) {
         error(scope, range, "Undetermined struct types cannot exist at runtime");
 
@@ -1278,10 +1278,10 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
                 if(parameter.is_constant || parameter.is_polymorphic_determiner) {
                     return ok(TypedConstantValue(
                         create_polymorphic_function_type(),
-                        wrap_polymorphic_function_constant({
+                        wrap_polymorphic_function_constant(PolymorphicFunctionConstant(
                             function_declaration,
                             scope
-                        })
+                        ))
                     ));
                 }
             }
@@ -1372,9 +1372,9 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
                         if(job.state == JobState::Done) {
                             return ok(TypedConstantValue(
                                 create_file_module_type(),
-                                wrap_file_module_constant({
+                                wrap_file_module_constant(FileModuleConstant(
                                     parse_file.scope
-                                })
+                                ))
                             ));
                         } else {
                             return wait(i);
@@ -1834,17 +1834,17 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
             if(member_reference->name.text == "length"_S) {
                 return ok(TypedConstantValue(
-                    wrap_integer_type({
+                    wrap_integer_type(Integer(
                         info.architecture_sizes.address_size,
                         false
-                    }),
+                    )),
                     wrap_integer_constant(array_value.length)
                 ));
             } else if(member_reference->name.text == "pointer"_S) {
                 return ok(TypedConstantValue(
-                    wrap_pointer_type({
+                    wrap_pointer_type(Pointer(
                         array_type.element_type
-                    }),
+                    )),
                     wrap_pointer_constant(array_value.pointer)
                 ));
             } else {
@@ -1857,10 +1857,10 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
             if(member_reference->name.text == "length"_S) {
                 return ok(TypedConstantValue(
-                    wrap_integer_type({
+                    wrap_integer_type(Integer(
                         info.architecture_sizes.address_size,
                         false
-                    }),
+                    )),
                     wrap_integer_constant(static_array.length)
                 ));
             } else if(member_reference->name.text == "pointer"_S) {
@@ -1981,16 +1981,16 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         }
 
         return ok(TypedConstantValue(
-            wrap_static_array_type({
+            wrap_static_array_type(StaticArray(
                 character_count,
-                heapify(wrap_integer_type({
+                heapify(wrap_integer_type(Integer(
                     RegisterSize::Size8,
                     false
-                }))
-            }),
-            wrap_static_array_constant({
+                )))
+            )),
+            wrap_static_array_constant(StaticArrayConstant(
                 characters
-            })
+            ))
         ));
     } else if(expression->kind == ExpressionKind::ArrayLiteral) {
         auto array_literal = (ArrayLiteral*)expression;
@@ -2033,13 +2033,13 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         }
 
         return ok(TypedConstantValue(
-            wrap_static_array_type({
+            wrap_static_array_type(StaticArray(
                 element_count,
                 heapify(determined_element_type)
-            }),
-            wrap_static_array_constant({
+            )),
+            wrap_static_array_constant(StaticArrayConstant(
                 elements
-            })
+            ))
         ));
     } else if(expression->kind == ExpressionKind::StructLiteral) {
         auto struct_literal = (StructLiteral*)expression;
@@ -2077,15 +2077,15 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         }
 
         return ok(TypedConstantValue(
-            wrap_undetermined_struct_type({
+            wrap_undetermined_struct_type(UndeterminedStruct(
                 {
                     member_count,
                     members
                 }
-            }),
-            wrap_struct_constant({
+            )),
+            wrap_struct_constant(StructConstant(
                 member_values
-            })
+            ))
         ));
     } else if(expression->kind == ExpressionKind::FunctionCall) {
         auto function_call = (FunctionCall*)expression;
@@ -2124,10 +2124,10 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 auto size = type.get_size(info.architecture_sizes);
 
                 return ok(TypedConstantValue(
-                    wrap_integer_type({
+                    wrap_integer_type(Integer(
                         info.architecture_sizes.address_size,
                         false
-                    }),
+                    )),
                     wrap_integer_constant(size)
                 ));
             } else if(builtin_function_value.name == "type_of"_S) {
@@ -2276,11 +2276,11 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
                     return ok(TypedConstantValue(
                         create_type_type(),
-                        wrap_type_constant({
-                            wrap_pointer_type({
+                        wrap_type_constant(
+                            wrap_pointer_type(Pointer(
                                 heapify(type)
-                            })
-                        })
+                            ))
+                        )
                     ));
                 } else {
                     error(scope, unary_operation->range, "Cannot take pointers at constant time");
@@ -2507,21 +2507,21 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
             return ok(TypedConstantValue(
                 create_type_type(),
-                wrap_type_constant({
-                    wrap_static_array_type({
+                wrap_type_constant(
+                    wrap_static_array_type(StaticArray(
                         length,
                         heapify(type)
-                    })
-                })
+                    ))
+                )
             ));
         } else {
             return ok(TypedConstantValue(
                 create_type_type(),
-                wrap_type_constant({
-                    wrap_array_type({
+                wrap_type_constant(
+                    wrap_array_type(ArrayTypeType(
                         heapify(type)
-                    })
-                })
+                    ))
+                )
             ));
         }
     } else if(expression->kind == ExpressionKind::FunctionType) {
@@ -2610,16 +2610,13 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
         return ok(TypedConstantValue(
             create_type_type(),
-            wrap_type_constant({
-                wrap_function_type({
-                    {
-                        parameter_count,
-                        parameters
-                    },
+            wrap_type_constant(
+                wrap_function_type(FunctionTypeType(
+                    Array(parameter_count, parameters),
                     heapify(return_type),
                     calling_convention
-                })
-            })
+                ))
+            )
         ));
     } else {
         abort();
@@ -2799,13 +2796,13 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
 
         return ok(TypedConstantValue(
             create_type_type(),
-            wrap_type_constant({
-                wrap_function_type({
-                    { parameter_count, parameter_types },
+            wrap_type_constant(
+                wrap_function_type(FunctionTypeType(
+                    Array(parameter_count, parameter_types),
                     heapify(return_type),
                     calling_convention
-                })
-            })
+                ))
+            )
         ));
     } else {
         auto body_scope = new ConstantScope;
@@ -2846,11 +2843,11 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
         }
 
         return ok(TypedConstantValue(
-            wrap_function_type({
-                { parameter_count, parameter_types },
+            wrap_function_type(FunctionTypeType(
+                Array(parameter_count, parameter_types),
                 heapify(return_type),
                 calling_convention
-            }),
+            )),
             wrap_function_constant(function_constant)
         ));
     }
@@ -3084,11 +3081,11 @@ profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
             parameter_types[i] = type;
         }
 
-        return ok(wrap_polymorphic_struct_type({
+        return ok(wrap_polymorphic_struct_type(PolymorphicStruct(
             struct_definition,
             parameter_types,
             scope
-        }));
+        )));
     }
 
     ConstantScope member_scope;
@@ -3125,13 +3122,10 @@ profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
         };
     }
 
-    return ok(wrap_struct_type({
+    return ok(wrap_struct_type(StructType(
         struct_definition,
-        {
-            member_count,
-            members
-        }
-    }));
+        Array(member_count, members)
+    )));
 }
 
 profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
@@ -3165,7 +3159,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
     ConstantScope member_scope;
     member_scope.statements = {};
     member_scope.declarations = {};
-    member_scope.scope_constants = { parameter_count, constant_parameters };
+    member_scope.scope_constants = Array(parameter_count, constant_parameters);
     member_scope.is_top_level = false;
     member_scope.parent = scope;
 
@@ -3196,13 +3190,10 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
         };
     }
 
-    return ok(wrap_struct_type({
+    return ok(wrap_struct_type(StructType(
         struct_definition,
-        {
-            member_count,
-            members
-        }
-    }));
+        Array(member_count, members)
+    )));
 }
 
 profiled_function(Result<void>, process_scope, (

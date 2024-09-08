@@ -13,6 +13,21 @@ struct ConstantScope;
 struct AnyConstantValue;
 
 struct FunctionConstant {
+    inline FunctionConstant() = default;
+    inline FunctionConstant(
+        FunctionDeclaration* declaration,
+        bool is_external,
+        Array<String> external_libraries,
+        ConstantScope* body_scope,
+        Array<ConstantScope*> child_scopes
+    ) :
+        declaration(declaration),
+        is_external(is_external),
+        external_libraries(external_libraries),
+        body_scope(body_scope),
+        child_scopes(child_scopes)
+    {}
+
     FunctionDeclaration* declaration;
 
     bool is_external;
@@ -25,29 +40,47 @@ struct FunctionConstant {
 };
 
 struct PolymorphicFunctionConstant {
+    inline PolymorphicFunctionConstant() = default;
+    inline PolymorphicFunctionConstant(FunctionDeclaration* declaration, ConstantScope* scope) : declaration(declaration), scope(scope) {}
+
     FunctionDeclaration* declaration;
     ConstantScope* scope;
 };
 
 struct BuiltinFunctionConstant {
+    inline BuiltinFunctionConstant() = default;
+    inline BuiltinFunctionConstant(String name) : name(name) {}
+
     String name;
 };
 
 struct ArrayConstant {
+    inline ArrayConstant() = default;
+    inline ArrayConstant(uint64_t length, uint64_t pointer) : length(length), pointer(pointer) {}
+
     uint64_t length;
 
     uint64_t pointer;
 };
 
 struct StaticArrayConstant {
+    inline StaticArrayConstant() = default;
+    inline StaticArrayConstant(AnyConstantValue* elements) : elements(elements) {}
+
     AnyConstantValue* elements;
 };
 
 struct StructConstant {
+    inline StructConstant() = default;
+    inline StructConstant(AnyConstantValue* members) : members(members) {}
+
     AnyConstantValue* members;
 };
 
 struct FileModuleConstant {
+    inline FileModuleConstant() = default;
+    inline FileModuleConstant(ConstantScope* scope) : scope(scope) {}
+
     ConstantScope* scope;
 };
 
@@ -373,7 +406,7 @@ struct DelayedResultWaitHelper {
 
     template <typename T>
     inline operator DelayedResult<T>() {
-        DelayedResult<T> result {};
+        DelayedResult<T> result;
         result.has_value = false;
         result.waiting_for = waiting_for;
         return result;

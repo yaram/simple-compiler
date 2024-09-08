@@ -4,6 +4,9 @@
 
 template <typename T>
 struct Array {
+    inline Array() = default;
+    inline Array(size_t length, T* elements) : length(length), elements(elements) {}
+
     size_t length;
     T* elements;
 

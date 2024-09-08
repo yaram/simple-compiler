@@ -10,6 +10,11 @@ struct AnyType;
 struct StructTypeMember;
 
 struct FunctionTypeType {
+    inline FunctionTypeType() = default;
+    inline FunctionTypeType(Array<AnyType> parameters, AnyType* return_type, CallingConvention calling_convention) :
+        parameters(parameters), return_type(return_type), calling_convention(calling_convention)
+    {}
+
     Array<AnyType> parameters;
 
     AnyType* return_type;
@@ -18,30 +23,48 @@ struct FunctionTypeType {
 };
 
 struct Integer {
+    inline Integer() = default;
+    inline Integer(RegisterSize size, bool is_signed) : size(size), is_signed(is_signed) {}
+
     RegisterSize size;
 
     bool is_signed;
 };
 
 struct FloatType {
+    inline FloatType() = default;
+    inline FloatType(RegisterSize size) : size(size) {}
+
     RegisterSize size;
 };
 
 struct Pointer {
+    inline Pointer() = default;
+    inline Pointer(AnyType* type) : type(type) {}
+
     AnyType* type;
 };
 
 struct ArrayTypeType {
+    inline ArrayTypeType() = default;
+    inline ArrayTypeType(AnyType* element_type) : element_type(element_type) {}
+
     AnyType* element_type;
 };
 
 struct StaticArray {
+    inline StaticArray() = default;
+    inline StaticArray(size_t length, AnyType* element_type) : length(length), element_type(element_type) {}
+
     size_t length;
 
     AnyType* element_type;
 };
 
 struct StructType {
+    inline StructType() = default;
+    inline StructType(StructDefinition* definition, Array<StructTypeMember> members) : definition(definition), members(members) {}
+
     StructDefinition* definition;
 
     Array<StructTypeMember> members;
@@ -52,6 +75,11 @@ struct StructType {
 };
 
 struct PolymorphicStruct {
+    inline PolymorphicStruct() = default;
+    inline PolymorphicStruct(StructDefinition* definition, AnyType* parameter_types, ConstantScope* parent) :
+        definition(definition), parameter_types(parameter_types), parent(parent)
+    {}
+
     StructDefinition* definition;
 
     AnyType* parameter_types;
@@ -60,6 +88,9 @@ struct PolymorphicStruct {
 };
 
 struct UndeterminedStruct {
+    inline UndeterminedStruct() = default;
+    inline UndeterminedStruct(Array<StructTypeMember> members) : members(members) {}
+
     Array<StructTypeMember> members;
 };
 

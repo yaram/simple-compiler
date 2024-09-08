@@ -117,6 +117,8 @@ Result<LLVMCallConv> get_llvm_calling_convention(
 }
 
 struct Register {
+    inline Register(size_t index, LLVMValueRef value) : index(index), value(value) {}
+
     size_t index;
 
     LLVMValueRef value;
@@ -140,6 +142,8 @@ LLVMValueRef get_register_value(Function function, LLVMValueRef function_value, 
 }
 
 struct InstructionBlock {
+    inline InstructionBlock(Instruction* instruction, LLVMBasicBlockRef block) : instruction(instruction), block(block) {}
+
     Instruction* instruction;
 
     LLVMBasicBlockRef block;
@@ -150,10 +154,10 @@ static void register_instruction_block(List<InstructionBlock>* blocks, LLVMValue
     block_name.append("block_"_S);
     block_name.append_integer(blocks->length);
 
-    blocks->append({
+    blocks->append(InstructionBlock(
         instruction,
         LLVMAppendBasicBlock(function, block_name.to_c_string())
-    });
+    ));
 }
 
 static void maybe_register_instruction_block(List<InstructionBlock>* blocks, LLVMValueRef function, Instruction* instruction) {
@@ -212,10 +216,11 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 }
             }
 
-            name_mappings.append({
-                runtime_static,
-                runtime_static->name
-            });
+            NameMapping mapping {};
+            mapping.runtime_static = runtime_static;
+            mapping.name = runtime_static->name;
+
+            name_mappings.append(mapping);
         }
     }
 
@@ -251,10 +256,11 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     name_buffer.length = 0;
                     number += 1;
                 } else {
-                    name_mappings.append({
-                        runtime_static,
-                        name_buffer
-                    });
+                    NameMapping mapping {};
+                    mapping.runtime_static = runtime_static;
+                    mapping.name = name_buffer;
+
+                    name_mappings.append(mapping);
 
                     break;
                 }
@@ -414,10 +420,11 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         LLVMSetAlignment(pointer_value, (unsigned int)allocate_local->alignment);
 
-                        locals.append({
-                            allocate_local,
-                            pointer_value
-                        });
+                        Local local {};
+                        local.allocate_local = allocate_local;
+                        local.pointer_value = pointer_value;
+
+                        locals.append(local);
                     }
                 }
 
@@ -493,10 +500,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             } break;
                         }
 
-                        registers.append({
+                        registers.append(Register(
                             integer_arithmetic_operation->destination_register,
                             value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::IntegerComparisonOperation) {
                         auto integer_comparison_operation = (IntegerComparisonOperation*)instruction;
 
@@ -553,10 +560,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto extended_value = LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend");
 
-                        registers.append({
+                        registers.append(Register(
                             integer_comparison_operation->destination_register,
                             extended_value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::IntegerExtension) {
                         auto integer_extension = (IntegerExtension*)instruction;
 
@@ -569,10 +576,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             value = LLVMBuildZExt(builder, source_value, get_llvm_integer_type(integer_extension->destination_size), "extend");
                         }
 
-                        registers.append({
+                        registers.append(Register(
                             integer_extension->destination_register,
                             value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::IntegerTruncation) {
                         auto integer_truncation = (IntegerTruncation*)instruction;
 
@@ -583,19 +590,19 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             "truncate"
                         );
 
-                        registers.append({
+                        registers.append(Register(
                             integer_truncation->destination_register,
                             value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::IntegerConstantInstruction) {
                         auto integer_constant = (IntegerConstantInstruction*)instruction;
 
                         auto value = LLVMConstInt(get_llvm_integer_type(integer_constant->size), integer_constant->value, false);
 
-                        registers.append({
+                        registers.append(Register(
                             integer_constant->destination_register,
                             value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::FloatArithmeticOperation) {
                         auto float_arithmetic_operation = (FloatArithmeticOperation*)instruction;
 
@@ -625,10 +632,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             } break;
                         }
 
-                        registers.append({
+                        registers.append(Register(
                             float_arithmetic_operation->destination_register,
                             value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::FloatComparisonOperation) {
                         auto float_comparison_operation = (FloatComparisonOperation*)instruction;
 
@@ -662,10 +669,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto extended_value = LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend");
 
-                        registers.append({
+                        registers.append(Register(
                             float_comparison_operation->destination_register,
                             extended_value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::FloatConversion) {
                         auto float_conversion = (FloatConversion*)instruction;
 
@@ -673,10 +680,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildFPCast(builder, source_value, get_llvm_float_type(float_conversion->destination_size), "float_conversion");
 
-                        registers.append({
+                        registers.append(Register(
                             float_conversion->destination_register,
                             value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::FloatTruncation) {
                         auto float_truncation = (FloatTruncation*)instruction;
 
@@ -684,10 +691,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildFPToSI(builder, source_value, get_llvm_integer_type(float_truncation->destination_size), "float_truncation");
 
-                        registers.append({
+                        registers.append(Register(
                             float_truncation->destination_register,
                             value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::FloatFromInteger) {
                         auto float_from_integer = (FloatFromInteger*)instruction;
 
@@ -700,19 +707,19 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildSIToFP(builder, source_value, get_llvm_float_type(float_from_integer->destination_size), "float_from_integer");
 
-                        registers.append({
+                        registers.append(Register(
                             float_from_integer->destination_register,
                             value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::FloatConstantInstruction) {
                         auto float_constant = (FloatConstantInstruction*)instruction;
 
                         auto value = LLVMConstReal(get_llvm_float_type(float_constant->size), float_constant->value);
 
-                        registers.append({
+                        registers.append(Register(
                             float_constant->destination_register,
                             value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::Jump) {
                         auto jump = (Jump*)instruction;
 
@@ -797,10 +804,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         LLVMSetInstructionCallConv(value, calling_convention);
 
                         if(function_call->has_return) {
-                            registers.append({
+                            registers.append(Register(
                                 function_call->return_register,
                                 value
-                            });
+                            ));
                         }
                     } else if(instruction->kind == InstructionKind::ReturnInstruction) {
                         auto return_instruction = (ReturnInstruction*)instruction;
@@ -831,10 +838,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto address_value = LLVMBuildPtrToInt(builder, pointer_value, get_llvm_integer_type(architecture_sizes.address_size), "local_address");
 
-                        registers.append({
+                        registers.append(Register(
                             allocate_local->destination_register,
                             address_value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::LoadInteger) {
                         auto load_integer = (LoadInteger*)instruction;
 
@@ -848,10 +855,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildLoad2(builder, integer_type, pointer_value, "load_integer");
 
-                        registers.append({
+                        registers.append(Register(
                             load_integer->destination_register,
                             value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::StoreInteger) {
                         auto store_integer = (StoreInteger*)instruction;
 
@@ -882,10 +889,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto value = LLVMBuildLoad2(builder, float_type, pointer_value, "load_float");
 
-                        registers.append({
+                        registers.append(Register(
                             load_float->destination_register,
                             value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::StoreFloat) {
                         auto store_float = (StoreFloat*)instruction;
 
@@ -915,10 +922,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto address_value = LLVMBuildPtrToInt(builder, global_value, get_llvm_integer_type(architecture_sizes.address_size), "static_address");
 
-                        registers.append({
+                        registers.append(Register(
                             reference_static->destination_register,
                             address_value
-                        });
+                        ));
                     } else if(instruction->kind == InstructionKind::CopyMemory) {
                         auto copy_memory = (CopyMemory*)instruction;
 

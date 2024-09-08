@@ -14,14 +14,14 @@ struct Result<void> {
 
 template <typename T>
 inline Result<T> ok(T value) {
-    Result<T> result {};
+    Result<T> result;
     result.status = true;
     result.value = value;
     return result;
 }
 
 inline Result<void> ok() {
-    Result<void> result {};
+    Result<void> result;
     result.status = true;
     return result;
 }
@@ -29,7 +29,7 @@ inline Result<void> ok() {
 struct ResultErrorHelper {
     template <typename T>
     inline operator Result<T>() {
-        Result<T> result {};
+        Result<T> result;
         result.status = false;
         return result;
     }

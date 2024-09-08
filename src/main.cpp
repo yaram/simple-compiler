@@ -247,25 +247,19 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     append_global_type(
         &global_constants,
         "f32"_S,
-        wrap_float_type({
-            RegisterSize::Size32
-        })
+        wrap_float_type(FloatType(RegisterSize::Size32))
     );
 
     append_global_type(
         &global_constants,
         "f64"_S,
-        wrap_float_type({
-            RegisterSize::Size64
-        })
+        wrap_float_type(FloatType(RegisterSize::Size64))
     );
 
     append_global_type(
         &global_constants,
         "float"_S,
-        wrap_float_type({
-            architecture_sizes.default_float_size
-        })
+        wrap_float_type(FloatType(architecture_sizes.default_float_size))
     );
 
     append_global_constant(
@@ -489,7 +483,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
                                 auto found = false;
                                 for(auto job : jobs) {
-                                    if(job.kind == JobKind::GenerateFunction) { 
+                                    if(job.kind == JobKind::GenerateFunction) {
                                         auto generate_function = job.generate_function;
 
                                         if(
@@ -844,7 +838,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 return err();
             }
 
-            auto expected_main_return_integer = wrap_integer_type({ RegisterSize::Size32, true });
+            auto expected_main_return_integer = wrap_integer_type(Integer(RegisterSize::Size32, true));
 
             if(*function_type.return_type != expected_main_return_integer) {
                 error(

@@ -572,10 +572,11 @@ static_profiled_function(
 
                             List<StructLiteral::Member> members{};
 
-                            members.append({
-                                identifier,
-                                first_expression
-                            });
+                            StructLiteral::Member first_member {};
+                            first_member.name = identifier;
+                            first_member.value = first_expression;
+
+                            members.append(first_member);
 
                             expect(token, peek_token(*context));
 
@@ -591,10 +592,11 @@ static_profiled_function(
 
                                         expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                        members.append({
-                                            identifier,
-                                            expression
-                                        });
+                                        StructLiteral::Member member {};
+                                        member.name = identifier;
+                                        member.value = expression;
+
+                                        members.append(member);
 
                                         expect(token, peek_token(*context));
 
@@ -1342,11 +1344,12 @@ static Result<Array<Tag>> parse_tags(Context* context) {
             }
         }
 
-        tags.append({
-            name,
-            parameters,
-            span_range(first_range, last_range)
-        });
+        Tag tag {};
+        tag.name = name;
+        tag.parameters = parameters;
+        tag.range = span_range(first_range, last_range);
+
+        tags.append(tag);
 
         expect(post_token, peek_token(*context));
 
@@ -1637,10 +1640,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context* context)
                                     }
                                 }
 
-                                else_ifs.append({
-                                    expression,
-                                    statements
-                                });
+                                IfStatement::ElseIf else_if {};
+                                else_if.condition = expression;
+                                else_if.statements = statements;
+
+                                else_ifs.append(else_if);
                             } break;
 
                             default: {
@@ -2084,10 +2088,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context* context)
 
                                                     expect(type, parse_expression(context, OperatorPrecedence::None));
 
-                                                    parameters.append({
-                                                        name,
-                                                        type
-                                                    });
+                                                    StructDefinition::Parameter parameter {};
+                                                    parameter.name = name;
+                                                    parameter.type = type;
+
+                                                    parameters.append(parameter);
 
                                                     expect(token, peek_token(*context));
 
@@ -2134,10 +2139,11 @@ static_profiled_function(Result<Statement*>, parse_statement, (Context* context)
 
                                                 expect(expression, parse_expression(context, OperatorPrecedence::None));
 
-                                                members.append({
-                                                    identifier,
-                                                    expression
-                                                });
+                                                StructDefinition::Member member {};
+                                                member.name = identifier;
+                                                member.type = expression;
+
+                                                members.append(member);
 
                                                 expect(token, peek_token(*context));
 
