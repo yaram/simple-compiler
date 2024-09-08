@@ -998,7 +998,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         "",
         "",
         optimization_level,
-        LLVMRelocMode::LLVMRelocDefault,
+        LLVMRelocMode::LLVMRelocPIC,
         LLVMCodeModel::LLVMCodeModelDefault
     );
     assert(target_machine);
