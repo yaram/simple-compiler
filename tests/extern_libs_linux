@@ -1,0 +1,5 @@
+sinf :: (x: f32) -> f32 #extern("m");
+
+main :: () -> i32 {
+    return sinf(0) as i32;
+}

@@ -132,6 +132,8 @@ single_file_test(if_statements)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     single_file_test(extern_libs_win32)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    single_file_test(extern_libs_linux)
 endif()
 
 single_file_test(named_constants)
