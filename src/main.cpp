@@ -1,6 +1,5 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <errno.h>
 #include <string.h>
 #include "timing.h"
 #include "profiler.h"
@@ -439,13 +438,14 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         auto start_time = get_timer_counts();
 
                         auto result = do_resolve_static_if(info, &jobs, resolve_static_if.static_if, resolve_static_if.scope);
-                        if(!result.status) {
-                            return err();
-                        }
 
                         auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
                             job_after->state = JobState::Done;
                             job_after->resolve_static_if.condition = result.value.condition;
                             job_after->resolve_static_if.declarations = result.value.declarations;
@@ -470,13 +470,14 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                             resolve_function_declaration.declaration,
                             resolve_function_declaration.scope
                         );
-                        if(!result.status) {
-                            return err();
-                        }
 
                         auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
                             job_after->state = JobState::Done;
                             job_after->resolve_function_declaration.type = result.value.type;
                             job_after->resolve_function_declaration.value = result.value.value;
@@ -536,13 +537,14 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                             resolve_polymorphic_function.call_scope,
                             resolve_polymorphic_function.call_parameter_ranges
                         );
-                        if(!result.status) {
-                            return err();
-                        }
 
                         auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
                             job_after->state = JobState::Done;
                             job_after->resolve_polymorphic_function.type = result.value.type;
                             job_after->resolve_polymorphic_function.value = result.value.value;
@@ -568,13 +570,14 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                             nullptr,
                             resolve_constant_definition.definition->expression
                         );
-                        if(!result.status) {
-                            return err();
-                        }
 
                         auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
                             job_after->state = JobState::Done;
                             job_after->resolve_constant_definition.type = result.value.type;
                             job_after->resolve_constant_definition.value = result.value.value;
@@ -599,13 +602,14 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                             resolve_struct_definition.definition,
                             resolve_struct_definition.scope
                         );
-                        if(!result.status) {
-                            return err();
-                        }
 
                         auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
                             job_after->state = JobState::Done;
                             job_after->resolve_struct_definition.type = result.value;
                         } else {
@@ -630,13 +634,14 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                             resolve_polymorphic_struct.parameters,
                             resolve_polymorphic_struct.scope
                         );
-                        if(!result.status) {
-                            return err();
-                        }
 
                         auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
                             job_after->state = JobState::Done;
                             job_after->resolve_polymorphic_struct.type = result.value;
                         } else {
@@ -661,13 +666,14 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                             generate_function.value,
                             generate_function.function
                         );
-                        if(!result.status) {
-                            return err();
-                        }
 
                         auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
                             job_after->state = JobState::Done;
 
                             runtime_statics.append(job_after->generate_function.function);
@@ -723,13 +729,14 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                             generate_static_variable.declaration,
                             generate_static_variable.scope
                         );
-                        if(!result.status) {
-                            return err();
-                        }
 
                         auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
                             job_after->state = JobState::Done;
                             job_after->generate_static_variable.static_variable = result.value.static_variable;
                             job_after->generate_static_variable.type = result.value.type;
@@ -801,15 +808,16 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 false,
                 nullptr
             );
-            if(!result.status) {
-                return err();
-            }
 
             if(!result.has_value) {
                 main_function_state = JobState::Waiting;
                 main_function_waiting_for = result.waiting_for;
 
                 continue;
+            }
+
+            if(!result.status) {
+                return err();
             }
 
             main_function_state = JobState::Done;
