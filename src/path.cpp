@@ -32,10 +32,12 @@ Result<String> path_relative_to_absolute(String path) {
 
 String path_get_file_component(String path) {
     char input_buffer[PATH_MAX];
-    if(path.length > PATH_MAX) {
+    if(path.length + 1 > PATH_MAX) {
         memcpy(input_buffer, path.elements, PATH_MAX);
+        input_buffer[PATH_MAX - 1] = '\0';
     } else {
         memcpy(input_buffer, path.elements, path.length);
+        input_buffer[path.length] = '\0';
     }
 
     auto path_file = basename(input_buffer);
