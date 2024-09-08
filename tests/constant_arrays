@@ -1,0 +1,5 @@
+ARRAY :: { "test" as []u8, "best", "crest"};
+
+main :: () -> i32 {
+    return (ARRAY[2][0] - 98) as i32;
+}

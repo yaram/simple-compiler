@@ -65,16 +65,16 @@ struct ArrayConstant {
 
 struct StaticArrayConstant {
     inline StaticArrayConstant() = default;
-    inline StaticArrayConstant(AnyConstantValue* elements) : elements(elements) {}
+    inline StaticArrayConstant(Array<AnyConstantValue> elements) : elements(elements) {}
 
-    AnyConstantValue* elements;
+    Array<AnyConstantValue> elements;
 };
 
 struct StructConstant {
     inline StructConstant() = default;
-    inline StructConstant(AnyConstantValue* members) : members(members) {}
+    inline StructConstant(Array<AnyConstantValue> members) : members(members) {}
 
-    AnyConstantValue* members;
+    Array<AnyConstantValue> members;
 };
 
 struct FileModuleConstant {
@@ -84,6 +84,7 @@ struct FileModuleConstant {
     ConstantScope* scope;
 };
 
+// These do not map 1-to-1 to types / type kinds!!
 enum struct ConstantValueKind {
     FunctionConstant,
     BuiltinFunctionConstant,
@@ -425,7 +426,7 @@ inline DelayedResultWaitHelper wait(size_t job) {
 
 void error(ConstantScope* scope, FileRange range, const char* format, ...);
 
-Result<String> static_array_to_string(ConstantScope* scope, FileRange range, AnyType type, AnyConstantValue value);
+Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType type, AnyConstantValue value);
 
 bool check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, int64_t value, bool probing);
 Result<uint64_t> coerce_constant_to_integer_type(
@@ -495,7 +496,7 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
     ConstantScope* scope,
     Statement* declaration
 );
-bool constant_values_equal(AnyType type, AnyConstantValue a, AnyConstantValue b);
+bool constant_values_equal(AnyConstantValue a, AnyConstantValue b);
 
 struct DeclarationSearchResult {
     bool found;

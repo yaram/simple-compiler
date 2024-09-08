@@ -157,6 +157,7 @@ single_file_test(while_statements)
 single_file_test(polymorphic_functions)
 
 single_file_test(static_arrays)
+single_file_test(constant_arrays)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     single_file_test(extern_libs_win32)
