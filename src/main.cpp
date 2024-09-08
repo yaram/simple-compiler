@@ -1087,7 +1087,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
         command_buffer.append(frontend);
 
-        command_buffer.append(" -nostdlib -fuse-ld=lld --target="_S);
+        command_buffer.append(" -pie -fPIE -nostdlib -fuse-ld=lld --target="_S);
 
         command_buffer.append(triple);
 
