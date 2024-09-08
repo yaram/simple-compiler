@@ -7,6 +7,12 @@ struct Array {
     inline Array() = default;
     inline Array(size_t length, T* elements) : length(length), elements(elements) {}
 
+    static inline Array<T> empty() {
+        Array array {};
+
+        return array;
+    }
+
     size_t length;
     T* elements;
 

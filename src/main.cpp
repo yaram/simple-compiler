@@ -214,7 +214,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
     auto architecture_sizes = get_architecture_sizes(architecture);
 
-    List<GlobalConstant> global_constants{};
+    List<GlobalConstant> global_constants {};
 
     append_base_integer_type(&global_constants, "u8"_S, RegisterSize::Size8, false);
     append_base_integer_type(&global_constants, "u16"_S, RegisterSize::Size16, false);

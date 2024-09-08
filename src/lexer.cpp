@@ -150,7 +150,7 @@ struct Lexer {
     }
 
     Result<Array<Token>> tokenize() {
-        List<Token> tokens{};
+        List<Token> tokens {};
 
         while(index < length) {
             expect(character, get_current_character());

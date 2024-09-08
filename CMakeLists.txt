@@ -130,12 +130,6 @@ multi_file_test(imports)
 
 single_file_test(if_statements)
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    single_file_test(extern_libs_win32)
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-    single_file_test(extern_libs_linux)
-endif()
-
 single_file_test(named_constants)
 
 single_file_test(out_of_order)
@@ -163,3 +157,9 @@ single_file_test(while_statements)
 single_file_test(polymorphic_functions)
 
 single_file_test(static_arrays)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    single_file_test(extern_libs_win32)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    single_file_test(extern_libs_linux)
+endif()

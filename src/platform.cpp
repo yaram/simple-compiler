@@ -37,26 +37,29 @@ bool is_supported_target(String os, String architecture) {
 
 ArchitectureSizes get_architecture_sizes(String architecture) {
     if(architecture == "x86"_S) {
-        return {
-            RegisterSize::Size32,
-            RegisterSize::Size32,
-            RegisterSize::Size32,
-            RegisterSize::Size8
-        };
+        ArchitectureSizes sizes {};
+        sizes.address_size = RegisterSize::Size32;
+        sizes.default_integer_size = RegisterSize::Size32;
+        sizes.default_float_size = RegisterSize::Size32;
+        sizes.boolean_size = RegisterSize::Size8;
+
+        return sizes;
     } else if(architecture == "x64"_S) {
-        return {
-            RegisterSize::Size64,
-            RegisterSize::Size64,
-            RegisterSize::Size64,
-            RegisterSize::Size8
-        };
+        ArchitectureSizes sizes {};
+        sizes.address_size = RegisterSize::Size64;
+        sizes.default_integer_size = RegisterSize::Size64;
+        sizes.default_float_size = RegisterSize::Size64;
+        sizes.boolean_size = RegisterSize::Size8;
+
+        return sizes;
     } else if(architecture == "wasm32"_S) {
-        return {
-            RegisterSize::Size32,
-            RegisterSize::Size32,
-            RegisterSize::Size32,
-            RegisterSize::Size8
-        };
+        ArchitectureSizes sizes {};
+        sizes.address_size = RegisterSize::Size64;
+        sizes.default_integer_size = RegisterSize::Size64;
+        sizes.default_float_size = RegisterSize::Size64;
+        sizes.boolean_size = RegisterSize::Size8;
+
+        return sizes;
     } else {
         abort();
     }

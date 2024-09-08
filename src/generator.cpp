@@ -58,39 +58,41 @@ static RegisterRepresentation get_type_representation(GlobalInfo info, AnyType t
     if(type.kind == TypeKind::Integer) {
         auto integer = type.integer;
 
-        return {
-            true,
-            integer.size,
-            false
-        };
+        RegisterRepresentation representation {};
+        representation.is_in_register = true;
+        representation.value_size = integer.size;
+
+        return representation;
     } else if(type.kind == TypeKind::Boolean) {
-        return {
-            true,
-            info.architecture_sizes.boolean_size,
-            false
-        };
+        RegisterRepresentation representation {};
+        representation.is_in_register = true;
+        representation.value_size = info.architecture_sizes.boolean_size;
+
+        return representation;
     } else if(type.kind == TypeKind::FloatType) {
         auto float_type = type.float_;
 
-        return {
-            true,
-            float_type.size,
-            true
-        };
+        RegisterRepresentation representation {};
+        representation.is_in_register = true;
+        representation.value_size = float_type.size;
+        representation.is_float = true;
+
+        return representation;
     } else if(type.kind == TypeKind::Pointer) {
-        return {
-            true,
-            info.architecture_sizes.address_size,
-            false
-        };
+        RegisterRepresentation representation {};
+        representation.is_in_register = true;
+        representation.value_size = info.architecture_sizes.address_size;
+
+        return representation;
     } else if(
         type.kind == TypeKind::ArrayTypeType ||
         type.kind == TypeKind::StaticArray ||
         type.kind == TypeKind::StructType
     ) {
-        return {
-            false
-        };
+        RegisterRepresentation representation {};
+        representation.is_in_register = false;
+
+        return representation;
     } else {
         abort();
     }
@@ -2899,10 +2901,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto array_type = actual_type.array;
 
             if(member_reference->name.text == "length"_S) {
-                auto type = new Integer {
+                auto type = new Integer(
                     info.architecture_sizes.address_size,
                     false
-                };
+                );
 
                 AnyRuntimeValue value;
                 if(actual_value.kind == RuntimeValueKind::ConstantValue) {
@@ -5119,7 +5121,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
         context->next_child_scope_index += 1;
         assert(context->next_child_scope_index <= context->child_scopes.length);
 
-        VariableScope if_variable_scope{};
+        VariableScope if_variable_scope {};
         if_variable_scope.constant_scope = if_scope;
 
         context->variable_scope_stack.append(if_variable_scope);
