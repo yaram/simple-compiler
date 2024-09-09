@@ -1258,8 +1258,8 @@ static Result<size_t> coerce_to_type_register(
 
             if(
                 undetermined_struct.members.length == 2 &&
-                undetermined_struct.members[0].name == "pointer"_S &&
-                undetermined_struct.members[1].name == "length"_S
+                undetermined_struct.members[0].name == "length"_S &&
+                undetermined_struct.members[1].name == "pointer"_S
             ) {
                 auto undetermined_struct_value = unwrap_undetermined_struct_value(value);
 
@@ -1301,9 +1301,16 @@ static Result<size_t> coerce_to_type_register(
                             register_size_to_byte_size(info.architecture_sizes.address_size)
                         );
 
-                        append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_result.value, address_register);
+                        append_store_integer(
+                            context,
+                            instructions,
+                            range,
+                            info.architecture_sizes.address_size,
+                            length_result.value,
+                            address_register
+                        );
 
-                        auto length_address_register = generate_address_offset(
+                        auto pointer_address_register = generate_address_offset(
                             info,
                             context,
                             instructions,
@@ -1317,8 +1324,8 @@ static Result<size_t> coerce_to_type_register(
                             instructions,
                             range,
                             info.architecture_sizes.address_size,
-                            length_result.value,
-                            length_address_register
+                            pointer_result.value,
+                            pointer_address_register
                         );
 
                         return ok(address_register);
@@ -1605,8 +1612,6 @@ static Result<void> coerce_to_type_write(
                         pointer_register = append_reference_static(context, instructions, range, static_constant);
                     }
 
-                    append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_register, address_register);
-
                     auto length_register = append_integer_constant(
                         context,
                         instructions,
@@ -1615,7 +1620,9 @@ static Result<void> coerce_to_type_write(
                         length
                     );
 
-                    auto length_address_register = generate_address_offset(
+                    append_store_integer(context, instructions, range, info.architecture_sizes.address_size, length_register, address_register);
+
+                    auto pointer_address_register = generate_address_offset(
                         info,
                         context,
                         instructions,
@@ -1624,7 +1631,7 @@ static Result<void> coerce_to_type_write(
                         register_size_to_byte_size(info.architecture_sizes.address_size)
                     );
 
-                    append_store_integer(context, instructions, range, info.architecture_sizes.address_size, length_register, length_address_register);
+                    append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_register, pointer_address_register);
 
                     return ok();
                 } else if(value.kind == RuntimeValueKind::RegisterValue) {
@@ -1683,9 +1690,11 @@ static Result<void> coerce_to_type_write(
                     abort();
                 }
 
-                append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_register, address_register);
+                auto length_register = append_integer_constant(context, instructions, range, info.architecture_sizes.address_size, static_array.length);
 
-                auto length_address_register = generate_address_offset(
+                append_store_integer(context, instructions, range, info.architecture_sizes.address_size, length_register, address_register);
+
+                auto pointer_address_register = generate_address_offset(
                     info,
                     context,
                     instructions,
@@ -1694,9 +1703,7 @@ static Result<void> coerce_to_type_write(
                     register_size_to_byte_size(info.architecture_sizes.address_size)
                 );
 
-                auto length_register = append_integer_constant(context, instructions, range, info.architecture_sizes.address_size, static_array.length);
-
-                append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_register, length_address_register);
+                append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_register, pointer_address_register);
 
                 return ok();
             }
@@ -1740,9 +1747,16 @@ static Result<void> coerce_to_type_write(
                     );
 
                     if(length_result.status) {
-                        append_store_integer(context, instructions, range, info.architecture_sizes.address_size, pointer_result.value, address_register);
+                        append_store_integer(
+                            context,
+                            instructions,
+                            range,
+                            info.architecture_sizes.address_size,
+                            length_result.value,
+                            address_register
+                        );
 
-                        auto length_address_register = generate_address_offset(
+                        auto pointer_address_register = generate_address_offset(
                             info,
                             context,
                             instructions,
@@ -1756,8 +1770,8 @@ static Result<void> coerce_to_type_write(
                             instructions,
                             range,
                             info.architecture_sizes.address_size,
-                            length_result.value,
-                            length_address_register
+                            pointer_result.value,
+                            pointer_address_register
                         );
 
                         return ok();
@@ -3029,37 +3043,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = actual_value.register_;
 
-                    auto address_register = generate_address_offset(
-                        info,
-                        context,
-                        instructions,
-                        member_reference->range,
-                        register_value.register_index,
-                        register_size_to_byte_size(info.architecture_sizes.address_size)
-                    );
-
                     auto length_register = append_load_integer(
                         context,
                         instructions,
                         member_reference->range,
                         info.architecture_sizes.address_size,
-                        address_register
+                        register_value.register_index
                     );
 
                     value = wrap_register_value(RegisterValue(length_register));
                 } else if(actual_value.kind == RuntimeValueKind::AddressValue) {
                     auto address_value = actual_value.address;
 
-                    auto address_register = generate_address_offset(
-                        info,
-                        context,
-                        instructions,
-                        member_reference->range,
-                        address_value.address_register,
-                        register_size_to_byte_size(info.architecture_sizes.address_size)
-                    );
-
-                    value = wrap_address_value(AddressValue(address_register));
+                    value = wrap_address_value(AddressValue(address_value.address_register));
                 } else {
                     abort();
                 }
@@ -3090,26 +3086,53 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             static_array_value.elements
                         );
 
-                        auto address_regsiter = append_reference_static(context, instructions, member_reference->range, static_constant);
+                        auto address_register = append_reference_static(context, instructions, member_reference->range, static_constant);
 
-                        value = wrap_register_value(RegisterValue(address_regsiter));
+                        auto pointer_address_register = generate_address_offset(
+                            info,
+                            context,
+                            instructions,
+                            member_reference->range,
+                            address_register,
+                            register_size_to_byte_size(info.architecture_sizes.address_size)
+                        );
+
+                        value = wrap_register_value(RegisterValue(pointer_address_register));
                     }
                 } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = actual_value.register_;
 
-                    auto length_register = append_load_integer(
+                    auto pointer_address_register = generate_address_offset(
+                        info,
+                        context,
+                        instructions,
+                        member_reference->range,
+                        register_value.register_index,
+                        register_size_to_byte_size(info.architecture_sizes.address_size)
+                    );
+
+                    auto pointer_register = append_load_integer(
                         context,
                         instructions,
                         member_reference->range,
                         info.architecture_sizes.address_size,
-                        register_value.register_index
+                        pointer_address_register
                     );
 
-                    value = wrap_register_value(RegisterValue(length_register));
+                    value = wrap_register_value(RegisterValue(pointer_register));
                 } else if(actual_value.kind == RuntimeValueKind::AddressValue) {
                     auto address_value = actual_value.address;
 
-                    value = wrap_address_value(AddressValue(address_value.address_register));
+                    auto pointer_address_register = generate_address_offset(
+                        info,
+                        context,
+                        instructions,
+                        member_reference->range,
+                        address_value.address_register,
+                        register_size_to_byte_size(info.architecture_sizes.address_size)
+                    );
+
+                    value = wrap_address_value(AddressValue(pointer_address_register));
                 } else {
                     abort();
                 }

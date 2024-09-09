@@ -296,16 +296,16 @@ Result<AnyConstantValue> coerce_constant_to_type(
 
             if(
                 undetermined_struct.members.length == 2 &&
-                undetermined_struct.members[0].name == "pointer"_S &&
-                undetermined_struct.members[1].name == "length"_S
+                undetermined_struct.members[0].name == "length"_S &&
+                undetermined_struct.members[1].name == "pointer"_S
             ) {
                 auto undetermined_struct_value = unwrap_struct_constant(value);
 
                 auto pointer_result = coerce_constant_to_pointer_type(
                     scope,
                     range,
-                    undetermined_struct.members[0].type,
-                    undetermined_struct_value.members[0],
+                    undetermined_struct.members[1].type,
+                    undetermined_struct_value.members[1],
                     {
                         target_array_type.element_type
                     },
@@ -316,8 +316,8 @@ Result<AnyConstantValue> coerce_constant_to_type(
                     auto length_result = coerce_constant_to_integer_type(
                         scope,
                         range,
-                        undetermined_struct.members[1].type,
-                        undetermined_struct_value.members[1],
+                        undetermined_struct.members[0].type,
+                        undetermined_struct_value.members[0],
                         {
                             info.architecture_sizes.address_size,
                             false
@@ -327,8 +327,10 @@ Result<AnyConstantValue> coerce_constant_to_type(
 
                     if(length_result.status) {
                         ArrayConstant array_constant {};
-                        array_constant.pointer = pointer_result.value;
                         array_constant.length = length_result.value;
+                        array_constant.pointer = pointer_result.value;
+
+                        return ok(value);
                     }
                 }
             }
