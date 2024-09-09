@@ -24,7 +24,8 @@
 
 bool does_os_exist(String os);
 bool does_architecture_exist(String architecture);
-bool is_supported_target(String os, String architecture);
+bool does_toolchain_exist(String toolchain);
+bool is_supported_target(String os, String architecture, String toolchain);
 
 struct ArchitectureSizes {
     RegisterSize address_size;
@@ -38,7 +39,9 @@ struct ArchitectureSizes {
 
 ArchitectureSizes get_architecture_sizes(String architecture);
 
-String get_llvm_triple(String architecture, String os);
+String get_default_toolchain(String os);
+
+String get_llvm_triple(String architecture, String os, String toolchain);
 
 String get_host_architecture();
 String get_host_os();

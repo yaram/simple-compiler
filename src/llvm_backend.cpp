@@ -184,6 +184,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     Array<RuntimeStatic*> statics,
     String architecture,
     String os,
+    String toolchain,
     String config,
     String object_file_path,
     Array<String> reserved_names
@@ -979,7 +980,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
     assert(LLVMVerifyModule(module, LLVMVerifierFailureAction::LLVMAbortProcessAction, nullptr) == 0);
 
-    auto triple = get_llvm_triple(architecture, os);
+    auto triple = get_llvm_triple(architecture, os, toolchain);
 
     LLVMTargetRef target;
     if(architecture == "x86"_S || architecture == "x64"_S) {

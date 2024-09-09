@@ -17,19 +17,35 @@ bool does_architecture_exist(String architecture) {
     ;
 }
 
-bool is_supported_target(String os, String architecture) {
+bool does_toolchain_exist(String toolchain) {
+    return
+        toolchain == "gnu"_S ||
+        toolchain == "msvc"_S
+    ;
+}
+
+bool is_supported_target(String os, String architecture, String toolchain) {
     if(os == "linux"_S) {
         return 
-            architecture == "x86"_S ||
-            architecture == "x64"_S
+            (
+                architecture == "x86"_S ||
+                architecture == "x64"_S
+            ) &&
+            toolchain == "gnu"_S
         ;
     } else if(os == "windows"_S) {
         return 
-            architecture == "x86"_S ||
-            architecture == "x64"_S
+            (
+                architecture == "x86"_S ||
+                architecture == "x64"_S
+            ) &&
+            (
+                toolchain == "gnu"_S ||
+                toolchain == "msvc"_S
+            )
         ;
     } else if(os == "emscripten"_S) {
-        return architecture == "wasm32"_S;
+        return architecture == "wasm32"_S && toolchain == "gnu"_S;
     } else {
         abort();
     }
@@ -65,7 +81,25 @@ ArchitectureSizes get_architecture_sizes(String architecture) {
     }
 }
 
-String get_llvm_triple(String architecture, String os) {
+String get_default_toolchain(String os) {
+    if(os == "linux"_S) {
+        return "gnu"_S;
+    } else if(os == "windows"_S) {
+        auto host_os = get_host_os();
+
+        if(host_os == "windows"_S) {
+            return "msvc"_S;
+        } else {
+            return "gnu"_S;
+        }
+    } else if(os == "emscripten"_S) {
+        return "gnu"_S;
+    } else {
+        abort();
+    }
+}
+
+String get_llvm_triple(String architecture, String os, String toolchain) {
     StringBuffer buffer {};
 
     String triple_architecture;
@@ -81,19 +115,24 @@ String get_llvm_triple(String architecture, String os) {
 
     String triple_vendor;
     String triple_system;
-    String triple_abi;
     if(os == "linux"_S) {
         triple_vendor = "unknown"_S;
         triple_system = "linux"_S;
-        triple_abi = "gnu"_S;
     } else if(os == "windows"_S) {
         triple_vendor = "pc"_S;
         triple_system = "windows"_S;
-        triple_abi = "msvc"_S;
     } else if(os == "emscripten"_S) {
         triple_vendor = "unknown"_S;
         triple_system = "emscripten"_S;
-        triple_abi = "unknown"_S;
+    } else {
+        abort();
+    }
+
+    String triple_abi;
+    if(toolchain == "gnu"_S) {
+        triple_abi = "gnu"_S;
+    } else if(toolchain == "msvc"_S) {
+        triple_abi = "msvc"_S;
     } else {
         abort();
     }

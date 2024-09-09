@@ -34,12 +34,14 @@ static void print_help_message(FILE* file) {
     auto default_architecture = get_host_architecture();
     auto default_os = get_host_os();
     auto default_output_file = get_default_output_file(default_os, false);
+    auto default_toolchain = get_default_toolchain(default_os);
 
     fprintf(file, "Options:\n");
     fprintf(file, "  -output <output file>  (default: %.*s) Specify output file path\n", STRING_PRINTF_ARGUMENTS(default_output_file));
     fprintf(file, "  -config debug|release  (default: debug) Specify build configuration\n");
     fprintf(file, "  -arch x64|wasm32  (default: %.*s) Specify CPU architecture to target\n", STRING_PRINTF_ARGUMENTS(default_architecture));
     fprintf(file, "  -os windows|linux|emscripten  (default: %.*s) Specify operating system to target\n", STRING_PRINTF_ARGUMENTS(default_os));
+    fprintf(file, "  -os gnu|msvc  (default: %.*s) Specify toolchain to use\n", STRING_PRINTF_ARGUMENTS(default_toolchain));
     fprintf(file, "  -no-link  Don't run the linker\n");
     fprintf(file, "  -print-ast  Print abstract syntax tree\n");
     fprintf(file, "  -print-ir  Print internal intermediate representation\n");
@@ -90,6 +92,9 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
     auto os = get_host_os();
 
+    auto has_toolchain = false;
+    String toolchain;
+
     auto config = "debug"_S;
 
     auto no_link = false;
@@ -137,6 +142,19 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             }
 
             os = String::from_c_string(arguments[argument_index]);
+        } else if(strcmp(argument, "-toolchain") == 0) {
+            has_toolchain = true;
+
+            argument_index += 1;
+
+            if(argument_index == arguments.length - 1) {
+                fprintf(stderr, "Error: Missing value for '-toolchain' option\n\n");
+                print_help_message(stderr);
+
+                return err();
+            }
+
+            toolchain = String::from_c_string(arguments[argument_index]);
         } else if(strcmp(argument, "-config") == 0) {
             argument_index += 1;
 
@@ -192,8 +210,25 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         return err();
     }
 
-    if(!is_supported_target(os, architecture)) {
-        fprintf(stderr, "Error: '%.*s' and '%.*s' is not a supported OS and architecture combination\n\n", STRING_PRINTF_ARGUMENTS(os), STRING_PRINTF_ARGUMENTS(architecture));
+    if(has_toolchain) {
+        if(!does_toolchain_exist(toolchain)) {
+            fprintf(stderr, "Error: Unknown toolchain '%.*s'\n\n", STRING_PRINTF_ARGUMENTS(toolchain));
+            print_help_message(stderr);
+
+            return err();
+        }
+    } else {
+        toolchain = get_default_toolchain(os);
+    }
+
+    if(!is_supported_target(os, architecture, toolchain)) {
+        fprintf(
+            stderr,
+            "Error: '%.*s', '%.*s', and '%.*s' is not a supported OS, architecture, and toolchain combination\n\n",
+            STRING_PRINTF_ARGUMENTS(os),
+            STRING_PRINTF_ARGUMENTS(architecture),
+            STRING_PRINTF_ARGUMENTS(toolchain)
+        );
         print_help_message(stderr);
 
         return err();
@@ -363,8 +398,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     List<RuntimeStatic*> runtime_statics {};
     List<String> libraries {};
 
-    if(os == "windows"_S) {
-        libraries.append("kernel32.lib"_S);
+    if(os == "windows"_S || os == "mingw"_S) {
+        libraries.append("kernel32"_S);
     }
 
     auto main_function_state = JobState::Waiting;
@@ -1028,6 +1063,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             runtime_statics,
             architecture,
             os,
+            toolchain,
             config,
             object_file_path,
             reserved_names
@@ -1077,7 +1113,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             linker_options = "--entry=entry"_S;
         }
 
-        auto triple = get_llvm_triple(architecture, os);
+        auto triple = get_llvm_triple(architecture, os, toolchain);
 
         command_buffer.append(frontend);
 
