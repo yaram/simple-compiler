@@ -6,11 +6,23 @@ main :: () -> i32 {
         return 1;
     }
 
-    window := SDL_CreateWindow("Test\0".pointer, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, 0);
-
+    window := SDL_CreateWindow("Test\0".pointer, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, SDL_WINDOW_SHOWN);
     if window == 0 {
         return 1;
     }
+
+    renderer := SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if renderer == 0 {
+        return 1;
+    }
+
+    x: i32 = 0;
+    y: i32 = 0;
+
+    moving_left := false;
+    moving_right := false;
+    moving_up := false;
+    moving_down := false;
 
     running := true;
     while running {
@@ -20,11 +32,64 @@ main :: () -> i32 {
             if event.type == SDL_QUIT {
                 running = false;
             } else if event.type == SDL_WINDOWEVENT {
-                if event.body.window.event == SDL_WINDOWEVENT_CLOSE {
+                window_event := event.body.window;
+
+                if window_event.event == SDL_WINDOWEVENT_CLOSE {
                     running = false;
+                }
+            } else if event.type == SDL_KEYDOWN {
+                key_event := event.body.key;
+
+                if key_event.keysym.keycode == SDLK_a {
+                    moving_left = true;
+                } else if key_event.keysym.keycode == SDLK_d {
+                    moving_right = true;
+                } else if key_event.keysym.keycode == SDLK_w {
+                    moving_up = true;
+                } else if key_event.keysym.keycode == SDLK_s {
+                    moving_down = true;
+                }
+            } else if event.type == SDL_KEYUP {
+                key_event := event.body.key;
+
+                if key_event.keysym.keycode == SDLK_a {
+                    moving_left = false;
+                } else if key_event.keysym.keycode == SDLK_d {
+                    moving_right = false;
+                } else if key_event.keysym.keycode == SDLK_w {
+                    moving_up = false;
+                } else if key_event.keysym.keycode == SDLK_s {
+                    moving_down = false;
                 }
             }
         }
+
+        speed: i32 = 2;
+
+        if moving_left {
+            x -= speed;
+        }
+
+        if moving_right {
+            x += speed;
+        }
+
+        if moving_up {
+            y -= speed;
+        }
+
+        if moving_down {
+            y += speed;
+        }
+
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0xFF);
+        SDL_RenderClear(renderer);
+
+        SDL_SetRenderDrawColor(renderer, 0xFF, 0, 0, 0xFF);
+        rect: SDL_Rect = { x = x, y = y, w = 100, h = 100 };
+        SDL_RenderFillRect(renderer, *rect);
+
+        SDL_RenderPresent(renderer);
     }
 
     return 0;
