@@ -1110,10 +1110,16 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
         String linker_options;
         if(os == "windows"_S) {
-            if(config == "debug"_S) {
-                linker_options = "/entry:entry,/DEBUG,/SUBSYSTEM:CONSOLE"_S;
-            } else if(config == "release"_S) {
-                linker_options = "/entry:entry,/SUBSYSTEM:CONSOLE"_S;
+            if(toolchain == "msvc"_S) {
+                if(config == "debug"_S) {
+                    linker_options = "/entry:entry,/DEBUG,/SUBSYSTEM:CONSOLE"_S;
+                } else if(config == "release"_S) {
+                    linker_options = "/entry:entry,/SUBSYSTEM:CONSOLE"_S;
+                } else {
+                    abort();
+                }
+            } else if(toolchain == "gnu"_S) {
+                linker_options = "--entry=entry,--subsystem=console"_S;
             } else {
                 abort();
             }
