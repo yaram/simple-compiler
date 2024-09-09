@@ -827,99 +827,95 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
         if(main_function_state != JobState::Done) {
             if(main_function_state == JobState::Waiting) {
-                if(jobs[main_function_waiting_for].state != JobState::Done) {
-                    continue;
+                if(jobs[main_function_waiting_for].state == JobState::Done) {
+                    main_function_state = JobState::Working;
                 }
-
-                main_function_state = JobState::Working;
             }
 
-            assert(jobs[main_file_parse_job_index].state == JobState::Done);
+            if(main_function_state == JobState::Working) {
+                auto scope = jobs[main_file_parse_job_index].parse_file.scope;
 
-            auto scope = jobs[main_file_parse_job_index].parse_file.scope;
+                did_work = true;
 
-            did_work = true;
-
-            auto result = search_for_declaration(
-                info,
-                &jobs,
-                "main"_S,
-                calculate_string_hash("main"_S),
-                scope,
-                scope->statements,
-                scope->declarations,
-                false,
-                nullptr
-            );
-
-            if(!result.has_value) {
-                main_function_state = JobState::Waiting;
-                main_function_waiting_for = result.waiting_for;
-
-                continue;
-            }
-
-            if(!result.status) {
-                return err();
-            }
-
-            main_function_state = JobState::Done;
-
-            if(!result.value.found) {
-                fprintf(stderr, "Error: Cannot find 'main'\n");
-
-                return err();
-            }
-
-            if(result.value.type.kind != TypeKind::FunctionTypeType) {
-                fprintf(stderr, "Error: 'main' must be a function. Got '%.*s'\n", STRING_PRINTF_ARGUMENTS(result.value.type.get_description()));
-
-                return err();
-            }
-
-            auto function_type = result.value.type.function;
-
-            auto function_value = unwrap_function_constant(result.value.value);
-
-            if(function_type.parameters.length != 0) {
-                error(scope, function_value.declaration->range, "'main' must have zero parameters");
-
-                return err();
-            }
-
-            auto expected_main_return_integer = wrap_integer_type(Integer(RegisterSize::Size32, true));
-
-            if(*function_type.return_type != expected_main_return_integer) {
-                error(
+                auto result = search_for_declaration(
+                    info,
+                    &jobs,
+                    "main"_S,
+                    calculate_string_hash("main"_S),
                     scope,
-                    function_value.declaration->range,
-                    "Incorrect 'main' return type. Expected '%.*s', got '%.*s'",
-                    STRING_PRINTF_ARGUMENTS(expected_main_return_integer.get_description()),
-                    STRING_PRINTF_ARGUMENTS(function_type.return_type->get_description())
+                    scope->statements,
+                    scope->declarations,
+                    false,
+                    nullptr
                 );
 
-                return err();
-            }
-
-            auto found = false;
-            for(auto job : jobs) {
-                if(job.kind == JobKind::GenerateFunction) {
-                    auto generate_function = job.generate_function;
-
-                    if(
-                        wrap_function_type(generate_function.type) == wrap_function_type(function_type) &&
-                        generate_function.value.declaration == function_value.declaration &&
-                        generate_function.value.body_scope == function_value.body_scope
-                    ) {
-                        found = true;
-
-                        main_function = generate_function.function;
-
-                        break;
+                if(!result.has_value) {
+                    main_function_state = JobState::Waiting;
+                    main_function_waiting_for = result.waiting_for;
+                } else {
+                    if(!result.status) {
+                        return err();
                     }
+
+                    main_function_state = JobState::Done;
+
+                    if(!result.value.found) {
+                        fprintf(stderr, "Error: Cannot find 'main'\n");
+
+                        return err();
+                    }
+
+                    if(result.value.type.kind != TypeKind::FunctionTypeType) {
+                        fprintf(stderr, "Error: 'main' must be a function. Got '%.*s'\n", STRING_PRINTF_ARGUMENTS(result.value.type.get_description()));
+
+                        return err();
+                    }
+
+                    auto function_type = result.value.type.function;
+
+                    auto function_value = unwrap_function_constant(result.value.value);
+
+                    if(function_type.parameters.length != 0) {
+                        error(scope, function_value.declaration->range, "'main' must have zero parameters");
+
+                        return err();
+                    }
+
+                    auto expected_main_return_integer = wrap_integer_type(Integer(RegisterSize::Size32, true));
+
+                    if(*function_type.return_type != expected_main_return_integer) {
+                        error(
+                            scope,
+                            function_value.declaration->range,
+                            "Incorrect 'main' return type. Expected '%.*s', got '%.*s'",
+                            STRING_PRINTF_ARGUMENTS(expected_main_return_integer.get_description()),
+                            STRING_PRINTF_ARGUMENTS(function_type.return_type->get_description())
+                        );
+
+                        return err();
+                    }
+
+                    auto found = false;
+                    for(auto job : jobs) {
+                        if(job.kind == JobKind::GenerateFunction) {
+                            auto generate_function = job.generate_function;
+
+                            if(
+                                wrap_function_type(generate_function.type) == wrap_function_type(function_type) &&
+                                generate_function.value.declaration == function_value.declaration &&
+                                generate_function.value.body_scope == function_value.body_scope
+                            ) {
+                                found = true;
+
+                                main_function = generate_function.function;
+
+                                break;
+                            }
+                        }
+                    }
+                    assert(found);
                 }
             }
-            assert(found);
         }
 
         if(!did_work) {
