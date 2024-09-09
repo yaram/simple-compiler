@@ -5949,21 +5949,62 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
                 return err();
             }
 
-            auto libraries = allocate<String>(tag.parameters.length);
+            List<String> libraries {};
 
             for(size_t i = 0; i < tag.parameters.length; i += 1) {
                 expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, tag.parameters[i]));
 
-                expect(library_path, array_to_string(scope, tag.parameters[i]->range, parameter.type, parameter.value));
+                if(parameter.type.kind == TypeKind::ArrayTypeType) {
+                    auto array = parameter.type.array;
 
-                libraries[i] = library_path;
+                    if(
+                        array.element_type->kind == TypeKind::ArrayTypeType ||
+                        array.element_type->kind == TypeKind::StaticArray
+                    ) {
+                        if(parameter.value.kind == ConstantValueKind::ArrayConstant) {
+                            error(scope, tag.parameters[i]->range, "Cannot use an array with non-constant elements in a constant context");
+                        } else {
+                            auto static_array_value = unwrap_static_array_constant(parameter.value);
+
+                            for(auto element : static_array_value.elements) {
+                                expect(library_path, array_to_string(scope, tag.parameters[i]->range, *array.element_type, element));
+
+                                libraries.append(library_path);
+                            }
+                        }
+                    } else {
+                        expect(library_path, array_to_string(scope, tag.parameters[i]->range, parameter.type, parameter.value));
+
+                        libraries.append(library_path);
+                    }
+                } else if(parameter.type.kind == TypeKind::StaticArray) {
+                    auto static_array = parameter.type.static_array;
+
+                    if(
+                        static_array.element_type->kind == TypeKind::ArrayTypeType ||
+                        static_array.element_type->kind == TypeKind::StaticArray
+                    ) {
+                        auto static_array_value = unwrap_static_array_constant(parameter.value);
+
+                        assert(static_array.length == static_array_value.elements.length);
+
+                        for(auto element : static_array_value.elements) {
+                            expect(library_path, array_to_string(scope, tag.parameters[i]->range, *static_array.element_type, element));
+
+                            libraries.append(library_path);
+                        }
+                    } else {
+                        expect(library_path, array_to_string(scope, tag.parameters[i]->range, parameter.type, parameter.value));
+
+                        libraries.append(library_path);
+                    }
+                } else {
+                    error(scope, tag.parameters[i]->range, "Expected a string or array of strings, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter.type.get_description()));
+                }
             }
 
             is_external = true;
-            external_libraries = {
-                tag.parameters.length,
-                libraries
-            };
+            external_libraries = libraries;
         } else if(tag.name.text == "no_mangle"_S) {
             if(is_no_mangle) {
                 error(scope, tag.range, "Duplicate 'no_mangle' tag");
