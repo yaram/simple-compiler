@@ -366,6 +366,20 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
     append_global_constant(
         &global_constants,
+        "GNU"_S,
+        create_boolean_type(),
+        wrap_boolean_constant(toolchain == "gnu"_S)
+    );
+
+    append_global_constant(
+        &global_constants,
+        "MSVC"_S,
+        create_boolean_type(),
+        wrap_boolean_constant(toolchain == "msvc"_S)
+    );
+
+    append_global_constant(
+        &global_constants,
         "DEBUG"_S,
         create_boolean_type(),
         wrap_boolean_constant(config == "debug"_S)
@@ -1069,16 +1083,16 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             reserved_names
         ));
 
-        auto found = false;
+        auto main_found = false;
         for(auto name_mapping : name_mappings) {
             if(name_mapping.runtime_static == main_function) {
                 main_function_name = name_mapping.name;
-                found = true;
+                main_found = true;
 
                 break;
             }
         }
-        assert(found);
+        assert(main_found);
 
         auto end_time = get_timer_counts();
 
