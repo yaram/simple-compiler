@@ -1208,23 +1208,9 @@ namespace {
 
                         auto first_range = token_range(token);
 
-                        expect(token, peek_token());
+                        expect(index, parse_expression(OperatorPrecedence::None));
 
-                        Expression* index;
-                        FileRange last_range;
-                        if(token.kind == TokenKind::CloseSquareBracket) {
-                            consume_token();
-
-                            index = nullptr;
-                            last_range = token_range(token);
-                        } else {
-                            expect(expression, parse_expression(OperatorPrecedence::None));
-
-                            expect(range, expect_basic_token_with_range(TokenKind::CloseSquareBracket));
-
-                            index = expression;
-                            last_range = range;
-                        }
+                        expect(last_range, expect_basic_token_with_range(TokenKind::CloseSquareBracket));
 
                         current_expression = new IndexReference(
                             span_range(current_expression->range, last_range),
