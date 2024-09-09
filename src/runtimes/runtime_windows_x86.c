@@ -10,6 +10,9 @@ void __stdcall entry() {
     ExitProcess(result);
 }
 
+// Needed by GNU toolchain (MinGW)
+void __main() {}
+
 int _fltused;
 // Adapted from https://github.com/llvm/llvm-project/blob/57b08b0/compiler-rt/lib/builtins/i386/chkstk2.S
 asm(

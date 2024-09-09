@@ -1,8 +1,8 @@
-int MAIN();
+int MAIN(void);
 
 void ExitProcess(unsigned int uExitCode);
 
-void entry() {
+void entry(void) {
     asm("and $-16, %rsp"); // Align stack to 16-byte boundaries for SSE to avoid segmentation fault
 
     int result = MAIN();
@@ -10,7 +10,11 @@ void entry() {
     ExitProcess(result);
 }
 
+// Needed by GNU toolchain (MinGW)
+void __main() {}
+
 int _fltused;
+
 // Adapted from https://github.com/llvm/llvm-project/blob/57b08b0/compiler-rt/lib/builtins/x86_64/chkstk2.S
 asm(
 ".text\n"
