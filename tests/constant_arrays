@@ -1,5 +1,6 @@
-ARRAY :: { "test" as []u8, "best", "crest"};
+ARRAY :: { "test" as []u8, "best", "crest" };
+ARRAY_2 :: { length = 10, pointer = 0x10000 } as []u8;
 
 main :: () -> i32 {
-    return (ARRAY[2][0] - 98) as i32;
+    return (ARRAY[2][0] - 99) as i32;
 }
