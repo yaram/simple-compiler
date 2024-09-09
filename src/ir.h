@@ -59,7 +59,11 @@ struct IntegerArithmeticOperation : Instruction {
         UnsignedModulus,
 
         BitwiseAnd,
-        BitwiseOr
+        BitwiseOr,
+
+        LeftShift,
+        RightShift,
+        RightArithmeticShift
     };
 
     Operation operation;

@@ -459,17 +459,49 @@ namespace {
                         append_single_character_token(line, first_column, &tokens, TokenKind::Equals);
                     }
                 } else if(character == '<') {
-                    append_single_character_token(line, column, &tokens, TokenKind::LeftArrow);
+                    auto first_column = column;
 
                     consume_current_character();
 
                     column += 1;
+
+                    if(index != length) {
+                        expect(character, get_current_character());
+
+                        if(character == '<') {
+                            append_double_character_token(line, first_column, &tokens, TokenKind::DoubleLeftArrow);
+
+                            consume_current_character();
+
+                            column += 1;
+                        } else {
+                            append_single_character_token(line, column, &tokens, TokenKind::LeftArrow);
+                        }
+                    } else {
+                        append_single_character_token(line, column, &tokens, TokenKind::LeftArrow);
+                    }
                 } else if(character == '>') {
-                    append_single_character_token(line, column, &tokens, TokenKind::RightArrow);
+                    auto first_column = column;
 
                     consume_current_character();
 
                     column += 1;
+
+                    if(index != length) {
+                        expect(character, get_current_character());
+
+                        if(character == '>') {
+                            append_double_character_token(line, first_column, &tokens, TokenKind::DoubleRightArrow);
+
+                            consume_current_character();
+
+                            column += 1;
+                        } else {
+                            append_single_character_token(line, column, &tokens, TokenKind::RightArrow);
+                        }
+                    } else {
+                        append_single_character_token(line, column, &tokens, TokenKind::RightArrow);
+                    }
                 } else if(character == '&') {
                     auto first_column = column;
 

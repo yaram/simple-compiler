@@ -82,6 +82,18 @@ void Instruction::print(bool has_return) {
                 printf("OR ");
             } break;
 
+            case IntegerArithmeticOperation::Operation::LeftShift: {
+                printf("LSh ");
+            } break;
+
+            case IntegerArithmeticOperation::Operation::RightShift: {
+                printf("RSH ");
+            } break;
+
+            case IntegerArithmeticOperation::Operation::RightArithmeticShift: {
+                printf("RSHA ");
+            } break;
+
             default: {
                 abort();
             } break;

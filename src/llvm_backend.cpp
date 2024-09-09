@@ -495,6 +495,18 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 value = LLVMBuildOr(builder, value_a, value_b, "or");
                             } break;
 
+                            case IntegerArithmeticOperation::Operation::LeftShift: {
+                                value = LLVMBuildShl(builder, value_a, value_b, "left_shift");
+                            } break;
+
+                            case IntegerArithmeticOperation::Operation::RightShift: {
+                                value = LLVMBuildLShr(builder, value_a, value_b, "right_shift");
+                            } break;
+
+                            case IntegerArithmeticOperation::Operation::RightArithmeticShift: {
+                                value = LLVMBuildAShr(builder, value_a, value_b, "right_arithmetic_shift");
+                            } break;
+
                             default: {
                                 abort();
                             } break;

@@ -566,6 +566,27 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
                 ));
             } break;
 
+            case BinaryOperation::Operator::LeftShift: {
+                return ok(TypedConstantValue(
+                    wrap_integer_type(integer),
+                    wrap_integer_constant(left << right)
+                ));
+            } break;
+
+            case BinaryOperation::Operator::RightShift: {
+                uint64_t result;
+                if(integer.is_signed) {
+                    result = (uint64_t)((int64_t)left >> (int64_t)right);
+                } else {
+                    result = left >> right;
+                }
+
+                return ok(TypedConstantValue(
+                    wrap_integer_type(integer),
+                    wrap_integer_constant(result)
+                ));
+            } break;
+
             case BinaryOperation::Operator::Equal: {
                 return ok(TypedConstantValue(
                     create_boolean_type(),
@@ -666,6 +687,20 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
                 return ok(TypedConstantValue(
                     create_undetermined_integer_type(),
                     wrap_integer_constant(left | right)
+                ));
+            } break;
+
+            case BinaryOperation::Operator::LeftShift: {
+                return ok(TypedConstantValue(
+                    create_undetermined_integer_type(),
+                    wrap_integer_constant(left << right)
+                ));
+            } break;
+
+            case BinaryOperation::Operator::RightShift: {
+                return ok(TypedConstantValue(
+                    create_undetermined_integer_type(),
+                    wrap_integer_constant(((int64_t)left >> (int64_t)right))
                 ));
             } break;
 

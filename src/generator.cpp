@@ -4,14 +4,10 @@
 #include <assert.h>
 #include <stdarg.h>
 #include <string.h>
-#include "timing.h"
 #include "profiler.h"
 #include "list.h"
 #include "util.h"
 #include "string.h"
-#include "path.h"
-#include "lexer.h"
-#include "parser.h"
 #include "constant.h"
 #include "types.h"
 #include "jobs.h"
@@ -2120,6 +2116,18 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
             case BinaryOperation::Operator::BitwiseOr: {
                 arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseOr;
+            } break;
+
+            case BinaryOperation::Operator::LeftShift: {
+                arithmetic_operation = IntegerArithmeticOperation::Operation::LeftShift;
+            } break;
+
+            case BinaryOperation::Operator::RightShift: {
+                if(integer.is_signed) {
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::RightArithmeticShift;
+                } else {
+                    arithmetic_operation = IntegerArithmeticOperation::Operation::RightShift;
+                }
             } break;
 
             default: {

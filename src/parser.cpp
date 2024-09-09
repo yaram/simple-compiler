@@ -41,6 +41,7 @@ enum struct OperatorPrecedence {
     BitwiseOr,
     BitwiseAnd,
     Comparison,
+    BitwiseShift,
     Additive,
     Multiplicitive,
     Cast,
@@ -1079,6 +1080,25 @@ namespace {
                         );
                     } break;
 
+                    case TokenKind::DoubleLeftArrow: {
+                        if(OperatorPrecedence::BitwiseShift <= minimum_precedence) {
+                            done = true;
+
+                            break;
+                        }
+
+                        consume_token();
+
+                        expect(expression, parse_expression(OperatorPrecedence::BitwiseShift));
+
+                        current_expression = new BinaryOperation(
+                            span_range(current_expression->range, expression->range),
+                            BinaryOperation::Operator::LeftShift,
+                            current_expression,
+                            expression
+                        );
+                    } break;
+
                     case TokenKind::RightArrow: {
                         if(OperatorPrecedence::Comparison <= minimum_precedence) {
                             done = true;
@@ -1093,6 +1113,25 @@ namespace {
                         current_expression = new BinaryOperation(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::GreaterThan,
+                            current_expression,
+                            expression
+                        );
+                    } break;
+
+                    case TokenKind::DoubleRightArrow: {
+                        if(OperatorPrecedence::BitwiseShift <= minimum_precedence) {
+                            done = true;
+
+                            break;
+                        }
+
+                        consume_token();
+
+                        expect(expression, parse_expression(OperatorPrecedence::BitwiseShift));
+
+                        current_expression = new BinaryOperation(
+                            span_range(current_expression->range, expression->range),
+                            BinaryOperation::Operator::RightShift,
                             current_expression,
                             expression
                         );

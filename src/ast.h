@@ -198,6 +198,8 @@ struct BinaryOperation : Expression {
         GreaterThan,
         BitwiseAnd,
         BitwiseOr,
+        LeftShift,
+        RightShift,
         BooleanAnd,
         BooleanOr
     };

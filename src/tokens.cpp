@@ -84,8 +84,16 @@ void Token::print() {
             printf("LeftArrow");
         } break;
 
+        case TokenKind::DoubleLeftArrow: {
+            printf("DoubleLeftArrow");
+        } break;
+
         case TokenKind::RightArrow: {
             printf("RightArrow");
+        } break;
+
+        case TokenKind::DoubleRightArrow: {
+            printf("DoubleRightArrow");
         } break;
 
         case TokenKind::Ampersand: {
@@ -240,8 +248,16 @@ String Token::get_text() {
             return "<"_S;
         } break;
 
+        case TokenKind::DoubleLeftArrow: {
+            return "<<"_S;
+        } break;
+
         case TokenKind::RightArrow: {
             return ">"_S;
+        } break;
+
+        case TokenKind::DoubleRightArrow: {
+            return ">>"_S;
         } break;
 
         case TokenKind::Ampersand: {
