@@ -986,7 +986,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         if(!found_dot) {
             output_file_name = full_name;
         } else {
-            auto length = dot_index - full_name.length;
+            auto length = full_name.length - dot_index;
 
             if(length == 0) {
                 output_file_name = "out"_S;
