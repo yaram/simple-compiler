@@ -149,7 +149,7 @@ struct InstructionBlock {
     LLVMBasicBlockRef block;
 };
 
-static void register_instruction_block(List<InstructionBlock>* blocks, LLVMValueRef function, Instruction* instruction) {
+inline void register_instruction_block(List<InstructionBlock>* blocks, LLVMValueRef function, Instruction* instruction) {
     StringBuffer block_name {};
     block_name.append("block_"_S);
     block_name.append_integer(blocks->length);
@@ -160,7 +160,7 @@ static void register_instruction_block(List<InstructionBlock>* blocks, LLVMValue
     ));
 }
 
-static void maybe_register_instruction_block(List<InstructionBlock>* blocks, LLVMValueRef function, Instruction* instruction) {
+inline void maybe_register_instruction_block(List<InstructionBlock>* blocks, LLVMValueRef function, Instruction* instruction) {
     for(auto block :* blocks) {
         if(block.instruction == instruction) {
             return;
@@ -170,7 +170,7 @@ static void maybe_register_instruction_block(List<InstructionBlock>* blocks, LLV
     register_instruction_block(blocks, function, instruction);
 }
 
-static LLVMBasicBlockRef get_instruction_block(List<InstructionBlock> blocks, Instruction* instruction) {
+inline LLVMBasicBlockRef get_instruction_block(List<InstructionBlock> blocks, Instruction* instruction) {
     for(auto block : blocks) {
         if(block.instruction == instruction) {
             return block.block;

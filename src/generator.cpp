@@ -228,7 +228,7 @@ struct TypedRuntimeValue {
     AnyRuntimeValue value;
 };
 
-static size_t allocate_register(GenerationContext* context) {
+inline size_t allocate_register(GenerationContext* context) {
     auto index = context->next_register;
 
     context->next_register += 1;
@@ -236,7 +236,7 @@ static size_t allocate_register(GenerationContext* context) {
     return index;
 }
 
-static void write_integer(uint8_t* buffer, size_t offset, RegisterSize size, uint64_t value) {
+inline void write_integer(uint8_t* buffer, size_t offset, RegisterSize size, uint64_t value) {
     buffer[offset] = (uint8_t)value;
 
     if(size >= RegisterSize::Size16) {
@@ -808,7 +808,7 @@ static void append_store_float(
     instructions->append(store_integer);
 }
 
-static size_t generate_address_offset(
+inline size_t generate_address_offset(
     GlobalInfo info,
     GenerationContext* context,
     List<Instruction*>* instructions,

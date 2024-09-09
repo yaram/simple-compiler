@@ -14,7 +14,7 @@
 #include "generator.h"
 #include "types.h"
 
-static String get_default_output_file(String os, bool no_link) {
+inline String get_default_output_file(String os, bool no_link) {
     if(no_link) {
         return "out.o"_S;
     } else {

@@ -2,17 +2,17 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-static void indent(unsigned int level) {
+inline void indent(unsigned int level) {
     for(unsigned int i = 0; i < level; i += 1) {
         printf("  ");
     }
 }
 
-static void print_range(FileRange range) {
+inline void print_range(FileRange range) {
     printf("(%u:%u)-(%u:%u)", range.first_line, range.first_column, range.last_line, range.last_column);
 }
 
-static void print_identifier(Identifier identifier) {
+inline void print_identifier(Identifier identifier) {
     print_range(identifier.range);
     printf(": %.*s", STRING_PRINTF_ARGUMENTS(identifier.text));
 }
