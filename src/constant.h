@@ -488,8 +488,8 @@ DelayedResult<AnyType> evaluate_type_expression(
 );
 Result<AnyType> coerce_to_default_type(GlobalInfo info, ConstantScope* scope, FileRange range, AnyType type);
 bool is_declaration_public(Statement* declaration);
-bool match_public_declaration(Statement* statement, String name);
-bool match_declaration(Statement* statement, String name);
+bool does_or_could_have_public_declaration(Statement* statement, String name);
+bool does_or_could_have_declaration(Statement* statement, String name);
 DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
     GlobalInfo info,
     List<AnyJob>* jobs,

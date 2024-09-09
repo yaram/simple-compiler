@@ -2620,27 +2620,14 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
                                 }
                             }
                         } else {
-                            auto have_to_wait = false;
-                            for(auto statement : static_if->statements) {
-                                bool matching;
-                                if(external) {
-                                    matching = match_public_declaration(statement, name);
-                                } else {
-                                    matching = match_declaration(statement, name);
-                                }
-
-                                if(matching) {
-                                    have_to_wait = true;
-                                } else if(statement->kind == StatementKind::UsingStatement) {
-                                    if(!external) {
-                                        have_to_wait = true;
-                                    }
-                                } else if(statement->kind == StatementKind::StaticIf) {
-                                    have_to_wait = true;
-                                }
+                            bool could_have_declaration;
+                            if(external) {
+                                could_have_declaration = does_or_could_have_public_declaration(static_if, name);
+                            } else {
+                                could_have_declaration = does_or_could_have_declaration(static_if, name);
                             }
 
-                            if(have_to_wait) {
+                            if(could_have_declaration) {
                                 return wait(i);
                             }
                         }

@@ -1341,50 +1341,72 @@ bool is_declaration_public(Statement* declaration) {
     }
 }
 
-bool match_public_declaration(Statement* statement, String name) {
-    String declaration_name;
+bool does_or_could_have_public_declaration(Statement* statement, String name) {
     if(statement->kind == StatementKind::FunctionDeclaration) {
         auto function_declaration = (FunctionDeclaration*)statement;
 
-        declaration_name = function_declaration->name.text;
+        return name == function_declaration->name.text;
     } else if(statement->kind == StatementKind::ConstantDefinition) {
         auto constant_definition = (ConstantDefinition*)statement;
 
-        declaration_name = constant_definition->name.text;
+        return name == constant_definition->name.text;
     } else if(statement->kind == StatementKind::StructDefinition) {
         auto struct_definition = (StructDefinition*)statement;
 
-        declaration_name = struct_definition->name.text;
-    } else {
-        return false;
-    }
-
-    return declaration_name == name;
-}
-
-bool match_declaration(Statement* statement, String name) {
-    String declaration_name;
-    if(statement->kind == StatementKind::FunctionDeclaration) {
-        auto function_declaration = (FunctionDeclaration*)statement;
-
-        declaration_name = function_declaration->name.text;
-    } else if(statement->kind == StatementKind::ConstantDefinition) {
-        auto constant_definition = (ConstantDefinition*)statement;
-
-        declaration_name = constant_definition->name.text;
-    } else if(statement->kind == StatementKind::StructDefinition) {
-        auto struct_definition = (StructDefinition*)statement;
-
-        declaration_name = struct_definition->name.text;
+        return name == struct_definition->name.text;
     } else if(statement->kind == StatementKind::Import) {
         auto import = (Import*)statement;
 
-        declaration_name = import->name;
+        return name == import->name;
+    } else if(statement->kind == StatementKind::StaticIf) {
+        auto static_if = (StaticIf*)statement;
+
+        for(auto statement : static_if->statements) {
+            if(does_or_could_have_declaration(statement, name)) {
+                return true;
+            }
+        }
+
+        return false;
     } else {
         return false;
     }
+}
 
-    return declaration_name == name;
+bool does_or_could_have_declaration(Statement* statement, String name) {
+    if(statement->kind == StatementKind::FunctionDeclaration) {
+        auto function_declaration = (FunctionDeclaration*)statement;
+
+        return name == function_declaration->name.text;
+    } else if(statement->kind == StatementKind::ConstantDefinition) {
+        auto constant_definition = (ConstantDefinition*)statement;
+
+        return name == constant_definition->name.text;
+    } else if(statement->kind == StatementKind::StructDefinition) {
+        auto struct_definition = (StructDefinition*)statement;
+
+        return name == struct_definition->name.text;
+    } else if(statement->kind == StatementKind::Import) {
+        auto import = (Import*)statement;
+
+        return name == import->name;
+    } else if(statement->kind == StatementKind::StaticIf) {
+        auto static_if = (StaticIf*)statement;
+
+        for(auto statement : static_if->statements) {
+            if(does_or_could_have_declaration(statement, name)) {
+                return true;
+            }
+        }
+
+        return false;
+    } else if(statement->kind == StatementKind::UsingStatement) {
+        auto using_statement = (UsingStatement*)statement;
+
+        return true;
+    } else {
+        return false;
+    }
 }
 
 DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
@@ -1764,27 +1786,14 @@ profiled_function(DelayedResult<DeclarationSearchResult>, search_for_declaration
                                 }
                             }
                         } else {
-                            auto have_to_wait = false;
-                            for(auto statement : static_if->statements) {
-                                bool matching;
-                                if(external) {
-                                    matching = match_public_declaration(statement, name);
-                                } else {
-                                    matching = match_declaration(statement, name);
-                                }
-
-                                if(matching) {
-                                    have_to_wait = true;
-                                } else if(statement->kind == StatementKind::UsingStatement) {
-                                    if(!external) {
-                                        have_to_wait = true;
-                                    }
-                                } else if(statement->kind == StatementKind::StaticIf) {
-                                    have_to_wait = true;
-                                }
+                            bool could_have_declaration;
+                            if(external) {
+                                could_have_declaration = does_or_could_have_public_declaration(static_if, name);
+                            } else {
+                                could_have_declaration = does_or_could_have_declaration(static_if, name);
                             }
 
-                            if(have_to_wait) {
+                            if(could_have_declaration) {
                                 return wait(i);
                             }
                         }
