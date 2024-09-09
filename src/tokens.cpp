@@ -181,7 +181,7 @@ String Token::get_text() {
         } break;
 
         case TokenKind::Semicolon: {
-            return "_S;"_S;
+            return ";"_S;
         } break;
 
         case TokenKind::Plus: {
