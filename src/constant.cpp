@@ -2789,6 +2789,8 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
                     ) {
                         if(parameter.value.kind == ConstantValueKind::ArrayConstant) {
                             error(scope, tag.parameters[i]->range, "Cannot use an array with non-constant elements in a constant context");
+
+                            return err();
                         } else {
                             auto static_array_value = unwrap_static_array_constant(parameter.value);
 
@@ -2826,6 +2828,8 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
                     }
                 } else {
                     error(scope, tag.parameters[i]->range, "Expected a string or array of strings, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter.type.get_description()));
+
+                    return err();
                 }
             }
 
