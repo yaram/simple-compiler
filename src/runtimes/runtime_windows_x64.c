@@ -11,7 +11,7 @@ void entry(void) {
 }
 
 // Needed by GNU toolchain (MinGW)
-void __main() {}
+void __main(void) {}
 
 int _fltused;
 

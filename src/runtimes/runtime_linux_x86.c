@@ -1,6 +1,6 @@
-int MAIN();
+int MAIN(void);
 
-void entry() {
+void entry(void) {
     asm("and $-16, %esp"); // Align stack to 16-byte boundaries for SSE to avoid segmentation fault
 
     int result = MAIN();

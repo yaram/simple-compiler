@@ -2,7 +2,7 @@ int __stdcall MAIN(void);
 
 void __stdcall ExitProcess(unsigned int uExitCode);
 
-void __stdcall entry() {
+void __stdcall entry(void) {
     asm("and $-16, %esp"); // Align stack to 16-byte boundaries for SSE to avoid segmentation fault
 
     int result = MAIN();
@@ -11,7 +11,7 @@ void __stdcall entry() {
 }
 
 // Needed by GNU toolchain (MinGW)
-void __main() {}
+void __main(void) {}
 
 int _fltused;
 // Adapted from https://github.com/llvm/llvm-project/blob/57b08b0/compiler-rt/lib/builtins/i386/chkstk2.S

@@ -1,5 +1,5 @@
-int MAIN();
+int MAIN(void);
 
-int main() {
+int main(void) {
     return MAIN();
 }
