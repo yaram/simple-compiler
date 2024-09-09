@@ -335,6 +335,55 @@ Result<AnyConstantValue> coerce_constant_to_type(
                 }
             }
         }
+    } else if(target_type.kind == TypeKind::StructType) {
+        auto target_struct_type = target_type.struct_;
+
+        if(type.kind == TypeKind::UndeterminedStruct) {
+            auto undetermined_struct = type.undetermined_struct;
+
+            auto undetermined_struct_value = unwrap_struct_constant(value);
+
+            assert(undetermined_struct.members.length == undetermined_struct_value.members.length);
+
+            if(target_struct_type.members.length == undetermined_struct.members.length) {
+                auto same_members = true;
+                for(size_t i = 0; i < target_struct_type.members.length; i += 1) {
+                    if(target_struct_type.members[i].name != undetermined_struct.members[i].name) {
+                        same_members = false;
+
+                        break;
+                    }
+                }
+
+                if(same_members) {
+                    auto members = allocate<AnyConstantValue>(target_struct_type.members.length);
+
+                    auto success = true;
+                    for(size_t i = 0; i < target_struct_type.members.length; i += 1) {
+                        auto result = coerce_constant_to_type(
+                            info,
+                            scope,
+                            range,
+                            undetermined_struct.members[i].type,
+                            undetermined_struct_value.members[i],
+                            target_struct_type.members[i].type,
+                            true
+                        );
+
+                        if(!result.status) {
+                            success = false;
+                            break;
+                        }
+
+                        members[i] = result.value;
+                    }
+
+                    if(success) {
+                        return ok(wrap_struct_constant(StructConstant(Array(target_struct_type.members.length, members))));
+                    }
+                }
+            }
+        }
     } else if(type == target_type) {
         return ok(value);
     }
