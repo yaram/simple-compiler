@@ -11,6 +11,8 @@
 #include "platform.h"
 #include "profiler.h"
 
+static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType type);
+
 inline LLVMTypeRef get_llvm_integer_type(RegisterSize size) {
     switch(size) {
         case RegisterSize::Size8: {
@@ -51,6 +53,14 @@ inline LLVMTypeRef get_llvm_float_type(RegisterSize size) {
     }
 }
 
+inline LLVMTypeRef get_llvm_pointer_type(ArchitectureSizes architecture_sizes, IRType pointed_to_type) {
+    if(pointed_to_type.kind == IRTypeKind::Void) {
+        return LLVMPointerTypeInContext(LLVMGetGlobalContext(), 0);
+    } else {
+        return LLVMPointerType(get_llvm_type(architecture_sizes, pointed_to_type), 0);
+    }
+}
+
 static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType type) {
     if(type.kind == IRTypeKind::Function) {
         auto function = type.function;
@@ -71,9 +81,7 @@ static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType ty
     } else if(type.kind == IRTypeKind::Float) {
         return get_llvm_float_type(type.float_.size);
     } else if(type.kind == IRTypeKind::Pointer) {
-        auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, *type.pointer);
-
-        return LLVMPointerType(pointed_to_llvm_type, 0);
+        return get_llvm_pointer_type(architecture_sizes, *type.pointer);
     } else if(type.kind == IRTypeKind::StaticArray) {
         auto static_array = type.static_array;
 
@@ -128,7 +136,7 @@ static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_si
 
         auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, *type.pointer);
 
-        result_type = LLVMPointerType(pointed_to_llvm_type, 0);
+        result_type = get_llvm_pointer_type(architecture_sizes, *type.pointer);
 
         auto integer_llvm_type = get_llvm_integer_type(architecture_sizes.address_size);
 
@@ -866,8 +874,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto destination_type = IRType::create_pointer(heapify(pointer_conversion->destination_pointed_to_type));
 
-                        auto destination_pointer_to_llvm_type = get_llvm_type(architecture_sizes, pointer_conversion->destination_pointed_to_type);
-                        auto destination_llvm_type = LLVMPointerType(destination_pointer_to_llvm_type, 0);
+                        auto destination_llvm_type = get_llvm_pointer_type(architecture_sizes, pointer_conversion->destination_pointed_to_type);
 
                         auto result_value = LLVMBuildPointerCast(builder, source_value.value, destination_llvm_type, "pointer_conversion");
 
@@ -882,8 +889,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto destination_type = IRType::create_pointer(heapify(pointer_from_integer->destination_pointed_to_type));
 
-                        auto destination_pointer_to_llvm_type = get_llvm_type(architecture_sizes, pointer_from_integer->destination_pointed_to_type);
-                        auto destination_llvm_type = LLVMPointerType(destination_pointer_to_llvm_type, 0);
+                        auto destination_llvm_type = get_llvm_pointer_type(architecture_sizes, pointer_from_integer->destination_pointed_to_type);
 
                         auto result_value = LLVMBuildIntToPtr(builder, source_value.value, destination_llvm_type, "integer_to_pointer");
 

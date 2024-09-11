@@ -761,7 +761,7 @@ static IRType get_runtime_ir_type(ArchitectureSizes architecture_sizes, AnyType 
     } else if(type.kind == TypeKind::FloatType) {
         return IRType::create_float(type.float_.size);
     } else if(type.kind == TypeKind::Pointer) {
-        return IRType::create_pointer(heapify(get_runtime_ir_type(architecture_sizes, *type.pointer.pointed_to_type)));
+        return IRType::create_pointer(heapify(get_pointable_ir_type(architecture_sizes, *type.pointer.pointed_to_type)));
     } else if(type.kind == TypeKind::ArrayTypeType) {
         return get_array_ir_type(architecture_sizes, type.array);
     } else if(type.kind == TypeKind::StaticArray) {
@@ -940,7 +940,7 @@ static Result<RegisterValue> coerce_to_pointer_register_value(
     Pointer target_type,
     bool probing
 ) {
-    auto ir_type = IRType::create_pointer(heapify(get_runtime_ir_type(info.architecture_sizes, *target_type.pointed_to_type)));
+    auto ir_type = IRType::create_pointer(heapify(get_pointable_ir_type(info.architecture_sizes, *target_type.pointed_to_type)));
 
     if(type.kind == TypeKind::UndeterminedInteger) {
         auto integer_value = value.unwrap_constant_value().unwrap_integer();
