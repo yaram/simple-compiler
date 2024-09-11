@@ -945,7 +945,7 @@ static Result<RegisterValue> coerce_to_pointer_register_value(
     if(type.kind == TypeKind::UndeterminedInteger) {
         auto integer_value = value.unwrap_constant_value().unwrap_integer();
 
-        auto register_index = append_literal(context, instructions, range, ir_type, IRConstantValue::create_float((double)integer_value));
+        auto register_index = append_literal(context, instructions, range, ir_type, IRConstantValue::create_integer(integer_value));
 
         return ok(RegisterValue(ir_type, register_index));
     } else if(type.kind == TypeKind::Pointer) {
