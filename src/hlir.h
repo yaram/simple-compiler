@@ -116,6 +116,8 @@ struct IRType {
 
         return result;
     }
+
+    void print();
 };
 
 enum struct IRConstantValueKind {
@@ -206,6 +208,7 @@ struct IRConstantValue {
         return result;
     }
 
+    void print();
 };
 
 enum struct InstructionKind {
@@ -216,7 +219,6 @@ enum struct InstructionKind {
     FloatArithmeticOperation,
     FloatComparisonOperation,
     FloatConversion,
-    FloatTruncation,
     FloatFromInteger,
     IntegerFromFloat,
     PointerEquality,
