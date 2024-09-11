@@ -106,11 +106,11 @@ static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_si
     LLVMTypeRef result_type;
     LLVMValueRef result_value;
     if(type.kind == IRTypeKind::Boolean) {
-        assert(value.kind == IRConstantValueKind::IntegerConstant);
+        assert(value.kind == IRConstantValueKind::BooleanConstant);
 
         result_type = get_llvm_integer_type(architecture_sizes.boolean_size);
 
-        result_value = LLVMConstInt(result_type, value.integer, false);
+        result_value = LLVMConstInt(result_type, value.boolean, false);
     } else if(type.kind == IRTypeKind::Integer) {
         assert(value.kind == IRConstantValueKind::IntegerConstant);
 
