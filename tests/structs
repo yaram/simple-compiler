@@ -1,0 +1,10 @@
+Test :: struct {
+    a: i32,
+    b: i32
+}
+
+main :: () -> i32 {
+    test: Test = { a = -2, b = 2 };
+
+    return test.a + test.b;
+}

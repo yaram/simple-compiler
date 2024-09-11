@@ -164,6 +164,9 @@ single_file_test(polymorphic_functions)
 single_file_test(static_arrays)
 single_file_test(constant_arrays)
 
+single_file_test(structs)
+single_file_test(unions)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     single_file_test(extern_libs_win32)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")

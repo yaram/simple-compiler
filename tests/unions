@@ -1,0 +1,10 @@
+Test :: struct union {
+    a: i32,
+    b: i64
+}
+
+main :: () -> i32 {
+    test: Test = { b = 0xFFFFFFFF00000000 };
+
+    return test.a;
+}
