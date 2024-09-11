@@ -2235,7 +2235,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             element_type = *array_type.element_type;
 
             auto ir_type = get_array_ir_type(info.architecture_sizes, array_type);
-            element_ir_type = get_pointable_ir_type(info.architecture_sizes, element_type);
+            element_ir_type = get_runtime_ir_type(info.architecture_sizes, element_type);
             auto element_pointer_ir_type = IRType::create_pointer(heapify(element_ir_type));
 
             if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
@@ -2341,7 +2341,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             element_type = *static_array.element_type;
 
             auto ir_type = get_static_array_ir_type(info.architecture_sizes, static_array);
-            element_ir_type = get_pointable_ir_type(info.architecture_sizes, element_type);
+            element_ir_type = get_runtime_ir_type(info.architecture_sizes, element_type);
             auto element_pointer_ir_type = IRType::create_pointer(heapify(element_ir_type));
 
             if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
@@ -2453,7 +2453,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     instructions,
                     index_reference->expression->range,
-                    element_pointer_ir_type,
+                    element_ir_type,
                     addressed_value.pointer_register
                 );
             } else {
