@@ -4,7 +4,6 @@
 #include "result.h"
 #include "ast.h"
 #include "types.h"
-#include "register_size.h"
 #include "platform.h"
 #include "list.h"
 
@@ -14,7 +13,7 @@ struct AnyConstantValue;
 
 struct FunctionConstant {
     inline FunctionConstant() = default;
-    inline FunctionConstant(
+    explicit inline FunctionConstant(
         FunctionDeclaration* declaration,
         bool is_external,
         Array<String> external_libraries,
@@ -41,7 +40,7 @@ struct FunctionConstant {
 
 struct PolymorphicFunctionConstant {
     inline PolymorphicFunctionConstant() = default;
-    inline PolymorphicFunctionConstant(FunctionDeclaration* declaration, ConstantScope* scope) : declaration(declaration), scope(scope) {}
+    explicit inline PolymorphicFunctionConstant(FunctionDeclaration* declaration, ConstantScope* scope) : declaration(declaration), scope(scope) {}
 
     FunctionDeclaration* declaration;
     ConstantScope* scope;
@@ -49,14 +48,14 @@ struct PolymorphicFunctionConstant {
 
 struct BuiltinFunctionConstant {
     inline BuiltinFunctionConstant() = default;
-    inline BuiltinFunctionConstant(String name) : name(name) {}
+    explicit inline BuiltinFunctionConstant(String name) : name(name) {}
 
     String name;
 };
 
 struct ArrayConstant {
     inline ArrayConstant() = default;
-    inline ArrayConstant(uint64_t length, uint64_t pointer) : length(length), pointer(pointer) {}
+    explicit inline ArrayConstant(uint64_t length, uint64_t pointer) : length(length), pointer(pointer) {}
 
     uint64_t length;
 
@@ -65,21 +64,21 @@ struct ArrayConstant {
 
 struct StaticArrayConstant {
     inline StaticArrayConstant() = default;
-    inline StaticArrayConstant(Array<AnyConstantValue> elements) : elements(elements) {}
+    explicit inline StaticArrayConstant(Array<AnyConstantValue> elements) : elements(elements) {}
 
     Array<AnyConstantValue> elements;
 };
 
 struct StructConstant {
     inline StructConstant() = default;
-    inline StructConstant(Array<AnyConstantValue> members) : members(members) {}
+    explicit inline StructConstant(Array<AnyConstantValue> members) : members(members) {}
 
     Array<AnyConstantValue> members;
 };
 
 struct FileModuleConstant {
     inline FileModuleConstant() = default;
-    inline FileModuleConstant(ConstantScope* scope) : scope(scope) {}
+    explicit inline FileModuleConstant(ConstantScope* scope) : scope(scope) {}
 
     ConstantScope* scope;
 };
@@ -111,189 +110,99 @@ struct AnyConstantValue {
         uint64_t integer;
         double float_;
         bool boolean;
-        uint64_t pointer;
         ArrayConstant array;
         StaticArrayConstant static_array;
         StructConstant struct_;
         FileModuleConstant file_module;
         AnyType type;
     };
+
+    inline AnyConstantValue() = default;
+    explicit inline AnyConstantValue(FunctionConstant value) : kind(ConstantValueKind::FunctionConstant), function(value) {}
+    explicit inline AnyConstantValue(PolymorphicFunctionConstant value) : kind(ConstantValueKind::PolymorphicFunctionConstant), polymorphic_function(value) {}
+    explicit inline AnyConstantValue(BuiltinFunctionConstant value) : kind(ConstantValueKind::BuiltinFunctionConstant), builtin_function(value) {}
+    explicit inline AnyConstantValue(uint64_t value) : kind(ConstantValueKind::IntegerConstant), integer(value) {}
+    explicit inline AnyConstantValue(double value) : kind(ConstantValueKind::FloatConstant), float_(value) {}
+    explicit inline AnyConstantValue(bool value) : kind(ConstantValueKind::BooleanConstant), boolean(value) {}
+    explicit inline AnyConstantValue(ArrayConstant value) : kind(ConstantValueKind::ArrayConstant), array(value) {}
+    explicit inline AnyConstantValue(StaticArrayConstant value) : kind(ConstantValueKind::StaticArrayConstant), static_array(value) {}
+    explicit inline AnyConstantValue(StructConstant value) : kind(ConstantValueKind::StructConstant), struct_(value) {}
+    explicit inline AnyConstantValue(FileModuleConstant value) : kind(ConstantValueKind::FileModuleConstant), file_module(value) {}
+    explicit inline AnyConstantValue(AnyType value) : kind(ConstantValueKind::TypeConstant), type(value) {}
+
+    static inline AnyConstantValue create_void() {
+        AnyConstantValue result {};
+        result.kind = ConstantValueKind::VoidConstant;
+
+        return result;
+    }
+
+    inline FunctionConstant unwrap_function() {
+        assert(kind == ConstantValueKind::FunctionConstant);
+
+        return function;
+    }
+
+    inline PolymorphicFunctionConstant unwrap_polymorphic_function() {
+        assert(kind == ConstantValueKind::PolymorphicFunctionConstant);
+
+        return polymorphic_function;
+    }
+
+    inline BuiltinFunctionConstant unwrap_builtin_function() {
+        assert(kind == ConstantValueKind::BuiltinFunctionConstant);
+
+        return builtin_function;
+    }
+
+    inline uint64_t unwrap_integer() {
+        assert(kind == ConstantValueKind::IntegerConstant);
+
+        return integer;
+    }
+
+    inline bool unwrap_boolean() {
+        assert(kind == ConstantValueKind::BooleanConstant);
+
+        return boolean;
+    }
+
+    inline double unwrap_float() {
+        assert(kind == ConstantValueKind::FloatConstant);
+
+        return float_;
+    }
+
+    inline ArrayConstant unwrap_array() {
+        assert(kind == ConstantValueKind::ArrayConstant);
+
+        return array;
+    }
+
+    inline StaticArrayConstant unwrap_static_array() {
+        assert(kind == ConstantValueKind::StaticArrayConstant);
+
+        return static_array;
+    }
+
+    inline StructConstant unwrap_struct() {
+        assert(kind == ConstantValueKind::StructConstant);
+
+        return struct_;
+    }
+
+    inline FileModuleConstant unwrap_file_module() {
+        assert(kind == ConstantValueKind::FileModuleConstant);
+
+        return file_module;
+    }
+
+    inline AnyType unwrap_type() {
+        assert(kind == ConstantValueKind::TypeConstant);
+
+        return type;
+    }
 };
-
-inline AnyConstantValue wrap_function_constant(FunctionConstant value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::FunctionConstant;
-    result.function = value;
-
-    return result;
-}
-
-inline FunctionConstant unwrap_function_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::FunctionConstant);
-
-    return value.function;
-}
-
-inline AnyConstantValue wrap_polymorphic_function_constant(PolymorphicFunctionConstant value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::PolymorphicFunctionConstant;
-    result.polymorphic_function = value;
-
-    return result;
-}
-
-inline PolymorphicFunctionConstant unwrap_polymorphic_function_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::PolymorphicFunctionConstant);
-
-    return value.polymorphic_function;
-}
-
-inline AnyConstantValue wrap_builtin_function_constant(BuiltinFunctionConstant value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::BuiltinFunctionConstant;
-    result.builtin_function = value;
-
-    return result;
-}
-
-inline BuiltinFunctionConstant unwrap_builtin_function_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::BuiltinFunctionConstant);
-
-    return value.builtin_function;
-}
-
-inline AnyConstantValue wrap_integer_constant(uint64_t value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::IntegerConstant;
-    result.integer = value;
-
-    return result;
-}
-
-inline uint64_t unwrap_integer_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::IntegerConstant);
-
-    return value.integer;
-}
-
-inline AnyConstantValue wrap_float_constant(double value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::FloatConstant;
-    result.float_ = value;
-
-    return result;
-}
-
-inline AnyConstantValue wrap_boolean_constant(bool value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::BooleanConstant;
-    result.boolean = value;
-
-    return result;
-}
-
-inline bool unwrap_boolean_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::BooleanConstant);
-
-    return value.boolean;
-}
-
-inline AnyConstantValue create_void_constant() {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::VoidConstant;
-
-    return result;
-}
-
-inline double unwrap_float_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::FloatConstant);
-
-    return value.float_;
-}
-
-inline AnyConstantValue wrap_pointer_constant(uint64_t value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::PointerConstant;
-    result.pointer = value;
-
-    return result;
-}
-
-inline uint64_t unwrap_pointer_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::PointerConstant);
-
-    return value.pointer;
-}
-
-inline AnyConstantValue wrap_array_constant(ArrayConstant value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::ArrayConstant;
-    result.array = value;
-
-    return result;
-}
-
-inline ArrayConstant unwrap_array_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::ArrayConstant);
-
-    return value.array;
-}
-
-inline AnyConstantValue wrap_static_array_constant(StaticArrayConstant value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::StaticArrayConstant;
-    result.static_array = value;
-
-    return result;
-}
-
-inline StaticArrayConstant unwrap_static_array_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::StaticArrayConstant);
-
-    return value.static_array;
-}
-
-inline AnyConstantValue wrap_struct_constant(StructConstant value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::StructConstant;
-    result.struct_ = value;
-
-    return result;
-}
-
-inline StructConstant unwrap_struct_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::StructConstant);
-
-    return value.struct_;
-}
-
-inline AnyConstantValue wrap_file_module_constant(FileModuleConstant value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::FileModuleConstant;
-    result.file_module = value;
-
-    return result;
-}
-
-inline FileModuleConstant unwrap_file_module_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::FileModuleConstant);
-
-    return value.file_module;
-}
-
-inline AnyConstantValue wrap_type_constant(AnyType value) {
-    AnyConstantValue result;
-    result.kind = ConstantValueKind::TypeConstant;
-    result.type = value;
-
-    return result;
-}
-
-inline AnyType unwrap_type_constant(AnyConstantValue value) {
-    assert(value.kind == ConstantValueKind::TypeConstant);
-
-    return value.type;
-}
 
 const size_t DECLARATION_HASH_TABLE_SIZE = 32;
 
@@ -345,7 +254,7 @@ struct GlobalInfo {
 
 struct TypedConstantValue {
     inline TypedConstantValue() {}
-    inline TypedConstantValue(AnyType type, AnyConstantValue value) : type(type), value(value) {}
+    explicit inline TypedConstantValue(AnyType type, AnyConstantValue value) : type(type), value(value) {}
 
     AnyType type;
 
@@ -428,7 +337,7 @@ void error(ConstantScope* scope, FileRange range, const char* format, ...);
 
 Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType type, AnyConstantValue value);
 
-bool check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, int64_t value, bool probing);
+Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, int64_t value, bool probing);
 Result<uint64_t> coerce_constant_to_integer_type(
     ConstantScope* scope,
     FileRange range,
@@ -516,8 +425,6 @@ DelayedResult<DeclarationSearchResult> search_for_declaration(
     bool external,
     Statement* ignore
 );
-
-bool static_if_may_have_declaration(String name, bool external, StaticIf* static_if);
 
 DelayedResult<TypedConstantValue> evaluate_constant_expression(
     GlobalInfo info,

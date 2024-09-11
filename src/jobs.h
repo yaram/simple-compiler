@@ -3,7 +3,7 @@
 #include "ast.h"
 #include "constant.h"
 #include "types.h"
-#include "ir.h"
+#include "hlir.h"
 
 struct ParseFile {
     String path;

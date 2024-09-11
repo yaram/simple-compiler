@@ -364,15 +364,6 @@ struct FloatConversion : Instruction {
     inline FloatConversion() : Instruction { InstructionKind::FloatConversion } {}
 };
 
-struct FloatTruncation : Instruction {
-    size_t source_register;
-
-    RegisterSize destination_size;
-    size_t destination_register;
-
-    inline FloatTruncation() : Instruction { InstructionKind::FloatTruncation } {}
-};
-
 struct FloatFromInteger : Instruction {
     bool is_signed;
 
@@ -473,7 +464,7 @@ struct AssembleStaticArray : Instruction {
 };
 
 struct ReadStaticArrayElement : Instruction {
-    size_t index_register;
+    size_t element_index;
 
     size_t source_register;
 
@@ -534,7 +525,6 @@ struct FunctionCallInstruction : Instruction {
 
     Array<Parameter> parameters;
 
-    bool has_return;
     IRType return_type;
     size_t return_register;
 
@@ -623,7 +613,6 @@ struct RuntimeStatic {
 struct Function : RuntimeStatic {
     Array<IRType> parameters;
 
-    bool has_return;
     IRType return_type;
 
     bool is_external;

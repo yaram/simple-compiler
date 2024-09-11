@@ -636,10 +636,7 @@ namespace {
 
                                     left_expression = new ArrayLiteral(
                                         span_range(first_range, token_range(token)),
-                                        {
-                                            1,
-                                            heapify(first_element)
-                                        }
+                                        Array(1, heapify(first_element))
                                     );
                                 } break;
 

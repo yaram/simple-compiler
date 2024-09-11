@@ -59,14 +59,17 @@ set(sources
     src/lexer.h
     src/lexer.cpp
 
+    src/calling_convention.h
+    src/calling_convention.cpp
+
     src/ast.h
     src/ast.cpp
 
     src/parser.h
     src/parser.cpp
 
-    src/ir.h
-    src/ir.cpp
+    src/hlir.h
+    src/hlir.cpp
 
     src/register_size.h
     src/register_size.cpp
@@ -77,11 +80,11 @@ set(sources
     src/constant.h
     src/constant.cpp
 
-    src/generator.h
-    src/generator.cpp
+    src/hl_generator.h
+    src/hl_generator.cpp
 
-    src/llvm_backend.h
-    src/llvm_backend.cpp
+    src/hl_llvm_backend.h
+    src/hl_llvm_backend.cpp
 
     src/main.cpp
 )

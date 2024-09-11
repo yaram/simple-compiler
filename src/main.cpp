@@ -5,13 +5,13 @@
 #include "profiler.h"
 #include "lexer.h"
 #include "parser.h"
-#include "llvm_backend.h"
+#include "hl_llvm_backend.h"
 #include "util.h"
 #include "platform.h"
 #include "path.h"
 #include "list.h"
 #include "jobs.h"
-#include "generator.h"
+#include "hl_generator.h"
 #include "types.h"
 
 inline String get_default_output_file(String os, bool no_link) {
@@ -58,7 +58,7 @@ inline void append_global_constant(List<GlobalConstant>* global_constants, Strin
 }
 
 inline void append_global_type(List<GlobalConstant>* global_constants, String name, AnyType type) {
-    append_global_constant(global_constants, name, create_type_type(), wrap_type_constant(type));
+    append_global_constant(global_constants, name, AnyType::create_type_type(), AnyConstantValue(type));
 }
 
 inline void append_base_integer_type(List<GlobalConstant>* global_constants, String name, RegisterSize size, bool is_signed) {
@@ -66,7 +66,7 @@ inline void append_base_integer_type(List<GlobalConstant>* global_constants, Str
     integer.size = size;
     integer.is_signed = is_signed;
 
-    append_global_type(global_constants, name, wrap_integer_type(integer));
+    append_global_type(global_constants, name, AnyType(integer));
 }
 
 inline void append_builtin(List<GlobalConstant>* global_constants, String name) {
@@ -75,8 +75,8 @@ inline void append_builtin(List<GlobalConstant>* global_constants, String name) 
 
     append_global_constant(global_constants,
         name,
-        create_builtin_function_type(),
-        wrap_builtin_function_constant(constant)
+        AnyType::create_builtin_function(),
+        AnyConstantValue(constant)
     );
 }
 
@@ -270,51 +270,51 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     append_global_type(
         &global_constants,
         "bool"_S,
-        create_boolean_type()
+        AnyType::create_boolean()
     );
 
     append_global_type(
         &global_constants,
         "void"_S,
-        create_void_type()
+        AnyType::create_void()
     );
 
     append_global_type(
         &global_constants,
         "f32"_S,
-        wrap_float_type(FloatType(RegisterSize::Size32))
+        AnyType(FloatType(RegisterSize::Size32))
     );
 
     append_global_type(
         &global_constants,
         "f64"_S,
-        wrap_float_type(FloatType(RegisterSize::Size64))
+        AnyType(FloatType(RegisterSize::Size64))
     );
 
     append_global_type(
         &global_constants,
         "float"_S,
-        wrap_float_type(FloatType(architecture_sizes.default_float_size))
+        AnyType(FloatType(architecture_sizes.default_float_size))
     );
 
     append_global_constant(
         &global_constants,
         "true"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(true)
+        AnyType::create_boolean(),
+        AnyConstantValue(true)
     );
 
     append_global_constant(
         &global_constants,
         "false"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(false)
+        AnyType::create_boolean(),
+        AnyConstantValue(false)
     );
 
     append_global_type(
         &global_constants,
         "type"_S,
-        create_type_type()
+        AnyType::create_type_type()
     );
 
     append_builtin(&global_constants, "size_of"_S);
@@ -325,71 +325,71 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     append_global_constant(
         &global_constants,
         "X86"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(architecture == "x86"_S)
+        AnyType::create_boolean(),
+        AnyConstantValue(architecture == "x86"_S)
     );
 
     append_global_constant(
         &global_constants,
         "X64"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(architecture == "x64"_S)
+        AnyType::create_boolean(),
+        AnyConstantValue(architecture == "x64"_S)
     );
 
     append_global_constant(
         &global_constants,
         "WASM32"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(config == "wasm32"_S)
+        AnyType::create_boolean(),
+        AnyConstantValue(config == "wasm32"_S)
     );
 
     append_global_constant(
         &global_constants,
         "WINDOWS"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(os == "windows"_S)
+        AnyType::create_boolean(),
+        AnyConstantValue(os == "windows"_S)
     );
 
     append_global_constant(
         &global_constants,
         "LINUX"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(os == "linux"_S)
+        AnyType::create_boolean(),
+        AnyConstantValue(os == "linux"_S)
     );
 
     append_global_constant(
         &global_constants,
         "EMSCRIPTEN"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(os == "emscripten"_S)
+        AnyType::create_boolean(),
+        AnyConstantValue(os == "emscripten"_S)
     );
 
     append_global_constant(
         &global_constants,
         "GNU"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(toolchain == "gnu"_S)
+        AnyType::create_boolean(),
+        AnyConstantValue(toolchain == "gnu"_S)
     );
 
     append_global_constant(
         &global_constants,
         "MSVC"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(toolchain == "msvc"_S)
+        AnyType::create_boolean(),
+        AnyConstantValue(toolchain == "msvc"_S)
     );
 
     append_global_constant(
         &global_constants,
         "DEBUG"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(config == "debug"_S)
+        AnyType::create_boolean(),
+        AnyConstantValue(config == "debug"_S)
     );
 
     append_global_constant(
         &global_constants,
         "RELEASE"_S,
-        create_boolean_type(),
-        wrap_boolean_constant(config == "release"_S)
+        AnyType::create_boolean(),
+        AnyConstantValue(config == "release"_S)
     );
 
     GlobalInfo info {
@@ -528,7 +528,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                             if(job_after->resolve_function_declaration.type.kind == TypeKind::FunctionTypeType) {
                                 auto function_type = job_after->resolve_function_declaration.type.function;
 
-                                auto function_value = unwrap_function_constant(job_after->resolve_function_declaration.value);
+                                auto function_value = job_after->resolve_function_declaration.value.unwrap_function();
 
                                 auto found = false;
                                 for(auto job : jobs) {
@@ -721,10 +721,6 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
                             runtime_statics.append(job_after->generate_function.function);
 
-                            for(auto static_constant : result.value) {
-                                runtime_statics.append(static_constant);
-                            }
-
                             if(job_after->generate_function.function->is_external) {
                                 for(auto library : job_after->generate_function.function->libraries) {
                                     auto already_registered = false;
@@ -753,11 +749,6 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                             printf("%.*s:\n", STRING_PRINTF_ARGUMENTS(job_after->generate_function.function->path));
                             job_after->generate_function.function->print();
                             printf("\n");
-
-                            for(auto static_constant : result.value) {
-                                static_constant->print();
-                                printf("\n");
-                            }
                         }
                     } break;
 
@@ -873,7 +864,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
                     auto function_type = result.value.type.function;
 
-                    auto function_value = unwrap_function_constant(result.value.value);
+                    auto function_value = result.value.value.unwrap_function();
 
                     if(function_type.parameters.length != 0) {
                         error(scope, function_value.declaration->range, "'main' must have zero parameters");
@@ -881,7 +872,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         return err();
                     }
 
-                    auto expected_main_return_integer = wrap_integer_type(Integer(RegisterSize::Size32, true));
+                    auto expected_main_return_integer = AnyType(Integer(RegisterSize::Size32, true));
 
                     if(*function_type.return_type != expected_main_return_integer) {
                         error(
@@ -901,7 +892,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                             auto generate_function = job.generate_function;
 
                             if(
-                                wrap_function_type(generate_function.type) == wrap_function_type(function_type) &&
+                                AnyType(generate_function.type) == AnyType(function_type) &&
                                 generate_function.value.declaration == function_value.declaration &&
                                 generate_function.value.body_scope == function_value.body_scope
                             ) {

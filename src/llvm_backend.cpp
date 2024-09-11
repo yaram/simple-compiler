@@ -161,7 +161,7 @@ inline void register_instruction_block(List<InstructionBlock>* blocks, LLVMValue
 }
 
 inline void maybe_register_instruction_block(List<InstructionBlock>* blocks, LLVMValueRef function, Instruction* instruction) {
-    for(auto block :* blocks) {
+    for(auto block : *blocks) {
         if(block.instruction == instruction) {
             return;
         }

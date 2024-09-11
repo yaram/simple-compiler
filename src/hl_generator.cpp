@@ -304,26 +304,6 @@ static size_t append_float_conversion(
     return destination_register;
 }
 
-static size_t append_float_truncation(
-    GenerationContext* context,
-    List<Instruction*>* instructions,
-    FileRange range,
-    RegisterSize destination_size,
-    size_t source_register
-) {
-    auto destination_register = allocate_register(context);
-
-    auto float_truncation = new FloatTruncation;
-    float_truncation->range = range;
-    float_truncation->source_register = source_register;
-    float_truncation->destination_size = destination_size;
-    float_truncation->destination_register = destination_register;
-
-    instructions->append(float_truncation);
-
-    return destination_register;
-}
-
 static size_t append_float_from_integer(
     GenerationContext* context,
     List<Instruction*>* instructions,
@@ -530,14 +510,14 @@ static size_t append_read_static_array_element(
     GenerationContext* context,
     List<Instruction*>* instructions,
     FileRange range,
-    size_t index_register,
+    size_t element_index,
     size_t source_register
 ) {
     auto destination_register = allocate_register(context);
 
     auto read_static_array_element = new ReadStaticArrayElement;
     read_static_array_element->range = range;
-    read_static_array_element->index_register = index_register;
+    read_static_array_element->element_index = element_index;
     read_static_array_element->source_register = source_register;
     read_static_array_element->destination_register = destination_register;
 
@@ -2283,12 +2263,42 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         static_array_ir_constant
                     );
 
-                    auto register_index = append_read_static_array_element(
+                    auto static_array_pointer_register = append_allocate_local(
+                        context,
+                        instructions,
+                        index_reference->expression->range,
+                        static_array_ir_type
+                    );
+
+                    append_store(
+                        context,
+                        instructions,
+                        index_reference->expression->range,
+                        static_array_literal_register,
+                        static_array_pointer_register
+                    );
+
+                    auto elements_pointer_register = append_pointer_conversion(
+                        context,
+                        instructions,
+                        index_reference->range,
+                        element_ir_type,
+                        static_array_pointer_register
+                    );
+
+                    auto pointer_register = append_pointer_index(
                         context,
                         instructions,
                         index_reference->range,
                         index_register.register_index,
-                        static_array_literal_register
+                        elements_pointer_register
+                    );
+
+                    auto register_index = append_load(
+                        context,
+                        instructions,
+                        index_reference->range,
+                        pointer_register
                     );
 
                     return ok(TypedRuntimeValue(
@@ -2349,12 +2359,42 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     ir_constant
                 );
 
-                auto register_index = append_read_static_array_element(
+                auto static_array_pointer_register = append_allocate_local(
+                    context,
+                    instructions,
+                    index_reference->expression->range,
+                    ir_type
+                );
+
+                append_store(
+                    context,
+                    instructions,
+                    index_reference->expression->range,
+                    literal_register,
+                    static_array_pointer_register
+                );
+
+                auto elements_pointer_register = append_pointer_conversion(
+                    context,
+                    instructions,
+                    index_reference->range,
+                    element_ir_type,
+                    static_array_pointer_register
+                );
+
+                auto pointer_register = append_pointer_index(
                     context,
                     instructions,
                     index_reference->range,
                     index_register.register_index,
-                    literal_register
+                    elements_pointer_register
+                );
+
+                auto register_index = append_load(
+                    context,
+                    instructions,
+                    index_reference->range,
+                    pointer_register
                 );
 
                 return ok(TypedRuntimeValue(
@@ -2364,12 +2404,42 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
                 auto register_value = expression_value.value.register_;
 
-                auto register_index = append_read_static_array_element(
+                auto static_array_pointer_register = append_allocate_local(
+                    context,
+                    instructions,
+                    index_reference->expression->range,
+                    ir_type
+                );
+
+                append_store(
+                    context,
+                    instructions,
+                    index_reference->expression->range,
+                    register_value.register_index,
+                    static_array_pointer_register
+                );
+
+                auto elements_pointer_register = append_pointer_conversion(
+                    context,
+                    instructions,
+                    index_reference->range,
+                    element_ir_type,
+                    static_array_pointer_register
+                );
+
+                auto pointer_register = append_pointer_index(
                     context,
                     instructions,
                     index_reference->range,
                     index_register.register_index,
-                    register_value.register_index
+                    elements_pointer_register
+                );
+
+                auto register_index = append_load(
+                    context,
+                    instructions,
+                    index_reference->range,
+                    pointer_register
                 );
 
                 return ok(TypedRuntimeValue(
@@ -3151,7 +3221,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 jobs->append(job);
             }
 
-            auto has_return = function_type.return_type->kind != TypeKind::Void;
+            auto return_is_void = function_type.return_type->kind == TypeKind::Void;
 
             auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(function_type.parameters.length);
 
@@ -3183,22 +3253,21 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             assert(runtime_parameter_index == function_type.parameters.length);
 
+            auto return_ir_type = get_pointable_ir_type(info.architecture_sizes, *function_type.return_type);
+
             auto pointer_register = append_reference_static(context, instructions, function_call->range, runtime_function);
 
             auto function_call_instruction = new FunctionCallInstruction;
             function_call_instruction->range = function_call->range;
             function_call_instruction->pointer_register = pointer_register;
             function_call_instruction->parameters = Array(function_type.parameters.length, instruction_parameters);
-            function_call_instruction->has_return = has_return;
+            function_call_instruction->return_type = return_ir_type;
             function_call_instruction->calling_convention = function_type.calling_convention;
 
             AnyRuntimeValue value;
-            if(has_return) {
+            if(!return_is_void) {
                 auto return_register = allocate_register(context);
 
-                auto return_ir_type = get_runtime_ir_type(info.architecture_sizes, *function_type.return_type);
-
-                function_call_instruction->return_type = return_ir_type;
                 function_call_instruction->return_register = return_register;
 
                 value = AnyRuntimeValue(RegisterValue(return_ir_type, return_register));
@@ -3303,7 +3372,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return err();
             }
 
-            auto has_return = function.return_type->kind != TypeKind::Void;
+            auto return_is_void = function.return_type->kind == TypeKind::Void;
 
             auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(parameter_count);
 
@@ -3330,20 +3399,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 };
             }
 
+            auto return_ir_type = get_pointable_ir_type(info.architecture_sizes, *function.return_type);
+
             auto function_call_instruction = new FunctionCallInstruction;
             function_call_instruction->range = function_call->range;
             function_call_instruction->pointer_register = pointer_register;
             function_call_instruction->parameters = Array(parameter_count, instruction_parameters);
-            function_call_instruction->has_return = has_return;
+            function_call_instruction->return_type = return_ir_type;
             function_call_instruction->calling_convention = function.calling_convention;
 
             AnyRuntimeValue value;
-            if(has_return) {
-                auto return_ir_type = get_runtime_ir_type(info.architecture_sizes, *function.return_type);
-
+            if(!return_is_void) {
                 auto return_register = allocate_register(context);
 
-                function_call_instruction->return_type = return_ir_type;
                 function_call_instruction->return_register = return_register;
 
                 value = AnyRuntimeValue(RegisterValue(return_ir_type, return_register));
@@ -5049,14 +5117,14 @@ profiled_function(DelayedResult<void>, do_generate_function, (
 
     assert(runtime_parameter_index == runtime_parameter_count);
 
+    auto return_ir_type = get_pointable_ir_type(info.architecture_sizes, *type.return_type);
+
     function->name = declaration->name.text;
     function->range = declaration->range;
     function->path = get_scope_file_path(*value.body_scope);
     function->parameters = Array(runtime_parameter_count, ir_parameters);
-    function->has_return = type.return_type->kind != TypeKind::Void;
+    function->return_type = return_ir_type;
     function->calling_convention = type.calling_convention;
-
-    function->return_type = get_runtime_ir_type(info.architecture_sizes, *type.return_type);
 
     if(value.is_external) {
         function->is_external = true;

@@ -45,7 +45,7 @@ bool AnyType::operator==(AnyType other) {
         auto a_pointer = pointer;
         auto b_pointer = other.pointer;
 
-        return *a_pointer.type == *b_pointer.type;
+        return *a_pointer.pointed_to_type == *b_pointer.pointed_to_type;
     } else if(kind == TypeKind::ArrayTypeType) {
         return *array.element_type == *other.array.element_type;
     } else if(kind == TypeKind::StaticArray) {
@@ -225,7 +225,7 @@ String AnyType::get_description() {
         StringBuffer buffer {};
 
         buffer.append("*"_S);
-        buffer.append(pointer.type->get_description());
+        buffer.append(pointer.pointed_to_type->get_description());
 
         return buffer;
     } else if(kind == TypeKind::ArrayTypeType) {
@@ -262,6 +262,24 @@ bool AnyType::is_runtime_type() {
         kind == TypeKind::Integer ||
         kind == TypeKind::Boolean ||
         kind == TypeKind::FloatType ||
+        kind == TypeKind::Pointer ||
+        kind == TypeKind::ArrayTypeType ||
+        kind == TypeKind::StaticArray ||
+        kind == TypeKind::StructType
+    ) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+bool AnyType::is_pointable_type() {
+    if(
+        kind == TypeKind::FunctionTypeType ||
+        kind == TypeKind::Integer ||
+        kind == TypeKind::Boolean ||
+        kind == TypeKind::FloatType ||
+        kind == TypeKind::Void ||
         kind == TypeKind::Pointer ||
         kind == TypeKind::ArrayTypeType ||
         kind == TypeKind::StaticArray ||

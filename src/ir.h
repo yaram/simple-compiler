@@ -3,15 +3,9 @@
 #include <stdint.h>
 #include "array.h"
 #include "register_size.h"
+#include "calling_convention.h"
 #include "string.h"
 #include "util.h"
-
-enum struct CallingConvention {
-    Default,
-    StdCall
-};
-
-String calling_convention_name(CallingConvention calling_convention);
 
 enum struct InstructionKind {
     IntegerArithmeticOperation,

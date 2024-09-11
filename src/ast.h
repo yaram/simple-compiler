@@ -62,7 +62,7 @@ struct Expression {
 struct NamedReference : Expression {
     Identifier name;
 
-    inline NamedReference(
+    explicit inline NamedReference(
         FileRange range,
         Identifier name
     ) :
@@ -76,7 +76,7 @@ struct MemberReference : Expression {
 
     Identifier name;
 
-    inline MemberReference(
+    explicit inline MemberReference(
         FileRange range,
         Expression* expression,
         Identifier name
@@ -92,7 +92,7 @@ struct IndexReference : Expression {
 
     Expression* index;
 
-    inline IndexReference(
+    explicit inline IndexReference(
         FileRange range,
         Expression* expression,
         Expression* index
@@ -106,7 +106,7 @@ struct IndexReference : Expression {
 struct IntegerLiteral : Expression {
     uint64_t value;
 
-    inline IntegerLiteral(
+    explicit inline IntegerLiteral(
         FileRange range,
         uint64_t value
     ) :
@@ -118,7 +118,7 @@ struct IntegerLiteral : Expression {
 struct FloatLiteral : Expression {
     double value;
 
-    inline FloatLiteral(
+    explicit inline FloatLiteral(
         FileRange range,
         double value
     ) :
@@ -130,7 +130,7 @@ struct FloatLiteral : Expression {
 struct StringLiteral : Expression {
     String characters;
 
-    inline StringLiteral(
+    explicit inline StringLiteral(
         FileRange range,
         String characters
     ) :
@@ -142,7 +142,7 @@ struct StringLiteral : Expression {
 struct ArrayLiteral : Expression {
     Array<Expression*> elements;
 
-    inline ArrayLiteral(
+    explicit inline ArrayLiteral(
         FileRange range,
         Array<Expression*> elements
     ) :
@@ -160,7 +160,7 @@ struct StructLiteral : Expression {
 
     Array<Member> members;
 
-    inline StructLiteral(
+    explicit inline StructLiteral(
         FileRange range,
         Array<Member> members
     ) :
@@ -174,7 +174,7 @@ struct FunctionCall : Expression {
 
     Array<Expression*> parameters;
 
-    inline FunctionCall(
+    explicit inline FunctionCall(
         FileRange range,
         Expression* expression,
         Array<Expression*> parameters
@@ -210,7 +210,7 @@ struct BinaryOperation : Expression {
 
     Expression* right;
 
-    inline BinaryOperation(
+    explicit inline BinaryOperation(
         FileRange range,
         Operator binary_operator,
         Expression* left,
@@ -234,7 +234,7 @@ struct UnaryOperation : Expression {
 
     Expression* expression;
 
-    inline UnaryOperation(
+    explicit inline UnaryOperation(
         FileRange range,
         Operator unary_operator,
         Expression* expression
@@ -250,7 +250,7 @@ struct Cast : Expression {
 
     Expression* type;
 
-    inline Cast(
+    explicit inline Cast(
         FileRange range,
         Expression* expression,
         Expression* type
@@ -264,7 +264,7 @@ struct Cast : Expression {
 struct Bake : Expression {
     FunctionCall* function_call;
 
-    inline Bake(
+    explicit inline Bake(
         FileRange range,
         FunctionCall* function_call
     ) :
@@ -278,7 +278,7 @@ struct ArrayType : Expression {
 
     Expression* index;
 
-    inline ArrayType(
+    explicit inline ArrayType(
         FileRange range,
         Expression* expression,
         Expression* index
@@ -296,7 +296,7 @@ struct FunctionType : Expression {
 
     Array<Tag> tags;
 
-    inline FunctionType(
+    explicit inline FunctionType(
         FileRange range,
         Array<FunctionParameter> parameters,
         Expression* return_type,
@@ -347,7 +347,7 @@ struct FunctionDeclaration : Statement {
     bool has_body;
     Array<Statement*> statements;
 
-    inline FunctionDeclaration(
+    explicit inline FunctionDeclaration(
         FileRange range,
         Identifier name,
         Array<FunctionParameter> parameters,
@@ -364,7 +364,7 @@ struct FunctionDeclaration : Statement {
         statements { statements }
     {}
 
-    inline FunctionDeclaration(
+    explicit inline FunctionDeclaration(
         FileRange range,
         Identifier name,
         Array<FunctionParameter> parameters,
@@ -385,7 +385,7 @@ struct ConstantDefinition : Statement {
 
     Expression* expression;
 
-    inline ConstantDefinition(
+    explicit inline ConstantDefinition(
         FileRange range,
         Identifier name,
         Expression* expression
@@ -417,7 +417,7 @@ struct StructDefinition : Statement {
 
     Array<Member> members;
 
-    inline StructDefinition(
+    explicit inline StructDefinition(
         FileRange range,
         Identifier name,
         bool is_union,
@@ -435,7 +435,7 @@ struct StructDefinition : Statement {
 struct ExpressionStatement : Statement {
     Expression* expression;
 
-    inline ExpressionStatement(
+    explicit inline ExpressionStatement(
         FileRange range,
         Expression* expression
     ) :
@@ -452,7 +452,7 @@ struct VariableDeclaration : Statement {
 
     Array<Tag> tags;
 
-    inline VariableDeclaration(
+    explicit inline VariableDeclaration(
         FileRange range,
         Identifier name,
         Expression* type,
@@ -472,7 +472,7 @@ struct Assignment : Statement {
 
     Expression* value;
 
-    inline Assignment(
+    explicit inline Assignment(
         FileRange range,
         Expression* target,
         Expression* value
@@ -490,7 +490,7 @@ struct BinaryOperationAssignment : Statement {
 
     Expression* value;
 
-    inline BinaryOperationAssignment(
+    explicit inline BinaryOperationAssignment(
         FileRange range,
         Expression* target,
         BinaryOperation::Operator binary_operator,
@@ -518,7 +518,7 @@ struct IfStatement : Statement {
 
     Array<Statement*> else_statements;
 
-    inline IfStatement(
+    explicit inline IfStatement(
         FileRange range,
         Expression* condition,
         Array<Statement*> statements,
@@ -538,7 +538,7 @@ struct WhileLoop : Statement {
 
     Array<Statement*> statements;
 
-    inline WhileLoop(
+    explicit inline WhileLoop(
         FileRange range,
         Expression* condition,
         Array<Statement*> statements
@@ -558,7 +558,7 @@ struct ForLoop : Statement {
 
     Array<Statement*> statements;
 
-    inline ForLoop(
+    explicit inline ForLoop(
         FileRange range,
         Expression* from,
         Expression* to,
@@ -571,7 +571,7 @@ struct ForLoop : Statement {
         statements { statements }
     {}
 
-    inline ForLoop(
+    explicit inline ForLoop(
         FileRange range,
         Identifier index_name,
         Expression* from,
@@ -590,7 +590,7 @@ struct ForLoop : Statement {
 struct ReturnStatement : Statement {
     Expression* value;
 
-    inline ReturnStatement(
+    explicit inline ReturnStatement(
         FileRange range,
         Expression* value
     ) :
@@ -600,7 +600,7 @@ struct ReturnStatement : Statement {
 };
 
 struct BreakStatement : Statement {
-    inline BreakStatement(
+    explicit inline BreakStatement(
         FileRange range
     ) :
         Statement { StatementKind::BreakStatement, range }
@@ -612,7 +612,7 @@ struct Import : Statement {
     String absolute_path;
     String name;
 
-    inline Import(
+    explicit inline Import(
         FileRange range,
         String path,
         String absolute_path,
@@ -628,7 +628,7 @@ struct Import : Statement {
 struct UsingStatement : Statement {
     Expression* module;
 
-    inline UsingStatement(
+    explicit inline UsingStatement(
         FileRange range,
         Expression* module
     ) :
@@ -641,7 +641,7 @@ struct StaticIf : Statement {
     Expression* condition;
     Array<Statement*> statements;
 
-    inline StaticIf(
+    explicit inline StaticIf(
         FileRange range,
         Expression* condition,
         Array<Statement*> statements

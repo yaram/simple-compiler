@@ -3,20 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 
-String calling_convention_name(CallingConvention calling_convention) {
-    switch(calling_convention) {
-        case CallingConvention::Default: {
-            return "cdecl"_S;
-        };
-
-        case CallingConvention::StdCall: {
-            return "stdcall"_S;
-        } break;
-
-        default: abort();
-    }
-}
-
 inline String register_size_name(RegisterSize size){
     switch(size) {
         case RegisterSize::Size8: {

@@ -27,7 +27,7 @@ String get_scope_file_path(ConstantScope scope) {
     return current.file_path;
 }
 
-bool check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, int64_t value, bool probing) {
+Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, int64_t value, bool probing) {
     bool in_range;
     if(target_type.is_signed) {
         int64_t min;
@@ -92,13 +92,13 @@ bool check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRa
 
     if(!in_range) {
         if(!probing) {
-            error(scope, range, "Constant '%zd' cannot fit in '%.*s'. You must cast explicitly", value, STRING_PRINTF_ARGUMENTS(wrap_integer_type(target_type).get_description()));
+            error(scope, range, "Constant '%zd' cannot fit in '%.*s'. You must cast explicitly", value, STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
         }
 
-        return false;
+        return err();
     }
 
-    return true;
+    return ok();
 }
 
 Result<uint64_t> coerce_constant_to_integer_type(
@@ -114,24 +114,22 @@ Result<uint64_t> coerce_constant_to_integer_type(
 
         if(integer.size != target_type.size || integer.is_signed != target_type.is_signed) {
             if(!probing) {
-                error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(wrap_integer_type(integer).get_description()), STRING_PRINTF_ARGUMENTS(wrap_integer_type(target_type).get_description()));
+                error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(AnyType(integer).get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
             }
 
             return err();
         }
 
-        return ok(unwrap_integer_constant(value));
+        return ok((value.unwrap_integer()));
     } else if(type.kind == TypeKind::UndeterminedInteger) {
-        auto integer_value = unwrap_integer_constant(value);
+        auto integer_value = (value.unwrap_integer());
 
-        if(!check_undetermined_integer_to_integer_coercion(scope, range, target_type, (int64_t)integer_value, probing)) {
-            return err();
-        }
+        expect_void(check_undetermined_integer_to_integer_coercion(scope, range, target_type, (int64_t)integer_value, probing));
 
         return ok(integer_value);
     } else {
         if(!probing) {
-            error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(wrap_integer_type(target_type).get_description()));
+            error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
         }
 
         return err();
@@ -148,7 +146,7 @@ static Result<uint64_t> coerce_constant_to_undetermined_integer(
     if(type.kind == TypeKind::Integer) {
         auto integer = type.integer;
 
-        auto integer_value = unwrap_integer_constant(value);
+        auto integer_value = (value.unwrap_integer());
 
         switch(integer.size) {
             case RegisterSize::Size8: {
@@ -172,7 +170,7 @@ static Result<uint64_t> coerce_constant_to_undetermined_integer(
             } break;
         }
     } else if(type.kind == TypeKind::UndeterminedInteger) {
-        return ok(unwrap_integer_constant(value));
+        return ok((value.unwrap_integer()));
     } else {
         if(!probing) {
             error(scope, range, "Cannot implicitly convert '%.*s' to '{integer}'", STRING_PRINTF_ARGUMENTS(type.get_description()));
@@ -191,17 +189,17 @@ static Result<uint64_t> coerce_constant_to_pointer_type(
     bool probing
 ) {
     if(type.kind == TypeKind::UndeterminedInteger) {
-        return ok(unwrap_integer_constant(value));
+        return ok((value.unwrap_integer()));
     } else if(type.kind == TypeKind::Pointer) {
         auto pointer = type.pointer;
 
-        if(*pointer.type == *target_type.type) {
-            return ok(unwrap_pointer_constant(value));
+        if(*pointer.pointed_to_type == *target_type.pointed_to_type) {
+            return ok((value.unwrap_integer()));
         }
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(wrap_pointer_type(target_type).get_description()));
+        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
     }
 
     return err();
@@ -221,29 +219,29 @@ Result<AnyConstantValue> coerce_constant_to_type(
 
         expect(integer_value, coerce_constant_to_integer_type(scope, range, type, value, integer, probing));
 
-        return ok(wrap_integer_constant(integer_value));
+        return ok(AnyConstantValue(integer_value));
     } else if(target_type.kind == TypeKind::UndeterminedInteger) {
         expect(integer_value, coerce_constant_to_undetermined_integer(scope, range, type, value, probing));
 
-        return ok(wrap_integer_constant(integer_value));
+        return ok(AnyConstantValue(integer_value));
     } else if(target_type.kind == TypeKind::FloatType) {
         auto target_float_type = target_type.float_;
 
         if(type.kind == TypeKind::UndeterminedInteger) {
-            return ok(wrap_float_constant((double)unwrap_integer_constant(value)));
+            return ok(AnyConstantValue((double)(value.unwrap_integer())));
         } else if(type.kind == TypeKind::FloatType) {
             auto float_type = type.float_;
 
             if(target_float_type.size == float_type.size) {
-                return ok(wrap_float_constant(unwrap_float_constant(value)));
+                return ok(AnyConstantValue((value.unwrap_float())));
             }
         } else if(type.kind == TypeKind::UndeterminedFloat) {
-            return ok(wrap_float_constant(unwrap_float_constant(value)));
+            return ok(AnyConstantValue((value.unwrap_float())));
         }
     } else if(target_type.kind == TypeKind::UndeterminedFloat) {
         if(type.kind == TypeKind::FloatType) {
             auto float_type = type.float_;
-            auto float_value = unwrap_float_constant(value);
+            auto float_value = (value.unwrap_float());
 
             double value;
             switch(float_type.size) {
@@ -260,16 +258,16 @@ Result<AnyConstantValue> coerce_constant_to_type(
                 } break;
             }
 
-            return ok(wrap_float_constant(value));
+            return ok(AnyConstantValue(value));
         } else if(type.kind == TypeKind::UndeterminedFloat) {
-            return ok(wrap_float_constant(unwrap_float_constant(value)));
+            return ok(AnyConstantValue((value.unwrap_float())));
         }
     } else if(target_type.kind == TypeKind::Pointer) {
         auto target_pointer = target_type.pointer;
 
         expect(pointer_value, coerce_constant_to_pointer_type(scope, range, type, value, target_pointer, probing));
 
-        return ok(wrap_pointer_constant(pointer_value));
+        return ok(AnyConstantValue(pointer_value));
     } else if(target_type.kind == TypeKind::ArrayTypeType) {
         auto target_array_type = target_type.array;
 
@@ -299,16 +297,14 @@ Result<AnyConstantValue> coerce_constant_to_type(
                 undetermined_struct.members[0].name == "length"_S &&
                 undetermined_struct.members[1].name == "pointer"_S
             ) {
-                auto undetermined_struct_value = unwrap_struct_constant(value);
+                auto undetermined_struct_value = (value.unwrap_struct());
 
                 auto pointer_result = coerce_constant_to_pointer_type(
                     scope,
                     range,
                     undetermined_struct.members[1].type,
                     undetermined_struct_value.members[1],
-                    {
-                        target_array_type.element_type
-                    },
+                    Pointer(target_array_type.element_type),
                     true
                 );
 
@@ -318,10 +314,10 @@ Result<AnyConstantValue> coerce_constant_to_type(
                         range,
                         undetermined_struct.members[0].type,
                         undetermined_struct_value.members[0],
-                        {
+                        Integer(
                             info.architecture_sizes.address_size,
                             false
-                        },
+                        ),
                         true
                     );
 
@@ -341,7 +337,7 @@ Result<AnyConstantValue> coerce_constant_to_type(
         if(type.kind == TypeKind::UndeterminedStruct) {
             auto undetermined_struct = type.undetermined_struct;
 
-            auto undetermined_struct_value = unwrap_struct_constant(value);
+            auto undetermined_struct_value = (value.unwrap_struct());
 
             assert(undetermined_struct.members.length == undetermined_struct_value.members.length);
 
@@ -379,7 +375,7 @@ Result<AnyConstantValue> coerce_constant_to_type(
                     }
 
                     if(success) {
-                        return ok(wrap_struct_constant(StructConstant(Array(target_struct_type.members.length, members))));
+                        return ok(AnyConstantValue(StructConstant(Array(target_struct_type.members.length, members))));
                     }
                 }
             }
@@ -410,10 +406,10 @@ Result<TypedConstantValue> evaluate_constant_index(
         index_range,
         index_type,
         index_value,
-        {
+        Integer(
             info.architecture_sizes.address_size,
             false
-        },
+        ),
         false
     ));
 
@@ -421,7 +417,7 @@ Result<TypedConstantValue> evaluate_constant_index(
         auto array_type = type.array;
 
         if(value.kind == ConstantValueKind::StaticArrayConstant) {
-            auto static_array_value = unwrap_static_array_constant(value);
+            auto static_array_value = (value.unwrap_static_array());
 
             if(index >= static_array_value.elements.length) {
                 error(scope, index_range, "Array index %zu out of bounds", index);
@@ -449,7 +445,7 @@ Result<TypedConstantValue> evaluate_constant_index(
             return err();
         }
 
-        auto static_array_value = unwrap_static_array_constant(value);
+        auto static_array_value = (value.unwrap_static_array());
 
         assert(static_array_value.elements.length == static_array.length);
 
@@ -484,7 +480,7 @@ Result<AnyType> determine_binary_operation_type(ConstantScope* scope, FileRange 
 
         auto is_either_signed = left_integer.is_signed || right_integer.is_signed;
 
-        return ok(wrap_integer_type(Integer(
+        return ok(AnyType(Integer(
             largest_size,
             is_either_signed
         )));
@@ -499,7 +495,7 @@ Result<AnyType> determine_binary_operation_type(ConstantScope* scope, FileRange 
             largest_size = right_float.size;
         }
 
-        return ok(wrap_float_type(FloatType(
+        return ok(AnyType(FloatType(
             largest_size
         )));
     } else if(left.kind == TypeKind::FloatType) {
@@ -542,22 +538,22 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
     if(type.kind == TypeKind::Integer) {
         auto integer = type.integer;
 
-        auto left = unwrap_integer_constant(coerced_left_value);
+        auto left = (coerced_left_value.unwrap_integer());
 
-        auto right = unwrap_integer_constant(coerced_right_value);
+        auto right = (coerced_right_value.unwrap_integer());
 
         switch(binary_operator) {
             case BinaryOperation::Operator::Addition: {
                 return ok(TypedConstantValue(
-                    wrap_integer_type(integer),
-                    wrap_integer_constant(left + right)
+                    AnyType(integer),
+                    AnyConstantValue(left + right)
                 ));
             } break;
 
             case BinaryOperation::Operator::Subtraction: {
                 return ok(TypedConstantValue(
-                    wrap_integer_type(integer),
-                    wrap_integer_constant(left - right)
+                    AnyType(integer),
+                    AnyConstantValue(left - right)
                 ));
             } break;
 
@@ -570,8 +566,8 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
                 }
 
                 return ok(TypedConstantValue(
-                    wrap_integer_type(integer),
-                    wrap_integer_constant(result)
+                    AnyType(integer),
+                    AnyConstantValue(result)
                 ));
             } break;
 
@@ -584,8 +580,8 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
                 }
 
                 return ok(TypedConstantValue(
-                    wrap_integer_type(integer),
-                    wrap_integer_constant(result)
+                    AnyType(integer),
+                    AnyConstantValue(result)
                 ));
             } break;
 
@@ -598,29 +594,29 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
                 }
 
                 return ok(TypedConstantValue(
-                    wrap_integer_type(integer),
-                    wrap_integer_constant(result)
+                    AnyType(integer),
+                    AnyConstantValue(result)
                 ));
             } break;
 
             case BinaryOperation::Operator::BitwiseAnd: {
                 return ok(TypedConstantValue(
-                    wrap_integer_type(integer),
-                    wrap_integer_constant(left & right)
+                    AnyType(integer),
+                    AnyConstantValue(left & right)
                 ));
             } break;
 
             case BinaryOperation::Operator::BitwiseOr: {
                 return ok(TypedConstantValue(
-                    wrap_integer_type(integer),
-                    wrap_integer_constant(left | right)
+                    AnyType(integer),
+                    AnyConstantValue(left | right)
                 ));
             } break;
 
             case BinaryOperation::Operator::LeftShift: {
                 return ok(TypedConstantValue(
-                    wrap_integer_type(integer),
-                    wrap_integer_constant(left << right)
+                    AnyType(integer),
+                    AnyConstantValue(left << right)
                 ));
             } break;
 
@@ -633,22 +629,22 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
                 }
 
                 return ok(TypedConstantValue(
-                    wrap_integer_type(integer),
-                    wrap_integer_constant(result)
+                    AnyType(integer),
+                    AnyConstantValue(result)
                 ));
             } break;
 
             case BinaryOperation::Operator::Equal: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left == right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left == right)
                 ));
             } break;
 
             case BinaryOperation::Operator::NotEqual: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left != right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left != right)
                 ));
             } break;
 
@@ -661,8 +657,8 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
                 }
 
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(result)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(result)
                 ));
             } break;
 
@@ -675,8 +671,8 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
                 }
 
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(result)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(result)
                 ));
             } break;
 
@@ -687,99 +683,99 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
             } break;
         }
     } else if(type.kind == TypeKind::UndeterminedInteger) {
-        auto left = unwrap_integer_constant(coerced_left_value);
+        auto left = (coerced_left_value.unwrap_integer());
 
-        auto right = unwrap_integer_constant(coerced_right_value);
+        auto right = (coerced_right_value.unwrap_integer());
 
         switch(binary_operator) {
             case BinaryOperation::Operator::Addition: {
                 return ok(TypedConstantValue(
-                    create_undetermined_integer_type(),
-                    wrap_integer_constant(left + right)
+                    AnyType::create_undetermined_integer(),
+                    AnyConstantValue(left + right)
                 ));
             } break;
 
             case BinaryOperation::Operator::Subtraction: {
                 return ok(TypedConstantValue(
-                    create_undetermined_integer_type(),
-                    wrap_integer_constant(left - right)
+                    AnyType::create_undetermined_integer(),
+                    AnyConstantValue(left - right)
                 ));
             } break;
 
             case BinaryOperation::Operator::Multiplication: {
                 return ok(TypedConstantValue(
-                    create_undetermined_integer_type(),
-                    wrap_integer_constant((uint64_t)((int64_t)left * (int64_t)right))
+                    AnyType::create_undetermined_integer(),
+                    AnyConstantValue((uint64_t)((int64_t)left * (int64_t)right))
                 ));
             } break;
 
             case BinaryOperation::Operator::Division: {
                 return ok(TypedConstantValue(
-                    create_undetermined_integer_type(),
-                    wrap_integer_constant((uint64_t)((int64_t)left / (int64_t)right))
+                    AnyType::create_undetermined_integer(),
+                    AnyConstantValue((uint64_t)((int64_t)left / (int64_t)right))
                 ));
             } break;
 
             case BinaryOperation::Operator::Modulo: {
                 return ok(TypedConstantValue(
-                    create_undetermined_integer_type(),
-                    wrap_integer_constant((uint64_t)((int64_t)left % (int64_t)right))
+                    AnyType::create_undetermined_integer(),
+                    AnyConstantValue((uint64_t)((int64_t)left % (int64_t)right))
                 ));
             } break;
 
             case BinaryOperation::Operator::BitwiseAnd: {
                 return ok(TypedConstantValue(
-                    create_undetermined_integer_type(),
-                    wrap_integer_constant(left & right)
+                    AnyType::create_undetermined_integer(),
+                    AnyConstantValue(left & right)
                 ));
             } break;
 
             case BinaryOperation::Operator::BitwiseOr: {
                 return ok(TypedConstantValue(
-                    create_undetermined_integer_type(),
-                    wrap_integer_constant(left | right)
+                    AnyType::create_undetermined_integer(),
+                    AnyConstantValue(left | right)
                 ));
             } break;
 
             case BinaryOperation::Operator::LeftShift: {
                 return ok(TypedConstantValue(
-                    create_undetermined_integer_type(),
-                    wrap_integer_constant(left << right)
+                    AnyType::create_undetermined_integer(),
+                    AnyConstantValue(left << right)
                 ));
             } break;
 
             case BinaryOperation::Operator::RightShift: {
                 return ok(TypedConstantValue(
-                    create_undetermined_integer_type(),
-                    wrap_integer_constant(((int64_t)left >> (int64_t)right))
+                    AnyType::create_undetermined_integer(),
+                    AnyConstantValue((uint64_t)((int64_t)left >> (int64_t)right))
                 ));
             } break;
 
             case BinaryOperation::Operator::Equal: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left == right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left == right)
                 ));
             } break;
 
             case BinaryOperation::Operator::NotEqual: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left != right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left != right)
                 ));
             } break;
 
             case BinaryOperation::Operator::LessThan: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant((int64_t)left < (int64_t)right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue((int64_t)left < (int64_t)right)
                 ));
             } break;
 
             case BinaryOperation::Operator::GreaterThan: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant((int64_t)left > (int64_t)right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue((int64_t)left > (int64_t)right)
                 ));
             } break;
 
@@ -790,36 +786,36 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
             } break;
         }
     } else if(type.kind == TypeKind::Boolean) {
-        auto left = unwrap_boolean_constant(coerced_left_value);
+        auto left = (coerced_left_value.unwrap_boolean());
 
-        auto right = unwrap_boolean_constant(coerced_right_value);
+        auto right = (coerced_right_value.unwrap_boolean());
 
         switch(binary_operator) {
             case BinaryOperation::Operator::BooleanAnd: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left && right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left && right)
                 ));
             } break;
 
             case BinaryOperation::Operator::BooleanOr: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left || right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left || right)
                 ));
             } break;
 
             case BinaryOperation::Operator::Equal: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left == right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left == right)
                 ));
             } break;
 
             case BinaryOperation::Operator::NotEqual: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left != right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left != right)
                 ));
             } break;
 
@@ -830,50 +826,50 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
             } break;
         }
     } else if(type.kind == TypeKind::FloatType || type.kind == TypeKind::UndeterminedFloat) {
-        auto left = unwrap_float_constant(coerced_left_value);
+        auto left = (coerced_left_value.unwrap_float());
 
-        auto right = unwrap_float_constant(coerced_right_value);
+        auto right = (coerced_right_value.unwrap_float());
 
         switch(binary_operator) {
             case BinaryOperation::Operator::Addition: {
                 return ok(TypedConstantValue(
                     type,
-                    wrap_float_constant(left + right)
+                    AnyConstantValue(left + right)
                 ));
             } break;
 
             case BinaryOperation::Operator::Subtraction: {
                 return ok(TypedConstantValue(
                     type,
-                    wrap_float_constant(left - right)
+                    AnyConstantValue(left - right)
                 ));
             } break;
 
             case BinaryOperation::Operator::Multiplication: {
                 return ok(TypedConstantValue(
                     type,
-                    wrap_float_constant(left * right)
+                    AnyConstantValue(left * right)
                 ));
             } break;
 
             case BinaryOperation::Operator::Division: {
                 return ok(TypedConstantValue(
                     type,
-                    wrap_float_constant(left / right)
+                    AnyConstantValue(left / right)
                 ));
             } break;
 
             case BinaryOperation::Operator::Equal: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left == right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left == right)
                 ));
             } break;
 
             case BinaryOperation::Operator::NotEqual: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left != right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left != right)
                 ));
             } break;
 
@@ -884,22 +880,22 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
             } break;
         }
     } else if(type.kind == TypeKind::Pointer) {
-        auto left = unwrap_pointer_constant(coerced_left_value);
+        auto left = (coerced_left_value.unwrap_integer());
 
-        auto right = unwrap_pointer_constant(coerced_right_value);
+        auto right = (coerced_right_value.unwrap_integer());
 
         switch(binary_operator) {
             case BinaryOperation::Operator::Equal: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left == right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left == right)
                 ));
             } break;
 
             case BinaryOperation::Operator::NotEqual: {
                 return ok(TypedConstantValue(
-                    create_boolean_type(),
-                    wrap_boolean_constant(left != right)
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left != right)
                 ));
             } break;
 
@@ -946,7 +942,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
         if(type.kind == TypeKind::Integer) {
             auto integer = type.integer;
 
-            auto integer_value = unwrap_integer_constant(value);
+            auto integer_value = (value.unwrap_integer());
 
             if(integer.is_signed) {
                 switch(integer.size) {
@@ -994,11 +990,11 @@ Result<AnyConstantValue> evaluate_constant_cast(
                 }
             }        
         } else if(type.kind == TypeKind::UndeterminedInteger) {
-            result = unwrap_integer_constant(value);
+            result = (value.unwrap_integer());
         } else if(type.kind == TypeKind::FloatType) {
             auto float_type = type.float_;
 
-            auto float_value = unwrap_float_constant(value);
+            auto float_value = (value.unwrap_float());
 
             double from_value;
             switch(float_type.size) {
@@ -1061,7 +1057,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
                 }
             }
         } else if(type.kind == TypeKind::UndeterminedFloat) {
-            auto float_value = unwrap_float_constant(value);
+            auto float_value = (value.unwrap_float());
 
             if(target_integer.is_signed) {
                 switch(target_integer.size) {
@@ -1112,23 +1108,23 @@ Result<AnyConstantValue> evaluate_constant_cast(
             auto pointer = type.pointer;
 
             if(target_integer.size == info.architecture_sizes.address_size && !target_integer.is_signed) {
-                result = unwrap_pointer_constant(value);
+                result = (value.unwrap_integer());
             } else {
                 if(!probing) {
-                    error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(wrap_pointer_type(pointer).get_description()), STRING_PRINTF_ARGUMENTS(wrap_integer_type(target_integer).get_description()));
+                    error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(AnyType(pointer).get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_integer).get_description()));
                 }
 
                 return err();
             }
         } else {
             if(!probing) {
-                error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(wrap_integer_type(target_integer).get_description()));
+                error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_integer).get_description()));
             }
 
             return err();
         }
 
-        return ok(wrap_integer_constant(result));
+        return ok(AnyConstantValue(result));
     } else if(target_type.kind == TypeKind::FloatType) {
         auto target_float_type = target_type.float_;
 
@@ -1136,7 +1132,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
         if(type.kind == TypeKind::Integer) {
             auto integer = type.integer;
 
-            auto integer_value = unwrap_integer_constant(value);
+            auto integer_value = (value.unwrap_integer());
 
             double from_value;
             if(integer.is_signed) {
@@ -1199,7 +1195,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
                 } break;
             }
         } else if(type.kind == TypeKind::UndeterminedInteger) {
-            auto integer_value = unwrap_integer_constant(value);
+            auto integer_value = (value.unwrap_integer());
 
             switch(target_float_type.size) {
                 case RegisterSize::Size32: {
@@ -1217,7 +1213,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
         } else if(type.kind == TypeKind::FloatType) {
             auto float_type = type.float_;
 
-            auto float_value = unwrap_float_constant(value);
+            auto float_value = (value.unwrap_float());
 
             double from_value;
             switch(float_type.size) {
@@ -1248,7 +1244,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
                 } break;
             }
         } else if(type.kind == TypeKind::UndeterminedFloat) {
-            auto float_value = unwrap_float_constant(value);
+            auto float_value = (value.unwrap_float());
 
             switch(target_float_type.size) {
                 case RegisterSize::Size32: {
@@ -1265,13 +1261,13 @@ Result<AnyConstantValue> evaluate_constant_cast(
             }
         } else {
             if(!probing) {
-                error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(wrap_float_type(target_float_type).get_description()));
+                error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_float_type).get_description()));
             }
 
             return err();
         }
 
-        return ok(wrap_float_constant(result));
+        return ok(AnyConstantValue(result));
     } else if(target_type.kind == TypeKind::Pointer) {
         auto target_pointer = target_type.pointer;
 
@@ -1280,10 +1276,10 @@ Result<AnyConstantValue> evaluate_constant_cast(
         if(type.kind == TypeKind::Integer) {
             auto integer = type.integer;
             if(integer.size == info.architecture_sizes.address_size && !integer.is_signed) {
-                result = unwrap_integer_constant(value);
+                result = (value.unwrap_integer());
             } else {
                 if(!probing) {
-                    error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(wrap_integer_type(integer).get_description()), STRING_PRINTF_ARGUMENTS(wrap_pointer_type(target_pointer).get_description()));
+                    error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(AnyType(integer).get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_pointer).get_description()));
                 }
 
                 return err();
@@ -1291,16 +1287,16 @@ Result<AnyConstantValue> evaluate_constant_cast(
         } else if(type.kind == TypeKind::Pointer) {
             auto pointer = type.pointer;
 
-            result = unwrap_pointer_constant(value);
+            result = (value.unwrap_integer());
         } else {
             if(!probing) {
-                error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(wrap_pointer_type(target_pointer).get_description()));
+                error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_pointer).get_description()));
             }
 
             return err();
         }
 
-        return ok(wrap_pointer_constant(result));
+        return ok(AnyConstantValue(result));
     } else {
         if(!probing) {
             error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
@@ -1312,12 +1308,12 @@ Result<AnyConstantValue> evaluate_constant_cast(
 
 Result<AnyType> coerce_to_default_type(GlobalInfo info, ConstantScope* scope, FileRange range, AnyType type) {
     if(type.kind == TypeKind::UndeterminedInteger) {
-        return ok(wrap_integer_type(Integer(
+        return ok(AnyType(Integer(
             info.architecture_sizes.default_integer_size,
             true
         )));
     } else if(type.kind == TypeKind::UndeterminedFloat) {
-        return ok(wrap_float_type(FloatType(
+        return ok(AnyType(FloatType(
             info.architecture_sizes.default_float_size
         )));
     } else if(type.kind == TypeKind::UndeterminedStruct) {
@@ -1422,8 +1418,8 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
             for(auto parameter : function_declaration->parameters) {
                 if(parameter.is_constant || parameter.is_polymorphic_determiner) {
                     return ok(TypedConstantValue(
-                        create_polymorphic_function_type(),
-                        wrap_polymorphic_function_constant(PolymorphicFunctionConstant(
+                        AnyType::create_polymorphic_function(),
+                        AnyConstantValue(PolymorphicFunctionConstant(
                             function_declaration,
                             scope
                         ))
@@ -1490,8 +1486,8 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
                     if(resolve_struct_definition.definition == struct_definition) {
                         if(job.state == JobState::Done) {
                             return ok(TypedConstantValue(
-                                create_type_type(),
-                                wrap_type_constant(resolve_struct_definition.type)
+                                AnyType::create_type_type(),
+                                AnyConstantValue(resolve_struct_definition.type)
                             ));
                         } else {
                             return wait(i);
@@ -1516,8 +1512,8 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
                     if(parse_file.path == import->absolute_path) {
                         if(job.state == JobState::Done) {
                             return ok(TypedConstantValue(
-                                create_file_module_type(),
-                                wrap_file_module_constant(FileModuleConstant(
+                                AnyType::create_file_module(),
+                                AnyConstantValue(FileModuleConstant(
                                     parse_file.scope
                                 ))
                             ));
@@ -1567,14 +1563,6 @@ bool constant_values_equal(AnyConstantValue a, AnyConstantValue b) {
 
         case ConstantValueKind::TypeConstant: {
             return a.type == b.type;
-        } break;
-
-        case ConstantValueKind::VoidConstant: {
-            return true;
-        } break;
-
-        case ConstantValueKind::PointerConstant: {
-            return a.pointer == b.pointer;
         } break;
 
         case ConstantValueKind::ArrayConstant: {
@@ -1743,7 +1731,7 @@ profiled_function(DelayedResult<DeclarationSearchResult>, search_for_declaration
                     return err();
                 }
 
-                auto file_module = unwrap_file_module_constant(expression_value.value);
+                auto file_module = expression_value.value.unwrap_file_module();
 
                 expect_delayed(search_value, search_for_declaration(info, jobs, name, name_hash, file_module.scope, file_module.scope->statements, file_module.scope->declarations, true, nullptr));
 
@@ -1828,7 +1816,7 @@ Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType ty
     if(type.kind == TypeKind::StaticArray) {
         element_type = *type.static_array.element_type;
 
-        static_array_value = unwrap_static_array_constant(value);
+        static_array_value = (value.unwrap_static_array());
 
         assert(static_array_value.elements.length == type.static_array.length);
     } else if(type.kind == TypeKind::ArrayTypeType) {
@@ -1856,7 +1844,7 @@ Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType ty
 
     auto data = allocate<char>(static_array_value.elements.length);
     for(size_t i = 0; i < static_array_value.elements.length; i += 1) {
-        data[i] = (char)unwrap_integer_constant(static_array_value.elements[i]);
+        data[i] = (char)(static_array_value.elements[i].unwrap_integer());
     }
 
     String string {};
@@ -1933,22 +1921,22 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             auto array_type = expression_value.type.array;
 
             if(expression_value.value.kind == ConstantValueKind::ArrayConstant) {
-                auto array_value = unwrap_array_constant(expression_value.value);
+                auto array_value = (expression_value.value.unwrap_array());
 
                 if(member_reference->name.text == "length"_S) {
                     return ok(TypedConstantValue(
-                        wrap_integer_type(Integer(
+                        AnyType(Integer(
                             info.architecture_sizes.address_size,
                             false
                         )),
-                        wrap_integer_constant(array_value.length)
+                        AnyConstantValue(array_value.length)
                     ));
                 } else if(member_reference->name.text == "pointer"_S) {
                     return ok(TypedConstantValue(
-                        wrap_pointer_type(Pointer(
+                        AnyType(Pointer(
                             array_type.element_type
                         )),
-                        wrap_pointer_constant(array_value.pointer)
+                        AnyConstantValue(array_value.pointer)
                     ));
                 } else {
                     error(scope, member_reference->name.range, "No member with name '%.*s'", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
@@ -1956,15 +1944,15 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     return err();
                 }
             } else {
-                auto static_array_value = unwrap_static_array_constant(expression_value.value);
+                auto static_array_value = (expression_value.value.unwrap_static_array());
 
                 if(member_reference->name.text == "length"_S) {
                     return ok(TypedConstantValue(
-                        wrap_integer_type(Integer(
+                        AnyType(Integer(
                             info.architecture_sizes.address_size,
                             false
                         )),
-                        wrap_integer_constant(static_array_value.elements.length)
+                        AnyConstantValue(static_array_value.elements.length)
                     ));
                 } else if(member_reference->name.text == "pointer"_S) {
                     error(scope, member_reference->name.range, "Cannot take pointer to array with constant elements in constant context", member_reference->name.text);
@@ -1981,11 +1969,11 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
             if(member_reference->name.text == "length"_S) {
                 return ok(TypedConstantValue(
-                    wrap_integer_type(Integer(
+                    AnyType(Integer(
                         info.architecture_sizes.address_size,
                         false
                     )),
-                    wrap_integer_constant(static_array.length)
+                    AnyConstantValue(static_array.length)
                 ));
             } else if(member_reference->name.text == "pointer"_S) {
                 error(scope, member_reference->name.range, "Cannot take pointer to static array in constant context", member_reference->name.text);
@@ -1999,7 +1987,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         } else if(expression_value.type.kind == TypeKind::StructType) {
             auto struct_type = expression_value.type.struct_;
 
-            auto struct_value = unwrap_struct_constant(expression_value.value);
+            auto struct_value = (expression_value.value.unwrap_struct());
 
             for(size_t i = 0; i < struct_type.members.length; i += 1) {
                 if(member_reference->name.text == struct_type.members[i].name) {
@@ -2016,7 +2004,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         } else if(expression_value.type.kind == TypeKind::UndeterminedStruct) {
             auto undetermined_struct = expression_value.type.undetermined_struct;
 
-            auto undetermined_struct_value = unwrap_struct_constant(expression_value.value);
+            auto undetermined_struct_value = (expression_value.value.unwrap_struct());
 
             for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
                 if(member_reference->name.text == undetermined_struct.members[i].name) {
@@ -2031,7 +2019,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
             return err();
         } else if(expression_value.type.kind == TypeKind::FileModule) {
-            auto file_module_value = unwrap_file_module_constant(expression_value.value);
+            auto file_module_value = expression_value.value.unwrap_file_module();
 
             expect_delayed(search_value, search_for_declaration(
                 info,
@@ -2083,15 +2071,15 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         auto integer_literal = (IntegerLiteral*)expression;
 
         return ok(TypedConstantValue(
-            create_undetermined_integer_type(),
-            wrap_integer_constant(integer_literal->value)
+            AnyType::create_undetermined_integer(),
+            AnyConstantValue(integer_literal->value)
         ));
     } else if(expression->kind == ExpressionKind::FloatLiteral) {
         auto float_literal = (FloatLiteral*)expression;
 
         return ok(TypedConstantValue(
-            create_undetermined_float_type(),
-            wrap_float_constant(float_literal->value)
+            AnyType::create_undetermined_float(),
+            AnyConstantValue(float_literal->value)
         ));
     } else if(expression->kind == ExpressionKind::StringLiteral) {
         auto string_literal = (StringLiteral*)expression;
@@ -2101,18 +2089,18 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         auto characters = allocate<AnyConstantValue>(character_count);
 
         for(size_t i = 0; i < character_count; i += 1) {
-            characters[i] = wrap_integer_constant((uint64_t)string_literal->characters[i]);
+            characters[i] = AnyConstantValue((uint64_t)string_literal->characters[i]);
         }
 
         return ok(TypedConstantValue(
-            wrap_static_array_type(StaticArray(
+            AnyType(StaticArray(
                 character_count,
-                heapify(wrap_integer_type(Integer(
+                heapify(AnyType(Integer(
                     RegisterSize::Size8,
                     false
                 )))
             )),
-            wrap_static_array_constant(StaticArrayConstant(
+            AnyConstantValue(StaticArrayConstant(
                 Array(character_count, characters)
             ))
         ));
@@ -2157,11 +2145,11 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         }
 
         return ok(TypedConstantValue(
-            wrap_static_array_type(StaticArray(
+            AnyType(StaticArray(
                 element_count,
                 heapify(determined_element_type)
             )),
-            wrap_static_array_constant(StaticArrayConstant(
+            AnyConstantValue(StaticArrayConstant(
                 Array(element_count, elements)
             ))
         ));
@@ -2201,10 +2189,10 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         }
 
         return ok(TypedConstantValue(
-            wrap_undetermined_struct_type(UndeterminedStruct(
+            AnyType(UndeterminedStruct(
                 Array(member_count, members)
             )),
-            wrap_struct_constant(StructConstant(
+            AnyConstantValue(StructConstant(
                 Array(member_count, member_values)
             ))
         ));
@@ -2218,7 +2206,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
             return err();
         } else if(expression_value.type.kind == TypeKind::BuiltinFunction) {
-            auto builtin_function_value = unwrap_builtin_function_constant(expression_value.value);
+            auto builtin_function_value = expression_value.value.unwrap_builtin_function();
 
             if(builtin_function_value.name == "size_of"_S) {
                 if(function_call->parameters.length != 1) {
@@ -2231,7 +2219,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
                 AnyType type;
                 if(parameter_value.type.kind == TypeKind::Type) {
-                    type = unwrap_type_constant(parameter_value.value);
+                    type = (parameter_value.value.unwrap_type());
                 } else {
                     type = parameter_value.type;
                 }
@@ -2245,11 +2233,11 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 auto size = type.get_size(info.architecture_sizes);
 
                 return ok(TypedConstantValue(
-                    wrap_integer_type(Integer(
+                    AnyType(Integer(
                         info.architecture_sizes.address_size,
                         false
                     )),
-                    wrap_integer_constant(size)
+                    AnyConstantValue(size)
                 ));
             } else if(builtin_function_value.name == "type_of"_S) {
                 if(function_call->parameters.length != 1) {
@@ -2261,8 +2249,8 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[0]));
 
                 return ok(TypedConstantValue(
-                    create_type_type(),
-                    wrap_type_constant(parameter_value.type)
+                    AnyType::create_type_type(),
+                    AnyConstantValue(parameter_value.type)
                 ));
             } else if(builtin_function_value.name == "memcpy"_S) {
                 error(scope, function_call->range, "'memcpy' cannot be called in a constant context");
@@ -2272,7 +2260,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 abort();
             }
         } else if(expression_value.type.kind == TypeKind::Type) {
-            auto type = unwrap_type_constant(expression_value.value);
+            auto type = (expression_value.value.unwrap_type());
 
             if(type.kind == TypeKind::PolymorphicStruct) {
                 auto polymorphic_struct = type.polymorphic_struct;
@@ -2323,8 +2311,8 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                             if(same_parameters) {
                                 if(job.state == JobState::Done) {
                                     return ok(TypedConstantValue(
-                                        create_type_type(),
-                                        wrap_type_constant(resolve_polymorphic_struct.type)
+                                        AnyType::create_type_type(),
+                                        AnyConstantValue(resolve_polymorphic_struct.type)
                                     ));
                                 } else {
                                     return wait(i);
@@ -2383,22 +2371,18 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         switch(unary_operation->unary_operator) {
             case UnaryOperation::Operator::Pointer: {
                 if(expression_value.type.kind == TypeKind::Type) {
-                    auto type = unwrap_type_constant(expression_value.value);
+                    auto type = (expression_value.value.unwrap_type());
 
-                    if(
-                        !type.is_runtime_type() &&
-                        type.kind != TypeKind::Void &&
-                        type.kind != TypeKind::FunctionTypeType
-                    ) {
+                    if(!type.is_pointable_type()) {
                         error(scope, unary_operation->expression->range, "Cannot create pointers to type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
 
                         return err();
                     }
 
                     return ok(TypedConstantValue(
-                        create_type_type(),
-                        wrap_type_constant(
-                            wrap_pointer_type(Pointer(
+                        AnyType::create_type_type(),
+                        AnyConstantValue(
+                            AnyType(Pointer(
                                 heapify(type)
                             ))
                         )
@@ -2412,11 +2396,11 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
             case UnaryOperation::Operator::BooleanInvert: {
                 if(expression_value.type.kind == TypeKind::Boolean) {
-                    auto boolean_value = unwrap_boolean_constant(expression_value.value);
+                    auto boolean_value = (expression_value.value.unwrap_boolean());
 
                     return ok(TypedConstantValue(
-                        create_boolean_type(),
-                        wrap_boolean_constant(!boolean_value)
+                        AnyType::create_boolean(),
+                        AnyConstantValue(!boolean_value)
                     ));
                 } else {
                     error(scope, unary_operation->expression->range, "Expected a boolean, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
@@ -2427,18 +2411,18 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
             case UnaryOperation::Operator::Negation: {
                 if(expression_value.type.kind == TypeKind::Integer || expression_value.type.kind == TypeKind::UndeterminedInteger) {
-                    auto integer_value = unwrap_integer_constant(expression_value.value);
+                    auto integer_value = (expression_value.value.unwrap_integer());
 
                     return ok(TypedConstantValue(
                         expression_value.type,
-                        wrap_integer_constant((uint64_t)-(int64_t)integer_value)
+                        AnyConstantValue((uint64_t)-(int64_t)integer_value)
                     ));
                 } else if(expression_value.type.kind == TypeKind::FloatType || expression_value.type.kind == TypeKind::UndeterminedFloat) {
-                    auto float_value = unwrap_float_constant(expression_value.value);
+                    auto float_value = (expression_value.value.unwrap_float());
 
                     return ok(TypedConstantValue(
                         expression_value.type,
-                        wrap_float_constant(-float_value)
+                        AnyConstantValue(-float_value)
                     ));
                 } else {
                     error(scope, unary_operation->expression->range, "Cannot negate '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
@@ -2490,7 +2474,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         }
 
         if(expression_value.type.kind == TypeKind::PolymorphicFunction) {
-            auto polymorphic_function_value = unwrap_polymorphic_function_constant(expression_value.value);
+            auto polymorphic_function_value = expression_value.value.unwrap_polymorphic_function();
 
             auto declaration_parameters = polymorphic_function_value.declaration->parameters;
             auto declaration_parameter_count = declaration_parameters.length;
@@ -2546,8 +2530,8 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
                         if(job.state == JobState::Done) {
                             return ok(TypedConstantValue(
-                                wrap_function_type(resolve_polymorphic_function.type),
-                                wrap_function_constant(resolve_polymorphic_function.value)
+                                AnyType(resolve_polymorphic_function.type),
+                                AnyConstantValue(resolve_polymorphic_function.value)
                             ));
                         } else {
                             return wait(i);
@@ -2577,7 +2561,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         } else if(expression_value.type.kind == TypeKind::FunctionTypeType) {
             auto function_type = expression_value.type.function;
 
-            auto function_value = unwrap_function_constant(expression_value.value);
+            auto function_value = (expression_value.value.unwrap_function());
 
             if(call_parameter_count != function_type.parameters.length) {
                 error(
@@ -2592,8 +2576,8 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             }
 
             return ok(TypedConstantValue(
-                wrap_function_type(function_type),
-                wrap_function_constant(function_value)
+                AnyType(function_type),
+                AnyConstantValue(function_value)
             ));
         } else {
             error(scope, function_call->expression->range, "Expected a function, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
@@ -2619,17 +2603,17 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 array_type->index->range,
                 index_value.type,
                 index_value.value,
-                {
+                Integer(
                     info.architecture_sizes.address_size,
                     false
-                },
+                ),
                 false
             ));
 
             return ok(TypedConstantValue(
-                create_type_type(),
-                wrap_type_constant(
-                    wrap_static_array_type(StaticArray(
+                AnyType::create_type_type(),
+                AnyConstantValue(
+                    AnyType(StaticArray(
                         length,
                         heapify(type)
                     ))
@@ -2637,9 +2621,9 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             ));
         } else {
             return ok(TypedConstantValue(
-                create_type_type(),
-                wrap_type_constant(
-                    wrap_array_type(ArrayTypeType(
+                AnyType::create_type_type(),
+                AnyConstantValue(
+                    AnyType(ArrayTypeType(
                         heapify(type)
                     ))
                 )
@@ -2716,7 +2700,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
         AnyType return_type;
         if(function_type->return_type == nullptr) {
-            return_type = create_void_type();
+            return_type = AnyType::create_void();
         } else {
             expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, ignore_statement, function_type->return_type));
 
@@ -2730,9 +2714,9 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         }
 
         return ok(TypedConstantValue(
-            create_type_type(),
-            wrap_type_constant(
-                wrap_function_type(FunctionTypeType(
+            AnyType::create_type_type(),
+            AnyConstantValue(
+                AnyType(FunctionTypeType(
                     Array(parameter_count, parameters),
                     heapify(return_type),
                     calling_convention
@@ -2754,7 +2738,7 @@ DelayedResult<AnyType> evaluate_type_expression(
     expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, expression));
 
     if(expression_value.type.kind == TypeKind::Type) {
-        return ok(unwrap_type_constant(expression_value.value));
+        return ok((expression_value.value.unwrap_type()));
     } else {
         error(scope, expression->range, "Expected a type, got %.*s", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
 
@@ -2771,7 +2755,7 @@ DelayedResult<StaticIfResolutionResult> do_resolve_static_if(GlobalInfo info, Li
         return err();
     }
 
-    auto condition_value = unwrap_boolean_constant(condition.value);
+    auto condition_value = (condition.value.unwrap_boolean());
 
     if(condition_value) {
         expect_void(process_scope(jobs, scope, static_if->statements, nullptr, true));
@@ -2850,7 +2834,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
 
                             return err();
                         } else {
-                            auto static_array_value = unwrap_static_array_constant(parameter.value);
+                            auto static_array_value = (parameter.value.unwrap_static_array());
 
                             for(auto element : static_array_value.elements) {
                                 expect(library_path, array_to_string(scope, tag.parameters[i]->range, *array.element_type, element));
@@ -2870,7 +2854,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
                         static_array.element_type->kind == TypeKind::ArrayTypeType ||
                         static_array.element_type->kind == TypeKind::StaticArray
                     ) {
-                        auto static_array_value = unwrap_static_array_constant(parameter.value);
+                        auto static_array_value = (parameter.value.unwrap_static_array());
 
                         assert(static_array.length == static_array_value.elements.length);
 
@@ -2937,14 +2921,14 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
         expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, nullptr, declaration->return_type));
 
         if(!return_type_value.is_runtime_type()) {
-            error(scope, declaration->return_type->range, "Function parameters cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(return_type_value.get_description()));
+            error(scope, declaration->return_type->range, "Function return type cannot be '%.*s'", STRING_PRINTF_ARGUMENTS(return_type_value.get_description()));
 
             return err();
         }
 
         return_type = return_type_value;
     } else {
-        return_type = create_void_type();
+        return_type = AnyType::create_void();
     }
 
     if(is_external && is_no_mangle) {
@@ -2961,9 +2945,9 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
         }
 
         return ok(TypedConstantValue(
-            create_type_type(),
-            wrap_type_constant(
-                wrap_function_type(FunctionTypeType(
+            AnyType::create_type_type(),
+            AnyConstantValue(
+                AnyType(FunctionTypeType(
                     Array(parameter_count, parameter_types),
                     heapify(return_type),
                     calling_convention
@@ -3009,12 +2993,12 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
         }
 
         return ok(TypedConstantValue(
-            wrap_function_type(FunctionTypeType(
+            AnyType(FunctionTypeType(
                 Array(parameter_count, parameter_types),
                 heapify(return_type),
                 calling_convention
             )),
-            wrap_function_constant(function_constant)
+            AnyConstantValue(function_constant)
         ));
     }
 }
@@ -3065,8 +3049,8 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
 
             ScopeConstant constant {};
             constant.name = declaration->parameters[i].polymorphic_determiner.text;
-            constant.type = create_type_type();
-            constant.value = wrap_type_constant(type);
+            constant.type = AnyType::create_type_type();
+            constant.value = AnyConstantValue(type);
 
             polymorphic_determiners.append(constant);
 
@@ -3169,7 +3153,7 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
 
         return_type = return_type_value;
     } else {
-        return_type = create_void_type();
+        return_type = AnyType::create_void();
     }
 
     for(auto tag : declaration->tags) {
@@ -3247,7 +3231,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
             parameter_types[i] = type;
         }
 
-        return ok(wrap_polymorphic_struct_type(PolymorphicStruct(
+        return ok(AnyType(PolymorphicStruct(
             struct_definition,
             parameter_types,
             scope
@@ -3288,7 +3272,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
         };
     }
 
-    return ok(wrap_struct_type(StructType(
+    return ok(AnyType(StructType(
         struct_definition,
         Array(member_count, members)
     )));
@@ -3356,7 +3340,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
         };
     }
 
-    return ok(wrap_struct_type(StructType(
+    return ok(AnyType(StructType(
         struct_definition,
         Array(member_count, members)
     )));

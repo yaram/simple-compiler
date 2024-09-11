@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ir.h"
+#include "calling_convention.h"
 #include "ast.h"
 #include "platform.h"
 
@@ -11,7 +11,7 @@ struct StructTypeMember;
 
 struct FunctionTypeType {
     inline FunctionTypeType() = default;
-    inline FunctionTypeType(Array<AnyType> parameters, AnyType* return_type, CallingConvention calling_convention) :
+    explicit inline FunctionTypeType(Array<AnyType> parameters, AnyType* return_type, CallingConvention calling_convention) :
         parameters(parameters), return_type(return_type), calling_convention(calling_convention)
     {}
 
@@ -24,7 +24,7 @@ struct FunctionTypeType {
 
 struct Integer {
     inline Integer() = default;
-    inline Integer(RegisterSize size, bool is_signed) : size(size), is_signed(is_signed) {}
+    explicit inline Integer(RegisterSize size, bool is_signed) : size(size), is_signed(is_signed) {}
 
     RegisterSize size;
 
@@ -33,28 +33,28 @@ struct Integer {
 
 struct FloatType {
     inline FloatType() = default;
-    inline FloatType(RegisterSize size) : size(size) {}
+    explicit inline FloatType(RegisterSize size) : size(size) {}
 
     RegisterSize size;
 };
 
 struct Pointer {
     inline Pointer() = default;
-    inline Pointer(AnyType* type) : type(type) {}
+    explicit inline Pointer(AnyType* type) : pointed_to_type(type) {}
 
-    AnyType* type;
+    AnyType* pointed_to_type;
 };
 
 struct ArrayTypeType {
     inline ArrayTypeType() = default;
-    inline ArrayTypeType(AnyType* element_type) : element_type(element_type) {}
+    explicit inline ArrayTypeType(AnyType* element_type) : element_type(element_type) {}
 
     AnyType* element_type;
 };
 
 struct StaticArray {
     inline StaticArray() = default;
-    inline StaticArray(size_t length, AnyType* element_type) : length(length), element_type(element_type) {}
+    explicit inline StaticArray(size_t length, AnyType* element_type) : length(length), element_type(element_type) {}
 
     size_t length;
 
@@ -63,7 +63,7 @@ struct StaticArray {
 
 struct StructType {
     inline StructType() = default;
-    inline StructType(StructDefinition* definition, Array<StructTypeMember> members) : definition(definition), members(members) {}
+    explicit inline StructType(StructDefinition* definition, Array<StructTypeMember> members) : definition(definition), members(members) {}
 
     StructDefinition* definition;
 
@@ -76,7 +76,7 @@ struct StructType {
 
 struct PolymorphicStruct {
     inline PolymorphicStruct() = default;
-    inline PolymorphicStruct(StructDefinition* definition, AnyType* parameter_types, ConstantScope* parent) :
+    explicit inline PolymorphicStruct(StructDefinition* definition, AnyType* parameter_types, ConstantScope* parent) :
         definition(definition), parameter_types(parameter_types), parent(parent)
     {}
 
@@ -89,7 +89,7 @@ struct PolymorphicStruct {
 
 struct UndeterminedStruct {
     inline UndeterminedStruct() = default;
-    inline UndeterminedStruct(Array<StructTypeMember> members) : members(members) {}
+    explicit inline UndeterminedStruct(Array<StructTypeMember> members) : members(members) {}
 
     Array<StructTypeMember> members;
 };
@@ -129,10 +129,78 @@ struct AnyType {
         UndeterminedStruct undetermined_struct;
     };
 
+    inline AnyType() = default;
+    explicit inline AnyType(FunctionTypeType function) : kind(TypeKind::FunctionTypeType), function(function) {}
+    explicit inline AnyType(Integer integer) : kind(TypeKind::Integer), integer(integer) {}
+    explicit inline AnyType(FloatType float_) : kind(TypeKind::FloatType), float_(float_) {}
+    explicit inline AnyType(Pointer pointer) : kind(TypeKind::Pointer), pointer(pointer) {}
+    explicit inline AnyType(ArrayTypeType array) : kind(TypeKind::ArrayTypeType), array(array) {}
+    explicit inline AnyType(StaticArray static_array) : kind(TypeKind::StaticArray), static_array(static_array) {}
+    explicit inline AnyType(StructType struct_) : kind(TypeKind::StructType), struct_(struct_) {}
+    explicit inline AnyType(PolymorphicStruct polymorphic_struct) : kind(TypeKind::PolymorphicStruct), polymorphic_struct(polymorphic_struct) {}
+    explicit inline AnyType(UndeterminedStruct undetermined_struct) : kind(TypeKind::UndeterminedStruct), undetermined_struct(undetermined_struct) {}
+
+    static inline AnyType create_polymorphic_function() {
+        AnyType result;
+        result.kind = TypeKind::PolymorphicFunction;
+
+        return result;
+    }
+
+    static inline AnyType create_builtin_function() {
+        AnyType result;
+        result.kind = TypeKind::BuiltinFunction;
+
+        return result;
+    }
+
+    static inline AnyType create_undetermined_integer() {
+        AnyType result;
+        result.kind = TypeKind::UndeterminedInteger;
+
+        return result;
+    }
+
+    static inline AnyType create_undetermined_float() {
+        AnyType result;
+        result.kind = TypeKind::UndeterminedFloat;
+
+        return result;
+    }
+
+    static inline AnyType create_type_type() {
+        AnyType result;
+        result.kind = TypeKind::Type;
+
+        return result;
+    }
+
+    static inline AnyType create_void() {
+        AnyType result;
+        result.kind = TypeKind::Void;
+
+        return result;
+    }
+
+    static inline AnyType create_boolean() {
+        AnyType result;
+        result.kind = TypeKind::Boolean;
+
+        return result;
+    }
+
+    static inline AnyType create_file_module() {
+        AnyType result;
+        result.kind = TypeKind::FileModule;
+
+        return result;
+    }
+
     bool operator==(AnyType other);
     bool operator!=(AnyType other);
     String get_description();
     bool is_runtime_type();
+    bool is_pointable_type();
     uint64_t get_alignment(ArchitectureSizes architecture_sizes);
     uint64_t get_size(ArchitectureSizes architecture_sizes);
 };
@@ -142,131 +210,3 @@ struct StructTypeMember {
 
     AnyType type;
 };
-
-inline AnyType wrap_function_type(FunctionTypeType value) {
-    AnyType result;
-    result.kind = TypeKind::FunctionTypeType;
-    result.function = value;
-
-    return result;
-}
-
-inline AnyType create_polymorphic_function_type() {
-    AnyType result;
-    result.kind = TypeKind::PolymorphicFunction;
-
-    return result;
-}
-
-inline AnyType create_builtin_function_type() {
-    AnyType result;
-    result.kind = TypeKind::BuiltinFunction;
-
-    return result;
-}
-
-inline AnyType wrap_integer_type(Integer value) {
-    AnyType result;
-    result.kind = TypeKind::Integer;
-    result.integer = value;
-
-    return result;
-}
-
-inline AnyType create_undetermined_integer_type() {
-    AnyType result;
-    result.kind = TypeKind::UndeterminedInteger;
-
-    return result;
-}
-
-inline AnyType wrap_float_type(FloatType value) {
-    AnyType result;
-    result.kind = TypeKind::FloatType;
-    result.float_ = value;
-
-    return result;
-}
-
-inline AnyType create_undetermined_float_type() {
-    AnyType result;
-    result.kind = TypeKind::UndeterminedFloat;
-
-    return result;
-}
-
-inline AnyType create_type_type() {
-    AnyType result;
-    result.kind = TypeKind::Type;
-
-    return result;
-}
-
-inline AnyType create_void_type() {
-    AnyType result;
-    result.kind = TypeKind::Void;
-
-    return result;
-}
-
-inline AnyType create_boolean_type() {
-    AnyType result;
-    result.kind = TypeKind::Boolean;
-
-    return result;
-}
-
-inline AnyType wrap_pointer_type(Pointer value) {
-    AnyType result;
-    result.kind = TypeKind::Pointer;
-    result.pointer = value;
-
-    return result;
-}
-
-inline AnyType wrap_array_type(ArrayTypeType value) {
-    AnyType result;
-    result.kind = TypeKind::ArrayTypeType;
-    result.array = value;
-
-    return result;
-}
-
-inline AnyType wrap_static_array_type(StaticArray value) {
-    AnyType result;
-    result.kind = TypeKind::StaticArray;
-    result.static_array = value;
-
-    return result;
-}
-
-inline AnyType wrap_struct_type(StructType value) {
-    AnyType result;
-    result.kind = TypeKind::StructType;
-    result.struct_ = value;
-
-    return result;
-}
-
-inline AnyType wrap_polymorphic_struct_type(PolymorphicStruct value) {
-    AnyType result;
-    result.kind = TypeKind::PolymorphicStruct;
-    result.polymorphic_struct = value;
-
-    return result;
-}
-
-inline AnyType wrap_undetermined_struct_type(UndeterminedStruct value) {
-    AnyType result;
-    result.kind = TypeKind::UndeterminedStruct;
-    result.undetermined_struct = value;
-
-    return result;
-}
-
-inline AnyType create_file_module_type() {
-    AnyType result;
-    result.kind = TypeKind::FileModule;
-
-    return result;
-}

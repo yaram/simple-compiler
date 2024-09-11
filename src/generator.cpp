@@ -944,9 +944,9 @@ static Result<size_t> coerce_to_integer_register_value(
             return err();
         }
 
-        auto regsiter_index = append_integer_constant(context, instructions, range, target_type.size, integer_value);
+        auto register_index = append_integer_constant(context, instructions, range, target_type.size, integer_value);
 
-        return ok(regsiter_index);
+        return ok(register_index);
     }
 
     if(!probing) {
@@ -1036,7 +1036,7 @@ static Result<size_t> coerce_to_pointer_register_value(
     } else if(type.kind == TypeKind::Pointer) {
         auto pointer = type.pointer;
 
-        if(*pointer.type == *target_type.type) {
+        if(*pointer.pointed_to_type == *target_type.pointed_to_type) {
             auto register_index = generate_in_register_pointer_value(info, context, instructions, range, value);
 
             return ok(register_index);
@@ -1566,7 +1566,7 @@ static Result<void> coerce_to_type_write(
         } else if(type.kind == TypeKind::Pointer) {
             auto pointer = type.pointer;
 
-            if(*target_pointer.type == *pointer.type) {
+            if(*target_pointer.pointed_to_type == *pointer.pointed_to_type) {
                 size_t register_index = generate_in_register_pointer_value(info, context, instructions, range, value);
 
                 append_store_integer(context, instructions, range, info.architecture_sizes.address_size, register_index, address_register);
@@ -3145,7 +3145,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     wrap_constant_value(wrap_integer_constant(static_array.length))
                 ));
             } else if(member_reference->name.text == "pointer"_S) {
-                size_t address_regsiter;
+                size_t address_register;
                 if(actual_value.kind == RuntimeValueKind::ConstantValue) {
                     auto static_array_value = unwrap_static_array_constant(expression_value.value.constant);
 
@@ -3160,22 +3160,22 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         static_array_value.elements
                     );
 
-                    address_regsiter = append_reference_static(context, instructions, member_reference->range, static_constant);
+                    address_register = append_reference_static(context, instructions, member_reference->range, static_constant);
                 } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = actual_value.register_;
 
-                    address_regsiter = register_value.register_index;
+                    address_register = register_value.register_index;
                 } else if(actual_value.kind == RuntimeValueKind::AddressValue) {
                     auto address_value = actual_value.address;
 
-                    address_regsiter = address_value.address_register;
+                    address_register = address_value.address_register;
                 } else {
                     abort();
                 }
 
                 return ok(TypedRuntimeValue(
                     wrap_pointer_type(Pointer(static_array.element_type)),
-                    wrap_register_value(RegisterValue(address_regsiter))
+                    wrap_register_value(RegisterValue(address_register))
                 ));
             } else {
                 error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
@@ -5477,18 +5477,18 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
 
             auto from_integer_constant = unwrap_integer_constant(constant_value);
 
-            auto from_regsiter = allocate_register(context);
+            auto from_register = allocate_register(context);
 
             auto integer_constant = new IntegerConstantInstruction;
             integer_constant->range = for_loop->range;
-            integer_constant->destination_register = from_regsiter;
+            integer_constant->destination_register = from_register;
             integer_constant->value = from_integer_constant;
 
             instructions->append(integer_constant);
 
             auto store_integer = new StoreInteger;
             store_integer->range = for_loop->range;
-            store_integer->source_register = from_regsiter;
+            store_integer->source_register = from_register;
             store_integer->address_register = index_address_register;
 
             instructions->append(store_integer);
@@ -5577,7 +5577,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
             }
         }
 
-        auto current_index_regsiter = append_load_integer(
+        auto current_index_register = append_load_integer(
             context,
             instructions,
             for_loop->range,
@@ -5598,7 +5598,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
             for_loop->range,
             operation,
             index_type.size,
-            current_index_regsiter,
+            current_index_register,
             to_register
         );
 
@@ -5646,7 +5646,7 @@ static_profiled_function(DelayedResult<void>, generate_statement, (
             for_loop->range,
             IntegerArithmeticOperation::Operation::Add,
             index_type.size,
-            current_index_regsiter,
+            current_index_register,
             one_register
         );
 

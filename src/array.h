@@ -5,7 +5,7 @@
 template <typename T>
 struct Array {
     inline Array() = default;
-    inline Array(size_t length, T* elements) : length(length), elements(elements) {}
+    explicit inline Array(size_t length, T* elements) : length(length), elements(elements) {}
 
     static inline Array<T> empty() {
         Array array {};
