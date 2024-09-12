@@ -7,6 +7,7 @@
 #include "calling_convention.h"
 #include "string.h"
 #include "util.h"
+#include "types.h"
 
 enum struct IRTypeKind {
     Function,
@@ -546,6 +547,10 @@ struct AllocateLocal : Instruction {
 
     size_t destination_register;
 
+    bool has_debug_info;
+    String debug_name;
+    AnyType debug_type;
+
     inline AllocateLocal() : Instruction { InstructionKind::AllocateLocal } {}
 };
 
@@ -608,6 +613,8 @@ struct RuntimeStatic {
 
     String path;
     FileRange range;
+
+    AnyType debug_type;
 
     void print();
 };

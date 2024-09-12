@@ -601,13 +601,42 @@ static void append_branch(
     instructions->append(branch);
 }
 
-static size_t append_allocate_local(GenerationContext* context, List<Instruction*>* instructions, FileRange range, IRType type) {
+static size_t append_allocate_local(
+    GenerationContext* context,
+    List<Instruction*>* instructions,
+    FileRange range,
+    IRType type
+) {
     auto destination_register = allocate_register(context);
 
     auto allocate_local = new AllocateLocal;
     allocate_local->range = range;
     allocate_local->type = type;
     allocate_local->destination_register = destination_register;
+    allocate_local->has_debug_info = false;
+
+    instructions->append(allocate_local);
+
+    return destination_register;
+}
+
+static size_t append_allocate_local(
+    GenerationContext* context,
+    List<Instruction*>* instructions,
+    FileRange range,
+    IRType type,
+    String debug_name,
+    AnyType debug_type
+) {
+    auto destination_register = allocate_register(context);
+
+    auto allocate_local = new AllocateLocal;
+    allocate_local->range = range;
+    allocate_local->type = type;
+    allocate_local->destination_register = destination_register;
+    allocate_local->has_debug_info = true;
+    allocate_local->debug_name = debug_name;
+    allocate_local->debug_type = debug_type;
 
     instructions->append(allocate_local);
 
@@ -4639,7 +4668,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                         context,
                         instructions,
                         variable_declaration->range,
-                        ir_type
+                        ir_type,
+                        variable_declaration->name.text,
+                        type
                     );
 
                     expect(register_value, coerce_to_type_register(
@@ -4680,7 +4711,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                         context,
                         instructions,
                         variable_declaration->range,
-                        ir_type
+                        ir_type,
+                        variable_declaration->name.text,
+                        type
                     );
 
                     addressed_value = AddressedValue(ir_type, pointer_register);
@@ -4703,7 +4736,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                         context,
                         instructions,
                         variable_declaration->range,
-                        ir_type
+                        ir_type,
+                        variable_declaration->name.text,
+                        type
                     );
 
                     expect(register_value, coerce_to_type_register(
@@ -5080,7 +5115,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     context,
                     instructions,
                     for_loop->range,
-                    determined_index_ir_type
+                    determined_index_ir_type,
+                    index_name.text,
+                    AnyType(determined_index_type)
                 );
 
                 append_store(
@@ -5286,6 +5323,7 @@ profiled_function(DelayedResult<void>, do_generate_function, (
     function->parameters = Array(runtime_parameter_count, ir_parameters);
     function->return_type = return_ir_type;
     function->calling_convention = type.calling_convention;
+    function->debug_type = AnyType(type);
 
     if(value.is_external) {
         function->is_external = true;
@@ -5319,7 +5357,9 @@ profiled_function(DelayedResult<void>, do_generate_function, (
                     &context,
                     &instructions,
                     declaration->parameters[i].name.range,
-                    ir_parameters[runtime_parameter_index]
+                    ir_parameters[runtime_parameter_index],
+                    declaration->parameters[i].name.text,
+                    parameter_type
                 );
 
                 append_store(
@@ -5501,6 +5541,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
         static_variable->type = get_runtime_ir_type(info.architecture_sizes, type);
         static_variable->is_external = true;
         static_variable->libraries = external_libraries;
+        static_variable->debug_type = type;
 
         StaticVariableResult result {};
         result.static_variable = static_variable;
@@ -5540,6 +5581,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             static_variable->is_external = false;
             static_variable->has_initial_value = true;
             static_variable->initial_value = ir_initial_value;
+            static_variable->debug_type = type;
 
             StaticVariableResult result {};
             result.static_variable = static_variable;
@@ -5562,6 +5604,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             static_variable->type = get_runtime_ir_type(info.architecture_sizes, type);
             static_variable->is_no_mangle = is_no_mangle;
             static_variable->is_external = false;
+            static_variable->debug_type = type;
 
             StaticVariableResult result {};
             result.static_variable = static_variable;
@@ -5590,6 +5633,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             static_variable->is_external = false;
             static_variable->has_initial_value = true;
             static_variable->initial_value = ir_initial_value;
+            static_variable->debug_type = type;
 
             StaticVariableResult result {};
             result.static_variable = static_variable;

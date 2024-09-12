@@ -6,9 +6,8 @@ main :: () -> i32 {
         return 1;
     }
 
-    derp := "Test\0";
-
-    window := SDL_CreateWindow(derp.pointer, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, SDL_WINDOW_SHOWN);
+    window_title := "Test\0";
+    window := SDL_CreateWindow(window_title.pointer, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, SDL_WINDOW_SHOWN);
     if window == 0 {
         return 1;
     }
