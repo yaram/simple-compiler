@@ -35,6 +35,7 @@ SDL_Window :: void;
 
 SDL_Event :: struct {
     type: u32,
+    timestamp: u32,
     body: SDL_EventBody
 }
 
@@ -94,7 +95,7 @@ SDL_Keycode :: i32;
 
 SDL_Keysym :: struct {
     scancode: SDL_Scancode,
-    keycode: SDL_Keycode,
+    sym: SDL_Keycode,
     mod: u16,
     unused: u32
 }
