@@ -2,21 +2,25 @@ cmake_minimum_required(VERSION 3.21)
 
 enable_testing()
 
-project(SimpleCompiler LANGUAGES CXX)
+project(SimpleCompiler LANGUAGES C CXX)
 
-# Ensure below options are respected by llvm CMake config
-set(CMAKE_POLICY_DEFAULT_CMP0126 NEW)
+if(VENDORED_LLVM)
+    # Ensure below options are respected by llvm CMake config
+    set(CMAKE_POLICY_DEFAULT_CMP0126 NEW)
 
-set(LLVM_INCLUDE_TOOLS OFF)
-set(LLVM_INCLUDE_TESTS OFF)
-set(LLVM_INCLUDE_EXAMPLES OFF)
-set(LLVM_INCLUDE_DOCS OFF)
-set(LLVM_INCLUDE_BENCHMARKS OFF)
-set(LLVM_INCLUDE_RUNTIMES OFF)
-set(LLVM_INCLUDE_UTILS OFF)
-set(LLVM_TARGETS_TO_BUILD X86;WebAssembly)
+    set(LLVM_INCLUDE_TOOLS OFF)
+    set(LLVM_INCLUDE_TESTS OFF)
+    set(LLVM_INCLUDE_EXAMPLES OFF)
+    set(LLVM_INCLUDE_DOCS OFF)
+    set(LLVM_INCLUDE_BENCHMARKS OFF)
+    set(LLVM_INCLUDE_RUNTIMES OFF)
+    set(LLVM_INCLUDE_UTILS OFF)
+    set(LLVM_TARGETS_TO_BUILD X86;WebAssembly)
 
-add_subdirectory(thirdparty/llvm-project/llvm)
+    add_subdirectory(thirdparty/llvm-project/llvm)
+else()
+    find_package(LLVM REQUIRED CONFIG)
+endif()
 
 # Because CMake won't actually tell me where the output directory is in any variables or target properties, they're all blank, I hate this
 if(CMAKE_CONFIGURATION_TYPES)
@@ -95,7 +99,10 @@ if(PROFILING)
     target_compile_definitions(compiler PRIVATE PROFILING)
 endif()
 target_link_libraries(compiler PRIVATE LLVMCore LLVMAnalysis LLVMX86CodeGen LLVMWebAssemblyCodeGen)
-target_include_directories(compiler PRIVATE thirdparty/llvm-project/llvm/include "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/llvm-project/llvm/include")
+
+if(VENDORED_LLVM)
+    target_include_directories(compiler PRIVATE thirdparty/llvm-project/llvm/include "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/llvm-project/llvm/include")
+endif()
 
 install(TARGETS compiler DESTINATION bin)
 
