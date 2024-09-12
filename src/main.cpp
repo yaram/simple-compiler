@@ -1155,6 +1155,49 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         auto executable_path = get_executable_path();
         auto executable_directory = path_get_directory_component(executable_path);
 
+        auto found_runtime_source = false;
+        String runtime_source_path;
+        {
+            StringBuffer buffer {};
+            buffer.append(executable_directory);
+            buffer.append("runtime_"_S);
+            buffer.append(os);
+            buffer.append("_"_S);
+            buffer.append(architecture);
+            buffer.append(".c"_S);
+
+            auto file_test = fopen(buffer.to_c_string(), "rb");
+
+            if(file_test != nullptr) {
+                fclose(file_test);
+
+                found_runtime_source = true;
+                runtime_source_path = buffer;
+            }
+        }
+        if(!found_runtime_source) {
+            StringBuffer buffer {};
+            buffer.append(executable_directory);
+            buffer.append("../share/simple-compiler/runtime_"_S);
+            buffer.append(os);
+            buffer.append("_"_S);
+            buffer.append(architecture);
+            buffer.append(".c"_S);
+
+            auto file_test = fopen(buffer.to_c_string(), "rb");
+
+            if(file_test != nullptr) {
+                fclose(file_test);
+
+                found_runtime_source = true;
+                runtime_source_path = buffer;
+            }
+        }
+
+        if(!found_runtime_source) {
+            fprintf(stderr, "Error: Unable to locate runtime source file\n");
+        }
+
         StringBuffer runtime_command_buffer {};
 
         runtime_command_buffer.append("clang -std=gnu99 -ffreestanding -nostdinc -c -target "_S);
@@ -1168,12 +1211,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         runtime_command_buffer.append(output_file_directory);
         runtime_command_buffer.append("runtime.o "_S);
 
-        runtime_command_buffer.append(executable_directory);
-        runtime_command_buffer.append("runtime_"_S);
-        runtime_command_buffer.append(os);
-        runtime_command_buffer.append("_"_S);
-        runtime_command_buffer.append(architecture);
-        runtime_command_buffer.append(".c"_S);
+        runtime_command_buffer.append(runtime_source_path);
 
         enter_region("clang");
         if(system(runtime_command_buffer.to_c_string()) != 0) {
