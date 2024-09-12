@@ -29,6 +29,11 @@ else()
     set(ACTUAL_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 endif()
 
+add_custom_target(
+    copy_runtimes
+    COMMAND cmake -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/src/runtimes" "${ACTUAL_OUTPUT_DIRECTORY}"
+)
+
 set(sources
     src/array.h
     src/list.h
@@ -99,6 +104,7 @@ if(PROFILING)
     target_compile_definitions(compiler PRIVATE PROFILING)
 endif()
 target_link_libraries(compiler PRIVATE LLVMCore LLVMAnalysis LLVMX86CodeGen LLVMWebAssemblyCodeGen)
+add_dependencies(compiler copy_runtimes)
 
 if(VENDORED_LLVM)
     target_include_directories(compiler PRIVATE thirdparty/llvm-project/llvm/include "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/llvm-project/llvm/include")
