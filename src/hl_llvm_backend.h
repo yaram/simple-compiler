@@ -10,6 +10,7 @@ struct NameMapping {
 };
 
 Result<Array<NameMapping>> generate_llvm_object(
+    String top_level_source_file_path,
     Array<RuntimeStatic*> statics,
     String architecture,
     String os,

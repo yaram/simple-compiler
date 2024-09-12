@@ -1061,6 +1061,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         auto start_time = get_timer_counts();
 
         expect(name_mappings, generate_llvm_object(
+            source_file_path,
             runtime_statics,
             architecture,
             os,
