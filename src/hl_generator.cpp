@@ -4571,696 +4571,675 @@ static bool is_runtime_statement(Statement* statement) {
     );
 }
 
-static_profiled_function(DelayedResult<void>, generate_runtime_statement, (
+static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
     GlobalInfo info,
     List<AnyJob>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
     List<Instruction*>* instructions,
-    Statement* statement
+    Array<Statement*> statements
 ), (
     info,
     jobs,
     scope,
     context,
     instructions,
-    statement
+    statements
 )) {
-    if(statement->kind == StatementKind::ExpressionStatement) {
-        auto expression_statement = (ExpressionStatement*)statement;
-
-        expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, expression_statement->expression));
-
-        return ok();
-    } else if(statement->kind == StatementKind::VariableDeclaration) {
-        auto variable_declaration = (VariableDeclaration*)statement;
-
-        for(auto tag : variable_declaration->tags) {
-            if(tag.name.text == "extern"_S) {
-                error(scope, variable_declaration->range, "Local variables cannot be external");
-
-                return err();
-            } else if(tag.name.text == "no_mangle"_S) {
-                error(scope, variable_declaration->range, "Local variables cannot be no_mangle");
-
-                return err();
-            } else {
-                error(scope, tag.name.range, "Unknown tag '%.*s'", STRING_PRINTF_ARGUMENTS(tag.name.text));
-
-                return err();
-            }
-        }
-
-        AnyType type;
-        AddressedValue addressed_value;
-        if(variable_declaration->type != nullptr && variable_declaration->initializer != nullptr) {
-            expect_delayed(type_value, evaluate_type_expression(info, jobs, scope, context, instructions, variable_declaration->type));
-
-            if(!type_value.is_runtime_type()) {
-                error(scope, variable_declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type_value.get_description()));
+    auto unreachable = false;
+    for(auto statement : statements) {
+        if(is_runtime_statement(statement)) {
+            if(unreachable) {
+                error(scope, statement->range, "Unreachable code");
 
                 return err();
             }
 
-            type = type_value;
-
-            expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->initializer));
-
-            auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
-
-            auto pointer_register = append_allocate_local(
-                context,
-                instructions,
-                variable_declaration->range,
-                ir_type
-            );
-
-            expect(register_value, coerce_to_type_register(
-                info,
-                scope,
-                context,
-                instructions,
-                variable_declaration->range,
-                initializer_value.type,
-                initializer_value.value,
-                type,
-                false
-            ));
-
-            append_store(
-                context,
-                instructions,
-                variable_declaration->range,
-                register_value.register_index,
-                pointer_register
-            );
-
-            addressed_value = AddressedValue(ir_type, pointer_register);
-        } else if(variable_declaration->type != nullptr) {
-            expect_delayed(type_value, evaluate_type_expression(info, jobs, scope, context, instructions, variable_declaration->type));
-
-            if(!type_value.is_runtime_type()) {
-                error(scope, variable_declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type_value.get_description()));
-
-                return err();
-            }
-
-            type = type_value;
-
-            auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
-
-            auto pointer_register = append_allocate_local(
-                context,
-                instructions,
-                variable_declaration->range,
-                ir_type
-            );
-
-            addressed_value = AddressedValue(ir_type, pointer_register);
-        } else if(variable_declaration->initializer != nullptr) {
-            expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->initializer));
-
-            expect(actual_type, coerce_to_default_type(info, scope, variable_declaration->initializer->range, initializer_value.type));
-            
-            if(!actual_type.is_runtime_type()) {
-                error(scope, variable_declaration->initializer->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_type.get_description()));
-
-                return err();
-            }
-
-            type = actual_type;
-
-            auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
-
-            auto pointer_register = append_allocate_local(
-                context,
-                instructions,
-                variable_declaration->range,
-                ir_type
-            );
-
-            expect(register_value, coerce_to_type_register(
-                info,
-                scope,
-                context,
-                instructions,
-                variable_declaration->range,
-                initializer_value.type,
-                initializer_value.value,
-                type,
-                false
-            ));
-
-            append_store(
-                context,
-                instructions,
-                variable_declaration->range,
-                register_value.register_index,
-                pointer_register
-            );
-
-            addressed_value = AddressedValue(ir_type, pointer_register);
-        } else {
-            abort();
-        }
-
-        if(
-            !add_new_variable(
-                context,
-                variable_declaration->name,
-                type,
-                addressed_value
-            ).status
-        ) {
-            return err();
-        }
-
-        return ok();
-    } else if(statement->kind == StatementKind::Assignment) {
-        auto assignment = (Assignment*)statement;
-
-        expect_delayed(target, generate_expression(info, jobs, scope, context, instructions, assignment->target));
-
-        size_t pointer_register;
-        if(target.value.kind == RuntimeValueKind::AddressedValue){
-            auto addressed_value = target.value.addressed;
-
-            pointer_register = addressed_value.pointer_register;
-        } else {
-            error(scope, assignment->target->range, "Value is not assignable");
-
-            return err();
-        }
-
-        expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, assignment->value));
-
-        expect(register_value, coerce_to_type_register(
-            info,
-            scope,
-            context,
-            instructions,
-            assignment->range,
-            value.type,
-            value.value,
-            target.type,
-            false
-        ));
-
-        append_store(
-            context,
-            instructions,
-            assignment->range,
-            register_value.register_index,
-            pointer_register
-        );
-
-        return ok();
-    } else if(statement->kind == StatementKind::BinaryOperationAssignment) {
-        auto binary_operation_assignment = (BinaryOperationAssignment*)statement;
-
-        expect_delayed(target, generate_expression(info, jobs, scope, context, instructions, binary_operation_assignment->target));
-
-        size_t pointer_register;
-        if(target.value.kind == RuntimeValueKind::AddressedValue){
-            auto addressed_value = target.value.addressed;
-
-            pointer_register = addressed_value.pointer_register;
-        } else {
-            error(scope, binary_operation_assignment->target->range, "Value is not assignable");
-
-            return err();
-        }
-
-        expect_delayed(value, generate_binary_operation(
-            info,
-            jobs,
-            scope,
-            context,
-            instructions,
-            binary_operation_assignment->range,
-            binary_operation_assignment->target,
-            binary_operation_assignment->value,
-            binary_operation_assignment->binary_operator
-        ));
-
-        expect(register_value, coerce_to_type_register(
-            info,
-            scope,
-            context,
-            instructions,
-            binary_operation_assignment->range,
-            value.type,
-            value.value,
-            target.type,
-            false
-        ));
-
-        append_store(
-            context,
-            instructions,
-            binary_operation_assignment->range,
-            register_value.register_index,
-            pointer_register
-        );
-
-        return ok();
-    } else if(statement->kind == StatementKind::IfStatement) {
-        auto if_statement = (IfStatement*)statement;
-
-        List<Jump*> end_jumps {};
-
-        expect_delayed(condition, generate_expression(info, jobs, scope, context, instructions, if_statement->condition));
-
-        if(condition.type.kind != TypeKind::Boolean) {
-            error(scope, if_statement->condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
-
-            return err();
-        }
-        auto condition_register = generate_in_register_value(
-            context,
-            instructions,
-            if_statement->condition->range,
-            IRType::create_boolean(),
-            condition.value
-        );
-
-        append_branch(context, instructions, if_statement->condition->range, condition_register, instructions->length + 2);
-
-        auto first_jump = new Jump;
-        first_jump->range = if_statement->range;
-
-        instructions->append(first_jump);
-
-        auto if_scope = context->child_scopes[context->next_child_scope_index];
-        context->next_child_scope_index += 1;
-        assert(context->next_child_scope_index <= context->child_scopes.length);
-
-        VariableScope if_variable_scope {};
-        if_variable_scope.constant_scope = if_scope;
-
-        context->variable_scope_stack.append(if_variable_scope);
-
-        for(auto child_statement : if_statement->statements) {
-            if(is_runtime_statement(child_statement)) {
-                expect_delayed_void(generate_runtime_statement(info, jobs, if_scope, context, instructions, child_statement));
-            }
-        }
-
-        context->variable_scope_stack.length -= 1;
-
-        if((*instructions)[instructions->length - 1]->kind != InstructionKind::ReturnInstruction) {
-            auto first_end_jump = new Jump;
-            first_end_jump->range = if_statement->range;
-
-            instructions->append(first_end_jump);
-
-            end_jumps.append(first_end_jump);
-        }
-
-        first_jump->destination_instruction = instructions->length;
-
-        for(size_t i = 0; i < if_statement->else_ifs.length; i += 1) {
-            expect_delayed(condition, generate_expression(info, jobs, scope, context, instructions, if_statement->else_ifs[i].condition));
-
-            if(condition.type.kind != TypeKind::Boolean) {
-                error(scope, if_statement->else_ifs[i].condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
-
-                return err();
-            }
-
-            auto condition_register = generate_in_register_value(
-                context,
-                instructions,
-                if_statement->else_ifs[i].condition->range,
-                IRType::create_boolean(),
-                condition.value
-            );
-
-            append_branch(
-                context,
-                instructions,
-                if_statement->else_ifs[i].condition->range,
-                condition_register,
-                instructions->length + 2
-            );
-
-            auto jump = new Jump;
-            jump->range = if_statement->else_ifs[i].condition->range;
-
-            instructions->append(jump);
-
-            auto else_if_scope = context->child_scopes[context->next_child_scope_index];
-            context->next_child_scope_index += 1;
-            assert(context->next_child_scope_index <= context->child_scopes.length);
-
-            VariableScope else_if_variable_scope {};
-            else_if_variable_scope.constant_scope = else_if_scope;
-
-            context->variable_scope_stack.append(else_if_variable_scope);
-
-            for(auto child_statement : if_statement->else_ifs[i].statements) {
-                if(is_runtime_statement(child_statement)) {
-                    expect_delayed_void(generate_runtime_statement(info, jobs, else_if_scope, context, instructions, child_statement));
+            if(statement->kind == StatementKind::ExpressionStatement) {
+                auto expression_statement = (ExpressionStatement*)statement;
+
+                expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, expression_statement->expression));
+            } else if(statement->kind == StatementKind::VariableDeclaration) {
+                auto variable_declaration = (VariableDeclaration*)statement;
+
+                for(auto tag : variable_declaration->tags) {
+                    if(tag.name.text == "extern"_S) {
+                        error(scope, variable_declaration->range, "Local variables cannot be external");
+
+                        return err();
+                    } else if(tag.name.text == "no_mangle"_S) {
+                        error(scope, variable_declaration->range, "Local variables cannot be no_mangle");
+
+                        return err();
+                    } else {
+                        error(scope, tag.name.range, "Unknown tag '%.*s'", STRING_PRINTF_ARGUMENTS(tag.name.text));
+
+                        return err();
+                    }
                 }
-            }
 
-            context->variable_scope_stack.length -= 1;
+                AnyType type;
+                AddressedValue addressed_value;
+                if(variable_declaration->type != nullptr && variable_declaration->initializer != nullptr) {
+                    expect_delayed(type_value, evaluate_type_expression(info, jobs, scope, context, instructions, variable_declaration->type));
 
-            if((*instructions)[instructions->length - 1]->kind != InstructionKind::ReturnInstruction) {
-                auto end_jump = new Jump;
-                end_jump->range = if_statement->range;
+                    if(!type_value.is_runtime_type()) {
+                        error(scope, variable_declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type_value.get_description()));
 
-                instructions->append(end_jump);
+                        return err();
+                    }
 
-                end_jumps.append(end_jump);
-            }
+                    type = type_value;
 
-            jump->destination_instruction = instructions->length;
-        }
+                    expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->initializer));
 
-        if(if_statement->else_statements.length != 0) {
-            auto else_scope = context->child_scopes[context->next_child_scope_index];
-            context->next_child_scope_index += 1;
-            assert(context->next_child_scope_index <= context->child_scopes.length);
+                    auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
 
-            VariableScope else_variable_scope {};
-            else_variable_scope.constant_scope = else_scope;
+                    auto pointer_register = append_allocate_local(
+                        context,
+                        instructions,
+                        variable_declaration->range,
+                        ir_type
+                    );
 
-            context->variable_scope_stack.append(else_variable_scope);
+                    expect(register_value, coerce_to_type_register(
+                        info,
+                        scope,
+                        context,
+                        instructions,
+                        variable_declaration->range,
+                        initializer_value.type,
+                        initializer_value.value,
+                        type,
+                        false
+                    ));
 
-            for(auto child_statement : if_statement->else_statements) {
-                if(is_runtime_statement(child_statement)) {
-                    expect_delayed_void(generate_runtime_statement(info, jobs, else_scope, context, instructions, child_statement));
+                    append_store(
+                        context,
+                        instructions,
+                        variable_declaration->range,
+                        register_value.register_index,
+                        pointer_register
+                    );
+
+                    addressed_value = AddressedValue(ir_type, pointer_register);
+                } else if(variable_declaration->type != nullptr) {
+                    expect_delayed(type_value, evaluate_type_expression(info, jobs, scope, context, instructions, variable_declaration->type));
+
+                    if(!type_value.is_runtime_type()) {
+                        error(scope, variable_declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type_value.get_description()));
+
+                        return err();
+                    }
+
+                    type = type_value;
+
+                    auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
+
+                    auto pointer_register = append_allocate_local(
+                        context,
+                        instructions,
+                        variable_declaration->range,
+                        ir_type
+                    );
+
+                    addressed_value = AddressedValue(ir_type, pointer_register);
+                } else if(variable_declaration->initializer != nullptr) {
+                    expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->initializer));
+
+                    expect(actual_type, coerce_to_default_type(info, scope, variable_declaration->initializer->range, initializer_value.type));
+                    
+                    if(!actual_type.is_runtime_type()) {
+                        error(scope, variable_declaration->initializer->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_type.get_description()));
+
+                        return err();
+                    }
+
+                    type = actual_type;
+
+                    auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
+
+                    auto pointer_register = append_allocate_local(
+                        context,
+                        instructions,
+                        variable_declaration->range,
+                        ir_type
+                    );
+
+                    expect(register_value, coerce_to_type_register(
+                        info,
+                        scope,
+                        context,
+                        instructions,
+                        variable_declaration->range,
+                        initializer_value.type,
+                        initializer_value.value,
+                        type,
+                        false
+                    ));
+
+                    append_store(
+                        context,
+                        instructions,
+                        variable_declaration->range,
+                        register_value.register_index,
+                        pointer_register
+                    );
+
+                    addressed_value = AddressedValue(ir_type, pointer_register);
+                } else {
+                    abort();
                 }
-            }
 
-            context->variable_scope_stack.length -= 1;
-        }
+                if(
+                    !add_new_variable(
+                        context,
+                        variable_declaration->name,
+                        type,
+                        addressed_value
+                    ).status
+                ) {
+                    return err();
+                }
+            } else if(statement->kind == StatementKind::Assignment) {
+                auto assignment = (Assignment*)statement;
 
-        for(auto end_jump : end_jumps) {
-            end_jump->destination_instruction = instructions->length;
-        }
+                expect_delayed(target, generate_expression(info, jobs, scope, context, instructions, assignment->target));
 
-        return ok();
-    } else if(statement->kind == StatementKind::WhileLoop) {
-        auto while_loop = (WhileLoop*)statement;
+                size_t pointer_register;
+                if(target.value.kind == RuntimeValueKind::AddressedValue){
+                    auto addressed_value = target.value.addressed;
 
-        auto condition_index = instructions->length;
+                    pointer_register = addressed_value.pointer_register;
+                } else {
+                    error(scope, assignment->target->range, "Value is not assignable");
 
-        expect_delayed(condition, generate_expression(info, jobs, scope, context, instructions, while_loop->condition));
+                    return err();
+                }
 
-        if(condition.type.kind != TypeKind::Boolean) {
-            error(scope, while_loop->condition->range, "Non-boolean while loop condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
-
-            return err();
-        }
-
-        auto condition_register = generate_in_register_value(
-            context,
-            instructions,
-            while_loop->condition->range,
-            IRType::create_boolean(),
-            condition.value
-        );
-
-        append_branch(
-            context,
-            instructions,
-            while_loop->condition->range,
-            condition_register,
-            instructions->length + 2
-        );
-
-        auto jump_out = new Jump;
-        jump_out->range = while_loop->condition->range;
-
-        instructions->append(jump_out);
-
-        auto while_scope = context->child_scopes[context->next_child_scope_index];
-        context->next_child_scope_index += 1;
-        assert(context->next_child_scope_index <= context->child_scopes.length);
-
-        VariableScope while_variable_scope {};
-        while_variable_scope.constant_scope = while_scope;
-
-        context->variable_scope_stack.append(while_variable_scope);
-
-        auto old_in_breakable_scope = context->in_breakable_scope;
-        auto old_break_jumps = context->break_jumps;
-
-        context->in_breakable_scope = true;
-        context->break_jumps = {};
-
-        for(auto child_statement : while_loop->statements) {
-            if(is_runtime_statement(child_statement)) {
-                expect_delayed_void(generate_runtime_statement(info, jobs, while_scope, context, instructions, child_statement));
-            }
-        }
-
-        auto break_jumps = context->break_jumps;
-
-        context->in_breakable_scope = old_in_breakable_scope;
-        context->break_jumps = old_break_jumps;
-
-        context->variable_scope_stack.length -= 1;
-
-        if((*instructions)[instructions->length - 1]->kind != InstructionKind::ReturnInstruction) {
-            append_jump(
-                context,
-                instructions,
-                while_loop->range,
-                condition_index
-            );
-        }
-
-        jump_out->destination_instruction = instructions->length;
-
-        for(auto jump : break_jumps) {
-            jump->destination_instruction = instructions->length;
-        }
-
-        return ok();
-    } else if(statement->kind == StatementKind::ForLoop) {
-        auto for_loop = (ForLoop*)statement;
-
-        Identifier index_name {};
-        if(for_loop->has_index_name) {
-            index_name = for_loop->index_name;
-        } else {
-            index_name.text = "it"_S;
-            index_name.range = for_loop->range;
-        }
-
-        expect_delayed(from_value, generate_expression(info, jobs, scope, context, instructions, for_loop->from));
-
-        expect_delayed(to_value, generate_expression(info, jobs, scope, context, instructions, for_loop->to));
-
-        Integer determined_index_type;
-        if(from_value.type.kind == TypeKind::UndeterminedInteger && to_value.type.kind == TypeKind::UndeterminedInteger) {
-            determined_index_type = Integer(
-                info.architecture_sizes.default_integer_size,
-                true
-            );
-        } else if(from_value.type.kind == TypeKind::Integer) {
-            determined_index_type = from_value.type.integer;
-        } else if(to_value.type.kind == TypeKind::Integer) {
-            determined_index_type = to_value.type.integer;
-        } else {
-            error(scope, for_loop->range, "For loop index/range must be an integer. Got '%.*s'", STRING_PRINTF_ARGUMENTS(from_value.type.get_description()));
-
-            return err();
-        }
-
-        expect(from_register_value, coerce_to_integer_register_value(
-            scope,
-            context,
-            instructions,
-            for_loop->from->range,
-            from_value.type,
-            from_value.value,
-            determined_index_type,
-            false
-        ));
-
-        expect(to_register_value, coerce_to_integer_register_value(
-            scope,
-            context,
-            instructions,
-            for_loop->from->range,
-            to_value.type,
-            to_value.value,
-            determined_index_type,
-            false
-        ));
-
-        auto determined_index_ir_type = IRType::create_integer(determined_index_type.size);
-
-        auto index_pointer_register = append_allocate_local(
-            context,
-            instructions,
-            for_loop->range,
-            determined_index_ir_type
-        );
-
-        append_store(
-            context,
-            instructions,
-            for_loop->range,
-            from_register_value.register_index,
-            index_pointer_register
-        );
-
-        auto condition_index = instructions->length;
-
-        auto current_index_register = append_load(
-            context,
-            instructions,
-            for_loop->range,
-            index_pointer_register
-        );
-
-        IntegerComparisonOperation::Operation operation;
-        if(determined_index_type.is_signed) {
-            operation = IntegerComparisonOperation::Operation::SignedGreaterThan;
-        } else {
-            operation = IntegerComparisonOperation::Operation::UnsignedGreaterThan;
-        }
-
-        auto condition_register = append_integer_comparison_operation(
-            context,
-            instructions,
-            for_loop->range,
-            operation,
-            current_index_register,
-            to_register_value.register_index
-        );
-
-        auto branch = new Branch;
-        branch->range = for_loop->range;
-        branch->condition_register = condition_register;
-
-        instructions->append(branch);
-
-        auto for_scope = context->child_scopes[context->next_child_scope_index];
-        context->next_child_scope_index += 1;
-        assert(context->next_child_scope_index <= context->child_scopes.length);
-
-        VariableScope for_variable_scope {};
-        for_variable_scope.constant_scope = for_scope;
-
-        context->variable_scope_stack.append(for_variable_scope);
-
-        auto old_in_breakable_scope = context->in_breakable_scope;
-        auto old_break_jumps = context->break_jumps;
-
-        context->in_breakable_scope = true;
-        context->break_jumps = {};
-
-        expect_void(add_new_variable(
-            context,
-            index_name,
-            AnyType(determined_index_type),
-            AddressedValue(determined_index_ir_type, index_pointer_register)
-        ));
-
-        for(auto child_statement : for_loop->statements) {
-            if(is_runtime_statement(child_statement)) {
-                expect_delayed_void(generate_runtime_statement(info, jobs, for_scope, context, instructions, child_statement));
-            }
-        }
-
-        auto break_jumps = context->break_jumps;
-
-        context->in_breakable_scope = old_in_breakable_scope;
-        context->break_jumps = old_break_jumps;
-
-        context->variable_scope_stack.length -= 1;
-
-        auto one_register = append_literal(
-            context,
-            instructions,
-            for_loop->range,
-            determined_index_ir_type,
-            IRConstantValue::create_integer(1)
-        );
-
-        auto next_index_register = append_integer_arithmetic_operation(
-            context,
-            instructions,
-            for_loop->range,
-            IntegerArithmeticOperation::Operation::Add,
-            current_index_register,
-            one_register
-        );
-
-        append_store(context, instructions, for_loop->range, next_index_register, index_pointer_register);
-
-        append_jump(context, instructions, for_loop->range, condition_index);
-
-        for(auto jump : break_jumps) {
-            jump->destination_instruction = instructions->length;
-        }
-
-        branch->destination_instruction = instructions->length;
-
-        return ok();
-    } else if(statement->kind == StatementKind::ReturnStatement) {
-        auto return_statement = (ReturnStatement*)statement;
-
-        auto return_instruction = new ReturnInstruction;
-        return_instruction->range = return_statement->range;
-
-        if(return_statement->value != nullptr) {
-            if(context->return_type.kind == TypeKind::Void) {
-                error(scope, return_statement->range, "Erroneous return value");
-
-                return err();
-            } else {
-                expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, return_statement->value));
+                expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, assignment->value));
 
                 expect(register_value, coerce_to_type_register(
                     info,
                     scope,
                     context,
                     instructions,
-                    return_statement->value->range,
+                    assignment->range,
                     value.type,
                     value.value,
-                    context->return_type,
+                    target.type,
                     false
                 ));
 
-                return_instruction->value_register = register_value.register_index;
+                append_store(
+                    context,
+                    instructions,
+                    assignment->range,
+                    register_value.register_index,
+                    pointer_register
+                );
+            } else if(statement->kind == StatementKind::BinaryOperationAssignment) {
+                auto binary_operation_assignment = (BinaryOperationAssignment*)statement;
+
+                expect_delayed(target, generate_expression(info, jobs, scope, context, instructions, binary_operation_assignment->target));
+
+                size_t pointer_register;
+                if(target.value.kind == RuntimeValueKind::AddressedValue){
+                    auto addressed_value = target.value.addressed;
+
+                    pointer_register = addressed_value.pointer_register;
+                } else {
+                    error(scope, binary_operation_assignment->target->range, "Value is not assignable");
+
+                    return err();
+                }
+
+                expect_delayed(value, generate_binary_operation(
+                    info,
+                    jobs,
+                    scope,
+                    context,
+                    instructions,
+                    binary_operation_assignment->range,
+                    binary_operation_assignment->target,
+                    binary_operation_assignment->value,
+                    binary_operation_assignment->binary_operator
+                ));
+
+                expect(register_value, coerce_to_type_register(
+                    info,
+                    scope,
+                    context,
+                    instructions,
+                    binary_operation_assignment->range,
+                    value.type,
+                    value.value,
+                    target.type,
+                    false
+                ));
+
+                append_store(
+                    context,
+                    instructions,
+                    binary_operation_assignment->range,
+                    register_value.register_index,
+                    pointer_register
+                );
+            } else if(statement->kind == StatementKind::IfStatement) {
+                auto if_statement = (IfStatement*)statement;
+
+                List<Jump*> end_jumps {};
+
+                expect_delayed(condition, generate_expression(info, jobs, scope, context, instructions, if_statement->condition));
+
+                if(condition.type.kind != TypeKind::Boolean) {
+                    error(scope, if_statement->condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
+
+                    return err();
+                }
+                auto condition_register = generate_in_register_value(
+                    context,
+                    instructions,
+                    if_statement->condition->range,
+                    IRType::create_boolean(),
+                    condition.value
+                );
+
+                append_branch(context, instructions, if_statement->condition->range, condition_register, instructions->length + 2);
+
+                auto first_jump = new Jump;
+                first_jump->range = if_statement->range;
+
+                instructions->append(first_jump);
+
+                auto if_scope = context->child_scopes[context->next_child_scope_index];
+                context->next_child_scope_index += 1;
+                assert(context->next_child_scope_index <= context->child_scopes.length);
+
+                VariableScope if_variable_scope {};
+                if_variable_scope.constant_scope = if_scope;
+
+                context->variable_scope_stack.append(if_variable_scope);
+
+                expect_delayed_void(generate_runtime_statements(info, jobs, if_scope, context, instructions, if_statement->statements));
+
+                context->variable_scope_stack.length -= 1;
+
+                if((*instructions)[instructions->length - 1]->kind != InstructionKind::ReturnInstruction) {
+                    auto first_end_jump = new Jump;
+                    first_end_jump->range = if_statement->range;
+
+                    instructions->append(first_end_jump);
+
+                    end_jumps.append(first_end_jump);
+                }
+
+                first_jump->destination_instruction = instructions->length;
+
+                for(size_t i = 0; i < if_statement->else_ifs.length; i += 1) {
+                    expect_delayed(condition, generate_expression(info, jobs, scope, context, instructions, if_statement->else_ifs[i].condition));
+
+                    if(condition.type.kind != TypeKind::Boolean) {
+                        error(scope, if_statement->else_ifs[i].condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
+
+                        return err();
+                    }
+
+                    auto condition_register = generate_in_register_value(
+                        context,
+                        instructions,
+                        if_statement->else_ifs[i].condition->range,
+                        IRType::create_boolean(),
+                        condition.value
+                    );
+
+                    append_branch(
+                        context,
+                        instructions,
+                        if_statement->else_ifs[i].condition->range,
+                        condition_register,
+                        instructions->length + 2
+                    );
+
+                    auto jump = new Jump;
+                    jump->range = if_statement->else_ifs[i].condition->range;
+
+                    instructions->append(jump);
+
+                    auto else_if_scope = context->child_scopes[context->next_child_scope_index];
+                    context->next_child_scope_index += 1;
+                    assert(context->next_child_scope_index <= context->child_scopes.length);
+
+                    VariableScope else_if_variable_scope {};
+                    else_if_variable_scope.constant_scope = else_if_scope;
+
+                    context->variable_scope_stack.append(else_if_variable_scope);
+
+                    expect_delayed_void(generate_runtime_statements(info, jobs, if_scope, context, instructions, if_statement->else_ifs[i].statements));
+
+                    context->variable_scope_stack.length -= 1;
+
+                    if((*instructions)[instructions->length - 1]->kind != InstructionKind::ReturnInstruction) {
+                        auto end_jump = new Jump;
+                        end_jump->range = if_statement->range;
+
+                        instructions->append(end_jump);
+
+                        end_jumps.append(end_jump);
+                    }
+
+                    jump->destination_instruction = instructions->length;
+                }
+
+                if(if_statement->else_statements.length != 0) {
+                    auto else_scope = context->child_scopes[context->next_child_scope_index];
+                    context->next_child_scope_index += 1;
+                    assert(context->next_child_scope_index <= context->child_scopes.length);
+
+                    VariableScope else_variable_scope {};
+                    else_variable_scope.constant_scope = else_scope;
+
+                    context->variable_scope_stack.append(else_variable_scope);
+
+                    expect_delayed_void(generate_runtime_statements(info, jobs, else_scope, context, instructions, if_statement->else_statements));
+
+                    context->variable_scope_stack.length -= 1;
+                }
+
+                for(auto end_jump : end_jumps) {
+                    end_jump->destination_instruction = instructions->length;
+                }
+            } else if(statement->kind == StatementKind::WhileLoop) {
+                auto while_loop = (WhileLoop*)statement;
+
+                auto condition_index = instructions->length;
+
+                expect_delayed(condition, generate_expression(info, jobs, scope, context, instructions, while_loop->condition));
+
+                if(condition.type.kind != TypeKind::Boolean) {
+                    error(scope, while_loop->condition->range, "Non-boolean while loop condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
+
+                    return err();
+                }
+
+                auto condition_register = generate_in_register_value(
+                    context,
+                    instructions,
+                    while_loop->condition->range,
+                    IRType::create_boolean(),
+                    condition.value
+                );
+
+                append_branch(
+                    context,
+                    instructions,
+                    while_loop->condition->range,
+                    condition_register,
+                    instructions->length + 2
+                );
+
+                auto jump_out = new Jump;
+                jump_out->range = while_loop->condition->range;
+
+                instructions->append(jump_out);
+
+                auto while_scope = context->child_scopes[context->next_child_scope_index];
+                context->next_child_scope_index += 1;
+                assert(context->next_child_scope_index <= context->child_scopes.length);
+
+                VariableScope while_variable_scope {};
+                while_variable_scope.constant_scope = while_scope;
+
+                context->variable_scope_stack.append(while_variable_scope);
+
+                auto old_in_breakable_scope = context->in_breakable_scope;
+                auto old_break_jumps = context->break_jumps;
+
+                context->in_breakable_scope = true;
+                context->break_jumps = {};
+
+                expect_delayed_void(generate_runtime_statements(info, jobs, while_scope, context, instructions, while_loop->statements));
+
+                auto break_jumps = context->break_jumps;
+
+                context->in_breakable_scope = old_in_breakable_scope;
+                context->break_jumps = old_break_jumps;
+
+                context->variable_scope_stack.length -= 1;
+
+                if((*instructions)[instructions->length - 1]->kind != InstructionKind::ReturnInstruction) {
+                    append_jump(
+                        context,
+                        instructions,
+                        while_loop->range,
+                        condition_index
+                    );
+                }
+
+                jump_out->destination_instruction = instructions->length;
+
+                for(auto jump : break_jumps) {
+                    jump->destination_instruction = instructions->length;
+                }
+            } else if(statement->kind == StatementKind::ForLoop) {
+                auto for_loop = (ForLoop*)statement;
+
+                Identifier index_name {};
+                if(for_loop->has_index_name) {
+                    index_name = for_loop->index_name;
+                } else {
+                    index_name.text = "it"_S;
+                    index_name.range = for_loop->range;
+                }
+
+                expect_delayed(from_value, generate_expression(info, jobs, scope, context, instructions, for_loop->from));
+
+                expect_delayed(to_value, generate_expression(info, jobs, scope, context, instructions, for_loop->to));
+
+                Integer determined_index_type;
+                if(from_value.type.kind == TypeKind::UndeterminedInteger && to_value.type.kind == TypeKind::UndeterminedInteger) {
+                    determined_index_type = Integer(
+                        info.architecture_sizes.default_integer_size,
+                        true
+                    );
+                } else if(from_value.type.kind == TypeKind::Integer) {
+                    determined_index_type = from_value.type.integer;
+                } else if(to_value.type.kind == TypeKind::Integer) {
+                    determined_index_type = to_value.type.integer;
+                } else {
+                    error(scope, for_loop->range, "For loop index/range must be an integer. Got '%.*s'", STRING_PRINTF_ARGUMENTS(from_value.type.get_description()));
+
+                    return err();
+                }
+
+                expect(from_register_value, coerce_to_integer_register_value(
+                    scope,
+                    context,
+                    instructions,
+                    for_loop->from->range,
+                    from_value.type,
+                    from_value.value,
+                    determined_index_type,
+                    false
+                ));
+
+                expect(to_register_value, coerce_to_integer_register_value(
+                    scope,
+                    context,
+                    instructions,
+                    for_loop->from->range,
+                    to_value.type,
+                    to_value.value,
+                    determined_index_type,
+                    false
+                ));
+
+                auto determined_index_ir_type = IRType::create_integer(determined_index_type.size);
+
+                auto index_pointer_register = append_allocate_local(
+                    context,
+                    instructions,
+                    for_loop->range,
+                    determined_index_ir_type
+                );
+
+                append_store(
+                    context,
+                    instructions,
+                    for_loop->range,
+                    from_register_value.register_index,
+                    index_pointer_register
+                );
+
+                auto condition_index = instructions->length;
+
+                auto current_index_register = append_load(
+                    context,
+                    instructions,
+                    for_loop->range,
+                    index_pointer_register
+                );
+
+                IntegerComparisonOperation::Operation operation;
+                if(determined_index_type.is_signed) {
+                    operation = IntegerComparisonOperation::Operation::SignedGreaterThan;
+                } else {
+                    operation = IntegerComparisonOperation::Operation::UnsignedGreaterThan;
+                }
+
+                auto condition_register = append_integer_comparison_operation(
+                    context,
+                    instructions,
+                    for_loop->range,
+                    operation,
+                    current_index_register,
+                    to_register_value.register_index
+                );
+
+                auto branch = new Branch;
+                branch->range = for_loop->range;
+                branch->condition_register = condition_register;
+
+                instructions->append(branch);
+
+                auto for_scope = context->child_scopes[context->next_child_scope_index];
+                context->next_child_scope_index += 1;
+                assert(context->next_child_scope_index <= context->child_scopes.length);
+
+                VariableScope for_variable_scope {};
+                for_variable_scope.constant_scope = for_scope;
+
+                context->variable_scope_stack.append(for_variable_scope);
+
+                auto old_in_breakable_scope = context->in_breakable_scope;
+                auto old_break_jumps = context->break_jumps;
+
+                context->in_breakable_scope = true;
+                context->break_jumps = {};
+
+                expect_void(add_new_variable(
+                    context,
+                    index_name,
+                    AnyType(determined_index_type),
+                    AddressedValue(determined_index_ir_type, index_pointer_register)
+                ));
+
+                { expect_delayed_void(generate_runtime_statements(info, jobs, for_scope, context, instructions, for_loop->statements)); }
+
+                auto break_jumps = context->break_jumps;
+
+                context->in_breakable_scope = old_in_breakable_scope;
+                context->break_jumps = old_break_jumps;
+
+                context->variable_scope_stack.length -= 1;
+
+                auto one_register = append_literal(
+                    context,
+                    instructions,
+                    for_loop->range,
+                    determined_index_ir_type,
+                    IRConstantValue::create_integer(1)
+                );
+
+                auto next_index_register = append_integer_arithmetic_operation(
+                    context,
+                    instructions,
+                    for_loop->range,
+                    IntegerArithmeticOperation::Operation::Add,
+                    current_index_register,
+                    one_register
+                );
+
+                append_store(context, instructions, for_loop->range, next_index_register, index_pointer_register);
+
+                append_jump(context, instructions, for_loop->range, condition_index);
+
+                for(auto jump : break_jumps) {
+                    jump->destination_instruction = instructions->length;
+                }
+
+                branch->destination_instruction = instructions->length;
+            } else if(statement->kind == StatementKind::ReturnStatement) {
+                auto return_statement = (ReturnStatement*)statement;
+
+                unreachable = true;
+
+                auto return_instruction = new ReturnInstruction;
+                return_instruction->range = return_statement->range;
+
+                if(return_statement->value != nullptr) {
+                    if(context->return_type.kind == TypeKind::Void) {
+                        error(scope, return_statement->range, "Erroneous return value");
+
+                        return err();
+                    } else {
+                        expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, return_statement->value));
+
+                        expect(register_value, coerce_to_type_register(
+                            info,
+                            scope,
+                            context,
+                            instructions,
+                            return_statement->value->range,
+                            value.type,
+                            value.value,
+                            context->return_type,
+                            false
+                        ));
+
+                        return_instruction->value_register = register_value.register_index;
+                    }
+                } else if(context->return_type.kind != TypeKind::Void) {
+                    error(scope, return_statement->range, "Missing return value");
+
+                    return err();
+                }
+
+                instructions->append(return_instruction);
+            } else if(statement->kind == StatementKind::BreakStatement) {
+                auto break_statement = (BreakStatement*)statement;
+
+                unreachable = true;
+
+                if(!context->in_breakable_scope) {
+                    error(scope, break_statement->range, "Not in a break-able scope");
+
+                    return err();
+                }
+
+                auto jump = new Jump;
+                jump->range = break_statement->range;
+
+                instructions->append(jump);
+
+                context->break_jumps.append(jump);
+            } else {
+                abort();
             }
-        } else if(context->return_type.kind != TypeKind::Void) {
-            error(scope, return_statement->range, "Missing return value");
-
-            return err();
         }
-
-        instructions->append(return_instruction);
-
-        return ok();
-    } else if(statement->kind == StatementKind::BreakStatement) {
-        auto break_statement = (BreakStatement*)statement;
-
-        if(!context->in_breakable_scope) {
-            error(scope, break_statement->range, "Not in a break-able scope");
-
-            return err();
-        }
-
-        auto jump = new Jump;
-        jump->range = break_statement->range;
-
-        instructions->append(jump);
-
-        context->break_jumps.append(jump);
-
-        return ok();
-    } else {
-        abort();
     }
+
+    return ok();
 }
 
 profiled_function(DelayedResult<void>, do_generate_function, (
@@ -5364,11 +5343,7 @@ profiled_function(DelayedResult<void>, do_generate_function, (
 
         assert(runtime_parameter_index == runtime_parameter_count);
 
-        for(auto statement : declaration->statements) {
-            if(is_runtime_statement(statement)) {
-                expect_delayed_void(generate_runtime_statement(info, jobs, value.body_scope, &context, &instructions, statement));
-            }
-        }
+        expect_delayed_void(generate_runtime_statements(info, jobs, value.body_scope, &context, &instructions, declaration->statements));
 
         assert(context.next_child_scope_index == value.child_scopes.length);
 
