@@ -559,8 +559,8 @@ struct FileDebugScope {
     LLVMMetadataRef scope;
 };
 
-#define llvm_instruction(variable_name, call) auto variable_name=(call);LLVMInstructionSetDebugLoc(variable_name, debug_location);
-#define llvm_instruction_ignore(call) ;LLVMInstructionSetDebugLoc((call), debug_location);
+#define llvm_instruction(variable_name, call) auto variable_name=(call);if(LLVMIsAInstruction(variable_name))LLVMInstructionSetDebugLoc(variable_name, debug_location)
+#define llvm_instruction_ignore(call) { auto value=(call);if(LLVMIsAInstruction(value))LLVMInstructionSetDebugLoc(value, debug_location); }
 
 profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     String top_level_source_file_path,
@@ -1091,7 +1091,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 value = LLVMBuildAShr(builder, value_a, value_b, "right_arithmetic_shift");
                             } break;
 
-                            LLVMInstructionSetDebugLoc(value, debug_location);
+                            if(LLVMIsAInstruction(value)) {
+                                LLVMInstructionSetDebugLoc(value, debug_location);
+                            }
 
                             default: {
                                 abort();
@@ -1170,7 +1172,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             value = LLVMBuildZExt(builder, source_value.value, destination_llvm_type, "extend");
                         }
 
-                        LLVMInstructionSetDebugLoc(value, debug_location);
+                        if(LLVMIsAInstruction(value)) {
+                            LLVMInstructionSetDebugLoc(value, debug_location);
+                        }
 
                         registers.append(Register(
                             integer_extension->destination_register,
@@ -1230,7 +1234,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             } break;
                         }
 
-                        LLVMInstructionSetDebugLoc(value, debug_location);
+                        if(LLVMIsAInstruction(value)) {
+                            LLVMInstructionSetDebugLoc(value, debug_location);
+                        }
 
                         registers.append(Register(
                             float_arithmetic_operation->destination_register,
@@ -1417,7 +1423,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             } break;
                         }
 
-                        LLVMInstructionSetDebugLoc(value, debug_location);
+                        if(LLVMIsAInstruction(value)) {
+                            LLVMInstructionSetDebugLoc(value, debug_location);
+                        }
 
                         llvm_instruction(extended_value, LLVMBuildZExt(
                             builder,
@@ -1493,7 +1501,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             "insert_value"
                         );
 
-                        LLVMInstructionSetDebugLoc(current_array_value, debug_location);
+                        if(LLVMIsAInstruction(current_array_value)) {
+                            LLVMInstructionSetDebugLoc(current_array_value, debug_location);
+                        }
 
                         for(size_t i = 1; i < assemble_static_array->element_registers.length; i += 1) {
                             auto element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[i]);
@@ -1506,7 +1516,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 "insert_value"
                             );
 
-                            LLVMInstructionSetDebugLoc(current_array_value, debug_location);
+                            if(LLVMIsAInstruction(current_array_value)) {
+                                LLVMInstructionSetDebugLoc(current_array_value, debug_location);
+                            }
                         }
 
                         auto type = IRType::create_static_array(
@@ -1566,7 +1578,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 "insert_value"
                             );
 
-                            LLVMInstructionSetDebugLoc(current_struct_value, debug_location);
+                            if(LLVMIsAInstruction(current_struct_value)) {
+                                LLVMInstructionSetDebugLoc(current_struct_value, debug_location);
+                            }
                         }
 
                         auto type = IRType::create_struct(Array(assemble_struct->member_registers.length, member_types));
