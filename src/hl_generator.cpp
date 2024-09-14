@@ -740,7 +740,7 @@ static IRType get_pointable_ir_type(ArchitectureSizes architecture_sizes, AnyTyp
             parameters[i] = get_runtime_ir_type(architecture_sizes, type.function.parameters[i]);
         }
 
-        auto return_type = get_pointable_ir_type(architecture_sizes, type);
+        auto return_type = get_runtime_ir_type(architecture_sizes, *type.function.return_type);
 
         return IRType::create_function(Array(type.function.parameters.length, parameters), heapify(return_type), type.function.calling_convention);
     } else if(type.kind == TypeKind::Void) {

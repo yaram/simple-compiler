@@ -75,7 +75,7 @@ static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType ty
             parameters[i] = get_llvm_type(architecture_sizes, function.parameters[i]);
         }
 
-        auto return_llvm_type = get_llvm_type(architecture_sizes, type);
+        auto return_llvm_type = get_llvm_type(architecture_sizes, *function.return_type);
 
         return LLVMFunctionType(return_llvm_type, parameters, (unsigned int)function.parameters.length, false);
     } else if(type.kind == IRTypeKind::Boolean) {
