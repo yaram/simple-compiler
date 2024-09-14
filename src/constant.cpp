@@ -388,18 +388,24 @@ Result<AnyConstantValue> coerce_constant_to_type(
             }
         }
     } else if(target_type.kind == TypeKind::Enum) {
-        auto enum_ = target_type.enum_;
+        auto target_enum = target_type.enum_;
 
-        if(target_type.kind == TypeKind::Integer) {
-            auto integer = target_type.integer;
+        if(type.kind == TypeKind::Integer) {
+            auto integer = type.integer;
 
-            if(integer.size == enum_.backing_type->size && integer.is_signed == enum_.backing_type->is_signed) {
+            if(integer.size == target_enum.backing_type->size && integer.is_signed == target_enum.backing_type->is_signed) {
                 return ok(AnyConstantValue(value.unwrap_integer()));
             }
-        } else if(target_type.kind == TypeKind::UndeterminedInteger) {
-            expect(integer_value, coerce_constant_to_integer_type(scope, range, type, value, *enum_.backing_type, probing));
+        } else if(type.kind == TypeKind::UndeterminedInteger) {
+            expect(integer_value, coerce_constant_to_integer_type(scope, range, type, value, *target_enum.backing_type, probing));
 
             return ok(AnyConstantValue(integer_value));
+        } else if(type.kind == TypeKind::Enum) {
+            auto enum_ = type.enum_;
+
+            if(target_enum.definition == enum_.definition) {
+                return ok(AnyConstantValue(value.unwrap_integer()));
+            }
         }
     } else if(type == target_type) {
         return ok(value);

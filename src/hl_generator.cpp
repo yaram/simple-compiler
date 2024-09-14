@@ -1662,6 +1662,14 @@ static Result<RegisterValue> coerce_to_type_register(
             auto register_index = append_literal(context, instructions, range, ir_type, IRConstantValue::create_integer(integer_value));
 
             return ok(RegisterValue(ir_type, register_index));
+        } else if(type.kind == TypeKind::Enum) {
+            auto enum_ = type.enum_;
+
+            if(target_enum.definition == enum_.definition) {
+                auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+                return ok(RegisterValue(ir_type, register_index));
+            }
         }
     } else {
         abort();
