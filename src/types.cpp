@@ -125,6 +125,11 @@ bool AnyType::operator==(AnyType other) {
         }
 
         return true;
+    } else if(kind == TypeKind::Enum) {
+        auto a_enum = enum_;
+        auto b_enum = other.enum_;
+
+        return a_enum.definition != b_enum.definition;
     } else if(kind == TypeKind::FileModule) {
         return true;
     } else {
@@ -281,6 +286,8 @@ String AnyType::get_description() {
         return polymorphic_union.definition->name.text;
     } else if(kind == TypeKind::UndeterminedStruct) {
         return "{struct}"_S;
+    } else if(kind == TypeKind::Enum) {
+        return enum_.definition->name.text;
     } else if(kind == TypeKind::FileModule) {
         return "{module}"_S;
     } else {
@@ -297,7 +304,8 @@ bool AnyType::is_runtime_type() {
         kind == TypeKind::ArrayTypeType ||
         kind == TypeKind::StaticArray ||
         kind == TypeKind::StructType ||
-        kind == TypeKind::UnionType
+        kind == TypeKind::UnionType ||
+        kind == TypeKind::Enum
     ) {
         return true;
     } else {
@@ -316,7 +324,8 @@ bool AnyType::is_pointable_type() {
         kind == TypeKind::ArrayTypeType ||
         kind == TypeKind::StaticArray ||
         kind == TypeKind::StructType ||
-        kind == TypeKind::UnionType
+        kind == TypeKind::UnionType ||
+        kind == TypeKind::Enum
     ) {
         return true;
     } else {
@@ -341,6 +350,8 @@ uint64_t AnyType::get_alignment(ArchitectureSizes architecture_sizes) {
         return struct_.get_alignment(architecture_sizes);
     } else if(kind == TypeKind::UnionType) {
         return union_.get_alignment(architecture_sizes);
+    } else if(kind == TypeKind::Enum) {
+        return register_size_to_byte_size(enum_.backing_type->size);
     } else {
         abort();
     }
@@ -363,6 +374,8 @@ uint64_t AnyType::get_size(ArchitectureSizes architecture_sizes) {
         return struct_.get_size(architecture_sizes);
     } else if(kind == TypeKind::UnionType) {
         return union_.get_size(architecture_sizes);
+    } else if(kind == TypeKind::Enum) {
+        return register_size_to_byte_size(enum_.backing_type->size);
     } else {
         abort();
     }

@@ -155,6 +155,28 @@ struct UndeterminedStruct {
     Array<StructTypeMember> members;
 };
 
+struct Enum {
+    inline Enum() = default;
+    explicit inline Enum(
+        String definition_file_path,
+        EnumDefinition* definition,
+        Integer* backing_type,
+        Array<int64_t> variant_values
+    ) :
+        definition_file_path(definition_file_path),
+        definition(definition),
+        backing_type(backing_type),
+        variant_values(variant_values)
+    {}
+
+    String definition_file_path;
+    EnumDefinition* definition;
+
+    Integer* backing_type;
+
+    Array<int64_t> variant_values;
+};
+
 enum struct TypeKind {
     FunctionTypeType,
     PolymorphicFunction,
@@ -174,6 +196,7 @@ enum struct TypeKind {
     UnionType,
     PolymorphicUnion,
     UndeterminedStruct,
+    Enum,
     FileModule
 };
 
@@ -192,6 +215,7 @@ struct AnyType {
         UnionType union_;
         PolymorphicUnion polymorphic_union;
         UndeterminedStruct undetermined_struct;
+        Enum enum_;
     };
 
     inline AnyType() = default;
@@ -206,6 +230,7 @@ struct AnyType {
     explicit inline AnyType(UnionType union_) : kind(TypeKind::UnionType), union_(union_) {}
     explicit inline AnyType(PolymorphicUnion polymorphic_union) : kind(TypeKind::PolymorphicUnion), polymorphic_union(polymorphic_union) {}
     explicit inline AnyType(UndeterminedStruct undetermined_struct) : kind(TypeKind::UndeterminedStruct), undetermined_struct(undetermined_struct) {}
+    explicit inline AnyType(Enum enum_) : kind(TypeKind::Enum), enum_(enum_) {}
 
     static inline AnyType create_polymorphic_function() {
         AnyType result;
