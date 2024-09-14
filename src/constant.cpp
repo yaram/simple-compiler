@@ -4099,25 +4099,43 @@ profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
 
     auto variant_values = allocate<uint64_t>(variant_count);
 
+    uint64_t next_value = 0;
     for(size_t i = 0; i < variant_count; i += 1) {
-        expect_delayed(variant_value, evaluate_constant_expression(
-            info,
-            jobs,
-            &member_scope,
-            nullptr,
-            enum_definition->variants[i].value
-        ));
 
-        expect(coerced_variant_value, coerce_constant_to_integer_type(
-            &member_scope,
-            enum_definition->variants[i].value->range,
-            variant_value.type,
-            variant_value.value,
-            backing_type,
-            false
-        ));
+        uint64_t value;
+        if(enum_definition->variants[i].value != nullptr) {
+            expect_delayed(variant_value, evaluate_constant_expression(
+                info,
+                jobs,
+                &member_scope,
+                nullptr,
+                enum_definition->variants[i].value
+            ));
 
-        variant_values[i] = coerced_variant_value;
+            expect(coerced_variant_value, coerce_constant_to_integer_type(
+                &member_scope,
+                enum_definition->variants[i].value->range,
+                variant_value.type,
+                variant_value.value,
+                backing_type,
+                false
+            ));
+
+            value = coerced_variant_value;
+        } else {
+            expect_void(check_undetermined_integer_to_integer_coercion(
+                scope,
+                enum_definition->variants[i].value->range,
+                backing_type,
+                (int64_t)next_value,
+                false
+            ));
+
+            value = next_value;
+        }
+
+        variant_values[i] = value;
+        next_value = value + 1;
     }
 
     return ok(Enum(
