@@ -1,7 +1,7 @@
-#import "windows";
+#import "windows.src";
 using windows;
 
-#import "memory";
+#import "memory.src";
 using memory;
 
 int_to_string :: (value: $T, buffer: []u8, radix: T) -> usize {

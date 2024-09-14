@@ -1,4 +1,4 @@
-#import "sdl";
+#import "sdl.src";
 
 using sdl;
 

@@ -1,9 +1,9 @@
-#import "libs";
-#import "video";
-#import "keyboard";
-#import "joystick";
-#import "touch";
-#import "gesture";
+#import "libs.src";
+#import "video.src";
+#import "keyboard.src";
+#import "joystick.src";
+#import "touch.src";
+#import "gesture.src";
 
 using libs;
 using video;

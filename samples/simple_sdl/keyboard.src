@@ -1,5 +1,5 @@
-#import "scancode";
-#import "keycode";
+#import "scancode.src";
+#import "keycode.src";
 
 using scancode;
 using keycode;

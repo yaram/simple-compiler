@@ -1,6 +1,6 @@
-#import "libs";
-#import "video";
-#import "rect";
+#import "libs.src";
+#import "video.src";
+#import "rect.src";
 
 using libs;
 using video;

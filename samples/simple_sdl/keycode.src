@@ -1,4 +1,4 @@
-#import "scancode";
+#import "scancode.src";
 
 using scancode;
 

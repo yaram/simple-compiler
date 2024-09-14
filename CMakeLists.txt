@@ -123,14 +123,14 @@ target_compile_features(test_driver PRIVATE cxx_std_20)
 
 function(single_file_test TEST_NAME)
     add_test(NAME ${TEST_NAME}
-        COMMAND test_driver $<TARGET_FILE:compiler> ${CMAKE_CURRENT_SOURCE_DIR}/tests/${TEST_NAME}
+        COMMAND test_driver $<TARGET_FILE:compiler> ${CMAKE_CURRENT_SOURCE_DIR}/tests/${TEST_NAME}.src
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
 endfunction()
 
 function(multi_file_test TEST_NAME)
     add_test(NAME ${TEST_NAME}
-        COMMAND test_driver $<TARGET_FILE:compiler> ${CMAKE_CURRENT_SOURCE_DIR}/tests/${TEST_NAME}/main
+        COMMAND test_driver $<TARGET_FILE:compiler> ${CMAKE_CURRENT_SOURCE_DIR}/tests/${TEST_NAME}/main.src
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
 endfunction()

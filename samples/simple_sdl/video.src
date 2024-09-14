@@ -1,4 +1,4 @@
-#import "libs";
+#import "libs.src";
 using libs;
 
 SDL_Window :: void;

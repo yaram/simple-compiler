@@ -1,14 +1,14 @@
-#import "libs";
-#import "events";
-#import "video";
-#import "render";
-#import "keyboard";
-#import "keycode";
-#import "scancode";
-#import "joystick";
-#import "touch";
-#import "gesture";
-#import "rect";
+#import "libs.src";
+#import "events.src";
+#import "video.src";
+#import "render.src";
+#import "keyboard.src";
+#import "keycode.src";
+#import "scancode.src";
+#import "joystick.src";
+#import "touch.src";
+#import "gesture.src";
+#import "rect.src";
 
 using libs;
 using export events;

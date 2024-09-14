@@ -1,4 +1,4 @@
-#import "test";
+#import "test.src";
 
 main :: () -> i32 {
     return test.test();
