@@ -4101,7 +4101,6 @@ profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
 
     uint64_t next_value = 0;
     for(size_t i = 0; i < variant_count; i += 1) {
-
         uint64_t value;
         if(enum_definition->variants[i].value != nullptr) {
             expect_delayed(variant_value, evaluate_constant_expression(
@@ -4125,7 +4124,7 @@ profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
         } else {
             expect_void(check_undetermined_integer_to_integer_coercion(
                 scope,
-                enum_definition->variants[i].value->range,
+                enum_definition->variants[i].name.range,
                 backing_type,
                 (int64_t)next_value,
                 false
