@@ -1,0 +1,10 @@
+Test :: enum i32 {
+    First,
+    Second,
+    Third = 400,
+    Fifth = 200
+}
+
+main :: () -> i32 {
+    return Test.First as i32 + Test.Second as i32 + Test.Third as i32 - Test.Fifth as i32 - Test.Fifth as i32 - 1;
+}

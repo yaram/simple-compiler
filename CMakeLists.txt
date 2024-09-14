@@ -177,6 +177,7 @@ single_file_test(constant_arrays)
 
 single_file_test(structs)
 single_file_test(unions)
+single_file_test(enums)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     single_file_test(extern_libs_win32)
