@@ -32,8 +32,8 @@ Result<String> path_relative_to_absolute(String path) {
 
 String path_get_file_component(String path) {
     char input_buffer[PATH_MAX];
-    if(path.length + 1 > PATH_MAX) {
-        memcpy(input_buffer, path.elements, PATH_MAX);
+    if(path.length >= PATH_MAX - 1) {
+        memcpy(input_buffer, path.elements, PATH_MAX - 1);
         input_buffer[PATH_MAX - 1] = '\0';
     } else {
         memcpy(input_buffer, path.elements, path.length);
@@ -55,10 +55,12 @@ String path_get_file_component(String path) {
 
 String path_get_directory_component(String path) {
     char input_buffer[PATH_MAX];
-    if(path.length > PATH_MAX) {
-        memcpy(input_buffer, path.elements, PATH_MAX);
+    if(path.length >= PATH_MAX - 1) {
+        memcpy(input_buffer, path.elements, PATH_MAX - 1);
+        input_buffer[PATH_MAX - 1] = '\0';
     } else {
         memcpy(input_buffer, path.elements, path.length);
+        input_buffer[path.length] = '\0';
     }
 
     auto path_directory = dirname(input_buffer);
