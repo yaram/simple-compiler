@@ -2275,10 +2275,10 @@ static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name
 
     for(auto statement : statements) {
         if(statement->kind == StatementKind::UsingStatement) {
-            if(!external) {
-                auto using_statement = (UsingStatement*)statement;
+            auto using_statement = (UsingStatement*)statement;
 
-                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, nullptr, using_statement->module));
+            if(!external || using_statement->export_) {
+                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, nullptr, using_statement->value));
 
                 if(expression_value.type.kind == TypeKind::FileModule) {
                     auto file_module = expression_value.value.unwrap_file_module();

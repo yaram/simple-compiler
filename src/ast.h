@@ -682,14 +682,18 @@ struct Import : Statement {
 };
 
 struct UsingStatement : Statement {
-    Expression* module;
+    bool export_;
+
+    Expression* value;
 
     explicit inline UsingStatement(
         FileRange range,
-        Expression* module
+        bool export_,
+        Expression* value
     ) :
         Statement { StatementKind::UsingStatement, range },
-        module { module }
+        export_ { export_ },
+        value { value }
     {}
 };
 

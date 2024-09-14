@@ -6,6 +6,7 @@
 #include "profiler.h"
 #include "path.h"
 #include "list.h"
+#include "tokens.h"
 #include "util.h"
 
 inline FileRange token_range(Token token) {
@@ -1810,12 +1811,22 @@ namespace {
                             span_range(first_range, last_range)
                         ));
                     } else if(token.identifier == "using"_S) {
+                        expect(maybe_export_token, peek_token());
+
+                        auto export_ = false;
+                        if(maybe_export_token.kind == TokenKind::Identifier && maybe_export_token.identifier == "export"_S) {
+                            consume_token();
+
+                            export_ = true;
+                        }
+
                         expect(expression, parse_expression(OperatorPrecedence::None));
 
                         expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
                         return ok((Statement*)new UsingStatement(
                             span_range(first_range, last_range),
+                            export_,
                             expression
                         ));
                     } else {

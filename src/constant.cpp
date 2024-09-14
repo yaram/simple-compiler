@@ -1523,6 +1523,10 @@ bool does_or_could_have_public_name(Statement* statement, String name) {
         }
 
         return false;
+    } else if(statement->kind == StatementKind::UsingStatement) {
+        auto using_statement = (UsingStatement*)statement;
+
+        return using_statement->export_;
     } else {
         return false;
     }
@@ -1945,15 +1949,25 @@ profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
         }
 
         if(statement->kind == StatementKind::UsingStatement) {
-            if(!external) {
-                auto using_statement = (UsingStatement*)statement;
+            auto using_statement = (UsingStatement*)statement;
 
-                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, using_statement, using_statement->module));
+            if(!external || using_statement->export_) {
+                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, using_statement, using_statement->value));
 
                 if(expression_value.type.kind == TypeKind::FileModule) {
                     auto file_module = expression_value.value.unwrap_file_module();
 
-                    expect_delayed(search_value, search_for_name(info, jobs, name, name_hash, file_module.scope, file_module.scope->statements, file_module.scope->declarations, true, nullptr));
+                    expect_delayed(search_value, search_for_name(
+                        info,
+                        jobs,
+                        name,
+                        name_hash,
+                        file_module.scope,
+                        file_module.scope->statements,
+                        file_module.scope->declarations,
+                        true,
+                        nullptr
+                    ));
 
                     if(search_value.found) {
                         NameSearchResult result {};

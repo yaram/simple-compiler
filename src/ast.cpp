@@ -937,8 +937,21 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
     } else if(statement->kind == StatementKind::UsingStatement) {
         auto using_statement = (UsingStatement*)statement;
 
-        printf("UsingStatement: ");
-        print_expression_internal(using_statement->module, indentation_level);
+        printf("UsingStatement: {\n");
+
+        indent(indentation_level + 1);
+        printf("export: ");
+        if(using_statement->export_) {
+            printf("true");
+        } else {
+            printf("false");
+        }
+        printf("\n");
+
+        indent(indentation_level + 1);
+        printf("value: ");
+        print_expression_internal(using_statement->value, indentation_level + 1);
+        printf("\n");
     } else if(statement->kind == StatementKind::StaticIf) {
         auto static_if = (StaticIf*)statement;
 
