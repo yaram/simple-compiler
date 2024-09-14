@@ -2289,8 +2289,6 @@ namespace {
 
                                                     backing_type = type;
                                                 } else {
-                                                    consume_token();
-
                                                     backing_type = nullptr;
                                                 }
 
