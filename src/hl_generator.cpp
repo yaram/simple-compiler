@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdarg.h>
 #include <string.h>
+#include "hlir.h"
 #include "profiler.h"
 #include "list.h"
 #include "util.h"
@@ -799,6 +800,8 @@ static IRType get_runtime_ir_type(ArchitectureSizes architecture_sizes, AnyType 
         return get_struct_ir_type(architecture_sizes, type.struct_);
     } else if(type.kind == TypeKind::UnionType) {
         return get_union_ir_type(architecture_sizes, type.union_);
+    } else if(type.kind == TypeKind::Enum) {
+        return IRType::create_integer(type.enum_.backing_type->size);
     } else {
         abort();
     }
@@ -910,6 +913,14 @@ static Result<RegisterValue> coerce_to_integer_register_value(
         auto register_index = append_literal(context, instructions, range, ir_type, IRConstantValue::create_integer(integer_value));
 
         return ok(RegisterValue(ir_type, register_index));
+    } else if(type.kind == TypeKind::Enum) {
+        auto enum_ = type.enum_;
+
+        if(enum_.backing_type->is_signed == target_type.is_signed && enum_.backing_type->size == target_type.size) {
+            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+            return ok(RegisterValue(ir_type, register_index));
+        }
     }
 
     if(!probing) {
@@ -1630,6 +1641,28 @@ static Result<RegisterValue> coerce_to_type_register(
                 abort();
             }
         }
+    } else if(target_type.kind == TypeKind::Enum) {
+        auto target_enum = target_type.enum_;
+
+        auto ir_type = IRType::create_integer(target_enum.backing_type->size);
+
+        if(type.kind == TypeKind::Integer) {
+            auto integer = type.integer;
+
+            if(integer.size == target_enum.backing_type->size && integer.is_signed == target_enum.backing_type->is_signed) {
+                auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+                return ok(RegisterValue(ir_type, register_index));
+            }
+        } else if(type.kind == TypeKind::UndeterminedInteger) {
+            auto integer_value = value.unwrap_constant_value().unwrap_integer();
+
+            expect_void(check_undetermined_integer_to_integer_coercion(scope, range, *target_enum.backing_type, (int64_t)integer_value, probing));
+
+            auto register_index = append_literal(context, instructions, range, ir_type, IRConstantValue::create_integer(integer_value));
+
+            return ok(RegisterValue(ir_type, register_index));
+        }
     } else {
         abort();
     }
@@ -2098,6 +2131,69 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             context,
             instructions,
             range,
+            left_register.register_index,
+            right_register.register_index
+        );
+
+        if(invert) {
+            result_register = append_boolean_inversion(context, instructions, range, result_register);
+        }
+
+        return ok(TypedRuntimeValue(
+            AnyType::create_boolean(),
+            AnyRuntimeValue(RegisterValue(IRType::create_boolean(), result_register))
+        ));
+    } else if(determined_type.kind == TypeKind::Enum) {
+        auto pointer = determined_type.pointer;
+
+        expect(left_register, coerce_to_type_register(
+            info,
+            scope,
+            context,
+            instructions,
+            left_expression->range,
+            left.type,
+            left.value,
+            determined_type,
+            false
+        ));
+
+        expect(right_register, coerce_to_type_register(
+            info,
+            scope,
+            context,
+            instructions,
+            right_expression->range,
+            right.type,
+            right.value,
+            determined_type,
+            false
+        ));
+
+        auto invert = false;
+        IntegerComparisonOperation::Operation operation;
+        switch(binary_operator) {
+            case BinaryOperation::Operator::Equal: {
+                operation = IntegerComparisonOperation::Operation::Equal;
+            } break;
+
+            case BinaryOperation::Operator::NotEqual: {
+                operation = IntegerComparisonOperation::Operation::Equal;
+                invert = true;
+            } break;
+
+            default: {
+                error(scope, range, "Cannot perform that operation on '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+
+                return err();
+            } break;
+        }
+
+        auto result_register = append_integer_comparison_operation(
+            context,
+            instructions,
+            range,
+            operation,
             left_register.register_index,
             right_register.register_index
         );
@@ -3112,6 +3208,42 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             error(scope, member_reference->name.range, "No member with name '%.*s'", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
 
             return err();
+        } else if(expression_value.type.kind == TypeKind::Type) {
+            auto constant_value = expression_value.value.unwrap_constant_value();
+
+            auto type = constant_value.type;
+
+            if(type.kind == TypeKind::Enum) {
+                auto enum_ = type.enum_;
+
+                for(size_t i = 0; i < enum_.variant_values.length; i += 1) {
+                    if(enum_.definition->variants[i].name.text == member_reference->name.text) {
+                        return ok(TypedRuntimeValue(
+                            type,
+                            AnyRuntimeValue(AnyConstantValue(enum_.variant_values[i]))
+                        ));
+                    }
+                }
+
+                error(
+                    scope,
+                    member_reference->name.range,
+                    "Enum '%.*s' has no variant with name '%.*s'",
+                    STRING_PRINTF_ARGUMENTS(enum_.definition->name.text),
+                    STRING_PRINTF_ARGUMENTS(member_reference->name.text)
+                );
+
+                return err();
+            } else {
+                error(
+                    scope,
+                    member_reference->expression->range,
+                    "Type '%.*s' has no members",
+                    STRING_PRINTF_ARGUMENTS(type.get_description())
+                );
+
+                return err();
+            }
         } else {
             error(scope, member_reference->expression->range, "Type %.*s has no members", STRING_PRINTF_ARGUMENTS(actual_type.get_description()));
 
@@ -4362,6 +4494,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             if(expression_value.type.kind == TypeKind::Integer) {
                 auto integer = expression_value.type.integer;
+
                 if(integer.size == info.architecture_sizes.address_size && !integer.is_signed) {
                     has_cast = true;
 
@@ -4420,6 +4553,50 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     pointed_to_ir_type,
                     value_register
                 );
+            }
+        } else if(target_type.kind == TypeKind::Enum) {
+            auto target_enum = target_type.enum_;
+
+            if(expression_value.type.kind == TypeKind::Integer) {
+                auto integer = expression_value.type.integer;
+                size_t value_register;
+                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = expression_value.value.register_;
+
+                    value_register = register_value.register_index;
+                } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
+                    auto addressed_value = expression_value.value.addressed;
+
+                    value_register = append_load(
+                        context,
+                        instructions,
+                        cast->expression->range,
+                        addressed_value.pointer_register
+                    );
+                } else {
+                    abort();
+                }
+
+                has_cast = true;
+
+                if(target_enum.backing_type->size > integer.size) {
+                    register_index = append_integer_extension(
+                        context,
+                        instructions,
+                        cast->range,
+                        integer.is_signed,
+                        target_enum.backing_type->size,
+                        value_register
+                    );
+                } else {
+                    register_index = append_integer_truncation(
+                        context,
+                        instructions,
+                        cast->range,
+                        target_enum.backing_type->size,
+                        value_register
+                    );
+                }
             }
         } else {
             abort();
@@ -4740,6 +4917,7 @@ static bool is_runtime_statement(Statement* statement) {
         statement->kind == StatementKind::ConstantDefinition ||
         statement->kind == StatementKind::StructDefinition ||
         statement->kind == StatementKind::UnionDefinition ||
+        statement->kind == StatementKind::EnumDefinition ||
         statement->kind == StatementKind::StaticIf
     );
 }
