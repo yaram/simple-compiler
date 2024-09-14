@@ -900,6 +900,32 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
                 return err();
             } break;
         }
+    } else if(type.kind == TypeKind::Enum) {
+        auto left = coerced_left_value.unwrap_integer();
+
+        auto right = coerced_right_value.unwrap_integer();
+
+        switch(binary_operator) {
+            case BinaryOperation::Operator::Equal: {
+                return ok(TypedConstantValue(
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left == right)
+                ));
+            } break;
+
+            case BinaryOperation::Operator::NotEqual: {
+                return ok(TypedConstantValue(
+                    AnyType::create_boolean(),
+                    AnyConstantValue(left != right)
+                ));
+            } break;
+
+            default: {
+                error(scope, range, "Cannot perform that operation on enums");
+
+                return err();
+            } break;
+        }
     } else if(type.kind == TypeKind::Pointer) {
         auto left = (coerced_left_value.unwrap_integer());
 
