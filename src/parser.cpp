@@ -1486,6 +1486,12 @@ namespace {
 
                         auto name = path_get_file_component(string);
 
+                        for(size_t i = 0; i < name.length; i += 1) {
+                            if(name[i] == '.') {
+                                name.length = i;
+                            }
+                        }
+
                         return ok((Statement*)new Import(
                             span_range(first_range, last_range),
                             string,
