@@ -30,36 +30,36 @@ main :: () -> i32 {
         event: SDL_Event;
 
         while SDL_PollEvent(*event) != 0 {
-            if event.type == SDL_QUIT {
+            if event.type == SDL_EventType.SDL_QUIT {
                 running = false;
-            } else if event.type == SDL_WINDOWEVENT {
+            } else if event.type == SDL_EventType.SDL_WINDOWEVENT {
                 window_event := event.body.window;
 
-                if window_event.event == SDL_WINDOWEVENT_CLOSE {
+                if window_event.event == SDL_WindowEventID.SDL_WINDOWEVENT_CLOSE {
                     running = false;
                 }
-            } else if event.type == SDL_KEYDOWN {
+            } else if event.type == SDL_EventType.SDL_KEYDOWN {
                 key_event := event.body.key;
 
-                if key_event.keysym.sym == SDLK_a {
+                if key_event.keysym.sym == SDL_Keycode.SDLK_a {
                     moving_left = true;
-                } else if key_event.keysym.sym == SDLK_d {
+                } else if key_event.keysym.sym == SDL_Keycode.SDLK_d {
                     moving_right = true;
-                } else if key_event.keysym.sym == SDLK_w {
+                } else if key_event.keysym.sym == SDL_Keycode.SDLK_w {
                     moving_up = true;
-                } else if key_event.keysym.sym == SDLK_s {
+                } else if key_event.keysym.sym == SDL_Keycode.SDLK_s {
                     moving_down = true;
                 }
-            } else if event.type == SDL_KEYUP {
+            } else if event.type == SDL_EventType.SDL_KEYUP {
                 key_event := event.body.key;
 
-                if key_event.keysym.sym == SDLK_a {
+                if key_event.keysym.sym == SDL_Keycode.SDLK_a {
                     moving_left = false;
-                } else if key_event.keysym.sym == SDLK_d {
+                } else if key_event.keysym.sym == SDL_Keycode.SDLK_d {
                     moving_right = false;
-                } else if key_event.keysym.sym == SDLK_w {
+                } else if key_event.keysym.sym == SDL_Keycode.SDLK_w {
                     moving_up = false;
-                } else if key_event.keysym.sym == SDLK_s {
+                } else if key_event.keysym.sym == SDL_Keycode.SDLK_s {
                     moving_down = false;
                 }
             }
