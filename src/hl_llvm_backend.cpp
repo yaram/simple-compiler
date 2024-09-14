@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include "register_size.h"
+#include "types.h"
 #include "util.h"
 #include "list.h"
 #include "platform.h"
@@ -451,6 +453,42 @@ static LLVMMetadataRef get_llvm_debug_type(
             0,
             nullptr,
             0
+        );
+    } else if(type.kind == TypeKind::Enum) {
+        auto enum_ = type.enum_;
+
+        auto enum_file_scope = get_file_debug_scope(
+            debug_builder,
+            file_debug_scopes,
+            enum_.definition_file_path
+        );
+
+        auto size = register_size_to_byte_size(enum_.backing_type->size);
+
+        auto elements = allocate<LLVMMetadataRef>(enum_.variant_values.length);
+
+        for(size_t i = 0; i < enum_.variant_values.length; i += 1) {
+            elements[i] = LLVMDIBuilderCreateEnumerator(
+                debug_builder,
+                enum_.definition->variants[i].name.text.elements,
+                enum_.definition->variants[i].name.text.length,
+                (int64_t)enum_.variant_values[i],
+                !enum_.backing_type->is_signed
+            );
+        }
+
+        return LLVMDIBuilderCreateEnumerationType(
+            debug_builder,
+            enum_file_scope,
+            enum_.definition->name.text.elements,
+            enum_.definition->name.text.length,
+            enum_file_scope,
+            enum_.definition->range.first_line,
+            size * 8,
+            size * 8,
+            elements,
+            enum_.variant_values.length,
+            nullptr
         );
     } else if(type.kind == TypeKind::Void) {
         auto name = "void"_S;
