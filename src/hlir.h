@@ -53,6 +53,9 @@ struct IRType {
         } struct_;
     };
 
+    bool operator==(IRType other);
+    bool operator!=(IRType other);
+
     static inline IRType create_function(Array<IRType> parameters, IRType* return_type, CallingConvention calling_convention) {
         IRType result {};
         result.kind = IRTypeKind::Function;

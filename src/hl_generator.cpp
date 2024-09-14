@@ -875,9 +875,13 @@ static size_t generate_in_register_value(
     } else if(value.kind == RuntimeValueKind::RegisterValue) {
         auto register_value = value.register_;
 
+        assert(register_value.type == type);
+
         return register_value.register_index;
     } else if(value.kind == RuntimeValueKind::AddressedValue) {
         auto addressed_value = value.addressed;
+
+        assert(addressed_value.pointed_to_type == type);
 
         return append_load(context, instructions, range, addressed_value.pointer_register);
     } else {

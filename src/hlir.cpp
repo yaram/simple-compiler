@@ -3,6 +3,63 @@
 #include <stdio.h>
 #include <string.h>
 
+bool IRType::operator==(IRType other) {
+    if(other.kind != kind) {
+        return false;
+    }
+
+    if(kind == IRTypeKind::Function) {
+        if(
+            *function.return_type != *other.function.return_type ||
+            function.calling_convention != other.function.calling_convention ||
+            function.parameters.length != other.function.parameters.length
+        ) {
+            return false;
+        }
+
+        for(size_t i = 0; i < function.parameters.length; i += 1) {
+            if(function.parameters[i] != other.function.parameters[i]) {
+                return false;
+            }
+        }
+
+        return true;
+    } else if(kind == IRTypeKind::Boolean) {
+        return true;
+    } else if(kind == IRTypeKind::Integer) {
+        return integer.size == other.integer.size;
+    } else if(kind == IRTypeKind::Float) {
+        return float_.size == other.float_.size;
+    } else if(kind == IRTypeKind::Pointer) {
+        return *pointer == *other.pointer;
+    } else if(kind == IRTypeKind::StaticArray) {
+        return
+            static_array.length == other.static_array.length &&
+            *static_array.element_type == *other.static_array.element_type
+        ;
+    } else if(kind == IRTypeKind::Struct) {
+        if(struct_.members.length != other.struct_.members.length) {
+            return false;
+        }
+
+        for(size_t i = 0; i < struct_.members.length; i += 1) {
+            if(struct_.members[i] != other.struct_.members[i]) {
+                return false;
+            }
+        }
+
+        return true;
+    } else if(kind == IRTypeKind::Void) {
+        return true;
+    } else {
+        abort();
+    }
+}
+
+bool IRType::operator!=(IRType other) {
+    return !(*this == other);
+}
+
 inline String register_size_name(RegisterSize size){
     switch(size) {
         case RegisterSize::Size8: {

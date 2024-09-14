@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include "hlir.h"
 #include "register_size.h"
 #include "types.h"
 #include "util.h"
@@ -1273,6 +1274,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto source_value = get_register_value(*function, function_value, registers, integer_extension->source_register);
 
+                        auto destination_ir_type = IRType::create_integer(integer_extension->destination_size);
                         auto destination_llvm_type = get_llvm_integer_type(integer_extension->destination_size);
 
                         LLVMValueRef value;
@@ -1288,13 +1290,14 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         registers.append(Register(
                             integer_extension->destination_register,
-                            TypedValue(source_value.type, value)
+                            TypedValue(destination_ir_type, value)
                         ));
                     } else if(instruction->kind == InstructionKind::IntegerTruncation) {
                         auto integer_truncation = (IntegerTruncation*)instruction;
 
                         auto source_value = get_register_value(*function, function_value, registers, integer_truncation->source_register);
 
+                        auto destination_ir_type = IRType::create_integer(integer_truncation->destination_size);
                         auto destination_llvm_type = get_llvm_integer_type(integer_truncation->destination_size);
 
                         llvm_instruction(value, LLVMBuildTrunc(
@@ -1306,7 +1309,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         registers.append(Register(
                             integer_truncation->destination_register,
-                            TypedValue(source_value.type, value)
+                            TypedValue(destination_ir_type, value)
                         ));
                     } else if(instruction->kind == InstructionKind::FloatArithmeticOperation) {
                         auto float_arithmetic_operation = (FloatArithmeticOperation*)instruction;
@@ -1414,26 +1417,28 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto source_value = get_register_value(*function, function_value, registers, integer_from_float->source_register);
 
+                        auto destination_ir_type = IRType::create_integer(integer_from_float->destination_size);
                         auto destination_llvm_type = get_llvm_integer_type(integer_from_float->destination_size);
 
                         llvm_instruction(value, LLVMBuildFPToSI(builder, source_value.value, destination_llvm_type, "integer_from_float"));
 
                         registers.append(Register(
                             integer_from_float->destination_register,
-                            TypedValue(source_value.type, value)
+                            TypedValue(destination_ir_type, value)
                         ));
                     } else if(instruction->kind == InstructionKind::FloatFromInteger) {
                         auto float_from_integer = (FloatFromInteger*)instruction;
 
                         auto source_value = get_register_value(*function, function_value, registers, float_from_integer->source_register);
 
+                        auto destination_ir_type = IRType::create_float(float_from_integer->destination_size);
                         auto destination_llvm_type = get_llvm_float_type(float_from_integer->destination_size);
 
                         llvm_instruction(value, LLVMBuildSIToFP(builder, source_value.value, destination_llvm_type, "float_from_integer"));
 
                         registers.append(Register(
                             float_from_integer->destination_register,
-                            TypedValue(source_value.type, value)
+                            TypedValue(destination_ir_type, value)
                         ));
                     } else if(instruction->kind == InstructionKind::PointerEquality) {
                         auto pointer_equality = (PointerEquality*)instruction;
@@ -1798,7 +1803,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         if(function_call->return_type.kind != IRTypeKind::Void) {
                             registers.append(Register(
                                 function_call->return_register,
-                                TypedValue(function->return_type, value)
+                                TypedValue(function_call->return_type, value)
                             ));
                         }
                     } else if(instruction->kind == InstructionKind::ReturnInstruction) {
