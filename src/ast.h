@@ -314,6 +314,7 @@ enum struct StatementKind {
     ConstantDefinition,
     StructDefinition,
     UnionDefinition,
+    EnumDefinition,
     ExpressionStatement,
     VariableDeclaration,
     Assignment,
@@ -458,6 +459,32 @@ struct UnionDefinition : Statement {
         name { name },
         parameters { parameters },
         members { members }
+    {}
+};
+
+struct EnumDefinition : Statement {
+    struct Variant {
+        Identifier name;
+
+        Expression* value;
+    };
+
+    Identifier name;
+
+    Expression* backing_type;
+
+    Array<Variant> variants;
+
+    explicit inline EnumDefinition(
+        FileRange range,
+        Identifier name,
+        Expression* backing_type,
+        Array<Variant> variants
+    ) :
+        Statement { StatementKind::EnumDefinition, range },
+        name { name },
+        backing_type { backing_type },
+        variants { variants }
     {}
 };
 

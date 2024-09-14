@@ -637,6 +637,44 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
 
         indent(indentation_level);
         printf("}");
+    } else if(statement->kind == StatementKind::EnumDefinition) {
+        auto enum_definition = (EnumDefinition*)statement;
+
+        printf("EnumDefinition: {\n");
+
+        indent(indentation_level + 1);
+        printf("name: ");
+        print_identifier(enum_definition->name);
+        printf("\n");
+
+        if(enum_definition->backing_type != nullptr) {
+            indent(indentation_level + 1);
+            printf("backing_type: ");
+            print_expression_internal(enum_definition->backing_type, indentation_level + 1);
+            printf("\n");
+        }
+
+        indent(indentation_level + 1);
+        printf("variants: {");
+
+        if(enum_definition->variants.length != 0) {
+            printf("\n");
+
+            for(auto variant : enum_definition->variants) {
+                indent(indentation_level + 2);
+                print_identifier(variant.name);
+                printf(" = ");
+                print_expression_internal(variant.value, indentation_level + 2);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
+        }
+
+        printf("}\n");
+
+        indent(indentation_level);
+        printf("}");
     } else if(statement->kind == StatementKind::ExpressionStatement) {
         auto expression_statement = (ExpressionStatement*)statement;
 

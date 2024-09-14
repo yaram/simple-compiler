@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include "ast.h"
 #include "profiler.h"
 #include "path.h"
 #include "list.h"
@@ -2278,6 +2279,87 @@ namespace {
                                                     identifier,
                                                     parameters,
                                                     members
+                                                ));
+                                            } else if(token.identifier == "enum"_S) {
+                                                expect(maybe_type_token, peek_token());
+
+                                                Expression* backing_type;
+                                                if(maybe_type_token.kind != TokenKind::OpenCurlyBracket) {
+                                                    consume_token();
+
+                                                    expect(type, parse_expression(OperatorPrecedence::None));
+
+                                                    backing_type = type;
+                                                } else {
+                                                    backing_type = nullptr;
+                                                }
+
+                                                expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
+
+                                                List<EnumDefinition::Variant> variants {};
+
+                                                expect(token, peek_token());
+
+                                                FileRange last_range;
+                                                if(token.kind == TokenKind::CloseCurlyBracket) {
+                                                    consume_token();
+
+                                                    last_range = token_range(token);
+                                                } else {
+                                                    while(true) {
+                                                        expect(identifier, expect_identifier());
+
+                                                        expect(maybe_equals_token, peek_token());
+
+                                                        Expression* value;
+                                                        if(maybe_equals_token.kind == TokenKind::Equals) {
+                                                            consume_token();
+
+                                                            expect(expression, parse_expression(OperatorPrecedence::None));
+                                                        } else {
+                                                            value = nullptr;
+                                                        }
+
+                                                        EnumDefinition::Variant variant {};
+                                                        variant.name = identifier;
+                                                        variant.value = value;
+
+                                                        variants.append(variant);
+
+                                                        expect(token, peek_token());
+
+                                                        auto done = false;
+                                                        switch(token.kind) {
+                                                            case TokenKind::Comma: {
+                                                                consume_token();
+                                                            } break;
+
+                                                            case TokenKind::CloseCurlyBracket: {
+                                                                consume_token();
+
+                                                                done = true;
+                                                            } break;
+
+                                                            default: {
+                                                                error("Expected ',' or '}', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+
+                                                                return err();
+                                                            } break;
+                                                        }
+
+                                                        if(done) {
+                                                            last_range = token_range(token);
+
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+
+                                                return ok((Statement*)new EnumDefinition(
+                                                    span_range(first_range, token_range(token)),
+                                                    identifier,
+                                                    backing_type,
+                                                    variants
                                                 ));
                                             } else {
                                                 auto sub_identifier = identifier_from_token(token);
