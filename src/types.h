@@ -63,8 +63,17 @@ struct StaticArray {
 
 struct StructType {
     inline StructType() = default;
-    explicit inline StructType(StructDefinition* definition, Array<StructTypeMember> members) : definition(definition), members(members) {}
+    explicit inline StructType(
+        String definition_file_path,
+        StructDefinition* definition,
+        Array<StructTypeMember> members
+    ) :
+        definition_file_path(definition_file_path),
+        definition(definition),
+        members(members)
+    {}
 
+    String definition_file_path;
     StructDefinition* definition;
 
     Array<StructTypeMember> members;
@@ -76,10 +85,19 @@ struct StructType {
 
 struct PolymorphicStruct {
     inline PolymorphicStruct() = default;
-    explicit inline PolymorphicStruct(StructDefinition* definition, AnyType* parameter_types, ConstantScope* parent) :
-        definition(definition), parameter_types(parameter_types), parent(parent)
+    explicit inline PolymorphicStruct(
+        String definition_file_path,
+        StructDefinition* definition,
+        AnyType* parameter_types,
+        ConstantScope* parent
+    ) :
+        definition_file_path(definition_file_path),
+        definition(definition),
+        parameter_types(parameter_types),
+        parent(parent)
     {}
 
+    String definition_file_path;
     StructDefinition* definition;
 
     AnyType* parameter_types;
@@ -89,8 +107,17 @@ struct PolymorphicStruct {
 
 struct UnionType {
     inline UnionType() = default;
-    explicit inline UnionType(UnionDefinition* definition, Array<StructTypeMember> members) : definition(definition), members(members) {}
+    explicit inline UnionType(
+        String definition_file_path,
+        UnionDefinition* definition,
+        Array<StructTypeMember> members
+    ) :
+        definition_file_path(definition_file_path),
+        definition(definition),
+        members(members)
+    {}
 
+    String definition_file_path;
     UnionDefinition* definition;
 
     Array<StructTypeMember> members;
@@ -101,10 +128,19 @@ struct UnionType {
 
 struct PolymorphicUnion {
     inline PolymorphicUnion() = default;
-    explicit inline PolymorphicUnion(UnionDefinition* definition, AnyType* parameter_types, ConstantScope* parent) :
-        definition(definition), parameter_types(parameter_types), parent(parent)
+    explicit inline PolymorphicUnion(
+        String definition_file_path,
+        UnionDefinition* definition,
+        AnyType* parameter_types,
+        ConstantScope* parent
+    ) :
+        definition_file_path(definition_file_path),
+        definition(definition),
+        parameter_types(parameter_types),
+        parent(parent)
     {}
 
+    String definition_file_path;
     UnionDefinition* definition;
 
     AnyType* parameter_types;

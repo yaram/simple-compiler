@@ -3341,6 +3341,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
         }
 
         return ok(AnyType(PolymorphicStruct(
+            scope->file_path,
             struct_definition,
             parameter_types,
             scope
@@ -3382,6 +3383,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
     }
 
     return ok(AnyType(StructType(
+        scope->file_path,
         struct_definition,
         Array(member_count, members)
     )));
@@ -3450,6 +3452,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
     }
 
     return ok(AnyType(StructType(
+        scope->file_path,
         struct_definition,
         Array(member_count, members)
     )));
@@ -3478,6 +3481,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_union_definition, (
         }
 
         return ok(AnyType(PolymorphicUnion(
+            scope->file_path,
             union_definition,
             parameter_types,
             scope
@@ -3519,6 +3523,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_union_definition, (
     }
 
     return ok(AnyType(UnionType(
+        scope->file_path,
         union_definition,
         Array(member_count, members)
     )));
@@ -3587,6 +3592,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_union, (
     }
 
     return ok(AnyType(UnionType(
+        scope->file_path,
         union_definition,
         Array(member_count, members)
     )));

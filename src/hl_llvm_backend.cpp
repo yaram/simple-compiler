@@ -107,6 +107,46 @@ static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType ty
     }
 }
 
+
+
+struct FileDebugScope {
+    String path;
+    LLVMMetadataRef scope;
+};
+
+static LLVMMetadataRef get_file_debug_scope(LLVMDIBuilderRef debug_builder, List<FileDebugScope>* file_debug_scopes, String path) {
+    auto found = false;
+    LLVMMetadataRef result;
+    for(auto entry : *file_debug_scopes) {
+        if(entry.path == path) {
+            result = entry.scope;
+
+            found = true;
+            break;
+        }
+    }
+
+    if(!found) {
+        auto directory = path_get_directory_component(path);
+
+        result = LLVMDIBuilderCreateFile(
+            debug_builder,
+            path.elements,
+            path.length,
+            directory.elements,
+            directory.length
+        );
+
+        FileDebugScope entry {};
+        entry.path = path;
+        entry.scope = result;
+
+        file_debug_scopes->append(entry);
+    }
+
+    return result;
+}
+
 const LLVMDWARFTypeEncoding DW_ATE_address = 0x01;
 const LLVMDWARFTypeEncoding DW_ATE_boolean = 0x02;
 const LLVMDWARFTypeEncoding DW_ATE_complex_float = 0x03;
@@ -128,6 +168,7 @@ const LLVMDWARFTypeEncoding DW_ATE_hi_user = 0xFF;
 
 static LLVMMetadataRef get_llvm_debug_type(
     LLVMDIBuilderRef debug_builder,
+    List<FileDebugScope>* file_debug_scopes,
     LLVMMetadataRef file_scope,
     ArchitectureSizes architecture_sizes,
     AnyType type
@@ -138,10 +179,16 @@ static LLVMMetadataRef get_llvm_debug_type(
         auto parameters = allocate<LLVMMetadataRef>(function.parameters.length);
 
         for(size_t i = 0; i < function.parameters.length; i += 1) {
-            parameters[i] = get_llvm_debug_type(debug_builder, file_scope, architecture_sizes, function.parameters[i]);
+            parameters[i] = get_llvm_debug_type(debug_builder, file_debug_scopes, file_scope, architecture_sizes, function.parameters[i]);
         }
 
-        auto return_llvm_debug_type = get_llvm_debug_type(debug_builder, file_scope, architecture_sizes, *function.return_type);
+        auto return_llvm_debug_type = get_llvm_debug_type(
+            debug_builder,
+            file_debug_scopes,
+            file_scope,
+            architecture_sizes,
+            *function.return_type
+        );
 
         return LLVMDIBuilderCreateSubroutineType(
             debug_builder,
@@ -171,7 +218,13 @@ static LLVMMetadataRef get_llvm_debug_type(
     } else if(type.kind == TypeKind::Pointer) {
         auto name = type.get_description();
 
-        auto pointed_to_llvm_debug_type = get_llvm_debug_type(debug_builder, file_scope, architecture_sizes, *type.pointer.pointed_to_type);
+        auto pointed_to_llvm_debug_type = get_llvm_debug_type(
+            debug_builder,
+            file_debug_scopes,
+            file_scope,
+            architecture_sizes,
+            *type.pointer.pointed_to_type
+        );
 
         auto size = register_size_to_byte_size(architecture_sizes.address_size);
 
@@ -193,6 +246,7 @@ static LLVMMetadataRef get_llvm_debug_type(
 
         auto length_debug_type = get_llvm_debug_type(
             debug_builder,
+            file_debug_scopes,
             file_scope,
             architecture_sizes,
             AnyType(Integer(architecture_sizes.address_size, false))
@@ -200,6 +254,7 @@ static LLVMMetadataRef get_llvm_debug_type(
 
         auto pointer_debug_type = get_llvm_debug_type(
             debug_builder,
+            file_debug_scopes,
             file_scope,
             architecture_sizes,
             AnyType(Pointer(array.element_type))
@@ -260,7 +315,13 @@ static LLVMMetadataRef get_llvm_debug_type(
     } else if(type.kind == TypeKind::StaticArray) {
         auto static_array = type.static_array;
 
-        auto element_llvm_debug_type = get_llvm_debug_type(debug_builder, file_scope, architecture_sizes, *static_array.element_type);
+        auto element_llvm_debug_type = get_llvm_debug_type(
+            debug_builder,
+            file_debug_scopes,
+            file_scope,
+            architecture_sizes,
+            *static_array.element_type
+        );
         auto element_type_size = static_array.element_type->get_size(architecture_sizes);
         auto element_type_align = static_array.element_type->get_alignment(architecture_sizes);
 
@@ -277,6 +338,12 @@ static LLVMMetadataRef get_llvm_debug_type(
     } else if(type.kind == TypeKind::StructType) {
         auto struct_ = type.struct_;
 
+        auto struct_file_scope = get_file_debug_scope(
+            debug_builder,
+            file_debug_scopes,
+            struct_.definition_file_path
+        );
+
         auto size = struct_.get_size(architecture_sizes);
         auto alignment = struct_.get_alignment(architecture_sizes);
 
@@ -285,6 +352,7 @@ static LLVMMetadataRef get_llvm_debug_type(
         for(size_t i = 0; i < struct_.members.length; i += 1) {
             auto member_debug_type = get_llvm_debug_type(
                 debug_builder,
+                file_debug_scopes,
                 file_scope,
                 architecture_sizes,
                 struct_.members[i].type
@@ -296,11 +364,11 @@ static LLVMMetadataRef get_llvm_debug_type(
 
             elements[i] = LLVMDIBuilderCreateMemberType(
                 debug_builder,
-                file_scope,
+                struct_file_scope,
                 struct_.members[i].name.elements,
                 struct_.members[i].name.length,
-                file_scope,
-                0,
+                struct_file_scope,
+                struct_.definition->range.first_line,
                 member_size * 8,
                 member_alignment * 8,
                 member_offset * 8,
@@ -311,11 +379,11 @@ static LLVMMetadataRef get_llvm_debug_type(
 
         return LLVMDIBuilderCreateStructType(
             debug_builder,
-            file_scope,
+            struct_file_scope,
             struct_.definition->name.text.elements,
             struct_.definition->name.text.length,
-            file_scope,
-            0,
+            struct_file_scope,
+            struct_.definition->range.first_line,
             size * 8,
             alignment * 8,
             LLVMDIFlagZero,
@@ -330,6 +398,12 @@ static LLVMMetadataRef get_llvm_debug_type(
     } else if(type.kind == TypeKind::UnionType) {
         auto union_ = type.union_;
 
+        auto union_file_scope = get_file_debug_scope(
+            debug_builder,
+            file_debug_scopes,
+            union_.definition_file_path
+        );
+
         auto size = union_.get_size(architecture_sizes);
         auto alignment = union_.get_alignment(architecture_sizes);
 
@@ -338,7 +412,8 @@ static LLVMMetadataRef get_llvm_debug_type(
         for(size_t i = 0; i < union_.members.length; i += 1) {
             auto member_debug_type = get_llvm_debug_type(
                 debug_builder,
-                file_scope,
+                file_debug_scopes,
+                union_file_scope,
                 architecture_sizes,
                 union_.members[i].type
             );
@@ -348,11 +423,11 @@ static LLVMMetadataRef get_llvm_debug_type(
 
             elements[i] = LLVMDIBuilderCreateMemberType(
                 debug_builder,
-                file_scope,
+                union_file_scope,
                 union_.members[i].name.elements,
                 union_.members[i].name.length,
-                file_scope,
-                0,
+                union_file_scope,
+                union_.definition->range.first_line,
                 member_size * 8,
                 member_alignment * 8,
                 0,
@@ -363,11 +438,11 @@ static LLVMMetadataRef get_llvm_debug_type(
 
         return LLVMDIBuilderCreateUnionType(
             debug_builder,
-            file_scope,
+            union_file_scope,
             union_.definition->name.text.elements,
             union_.definition->name.text.length,
-            file_scope,
-            0,
+            union_file_scope,
+            union_.definition->range.first_line,
             size * 8,
             alignment * 8,
             LLVMDIFlagZero,
@@ -602,11 +677,6 @@ inline LLVMBasicBlockRef get_instruction_block(List<InstructionBlock> blocks, In
     abort();
 }
 
-struct FileDebugScope {
-    String path;
-    LLVMMetadataRef scope;
-};
-
 #define llvm_instruction(variable_name, call) auto variable_name=(call);if(LLVMIsAInstruction(variable_name))LLVMInstructionSetDebugLoc(variable_name, debug_location)
 #define llvm_instruction_ignore(call) { auto value=(call);if(LLVMIsAInstruction(value))LLVMInstructionSetDebugLoc(value, debug_location); }
 
@@ -818,37 +888,11 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 LLVMSetInitializer(global_value.value, initial_value_llvm);
             }
 
-            auto found_file_debug_scope = false;
-            LLVMMetadataRef file_debug_scope;
-            for(auto entry : file_debug_scopes) {
-                if(entry.path == variable->path) {
-                    file_debug_scope = entry.scope;
-
-                    found_file_debug_scope = true;
-                    break;
-                }
-            }
-
-            if(!found_file_debug_scope) {
-                auto directory = path_get_directory_component(variable->path);
-
-                file_debug_scope = LLVMDIBuilderCreateFile(
-                    debug_builder,
-                    variable->path.elements,
-                    variable->path.length,
-                    directory.elements,
-                    directory.length
-                );
-
-                FileDebugScope entry {};
-                entry.path = variable->path;
-                entry.scope = file_debug_scope;
-
-                file_debug_scopes.append(entry);
-            }
+            auto file_debug_scope = get_file_debug_scope(debug_builder, &file_debug_scopes, variable->path);
 
             auto debug_type = get_llvm_debug_type(
                 debug_builder,
+                &file_debug_scopes,
                 file_debug_scope,
                 architecture_sizes,
                 variable->debug_type
@@ -950,36 +994,15 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                 List<Local> locals {};
 
-                auto found_file_debug_scope = false;
-                LLVMMetadataRef file_debug_scope;
-                for(auto entry : file_debug_scopes) {
-                    if(entry.path == function->path) {
-                        file_debug_scope = entry.scope;
+                auto file_debug_scope = get_file_debug_scope(debug_builder, &file_debug_scopes, function->path);
 
-                        found_file_debug_scope = true;
-                        break;
-                    }
-                }
-
-                if(!found_file_debug_scope) {
-                    auto directory = path_get_directory_component(function->path);
-
-                    file_debug_scope = LLVMDIBuilderCreateFile(
-                        debug_builder,
-                        function->path.elements,
-                        function->path.length,
-                        directory.elements,
-                        directory.length
-                    );
-
-                    FileDebugScope entry {};
-                    entry.path = function->path;
-                    entry.scope = file_debug_scope;
-
-                    file_debug_scopes.append(entry);
-                }
-
-                auto function_debug_type = get_llvm_debug_type(debug_builder, file_debug_scope, architecture_sizes, function->debug_type);
+                auto function_debug_type = get_llvm_debug_type(
+                    debug_builder,
+                    &file_debug_scopes,
+                    file_debug_scope,
+                    architecture_sizes,
+                    function->debug_type
+                );
 
                 auto function_debug_scope = LLVMDIBuilderCreateFunction(
                     debug_builder,
@@ -1020,6 +1043,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         } else {
                             auto debug_type = get_llvm_debug_type(
                                 debug_builder,
+                                &file_debug_scopes,
                                 file_debug_scope,
                                 architecture_sizes,
                                 allocate_local->debug_type
