@@ -2285,12 +2285,12 @@ namespace {
 
                                                 Expression* backing_type;
                                                 if(maybe_type_token.kind != TokenKind::OpenCurlyBracket) {
-                                                    consume_token();
-
                                                     expect(type, parse_expression(OperatorPrecedence::None));
 
                                                     backing_type = type;
                                                 } else {
+                                                    consume_token();
+
                                                     backing_type = nullptr;
                                                 }
 
@@ -2316,6 +2316,8 @@ namespace {
                                                             consume_token();
 
                                                             expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                                            value = expression;
                                                         } else {
                                                             value = nullptr;
                                                         }
