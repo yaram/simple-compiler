@@ -922,7 +922,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
                 did_work = true;
 
-                auto result = search_for_declaration(
+                auto result = search_for_name(
                     info,
                     &jobs,
                     "main"_S,

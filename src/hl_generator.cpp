@@ -2219,14 +2219,14 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
     }
 }
 
-struct RuntimeDeclarationSearchResult {
+struct RuntimeNameSearchResult {
     bool found;
 
     AnyType type;
     AnyRuntimeValue value;
 };
 
-static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_for_declaration, (
+static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name, (
     GlobalInfo info,
     List<AnyJob>* jobs,
     ConstantScope* scope,
@@ -2257,7 +2257,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
 
     if(declaration != nullptr) {
         if(external && !is_declaration_public(declaration)) {
-            RuntimeDeclarationSearchResult result {};
+            RuntimeNameSearchResult result {};
             result.found = false;
 
             return ok(result);
@@ -2265,7 +2265,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
 
         expect_delayed(value, get_simple_resolved_declaration(info, jobs, scope, declaration));
 
-        RuntimeDeclarationSearchResult result {};
+        RuntimeNameSearchResult result {};
         result.found = true;
         result.type = value.type;
         result.value = AnyRuntimeValue(value.value);
@@ -2280,36 +2280,57 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
 
                 expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, nullptr, using_statement->module));
 
-                if(expression_value.type.kind != TypeKind::FileModule) {
-                    error(scope, using_statement->range, "Expected a module, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+                if(expression_value.type.kind == TypeKind::FileModule) {
+                    auto file_module = expression_value.value.unwrap_file_module();
+
+                    expect_delayed(search_value, search_for_name(
+                        info,
+                        jobs,
+                        file_module.scope,
+                        context,
+                        instructions,
+                        name,
+                        name_hash,
+                        name_scope,
+                        name_range,
+                        file_module.scope->statements,
+                        file_module.scope->declarations,
+                        true
+                    ));
+
+                    if(search_value.found) {
+                        RuntimeNameSearchResult result {};
+                        result.found = true;
+                        result.type = search_value.type;
+                        result.value = search_value.value;
+
+                        return ok(result);
+                    }
+                } else if(expression_value.type.kind == TypeKind::Type) {
+                    auto type = expression_value.value.unwrap_type();
+
+                    if(type.kind == TypeKind::Enum) {
+                        auto enum_ = type.enum_;
+
+                        for(size_t i = 0; i < enum_.variant_values.length; i += 1) {
+                            if(enum_.definition->variants[i].name.text == name) {
+                                RuntimeNameSearchResult result {};
+                                result.found = true;
+                                result.type = AnyType(*enum_.backing_type);
+                                result.value = AnyRuntimeValue(AnyConstantValue(enum_.variant_values[i]));
+
+                                return ok(result);
+                            }
+                        }
+                    } else {
+                        error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+
+                        return err();
+                    }
+                } else {
+                    error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
 
                     return err();
-                }
-
-                auto file_module = expression_value.value.unwrap_file_module();
-
-                expect_delayed(search_value, search_for_declaration(
-                    info,
-                    jobs,
-                    file_module.scope,
-                    context,
-                    instructions,
-                    name,
-                    name_hash,
-                    name_scope,
-                    name_range,
-                    file_module.scope->statements,
-                    file_module.scope->declarations,
-                    true
-                ));
-
-                if(search_value.found) {
-                    RuntimeDeclarationSearchResult result {};
-                    result.found = true;
-                    result.type = search_value.type;
-                    result.value = search_value.value;
-
-                    return ok(result);
                 }
             }
         } else if(statement->kind == StatementKind::StaticIf) {
@@ -2330,7 +2351,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
 
                         if(job.state == JobState::Done) {
                             if(resolve_static_if.condition) {
-                                expect_delayed(search_value, search_for_declaration(
+                                expect_delayed(search_value, search_for_name(
                                     info,
                                     jobs,
                                     scope,
@@ -2346,7 +2367,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
                                 ));
 
                                 if(search_value.found) {
-                                    RuntimeDeclarationSearchResult result {};
+                                    RuntimeNameSearchResult result {};
                                     result.found = true;
                                     result.type = search_value.type;
                                     result.value = search_value.value;
@@ -2357,9 +2378,9 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
                         } else {
                             bool could_have_declaration;
                             if(external) {
-                                could_have_declaration = does_or_could_have_public_declaration(static_if, name);
+                                could_have_declaration = does_or_could_have_public_name(static_if, name);
                             } else {
-                                could_have_declaration = does_or_could_have_declaration(static_if, name);
+                                could_have_declaration = does_or_could_have_name(static_if, name);
                             }
 
                             if(could_have_declaration) {
@@ -2393,7 +2414,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
 
                                     auto ir_type = get_runtime_ir_type(info.architecture_sizes, generate_static_variable.type);
 
-                                    RuntimeDeclarationSearchResult result {};
+                                    RuntimeNameSearchResult result {};
                                     result.found = true;
                                     result.type = generate_static_variable.type;
                                     result.value = AnyRuntimeValue(AddressedValue(ir_type, pointer_register));
@@ -2414,7 +2435,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
 
     for(auto scope_constant : scope->scope_constants) {
         if(scope_constant.name == name) {
-            RuntimeDeclarationSearchResult result {};
+            RuntimeNameSearchResult result {};
             result.found = true;
             result.type = scope_constant.type;
             result.value = AnyRuntimeValue(scope_constant.value);
@@ -2423,7 +2444,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
         }
     }
 
-    RuntimeDeclarationSearchResult result {};
+    RuntimeNameSearchResult result {};
     result.found = false;
 
     return ok(result);
@@ -2463,7 +2484,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             }
 
-            expect_delayed(search_value, search_for_declaration(
+            expect_delayed(search_value, search_for_name(
                 info,
                 jobs,
                 current_scope.constant_scope,
@@ -2490,7 +2511,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto current_scope = context->variable_scope_stack[0].constant_scope->parent;
         while(true) {
-            expect_delayed(search_value, search_for_declaration(
+            expect_delayed(search_value, search_for_name(
                 info,
                 jobs,
                 current_scope,
@@ -3191,7 +3212,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         } else if(actual_type.kind == TypeKind::FileModule) {
             auto file_module_value = expression_value.value.constant.unwrap_file_module();
 
-            expect_delayed(search_value, search_for_declaration(
+            expect_delayed(search_value, search_for_name(
                 info,
                 jobs,
                 file_module_value.scope,

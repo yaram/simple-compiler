@@ -397,8 +397,8 @@ DelayedResult<AnyType> evaluate_type_expression(
 );
 Result<AnyType> coerce_to_default_type(GlobalInfo info, ConstantScope* scope, FileRange range, AnyType type);
 bool is_declaration_public(Statement* declaration);
-bool does_or_could_have_public_declaration(Statement* statement, String name);
-bool does_or_could_have_declaration(Statement* statement, String name);
+bool does_or_could_have_public_name(Statement* statement, String name);
+bool does_or_could_have_name(Statement* statement, String name);
 DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
     GlobalInfo info,
     List<AnyJob>* jobs,
@@ -407,14 +407,14 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
 );
 bool constant_values_equal(AnyConstantValue a, AnyConstantValue b);
 
-struct DeclarationSearchResult {
+struct NameSearchResult {
     bool found;
 
     AnyType type;
     AnyConstantValue value;
 };
 
-DelayedResult<DeclarationSearchResult> search_for_declaration(
+DelayedResult<NameSearchResult> search_for_name(
     GlobalInfo info,
     List<AnyJob>* jobs,
     String name,

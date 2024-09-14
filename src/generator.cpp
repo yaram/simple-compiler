@@ -2484,14 +2484,14 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
     }
 }
 
-struct RuntimeDeclarationSearchResult {
+struct RuntimeNameSearchResult {
     bool found;
 
     AnyType type;
     AnyRuntimeValue value;
 };
 
-static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_for_declaration, (
+static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_declaration, (
     GlobalInfo info,
     List<AnyJob>* jobs,
     ConstantScope* scope,
@@ -2522,7 +2522,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
 
     if(declaration != nullptr) {
         if(external && !is_declaration_public(declaration)) {
-            RuntimeDeclarationSearchResult result {};
+            RuntimeNameSearchResult result {};
             result.found = false;
 
             return ok(result);
@@ -2530,7 +2530,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
 
         expect_delayed(value, get_simple_resolved_declaration(info, jobs, scope, declaration));
 
-        RuntimeDeclarationSearchResult result {};
+        RuntimeNameSearchResult result {};
         result.found = true;
         result.type = value.type;
         result.value = wrap_constant_value(value.value);
@@ -2553,7 +2553,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
 
                 auto file_module = unwrap_file_module_constant(expression_value.value);
 
-                expect_delayed(search_value, search_for_declaration(
+                expect_delayed(search_value, search_for_name(
                     info,
                     jobs,
                     file_module.scope,
@@ -2569,7 +2569,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
                 ));
 
                 if(search_value.found) {
-                    RuntimeDeclarationSearchResult result {};
+                    RuntimeNameSearchResult result {};
                     result.found = true;
                     result.type = search_value.type;
                     result.value = search_value.value;
@@ -2595,7 +2595,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
 
                         if(job.state == JobState::Done) {
                             if(resolve_static_if.condition) {
-                                expect_delayed(search_value, search_for_declaration(
+                                expect_delayed(search_value, search_for_name(
                                     info,
                                     jobs,
                                     scope,
@@ -2611,7 +2611,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
                                 ));
 
                                 if(search_value.found) {
-                                    RuntimeDeclarationSearchResult result {};
+                                    RuntimeNameSearchResult result {};
                                     result.found = true;
                                     result.type = search_value.type;
                                     result.value = search_value.value;
@@ -2622,9 +2622,9 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
                         } else {
                             bool could_have_declaration;
                             if(external) {
-                                could_have_declaration = does_or_could_have_public_declaration(static_if, name);
+                                could_have_declaration = does_or_could_have_public_name(static_if, name);
                             } else {
-                                could_have_declaration = does_or_could_have_declaration(static_if, name);
+                                could_have_declaration = does_or_could_have_name(static_if, name);
                             }
 
                             if(could_have_declaration) {
@@ -2656,7 +2656,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
                                         generate_static_variable.static_variable
                                     );
 
-                                    RuntimeDeclarationSearchResult result {};
+                                    RuntimeNameSearchResult result {};
                                     result.found = true;
                                     result.type = generate_static_variable.type;
                                     result.value = wrap_address_value(AddressValue(address_register));
@@ -2677,7 +2677,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
 
     for(auto scope_constant : scope->scope_constants) {
         if(scope_constant.name == name) {
-            RuntimeDeclarationSearchResult result {};
+            RuntimeNameSearchResult result {};
             result.found = true;
             result.type = scope_constant.type;
             result.value = wrap_constant_value(scope_constant.value);
@@ -2686,7 +2686,7 @@ static_profiled_function(DelayedResult<RuntimeDeclarationSearchResult>, search_f
         }
     }
 
-    RuntimeDeclarationSearchResult result {};
+    RuntimeNameSearchResult result {};
     result.found = false;
 
     return ok(result);
@@ -2726,7 +2726,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             }
 
-            expect_delayed(search_value, search_for_declaration(
+            expect_delayed(search_value, search_for_name(
                 info,
                 jobs,
                 current_scope.constant_scope,
@@ -2753,7 +2753,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto current_scope = context->variable_scope_stack[0].constant_scope->parent;
         while(true) {
-            expect_delayed(search_value, search_for_declaration(
+            expect_delayed(search_value, search_for_name(
                 info,
                 jobs,
                 current_scope,
@@ -3284,7 +3284,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         } else if(actual_type.kind == TypeKind::FileModule) {
             auto file_module_value = unwrap_file_module_constant(expression_value.value.constant);
 
-            expect_delayed(search_value, search_for_declaration(
+            expect_delayed(search_value, search_for_name(
                 info,
                 jobs,
                 file_module_value.scope,

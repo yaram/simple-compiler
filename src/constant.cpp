@@ -1488,7 +1488,7 @@ bool is_declaration_public(Statement* declaration) {
     }
 }
 
-bool does_or_could_have_public_declaration(Statement* statement, String name) {
+bool does_or_could_have_public_name(Statement* statement, String name) {
     if(statement->kind == StatementKind::FunctionDeclaration) {
         auto function_declaration = (FunctionDeclaration*)statement;
 
@@ -1517,7 +1517,7 @@ bool does_or_could_have_public_declaration(Statement* statement, String name) {
         auto static_if = (StaticIf*)statement;
 
         for(auto statement : static_if->statements) {
-            if(does_or_could_have_declaration(statement, name)) {
+            if(does_or_could_have_name(statement, name)) {
                 return true;
             }
         }
@@ -1528,7 +1528,7 @@ bool does_or_could_have_public_declaration(Statement* statement, String name) {
     }
 }
 
-bool does_or_could_have_declaration(Statement* statement, String name) {
+bool does_or_could_have_name(Statement* statement, String name) {
     if(statement->kind == StatementKind::FunctionDeclaration) {
         auto function_declaration = (FunctionDeclaration*)statement;
 
@@ -1557,7 +1557,7 @@ bool does_or_could_have_declaration(Statement* statement, String name) {
         auto static_if = (StaticIf*)statement;
 
         for(auto statement : static_if->statements) {
-            if(does_or_could_have_declaration(statement, name)) {
+            if(does_or_could_have_name(statement, name)) {
                 return true;
             }
         }
@@ -1898,7 +1898,7 @@ Statement* search_in_declaration_hash_table(DeclarationHashTable declaration_has
     return nullptr;
 }
 
-profiled_function(DelayedResult<DeclarationSearchResult>, search_for_declaration, (
+profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
     GlobalInfo info,
     List<AnyJob>* jobs,
     String name,
@@ -1923,7 +1923,7 @@ profiled_function(DelayedResult<DeclarationSearchResult>, search_for_declaration
 
     if(declaration != nullptr && declaration != ignore) {
         if(external && !is_declaration_public(declaration)) {
-            DeclarationSearchResult result {};
+            NameSearchResult result {};
             result.found = false;
 
             return ok(result);
@@ -1931,7 +1931,7 @@ profiled_function(DelayedResult<DeclarationSearchResult>, search_for_declaration
 
         expect_delayed(value, get_simple_resolved_declaration(info, jobs, scope, declaration));
 
-        DeclarationSearchResult result {};
+        NameSearchResult result {};
         result.found = true;
         result.type = value.type;
         result.value = value.value;
@@ -1950,23 +1950,44 @@ profiled_function(DelayedResult<DeclarationSearchResult>, search_for_declaration
 
                 expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, using_statement, using_statement->module));
 
-                if(expression_value.type.kind != TypeKind::FileModule) {
-                    error(scope, using_statement->range, "Expected a module, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+                if(expression_value.type.kind == TypeKind::FileModule) {
+                    auto file_module = expression_value.value.unwrap_file_module();
+
+                    expect_delayed(search_value, search_for_name(info, jobs, name, name_hash, file_module.scope, file_module.scope->statements, file_module.scope->declarations, true, nullptr));
+
+                    if(search_value.found) {
+                        NameSearchResult result {};
+                        result.found = true;
+                        result.type = search_value.type;
+                        result.value = search_value.value;
+
+                        return ok(result);
+                    }
+                } else if(expression_value.type.kind == TypeKind::Type) {
+                    auto type = expression_value.value.unwrap_type();
+
+                    if(type.kind == TypeKind::Enum) {
+                        auto enum_ = type.enum_;
+
+                        for(size_t i = 0; i < enum_.variant_values.length; i += 1) {
+                            if(enum_.definition->variants[i].name.text == name) {
+                                NameSearchResult result {};
+                                result.found = true;
+                                result.type = AnyType(*enum_.backing_type);
+                                result.value = AnyConstantValue(enum_.variant_values[i]);
+
+                                return ok(result);
+                            }
+                        }
+                    } else {
+                        error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+
+                        return err();
+                    }
+                } else {
+                    error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
 
                     return err();
-                }
-
-                auto file_module = expression_value.value.unwrap_file_module();
-
-                expect_delayed(search_value, search_for_declaration(info, jobs, name, name_hash, file_module.scope, file_module.scope->statements, file_module.scope->declarations, true, nullptr));
-
-                if(search_value.found) {
-                    DeclarationSearchResult result {};
-                    result.found = true;
-                    result.type = search_value.type;
-                    result.value = search_value.value;
-
-                    return ok(result);
                 }
             }
         } else if(statement->kind == StatementKind::StaticIf) {
@@ -1987,10 +2008,10 @@ profiled_function(DelayedResult<DeclarationSearchResult>, search_for_declaration
 
                         if(job.state == JobState::Done) {
                             if(resolve_static_if.condition) {
-                                expect_delayed(search_value, search_for_declaration(info, jobs, name, name_hash, scope, static_if->statements, resolve_static_if.declarations, false, nullptr));
+                                expect_delayed(search_value, search_for_name(info, jobs, name, name_hash, scope, static_if->statements, resolve_static_if.declarations, false, nullptr));
 
                                 if(search_value.found) {
-                                    DeclarationSearchResult result {};
+                                    NameSearchResult result {};
                                     result.found = true;
                                     result.type = search_value.type;
                                     result.value = search_value.value;
@@ -2001,9 +2022,9 @@ profiled_function(DelayedResult<DeclarationSearchResult>, search_for_declaration
                         } else {
                             bool could_have_declaration;
                             if(external) {
-                                could_have_declaration = does_or_could_have_public_declaration(static_if, name);
+                                could_have_declaration = does_or_could_have_public_name(static_if, name);
                             } else {
-                                could_have_declaration = does_or_could_have_declaration(static_if, name);
+                                could_have_declaration = does_or_could_have_name(static_if, name);
                             }
 
                             if(could_have_declaration) {
@@ -2020,7 +2041,7 @@ profiled_function(DelayedResult<DeclarationSearchResult>, search_for_declaration
 
     for(auto scope_constant : scope->scope_constants) {
         if(scope_constant.name == name) {
-            DeclarationSearchResult result {};
+            NameSearchResult result {};
             result.found = true;
             result.type = scope_constant.type;
             result.value = scope_constant.value;
@@ -2029,7 +2050,7 @@ profiled_function(DelayedResult<DeclarationSearchResult>, search_for_declaration
         }
     }
 
-    DeclarationSearchResult result {};
+    NameSearchResult result {};
     result.found = false;
 
     return ok(result);
@@ -2099,7 +2120,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
         auto current_scope = scope;
         while(true) {
-            expect_delayed(search_value, search_for_declaration(
+            expect_delayed(search_value, search_for_name(
                 info,
                 jobs,
                 named_reference->name.text,
@@ -2246,7 +2267,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         } else if(expression_value.type.kind == TypeKind::FileModule) {
             auto file_module_value = expression_value.value.unwrap_file_module();
 
-            expect_delayed(search_value, search_for_declaration(
+            expect_delayed(search_value, search_for_name(
                 info,
                 jobs,
                 member_reference->name.text,
