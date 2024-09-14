@@ -495,4 +495,11 @@ DelayedResult<AnyType> do_resolve_polymorphic_union(
     ConstantScope* scope
 );
 
+DelayedResult<Enum> do_resolve_enum_definition(
+    GlobalInfo info,
+    List<AnyJob>* jobs,
+    EnumDefinition* enum_definition,
+    ConstantScope* scope
+);
+
 Result<void> process_scope(List<AnyJob>* jobs, ConstantScope* scope, Array<Statement*> statements, List<ConstantScope*>* child_scopes, bool is_top_level);

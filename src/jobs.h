@@ -76,6 +76,13 @@ struct ResolvePolymorphicUnion {
     AnyType type;
 };
 
+struct ResolveEnumDefinition {
+    EnumDefinition* definition;
+    ConstantScope* scope;
+
+    Enum type;
+};
+
 struct GenerateFunction {
     FunctionTypeType type;
     FunctionConstant value;
@@ -101,6 +108,7 @@ enum struct JobKind {
     ResolvePolymorphicStruct,
     ResolveUnionDefinition,
     ResolvePolymorphicUnion,
+    ResolveEnumDefinition,
     GenerateFunction,
     GeneratePolymorphicFunction,
     GenerateStaticVariable
@@ -129,6 +137,7 @@ struct AnyJob {
         ResolvePolymorphicStruct resolve_polymorphic_struct;
         ResolveUnionDefinition resolve_union_definition;
         ResolvePolymorphicUnion resolve_polymorphic_union;
+        ResolveEnumDefinition resolve_enum_definition;
         GenerateFunction generate_function;
         GenerateStaticVariable generate_static_variable;
     };

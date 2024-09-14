@@ -4,6 +4,7 @@
 #include <string.h>
 #include <assert.h>
 #include "profiler.h"
+#include "string.h"
 #include "util.h"
 #include "jobs.h"
 #include "types.h"
@@ -112,28 +113,32 @@ Result<uint64_t> coerce_constant_to_integer_type(
     if(type.kind == TypeKind::Integer) {
         auto integer = type.integer;
 
-        if(integer.size != target_type.size || integer.is_signed != target_type.is_signed) {
-            if(!probing) {
-                error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(AnyType(integer).get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
-            }
-
-            return err();
+        if(integer.size == target_type.size && integer.is_signed == target_type.is_signed) {
+            return ok(value.unwrap_integer());
         }
-
-        return ok((value.unwrap_integer()));
     } else if(type.kind == TypeKind::UndeterminedInteger) {
         auto integer_value = (value.unwrap_integer());
 
         expect_void(check_undetermined_integer_to_integer_coercion(scope, range, target_type, (int64_t)integer_value, probing));
 
         return ok(integer_value);
-    } else {
-        if(!probing) {
-            error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
-        }
+    } else if(type.kind == TypeKind::Enum) {
+        auto enum_ = type.enum_;
 
-        return err();
+        if(enum_.backing_type->size == target_type.size && enum_.backing_type->is_signed == target_type.is_signed) {
+            auto enum_value = value.unwrap_integer();
+
+            return ok(enum_value);
+        }
+    } else {
+        
     }
+
+    if(!probing) {
+        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
+    }
+
+    return err();
 }
 
 static Result<uint64_t> coerce_constant_to_undetermined_integer(
@@ -170,6 +175,8 @@ static Result<uint64_t> coerce_constant_to_undetermined_integer(
             } break;
         }
     } else if(type.kind == TypeKind::UndeterminedInteger) {
+        return ok((value.unwrap_integer()));
+    } else if(type.kind == TypeKind::Enum) {
         return ok((value.unwrap_integer()));
     } else {
         if(!probing) {
@@ -379,6 +386,20 @@ Result<AnyConstantValue> coerce_constant_to_type(
                     }
                 }
             }
+        }
+    } else if(target_type.kind == TypeKind::Enum) {
+        auto enum_ = target_type.enum_;
+
+        if(target_type.kind == TypeKind::Integer) {
+            auto integer = target_type.integer;
+
+            if(integer.size == enum_.backing_type->size && integer.is_signed == enum_.backing_type->is_signed) {
+                return ok(AnyConstantValue(value.unwrap_integer()));
+            }
+        } else if(target_type.kind == TypeKind::UndeterminedInteger) {
+            expect(integer_value, coerce_constant_to_integer_type(scope, range, type, value, *enum_.backing_type, probing));
+
+            return ok(AnyConstantValue(integer_value));
         }
     } else if(type == target_type) {
         return ok(value);
@@ -937,13 +958,12 @@ Result<AnyConstantValue> evaluate_constant_cast(
     if(target_type.kind == TypeKind::Integer) {
         auto target_integer = target_type.integer;
 
-        uint64_t result;
-
         if(type.kind == TypeKind::Integer) {
             auto integer = type.integer;
 
             auto integer_value = (value.unwrap_integer());
 
+            uint64_t result;
             if(integer.is_signed) {
                 switch(integer.size) {
                     case RegisterSize::Size8: {
@@ -988,9 +1008,11 @@ Result<AnyConstantValue> evaluate_constant_cast(
                         abort();
                     } break;
                 }
-            }        
+            }
+
+            return ok(AnyConstantValue(result));
         } else if(type.kind == TypeKind::UndeterminedInteger) {
-            result = (value.unwrap_integer());
+            return ok(AnyConstantValue(value.unwrap_integer()));
         } else if(type.kind == TypeKind::FloatType) {
             auto float_type = type.float_;
 
@@ -1011,6 +1033,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
                 } break;
             }
 
+            uint64_t result;
             if(target_integer.is_signed) {
                 switch(target_integer.size) {
                     case RegisterSize::Size8: {
@@ -1056,9 +1079,12 @@ Result<AnyConstantValue> evaluate_constant_cast(
                     } break;
                 }
             }
+
+            return ok(AnyConstantValue(result));
         } else if(type.kind == TypeKind::UndeterminedFloat) {
             auto float_value = (value.unwrap_float());
 
+            uint64_t result;
             if(target_integer.is_signed) {
                 switch(target_integer.size) {
                     case RegisterSize::Size8: {
@@ -1104,27 +1130,66 @@ Result<AnyConstantValue> evaluate_constant_cast(
                     } break;
                 }
             }
-        } else if(type.kind == TypeKind::Pointer) {
-            auto pointer = type.pointer;
 
-            if(target_integer.size == info.architecture_sizes.address_size && !target_integer.is_signed) {
-                result = (value.unwrap_integer());
-            } else {
-                if(!probing) {
-                    error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(AnyType(pointer).get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_integer).get_description()));
+            return ok(AnyConstantValue(result));
+        } else if(type.kind == TypeKind::Enum) {
+            auto enum_ = type.enum_;
+
+            auto integer_value = value.unwrap_integer();
+
+            uint64_t result;
+            if(enum_.backing_type->is_signed) {
+                switch(enum_.backing_type->size) {
+                    case RegisterSize::Size8: {
+                        result = (int8_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        result = (int16_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        result = (int32_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = integer_value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
                 }
+            } else {
+                switch(enum_.backing_type->size) {
+                    case RegisterSize::Size8: {
+                        result = (uint8_t)integer_value;
+                    } break;
 
-                return err();
-            }
-        } else {
-            if(!probing) {
-                error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_integer).get_description()));
+                    case RegisterSize::Size16: {
+                        result = (uint16_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        result = (uint32_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = integer_value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
             }
 
-            return err();
+            return ok(AnyConstantValue(result));
+        } else if(type.kind == TypeKind::Pointer) {
+            if(target_integer.size == info.architecture_sizes.address_size && !target_integer.is_signed) {
+                return ok(AnyConstantValue(value.unwrap_integer()));
+            }
         }
-
-        return ok(AnyConstantValue(result));
     } else if(target_type.kind == TypeKind::FloatType) {
         auto target_float_type = target_type.float_;
 
@@ -1181,6 +1246,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
                 }
             }
 
+            double result;
             switch(target_float_type.size) {
                 case RegisterSize::Size32: {
                     result = (double)(float)from_value;
@@ -1194,9 +1260,12 @@ Result<AnyConstantValue> evaluate_constant_cast(
                     abort();
                 } break;
             }
+
+            return ok(AnyConstantValue(result));
         } else if(type.kind == TypeKind::UndeterminedInteger) {
             auto integer_value = (value.unwrap_integer());
 
+            double result;
             switch(target_float_type.size) {
                 case RegisterSize::Size32: {
                     result = (double)(float)(int64_t)integer_value;
@@ -1210,6 +1279,8 @@ Result<AnyConstantValue> evaluate_constant_cast(
                     abort();
                 } break;
             }
+
+            return ok(AnyConstantValue(result));
         } else if(type.kind == TypeKind::FloatType) {
             auto float_type = type.float_;
 
@@ -1230,6 +1301,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
                 } break;
             }
 
+            double result;
             switch(target_float_type.size) {
                 case RegisterSize::Size32: {
                     result = (double)(float)from_value;
@@ -1243,9 +1315,12 @@ Result<AnyConstantValue> evaluate_constant_cast(
                     abort();
                 } break;
             }
+
+            return ok(AnyConstantValue(result));
         } else if(type.kind == TypeKind::UndeterminedFloat) {
             auto float_value = (value.unwrap_float());
 
+            double result;
             switch(target_float_type.size) {
                 case RegisterSize::Size32: {
                     result = (double)(float)float_value;
@@ -1259,51 +1334,87 @@ Result<AnyConstantValue> evaluate_constant_cast(
                     abort();
                 } break;
             }
-        } else {
-            if(!probing) {
-                error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_float_type).get_description()));
-            }
 
-            return err();
+            return ok(AnyConstantValue(result));
         }
-
-        return ok(AnyConstantValue(result));
-    } else if(target_type.kind == TypeKind::Pointer) {
-        auto target_pointer = target_type.pointer;
-
-        uint64_t result;
+    } else if(target_type.kind == TypeKind::Enum) {
+        auto enum_ = target_type.enum_;
 
         if(type.kind == TypeKind::Integer) {
             auto integer = type.integer;
-            if(integer.size == info.architecture_sizes.address_size && !integer.is_signed) {
-                result = (value.unwrap_integer());
-            } else {
-                if(!probing) {
-                    error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(AnyType(integer).get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_pointer).get_description()));
-                }
 
-                return err();
+            auto integer_value = (value.unwrap_integer());
+
+            uint64_t result;
+            if(integer.is_signed) {
+                switch(integer.size) {
+                    case RegisterSize::Size8: {
+                        result = (int8_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        result = (int16_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        result = (int32_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = integer_value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            } else {
+                switch(integer.size) {
+                    case RegisterSize::Size8: {
+                        result = (uint8_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size16: {
+                        result = (uint16_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size32: {
+                        result = (uint32_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = integer_value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+            }
+
+            return ok(AnyConstantValue(result));
+        } else if(type.kind == TypeKind::UndeterminedInteger) {
+            return ok(AnyConstantValue(value.unwrap_integer()));
+        }
+    } else if(target_type.kind == TypeKind::Pointer) {
+        auto target_pointer = target_type.pointer;
+
+        if(type.kind == TypeKind::Integer) {
+            auto integer = type.integer;
+
+            if(integer.size == info.architecture_sizes.address_size && !integer.is_signed) {
+                return ok(AnyConstantValue(value.unwrap_integer()));
             }
         } else if(type.kind == TypeKind::Pointer) {
-            auto pointer = type.pointer;
-
-            result = (value.unwrap_integer());
-        } else {
-            if(!probing) {
-                error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_pointer).get_description()));
-            }
-
-            return err();
+            return ok(AnyConstantValue(value.unwrap_integer()));
         }
-
-        return ok(AnyConstantValue(result));
-    } else {
-        if(!probing) {
-            error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
-        }
-
-        return err();
     }
+
+    if(!probing) {
+        error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+    }
+
+    return err();
 }
 
 Result<AnyType> coerce_to_default_type(GlobalInfo info, ConstantScope* scope, FileRange range, AnyType type) {
@@ -1334,6 +1445,8 @@ bool is_declaration_public(Statement* declaration) {
         return true;
     } else if(declaration->kind == StatementKind::UnionDefinition) {
         return true;
+    } else if(declaration->kind == StatementKind::EnumDefinition) {
+        return true;
     } else {
         return false;
     }
@@ -1356,6 +1469,10 @@ bool does_or_could_have_public_declaration(Statement* statement, String name) {
         auto union_definition = (UnionDefinition*)statement;
 
         return name == union_definition->name.text;
+    } else if(statement->kind == StatementKind::EnumDefinition) {
+        auto enum_definition = (EnumDefinition*)statement;
+
+        return name == enum_definition->name.text;
     } else if(statement->kind == StatementKind::Import) {
         auto import = (Import*)statement;
 
@@ -1392,6 +1509,10 @@ bool does_or_could_have_declaration(Statement* statement, String name) {
         auto union_definition = (UnionDefinition*)statement;
 
         return name == union_definition->name.text;
+    } else if(statement->kind == StatementKind::EnumDefinition) {
+        auto enum_definition = (EnumDefinition*)statement;
+
+        return name == enum_definition->name.text;
     } else if(statement->kind == StatementKind::Import) {
         auto import = (Import*)statement;
 
@@ -1534,6 +1655,31 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
             abort();
         } break;
 
+        case StatementKind::EnumDefinition: {
+            auto enum_definition = (EnumDefinition*)declaration;
+
+            for(size_t i = 0; i < jobs->length; i += 1) {
+                auto job = (*jobs)[i];
+
+                if(job.kind == JobKind::ResolveEnumDefinition) {
+                    auto resolve_enum_definition = job.resolve_enum_definition;
+
+                    if(resolve_enum_definition.definition == enum_definition) {
+                        if(job.state == JobState::Done) {
+                            return ok(TypedConstantValue(
+                                AnyType::create_type_type(),
+                                AnyConstantValue(AnyType(resolve_enum_definition.type))
+                            ));
+                        } else {
+                            return wait(i);
+                        }
+                    }
+                }
+            }
+
+            abort();
+        } break;
+
         case StatementKind::Import: {
             auto import = (Import*)declaration;
 
@@ -1657,6 +1803,10 @@ static Result<String> get_declaration_name(Statement* declaration) {
         auto union_definition = (UnionDefinition*)declaration;
 
         return ok(union_definition->name.text);
+    } else if(declaration->kind == StatementKind::EnumDefinition) {
+        auto enum_definition = (EnumDefinition*)declaration;
+
+        return ok(enum_definition->name.text);
     } else if(declaration->kind == StatementKind::Import) {
         auto import = (Import*)declaration;
 
@@ -2082,6 +2232,40 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             error(scope, member_reference->name.range, "No member with name '%.*s'", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
 
             return err();
+        } else if(expression_value.type.kind == TypeKind::Type) {
+            auto type = expression_value.value.type;
+
+            if(type.kind == TypeKind::Enum) {
+                auto enum_ = type.enum_;
+
+                for(size_t i = 0; i < enum_.variant_values.length; i += 1) {
+                    if(enum_.definition->variants[i].name.text == member_reference->name.text) {
+                        return ok(TypedConstantValue(
+                            type,
+                            AnyConstantValue(enum_.variant_values[i])
+                        ));
+                    }
+                }
+
+                error(
+                    scope,
+                    member_reference->name.range,
+                    "Enum '%.*s' has no variant with name '%.*s'",
+                    STRING_PRINTF_ARGUMENTS(enum_.definition->name.text),
+                    STRING_PRINTF_ARGUMENTS(member_reference->name.text)
+                );
+
+                return err();
+            } else {
+                error(
+                    scope,
+                    member_reference->expression->range,
+                    "Type '%.*s' has no members",
+                    STRING_PRINTF_ARGUMENTS(type.get_description())
+                );
+
+                return err();
+            }
         } else {
             error(scope, member_reference->expression->range, "Type '%.*s' has no members", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
 
@@ -3671,6 +3855,18 @@ profiled_function(Result<void>, process_scope, (
                 jobs->append(job);
             } break;
 
+            case StatementKind::EnumDefinition: {
+                auto enum_definition = (EnumDefinition*)statement;
+
+                AnyJob job;
+                job.kind = JobKind::ResolveEnumDefinition;
+                job.state = JobState::Working;
+                job.resolve_enum_definition.definition = enum_definition;
+                job.resolve_enum_definition.scope = scope;
+
+                jobs->append(job);
+            } break;
+
             case StatementKind::VariableDeclaration: {
                 if(is_top_level) {
                     auto variable_declaration = (VariableDeclaration*)statement;
@@ -3826,4 +4022,82 @@ profiled_function(Result<void>, process_scope, (
     }
 
     return ok();
+}
+
+profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
+    GlobalInfo info,
+    List<AnyJob>* jobs,
+    EnumDefinition* enum_definition,
+    ConstantScope* scope
+), (
+    info,
+    jobs,
+    enum_definition,
+    scope
+)) {
+    Integer backing_type;
+    if(enum_definition->backing_type != nullptr) {
+        expect(type, evaluate_type_expression(
+            info,
+            jobs,
+            scope,
+            enum_definition,
+            enum_definition->backing_type
+        ));
+
+        if(type.kind != TypeKind::Integer) {
+            error(
+                scope,
+                enum_definition->backing_type->range,
+                "Expected an integer type, got '%.*s'",
+                STRING_PRINTF_ARGUMENTS(type.get_description())
+            );
+
+            return err();
+        }
+
+        backing_type = type.integer;
+    } else {
+        backing_type.is_signed = true;
+        backing_type.size = info.architecture_sizes.default_integer_size;
+    }
+
+    ConstantScope member_scope;
+    member_scope.statements = {};
+    member_scope.declarations = {};
+    member_scope.scope_constants = {};
+    member_scope.is_top_level = false;
+    member_scope.parent = scope;
+
+    auto variant_count = enum_definition->variants.length;
+
+    auto variant_values = allocate<uint64_t>(variant_count);
+
+    for(size_t i = 0; i < variant_count; i += 1) {
+        expect_delayed(variant_value, evaluate_constant_expression(
+            info,
+            jobs,
+            &member_scope,
+            nullptr,
+            enum_definition->variants[i].value
+        ));
+
+        expect(coerced_variant_value, coerce_constant_to_integer_type(
+            &member_scope,
+            enum_definition->variants[i].value->range,
+            variant_value.type,
+            variant_value.value,
+            backing_type,
+            false
+        ));
+
+        variant_values[i] = coerced_variant_value;
+    }
+
+    return ok(Enum(
+        scope->file_path,
+        enum_definition,
+        heapify(backing_type),
+        Array(variant_count, variant_values)
+    ));
 }

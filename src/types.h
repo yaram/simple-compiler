@@ -161,7 +161,7 @@ struct Enum {
         String definition_file_path,
         EnumDefinition* definition,
         Integer* backing_type,
-        Array<int64_t> variant_values
+        Array<uint64_t> variant_values
     ) :
         definition_file_path(definition_file_path),
         definition(definition),
@@ -174,7 +174,7 @@ struct Enum {
 
     Integer* backing_type;
 
-    Array<int64_t> variant_values;
+    Array<uint64_t> variant_values;
 };
 
 enum struct TypeKind {

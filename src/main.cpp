@@ -760,6 +760,37 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         total_generator_time += end_time - start_time;
                     } break;
 
+                    case JobKind::ResolveEnumDefinition: {
+                        auto resolve_enum_definition = job->resolve_enum_definition;
+
+                        auto start_time = get_timer_counts();
+
+                        auto result = do_resolve_enum_definition(
+                            info,
+                            &jobs,
+                            resolve_enum_definition.definition,
+                            resolve_enum_definition.scope
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_enum_definition.type = result.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                        }
+
+                        auto end_time = get_timer_counts();
+
+                        total_generator_time += end_time - start_time;
+                    } break;
+
                     case JobKind::GenerateFunction: {
                         auto generate_function = job->generate_function;
 
