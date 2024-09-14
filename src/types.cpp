@@ -129,7 +129,7 @@ bool AnyType::operator==(AnyType other) {
         auto a_enum = enum_;
         auto b_enum = other.enum_;
 
-        return a_enum.definition != b_enum.definition;
+        return a_enum.definition == b_enum.definition;
     } else if(kind == TypeKind::FileModule) {
         return true;
     } else {
