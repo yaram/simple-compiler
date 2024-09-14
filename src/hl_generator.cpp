@@ -4132,7 +4132,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     abort();
                 }
 
-                auto ir_type = get_runtime_ir_type(info.architecture_sizes, expression_value.type);
+                auto pointed_to_ir_type = get_pointable_ir_type(info.architecture_sizes, expression_value.type);
+                auto ir_type = IRType::create_pointer(heapify(pointed_to_ir_type));
 
                 return ok(TypedRuntimeValue(
                     AnyType(Pointer(heapify(expression_value.type))),
