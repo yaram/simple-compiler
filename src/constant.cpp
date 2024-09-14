@@ -537,6 +537,10 @@ Result<AnyType> determine_binary_operation_type(ConstantScope* scope, FileRange 
         return ok(right);
     } else if(left.kind == TypeKind::UndeterminedInteger || right.kind == TypeKind::UndeterminedInteger) {
         return ok(left);
+    } else if(left.kind == TypeKind::Enum) {
+        return ok(left);
+    } else if(right.kind == TypeKind::Enum) {
+        return ok(right);
     } else {
         error(scope, range, "Mismatched types '%.*s' and '%.*s'", STRING_PRINTF_ARGUMENTS(left.get_description()), STRING_PRINTF_ARGUMENTS(right.get_description()));
 
