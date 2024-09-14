@@ -590,6 +590,53 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
 
         indent(indentation_level);
         printf("}");
+    } else if(statement->kind == StatementKind::UnionDefinition) {
+        auto union_definition = (UnionDefinition*)statement;
+
+        printf("UniontDefinition: {\n");
+
+        indent(indentation_level + 1);
+        printf("name: ");
+        print_identifier(union_definition->name);
+        printf("\n");
+
+        if(union_definition->parameters.length != 0) {
+            indent(indentation_level + 1);
+            printf("parameters: {\n");
+
+            for(auto parameter : union_definition->parameters) {
+                indent(indentation_level + 2);
+                print_identifier(parameter.name);
+                printf(": ");
+                print_expression_internal(parameter.type, indentation_level + 2);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
+            printf("}\n");
+        }
+
+        indent(indentation_level + 1);
+        printf("members: {");
+
+        if(union_definition->members.length != 0) {
+            printf("\n");
+
+            for(auto member : union_definition->members) {
+                indent(indentation_level + 2);
+                print_identifier(member.name);
+                printf(": ");
+                print_expression_internal(member.type, indentation_level + 2);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
+        }
+
+        printf("}\n");
+
+        indent(indentation_level);
+        printf("}");
     } else if(statement->kind == StatementKind::ExpressionStatement) {
         auto expression_statement = (ExpressionStatement*)statement;
 

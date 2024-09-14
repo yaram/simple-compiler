@@ -61,6 +61,21 @@ struct ResolvePolymorphicStruct {
     AnyType type;
 };
 
+struct ResolveUnionDefinition {
+    UnionDefinition* definition;
+    ConstantScope* scope;
+
+    AnyType type;
+};
+
+struct ResolvePolymorphicUnion {
+    UnionDefinition* definition;
+    AnyConstantValue* parameters;
+    ConstantScope* scope;
+
+    AnyType type;
+};
+
 struct GenerateFunction {
     FunctionTypeType type;
     FunctionConstant value;
@@ -84,6 +99,8 @@ enum struct JobKind {
     ResolveConstantDefinition,
     ResolveStructDefinition,
     ResolvePolymorphicStruct,
+    ResolveUnionDefinition,
+    ResolvePolymorphicUnion,
     GenerateFunction,
     GeneratePolymorphicFunction,
     GenerateStaticVariable
@@ -110,6 +127,8 @@ struct AnyJob {
         ResolveConstantDefinition resolve_constant_definition;
         ResolveStructDefinition resolve_struct_definition;
         ResolvePolymorphicStruct resolve_polymorphic_struct;
+        ResolveUnionDefinition resolve_union_definition;
+        ResolvePolymorphicUnion resolve_polymorphic_union;
         GenerateFunction generate_function;
         GenerateStaticVariable generate_static_variable;
     };

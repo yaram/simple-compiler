@@ -277,10 +277,8 @@ static LLVMMetadataRef get_llvm_debug_type(
     } else if(type.kind == TypeKind::StructType) {
         auto struct_ = type.struct_;
 
-        auto array = type.array;
-
-        auto size = type.get_size(architecture_sizes);
-        auto alignment = type.get_alignment(architecture_sizes);
+        auto size = struct_.get_size(architecture_sizes);
+        auto alignment = struct_.get_alignment(architecture_sizes);
 
         auto elements = allocate<LLVMMetadataRef>(struct_.members.length);
 
@@ -326,6 +324,56 @@ static LLVMMetadataRef get_llvm_debug_type(
             struct_.members.length,
             0,
             nullptr,
+            nullptr,
+            0
+        );
+    } else if(type.kind == TypeKind::UnionType) {
+        auto union_ = type.union_;
+
+        auto size = union_.get_size(architecture_sizes);
+        auto alignment = union_.get_alignment(architecture_sizes);
+
+        auto elements = allocate<LLVMMetadataRef>(union_.members.length);
+
+        for(size_t i = 0; i < union_.members.length; i += 1) {
+            auto member_debug_type = get_llvm_debug_type(
+                debug_builder,
+                file_scope,
+                architecture_sizes,
+                union_.members[i].type
+            );
+
+            auto member_size = union_.members[i].type.get_size(architecture_sizes);
+            auto member_alignment = union_.members[i].type.get_alignment(architecture_sizes);
+
+            elements[i] = LLVMDIBuilderCreateMemberType(
+                debug_builder,
+                file_scope,
+                union_.members[i].name.elements,
+                union_.members[i].name.length,
+                file_scope,
+                0,
+                member_size * 8,
+                member_alignment * 8,
+                0,
+                LLVMDIFlagZero,
+                member_debug_type
+            );
+        }
+
+        return LLVMDIBuilderCreateUnionType(
+            debug_builder,
+            file_scope,
+            union_.definition->name.text.elements,
+            union_.definition->name.text.length,
+            file_scope,
+            0,
+            size * 8,
+            alignment * 8,
+            LLVMDIFlagZero,
+            elements,
+            union_.members.length,
+            0,
             nullptr,
             0
         );

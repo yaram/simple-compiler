@@ -1,4 +1,4 @@
-Test :: struct union {
+Test :: union {
     a: i32,
     b: i64
 }

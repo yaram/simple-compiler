@@ -697,6 +697,69 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         total_generator_time += end_time - start_time;
                     } break;
 
+                    case JobKind::ResolveUnionDefinition: {
+                        auto resolve_union_definition = job->resolve_union_definition;
+
+                        auto start_time = get_timer_counts();
+
+                        auto result = do_resolve_union_definition(
+                            info,
+                            &jobs,
+                            resolve_union_definition.definition,
+                            resolve_union_definition.scope
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_union_definition.type = result.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                        }
+
+                        auto end_time = get_timer_counts();
+
+                        total_generator_time += end_time - start_time;
+                    } break;
+
+                    case JobKind::ResolvePolymorphicUnion: {
+                        auto resolve_polymorphic_union = job->resolve_polymorphic_union;
+
+                        auto start_time = get_timer_counts();
+
+                        auto result = do_resolve_polymorphic_union(
+                            info,
+                            &jobs,
+                            resolve_polymorphic_union.definition,
+                            resolve_polymorphic_union.parameters,
+                            resolve_polymorphic_union.scope
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_polymorphic_union.type = result.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                        }
+
+                        auto end_time = get_timer_counts();
+
+                        total_generator_time += end_time - start_time;
+                    } break;
+
                     case JobKind::GenerateFunction: {
                         auto generate_function = job->generate_function;
 
@@ -974,6 +1037,20 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
                         scope = resolve_polymorphic_struct.scope;
                         range = resolve_polymorphic_struct.definition->range;
+                    } break;
+
+                    case JobKind::ResolveUnionDefinition: {
+                        auto resolve_union_definition = job.resolve_union_definition;
+
+                        scope = resolve_union_definition.scope;
+                        range = resolve_union_definition.definition->range;
+                    } break;
+
+                    case JobKind::ResolvePolymorphicUnion: {
+                        auto resolve_polymorphic_union = job.resolve_polymorphic_union;
+
+                        scope = resolve_polymorphic_union.scope;
+                        range = resolve_polymorphic_union.definition->range;
                     } break;
 
                     case JobKind::GenerateFunction: {

@@ -313,6 +313,7 @@ enum struct StatementKind {
     FunctionDeclaration,
     ConstantDefinition,
     StructDefinition,
+    UnionDefinition,
     ExpressionStatement,
     VariableDeclaration,
     Assignment,
@@ -411,8 +412,6 @@ struct StructDefinition : Statement {
 
     Identifier name;
 
-    bool is_union;
-
     Array<Parameter> parameters;
 
     Array<Member> members;
@@ -420,13 +419,43 @@ struct StructDefinition : Statement {
     explicit inline StructDefinition(
         FileRange range,
         Identifier name,
-        bool is_union,
         Array<Parameter> parameters,
         Array<Member> members
     ) :
         Statement { StatementKind::StructDefinition, range },
         name { name },
-        is_union { is_union },
+        parameters { parameters },
+        members { members }
+    {}
+};
+
+struct UnionDefinition : Statement {
+    struct Parameter {
+        Identifier name;
+
+        Expression* type;
+    };
+
+    struct Member {
+        Identifier name;
+
+        Expression* type;
+    };
+
+    Identifier name;
+
+    Array<Parameter> parameters;
+
+    Array<Member> members;
+
+    explicit inline UnionDefinition(
+        FileRange range,
+        Identifier name,
+        Array<Parameter> parameters,
+        Array<Member> members
+    ) :
+        Statement { StatementKind::UnionDefinition, range },
+        name { name },
         parameters { parameters },
         members { members }
     {}

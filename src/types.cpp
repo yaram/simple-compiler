@@ -80,6 +80,33 @@ bool AnyType::operator==(AnyType other) {
         auto b_polymorphic_struct = other.polymorphic_struct;
 
         return a_polymorphic_struct.definition != b_polymorphic_struct.definition;
+    } else if(kind == TypeKind::UnionType) {
+        auto a_union = union_;
+        auto b_union = other.union_;
+
+        if(a_union.definition != b_union.definition) {
+            return false;
+        }
+
+        if(a_union.members.length != b_union.members.length) {
+            return false;
+        }
+
+        for(size_t i = 0; i < a_union.members.length; i += 1) {
+            if(
+                a_union.members[i].name != b_union.members[i].name ||
+                a_union.members[i].type !=  b_union.members[i].type
+            ) {
+                return false;
+            }
+        }
+
+        return true;
+    } else if(kind == TypeKind::PolymorphicUnion) {
+        auto a_polymorphic_union = polymorphic_union;
+        auto b_polymorphic_union = other.polymorphic_union;
+
+        return a_polymorphic_union.definition != b_polymorphic_union.definition;
     } else if(kind == TypeKind::UndeterminedStruct) {
         auto a_undetermined_struct = undetermined_struct;
         auto b_undetermined_struct = other.undetermined_struct;
@@ -248,6 +275,10 @@ String AnyType::get_description() {
         return struct_.definition->name.text;
     } else if(kind == TypeKind::PolymorphicStruct) {
         return polymorphic_struct.definition->name.text;
+    } else if(kind == TypeKind::UnionType) {
+        return union_.definition->name.text;
+    } else if(kind == TypeKind::PolymorphicUnion) {
+        return polymorphic_union.definition->name.text;
     } else if(kind == TypeKind::UndeterminedStruct) {
         return "{struct}"_S;
     } else if(kind == TypeKind::FileModule) {
@@ -265,7 +296,8 @@ bool AnyType::is_runtime_type() {
         kind == TypeKind::Pointer ||
         kind == TypeKind::ArrayTypeType ||
         kind == TypeKind::StaticArray ||
-        kind == TypeKind::StructType
+        kind == TypeKind::StructType ||
+        kind == TypeKind::UnionType
     ) {
         return true;
     } else {
@@ -283,7 +315,8 @@ bool AnyType::is_pointable_type() {
         kind == TypeKind::Pointer ||
         kind == TypeKind::ArrayTypeType ||
         kind == TypeKind::StaticArray ||
-        kind == TypeKind::StructType
+        kind == TypeKind::StructType ||
+        kind == TypeKind::UnionType
     ) {
         return true;
     } else {
@@ -306,13 +339,15 @@ uint64_t AnyType::get_alignment(ArchitectureSizes architecture_sizes) {
         return static_array.element_type->get_alignment(architecture_sizes);
     } else if(kind == TypeKind::StructType) {
         return struct_.get_alignment(architecture_sizes);
+    } else if(kind == TypeKind::UnionType) {
+        return union_.get_alignment(architecture_sizes);
     } else {
         abort();
     }
 }
 
 uint64_t AnyType::get_size(ArchitectureSizes architecture_sizes) {
-    if(kind == TypeKind::Integer) {\
+    if(kind == TypeKind::Integer) {
         return register_size_to_byte_size(integer.size);
     } else if(kind == TypeKind::Boolean) {
         return register_size_to_byte_size(architecture_sizes.boolean_size);
@@ -326,6 +361,8 @@ uint64_t AnyType::get_size(ArchitectureSizes architecture_sizes) {
         return static_array.length * static_array.element_type->get_alignment(architecture_sizes);
     } else if(kind == TypeKind::StructType) {
         return struct_.get_size(architecture_sizes);
+    } else if(kind == TypeKind::UnionType) {
+        return union_.get_size(architecture_sizes);
     } else {
         abort();
     }
@@ -349,38 +386,26 @@ uint64_t StructType::get_size(ArchitectureSizes architecture_sizes) {
     uint64_t current_size = 0;
 
     for(auto member : members) {
-        if(definition->is_union) {
-            auto member_size = member.type.get_size(architecture_sizes);
+        auto member_alignment = member.type.get_alignment(architecture_sizes);
 
-            if(member_size > current_size) {
-                current_size = member_size;
-            }
+        auto alignment_difference = current_size % member_alignment;
+
+        uint64_t offset;
+        if(alignment_difference != 0) {
+            offset = member_alignment - alignment_difference;
         } else {
-            auto member_alignment = member.type.get_alignment(architecture_sizes);
+            offset = 0;
+        }
 
-            auto alignment_difference = current_size % member_alignment;
+        auto member_size = member.type.get_size(architecture_sizes);
 
-            uint64_t offset;
-            if(alignment_difference != 0) {
-                offset = member_alignment - alignment_difference;
-            } else {
-                offset = 0;
-            }
-
-            auto member_size = member.type.get_size(architecture_sizes);
-
-            current_size += offset + member_size;
-        }        
+        current_size += offset + member_size;     
     }
 
     return current_size;
 }
 
 uint64_t StructType::get_member_offset(ArchitectureSizes architecture_sizes, size_t member_index) {
-    if(definition->is_union) {
-        return 0;
-    }
-
     uint64_t current_offset = 0;
 
     for(auto i = 0; i < member_index; i += 1) {
@@ -412,4 +437,32 @@ uint64_t StructType::get_member_offset(ArchitectureSizes architecture_sizes, siz
     }
 
     return current_offset + offset;
+}
+
+uint64_t UnionType::get_alignment(ArchitectureSizes architecture_sizes) {
+    size_t current_alignment = 1;
+
+    for(auto member : members) {
+        auto member_alignment = member.type.get_alignment(architecture_sizes);
+
+        if(member_alignment > current_alignment) {
+            current_alignment = member_alignment;
+        }
+    }
+
+    return current_alignment;
+}
+
+uint64_t UnionType::get_size(ArchitectureSizes architecture_sizes) {
+    uint64_t current_size = 0;
+
+    for(auto member : members) {
+        auto member_size = member.type.get_size(architecture_sizes);
+
+        if(member_size > current_size) {
+            current_size = member_size;
+        }    
+    }
+
+    return current_size;
 }

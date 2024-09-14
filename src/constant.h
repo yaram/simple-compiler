@@ -480,4 +480,19 @@ DelayedResult<AnyType> do_resolve_polymorphic_struct(
     ConstantScope* scope
 );
 
+DelayedResult<AnyType> do_resolve_union_definition(
+    GlobalInfo info,
+    List<AnyJob>* jobs,
+    UnionDefinition* union_definition,
+    ConstantScope* scope
+);
+
+DelayedResult<AnyType> do_resolve_polymorphic_union(
+    GlobalInfo info,
+    List<AnyJob>* jobs,
+    UnionDefinition* union_definition,
+    AnyConstantValue* parameters,
+    ConstantScope* scope
+);
+
 Result<void> process_scope(List<AnyJob>* jobs, ConstantScope* scope, Array<Statement*> statements, List<ConstantScope*>* child_scopes, bool is_top_level);

@@ -1332,6 +1332,8 @@ bool is_declaration_public(Statement* declaration) {
         return true;
     } else if(declaration->kind == StatementKind::StructDefinition) {
         return true;
+    } else if(declaration->kind == StatementKind::UnionDefinition) {
+        return true;
     } else {
         return false;
     }
@@ -1350,6 +1352,10 @@ bool does_or_could_have_public_declaration(Statement* statement, String name) {
         auto struct_definition = (StructDefinition*)statement;
 
         return name == struct_definition->name.text;
+    } else if(statement->kind == StatementKind::UnionDefinition) {
+        auto union_definition = (UnionDefinition*)statement;
+
+        return name == union_definition->name.text;
     } else if(statement->kind == StatementKind::Import) {
         auto import = (Import*)statement;
 
@@ -1382,6 +1388,10 @@ bool does_or_could_have_declaration(Statement* statement, String name) {
         auto struct_definition = (StructDefinition*)statement;
 
         return name == struct_definition->name.text;
+    } else if(statement->kind == StatementKind::UnionDefinition) {
+        auto union_definition = (UnionDefinition*)statement;
+
+        return name == union_definition->name.text;
     } else if(statement->kind == StatementKind::Import) {
         auto import = (Import*)statement;
 
@@ -1488,6 +1498,31 @@ DelayedResult<TypedConstantValue> get_simple_resolved_declaration(
                             return ok(TypedConstantValue(
                                 AnyType::create_type_type(),
                                 AnyConstantValue(resolve_struct_definition.type)
+                            ));
+                        } else {
+                            return wait(i);
+                        }
+                    }
+                }
+            }
+
+            abort();
+        } break;
+
+        case StatementKind::UnionDefinition: {
+            auto union_definition = (UnionDefinition*)declaration;
+
+            for(size_t i = 0; i < jobs->length; i += 1) {
+                auto job = (*jobs)[i];
+
+                if(job.kind == JobKind::ResolveUnionDefinition) {
+                    auto resolve_union_definition = job.resolve_union_definition;
+
+                    if(resolve_union_definition.definition == union_definition) {
+                        if(job.state == JobState::Done) {
+                            return ok(TypedConstantValue(
+                                AnyType::create_type_type(),
+                                AnyConstantValue(resolve_union_definition.type)
                             ));
                         } else {
                             return wait(i);
@@ -1618,6 +1653,10 @@ static Result<String> get_declaration_name(Statement* declaration) {
         auto struct_definition = (StructDefinition*)declaration;
 
         return ok(struct_definition->name.text);
+    } else if(declaration->kind == StatementKind::UnionDefinition) {
+        auto union_definition = (UnionDefinition*)declaration;
+
+        return ok(union_definition->name.text);
     } else if(declaration->kind == StatementKind::Import) {
         auto import = (Import*)declaration;
 
@@ -2328,6 +2367,76 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 job.resolve_polymorphic_struct.definition = definition;
                 job.resolve_polymorphic_struct.parameters = parameters;
                 job.resolve_polymorphic_struct.scope = polymorphic_struct.parent;
+
+                auto job_index = jobs->append(job);
+
+                return wait(job_index);
+            } else if(type.kind == TypeKind::PolymorphicUnion) {
+                auto polymorphic_union = type.polymorphic_union;
+
+                auto definition = polymorphic_union.definition;
+
+                auto parameter_count = definition->parameters.length;
+
+                if(function_call->parameters.length != parameter_count) {
+                    error(scope, function_call->range, "Incorrect union parameter count: expected %zu, got %zu", parameter_count, function_call->parameters.length);
+
+                    return err();
+                }
+
+                auto parameters = allocate<AnyConstantValue>(parameter_count);
+
+                for(size_t i = 0; i < parameter_count; i += 1) {
+                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[i]));
+
+                    expect(parameter_value, coerce_constant_to_type(
+                        info,
+                        scope,
+                        function_call->parameters[i]->range,
+                        parameter.type,
+                        parameter.value,
+                        polymorphic_union.parameter_types[i],
+                        false
+                    ));
+
+                    parameters[i] = parameter_value;
+                }
+
+                for(size_t i = 0; i < jobs->length; i += 1) {
+                    auto job = (*jobs)[i];
+
+                    if(job.kind == JobKind::ResolvePolymorphicUnion) {
+                        auto resolve_polymorphic_union = job.resolve_polymorphic_union;
+
+                        if(resolve_polymorphic_union.definition == definition) {
+                            auto same_parameters = true;
+                            for(size_t i = 0; i < parameter_count; i += 1) {
+                                if(!constant_values_equal(parameters[i], resolve_polymorphic_union.parameters[i])) {
+                                    same_parameters = false;
+                                    break;
+                                }
+                            }
+
+                            if(same_parameters) {
+                                if(job.state == JobState::Done) {
+                                    return ok(TypedConstantValue(
+                                        AnyType::create_type_type(),
+                                        AnyConstantValue(resolve_polymorphic_union.type)
+                                    ));
+                                } else {
+                                    return wait(i);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                AnyJob job;
+                job.kind = JobKind::ResolvePolymorphicUnion;
+                job.state = JobState::Working;
+                job.resolve_polymorphic_union.definition = definition;
+                job.resolve_polymorphic_union.parameters = parameters;
+                job.resolve_polymorphic_union.scope = polymorphic_union.parent;
 
                 auto job_index = jobs->append(job);
 
@@ -3346,6 +3455,143 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
     )));
 }
 
+profiled_function(DelayedResult<AnyType>, do_resolve_union_definition, (
+    GlobalInfo info,
+    List<AnyJob>* jobs,
+    UnionDefinition* union_definition,
+    ConstantScope* scope
+), (
+    info,
+    jobs,
+    union_definition,
+    scope
+)) {
+    auto parameter_count = union_definition->parameters.length;
+
+    if(union_definition->parameters.length > 0) {
+        auto parameter_types = allocate<AnyType>(parameter_count);
+
+        for(size_t i = 0; i < parameter_count; i += 1) {
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, union_definition->parameters[i].type));
+
+            parameter_types[i] = type;
+        }
+
+        return ok(AnyType(PolymorphicUnion(
+            union_definition,
+            parameter_types,
+            scope
+        )));
+    }
+
+    ConstantScope member_scope;
+    member_scope.statements = {};
+    member_scope.declarations = {};
+    member_scope.scope_constants = {};
+    member_scope.is_top_level = false;
+    member_scope.parent = scope;
+
+    auto member_count = union_definition->members.length;
+
+    auto members = allocate<StructTypeMember>(member_count);
+
+    for(size_t i = 0; i < member_count; i += 1) {
+        expect_delayed(member_type, evaluate_type_expression(
+            info,
+            jobs,
+            &member_scope,
+            nullptr,
+            union_definition->members[i].type
+        ));
+
+        expect(actual_member_type, coerce_to_default_type(info, &member_scope, union_definition->members[i].type->range, member_type));
+
+        if(!actual_member_type.is_runtime_type()) {
+            error(&member_scope, union_definition->members[i].type->range, "Union members cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_member_type.get_description()));
+
+            return err();
+        }
+
+        members[i] = {
+            union_definition->members[i].name.text,
+            actual_member_type
+        };
+    }
+
+    return ok(AnyType(UnionType(
+        union_definition,
+        Array(member_count, members)
+    )));
+}
+
+profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_union, (
+    GlobalInfo info,
+    List<AnyJob>* jobs,
+    UnionDefinition* union_definition,
+    AnyConstantValue* parameters,
+    ConstantScope* scope
+), (
+    info,
+    jobs,
+    union_definition,
+    parameters,
+    scope
+)) {
+    auto parameter_count = union_definition->parameters.length;
+    assert(parameter_count > 0);
+
+    auto constant_parameters = allocate<ScopeConstant>(parameter_count);
+
+    for(size_t i = 0; i < parameter_count; i += 1) {
+        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, scope, nullptr, union_definition->parameters[i].type));
+
+        constant_parameters[i] = {
+            union_definition->parameters[i].name.text,
+            parameter_type,
+            parameters[i]
+        };
+    }
+
+    ConstantScope member_scope;
+    member_scope.statements = {};
+    member_scope.declarations = {};
+    member_scope.scope_constants = Array(parameter_count, constant_parameters);
+    member_scope.is_top_level = false;
+    member_scope.parent = scope;
+
+    auto member_count = union_definition->members.length;
+
+    auto members = allocate<StructTypeMember>(member_count);
+
+    for(size_t i = 0; i < member_count; i += 1) {
+        expect_delayed(member_type, evaluate_type_expression(
+            info,
+            jobs,
+            &member_scope,
+            nullptr,
+            union_definition->members[i].type
+        ));
+
+        expect(actual_member_type, coerce_to_default_type(info, &member_scope, union_definition->members[i].type->range, member_type));
+
+        if(!actual_member_type.is_runtime_type()) {
+            error(&member_scope, union_definition->members[i].type->range, "Union members cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_member_type.get_description()));
+
+            return err();
+        }
+
+        members[i] = {
+            union_definition->members[i].name.text,
+            actual_member_type
+        };
+    }
+
+    return ok(AnyType(UnionType(
+        union_definition,
+        Array(member_count, members)
+    )));
+}
+
 profiled_function(Result<void>, process_scope, (
     List<AnyJob>* jobs,
     ConstantScope* scope,
@@ -3403,6 +3649,18 @@ profiled_function(Result<void>, process_scope, (
                 job.state = JobState::Working;
                 job.resolve_struct_definition.definition = struct_definition;
                 job.resolve_struct_definition.scope = scope;
+
+                jobs->append(job);
+            } break;
+
+            case StatementKind::UnionDefinition: {
+                auto union_definition = (UnionDefinition*)statement;
+
+                AnyJob job;
+                job.kind = JobKind::ResolveUnionDefinition;
+                job.state = JobState::Working;
+                job.resolve_union_definition.definition = union_definition;
+                job.resolve_union_definition.scope = scope;
 
                 jobs->append(job);
             } break;

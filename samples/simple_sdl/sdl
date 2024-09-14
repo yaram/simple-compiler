@@ -39,7 +39,7 @@ SDL_Event :: struct {
     body: SDL_EventBody
 }
 
-SDL_EventBody :: struct union {
+SDL_EventBody :: union {
     display: SDL_DisplayEvent,
     window: SDL_WindowEvent,
     key: SDL_KeyboardEvent,

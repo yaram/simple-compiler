@@ -2056,15 +2056,6 @@ namespace {
                                             consume_token();
 
                                             if(token.identifier == "struct"_S) {
-                                                expect(maybe_union_token, peek_token());
-
-                                                auto is_union = false;
-                                                if(maybe_union_token.kind == TokenKind::Identifier && maybe_union_token.identifier == "union"_S) {
-                                                    consume_token();
-
-                                                    is_union = true;
-                                                }
-
                                                 expect(maybe_parameter_token, peek_token());
 
                                                 List<StructDefinition::Parameter> parameters {};
@@ -2173,7 +2164,118 @@ namespace {
                                                 return ok((Statement*)new StructDefinition(
                                                     span_range(first_range, token_range(token)),
                                                     identifier,
-                                                    is_union,
+                                                    parameters,
+                                                    members
+                                                ));
+                                            } else if(token.identifier == "union"_S) {
+                                                expect(maybe_parameter_token, peek_token());
+
+                                                List<UnionDefinition::Parameter> parameters {};
+
+                                                if(maybe_parameter_token.kind == TokenKind::OpenRoundBracket) {
+                                                    consume_token();
+
+                                                    expect(token, peek_token());
+
+                                                    if(token.kind == TokenKind::CloseRoundBracket) {
+                                                        consume_token();
+                                                    } else {
+                                                        while(true) {
+                                                            expect(name, expect_identifier());
+
+                                                            expect_void(expect_basic_token(TokenKind::Colon));
+
+                                                            expect(type, parse_expression(OperatorPrecedence::None));
+
+                                                            UnionDefinition::Parameter parameter {};
+                                                            parameter.name = name;
+                                                            parameter.type = type;
+
+                                                            parameters.append(parameter);
+
+                                                            expect(token, peek_token());
+
+                                                            auto done = false;
+                                                            switch(token.kind) {
+                                                                case TokenKind::Comma: {
+                                                                    consume_token();
+                                                                } break;
+
+                                                                case TokenKind::CloseRoundBracket: {
+                                                                    consume_token();
+
+                                                                    done = true;
+                                                                } break;
+
+                                                                default: {
+                                                                    error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                                } break;
+                                                            }
+
+                                                            if(done) {
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
+
+                                                List<UnionDefinition::Member> members {};
+
+                                                expect(token, peek_token());
+
+                                                FileRange last_range;
+                                                if(token.kind == TokenKind::CloseCurlyBracket) {
+                                                    consume_token();
+
+                                                    last_range = token_range(token);
+                                                } else {
+                                                    while(true) {
+                                                        expect(identifier, expect_identifier());
+
+                                                        expect_void(expect_basic_token(TokenKind::Colon));
+
+                                                        expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                                        UnionDefinition::Member member {};
+                                                        member.name = identifier;
+                                                        member.type = expression;
+
+                                                        members.append(member);
+
+                                                        expect(token, peek_token());
+
+                                                        auto done = false;
+                                                        switch(token.kind) {
+                                                            case TokenKind::Comma: {
+                                                                consume_token();
+                                                            } break;
+
+                                                            case TokenKind::CloseCurlyBracket: {
+                                                                consume_token();
+
+                                                                done = true;
+                                                            } break;
+
+                                                            default: {
+                                                                error("Expected ',' or '}', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+
+                                                                return err();
+                                                            } break;
+                                                        }
+
+                                                        if(done) {
+                                                            last_range = token_range(token);
+
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+
+                                                return ok((Statement*)new UnionDefinition(
+                                                    span_range(first_range, token_range(token)),
+                                                    identifier,
                                                     parameters,
                                                     members
                                                 ));

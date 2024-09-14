@@ -87,6 +87,31 @@ struct PolymorphicStruct {
     ConstantScope* parent;
 };
 
+struct UnionType {
+    inline UnionType() = default;
+    explicit inline UnionType(UnionDefinition* definition, Array<StructTypeMember> members) : definition(definition), members(members) {}
+
+    UnionDefinition* definition;
+
+    Array<StructTypeMember> members;
+
+    uint64_t get_alignment(ArchitectureSizes architecture_sizes);
+    uint64_t get_size(ArchitectureSizes architecture_sizes);
+};
+
+struct PolymorphicUnion {
+    inline PolymorphicUnion() = default;
+    explicit inline PolymorphicUnion(UnionDefinition* definition, AnyType* parameter_types, ConstantScope* parent) :
+        definition(definition), parameter_types(parameter_types), parent(parent)
+    {}
+
+    UnionDefinition* definition;
+
+    AnyType* parameter_types;
+
+    ConstantScope* parent;
+};
+
 struct UndeterminedStruct {
     inline UndeterminedStruct() = default;
     explicit inline UndeterminedStruct(Array<StructTypeMember> members) : members(members) {}
@@ -110,6 +135,8 @@ enum struct TypeKind {
     StaticArray,
     StructType,
     PolymorphicStruct,
+    UnionType,
+    PolymorphicUnion,
     UndeterminedStruct,
     FileModule
 };
@@ -126,6 +153,8 @@ struct AnyType {
         StaticArray static_array;
         StructType struct_;
         PolymorphicStruct polymorphic_struct;
+        UnionType union_;
+        PolymorphicUnion polymorphic_union;
         UndeterminedStruct undetermined_struct;
     };
 
@@ -138,6 +167,8 @@ struct AnyType {
     explicit inline AnyType(StaticArray static_array) : kind(TypeKind::StaticArray), static_array(static_array) {}
     explicit inline AnyType(StructType struct_) : kind(TypeKind::StructType), struct_(struct_) {}
     explicit inline AnyType(PolymorphicStruct polymorphic_struct) : kind(TypeKind::PolymorphicStruct), polymorphic_struct(polymorphic_struct) {}
+    explicit inline AnyType(UnionType union_) : kind(TypeKind::UnionType), union_(union_) {}
+    explicit inline AnyType(PolymorphicUnion polymorphic_union) : kind(TypeKind::PolymorphicUnion), polymorphic_union(polymorphic_union) {}
     explicit inline AnyType(UndeterminedStruct undetermined_struct) : kind(TypeKind::UndeterminedStruct), undetermined_struct(undetermined_struct) {}
 
     static inline AnyType create_polymorphic_function() {

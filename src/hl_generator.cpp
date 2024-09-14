@@ -769,17 +769,17 @@ inline IRType get_static_array_ir_type(ArchitectureSizes architecture_sizes, Sta
 }
 
 inline IRType get_struct_ir_type(ArchitectureSizes architecture_sizes, StructType struct_) {
-    if(struct_.definition->is_union) {
-        return IRType::create_static_array(struct_.get_size(architecture_sizes), heapify(IRType::create_integer(RegisterSize::Size8)));
-    } else {
-        auto members = allocate<IRType>(struct_.members.length);
+    auto members = allocate<IRType>(struct_.members.length);
 
-        for(size_t i = 0; i < struct_.members.length; i += 1) {
-            members[i] = get_runtime_ir_type(architecture_sizes, struct_.members[i].type);
-        }
-
-        return IRType::create_struct(Array(struct_.members.length, members));
+    for(size_t i = 0; i < struct_.members.length; i += 1) {
+        members[i] = get_runtime_ir_type(architecture_sizes, struct_.members[i].type);
     }
+
+    return IRType::create_struct(Array(struct_.members.length, members));
+}
+
+inline IRType get_union_ir_type(ArchitectureSizes architecture_sizes, UnionType union_) {
+    return IRType::create_static_array(union_.get_size(architecture_sizes), heapify(IRType::create_integer(RegisterSize::Size8)));
 }
 
 static IRType get_runtime_ir_type(ArchitectureSizes architecture_sizes, AnyType type) {
@@ -797,6 +797,8 @@ static IRType get_runtime_ir_type(ArchitectureSizes architecture_sizes, AnyType 
         return get_static_array_ir_type(architecture_sizes, type.static_array);
     } else if(type.kind == TypeKind::StructType) {
         return get_struct_ir_type(architecture_sizes, type.struct_);
+    } else if(type.kind == TypeKind::UnionType) {
+        return get_union_ir_type(architecture_sizes, type.union_);
     } else {
         abort();
     }
@@ -1388,95 +1390,193 @@ static Result<RegisterValue> coerce_to_type_register(
 
                 auto undetermined_struct_value = constant_value.unwrap_struct();
 
-                if(target_struct_type.definition->is_union) {
-                    if(undetermined_struct.members.length == 1) {
-                        for(size_t i = 0; i < target_struct_type.members.length; i += 1) {
-                            if(target_struct_type.members[i].name == undetermined_struct.members[0].name) {
-                                auto pointer_register = append_allocate_local(
-                                    context,
-                                    instructions,
-                                    range,
-                                    ir_type
-                                );
+                if(target_struct_type.members.length == undetermined_struct.members.length) {
+                    auto same_members = true;
+                    for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
+                        if(target_struct_type.members[i].name != undetermined_struct.members[i].name) {
+                            same_members = false;
 
-                                auto result = coerce_to_type_register(
-                                    info,
-                                    scope,
-                                    context,
-                                    instructions,
-                                    range,
-                                    undetermined_struct.members[0].type,
-                                    AnyRuntimeValue(undetermined_struct_value.members[0]),
-                                    target_struct_type.members[i].type,
-                                    true
-                                );
-
-                                if(result.status) {
-                                    auto union_variant_pointer_register = append_pointer_conversion(
-                                        context,
-                                        instructions,
-                                        range,
-                                        result.value.type,
-                                        pointer_register
-                                    );
-
-                                    append_store(context, instructions, range, result.value.register_index, union_variant_pointer_register);
-
-                                    auto register_index = append_load(context, instructions, range, pointer_register);
-
-                                    return ok(RegisterValue(ir_type, register_index));
-                                } else {
-                                    break;
-                                }
-                            }
+                            break;
                         }
                     }
-                } else {
-                    if(target_struct_type.members.length == undetermined_struct.members.length) {
-                        auto same_members = true;
+
+                    if(same_members) {
+                        auto member_registers = allocate<size_t>(undetermined_struct.members.length);
+
+                        auto success = true;
                         for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
-                            if(target_struct_type.members[i].name != undetermined_struct.members[i].name) {
-                                same_members = false;
+                            auto result = coerce_to_type_register(
+                                info,
+                                scope,
+                                context,
+                                instructions,
+                                range,
+                                undetermined_struct.members[i].type,
+                                AnyRuntimeValue(undetermined_struct_value.members[i]),
+                                target_struct_type.members[i].type,
+                                true
+                            );
+
+                            if(!result.status) {
+                                success = false;
 
                                 break;
                             }
+
+                            member_registers[i] = result.value.register_index;
                         }
 
-                        if(same_members) {
-                            auto member_registers = allocate<size_t>(undetermined_struct.members.length);
+                        if(success) {
+                            auto register_index = append_assemble_struct(
+                                context,
+                                instructions,
+                                range,
+                                Array(undetermined_struct.members.length, member_registers)
+                            );
 
-                            auto success = true;
-                            for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
-                                auto result = coerce_to_type_register(
-                                    info,
-                                    scope,
-                                    context,
-                                    instructions,
-                                    range,
-                                    undetermined_struct.members[i].type,
-                                    AnyRuntimeValue(undetermined_struct_value.members[i]),
-                                    target_struct_type.members[i].type,
-                                    true
-                                );
+                            return ok(RegisterValue(ir_type, register_index));
+                        }
+                    }
+                }
+            } else if(value.kind == RuntimeValueKind::UndeterminedStructValue) {
+                auto undetermined_struct_value = value.undetermined_struct;
 
-                                if(!result.status) {
-                                    success = false;
+                if(target_struct_type.members.length == undetermined_struct.members.length) {
+                    auto same_members = true;
+                    for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
+                        if(target_struct_type.members[i].name != undetermined_struct.members[i].name) {
+                            same_members = false;
 
-                                    break;
-                                }
+                            break;
+                        }
+                    }
 
-                                member_registers[i] = result.value.register_index;
+                    if(same_members) {
+                        auto member_registers = allocate<size_t>(undetermined_struct.members.length);
+
+                        auto success = true;
+                        for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
+                            auto result = coerce_to_type_register(
+                                info,
+                                scope,
+                                context,
+                                instructions,
+                                range,
+                                undetermined_struct.members[i].type,
+                                undetermined_struct_value.members[i],
+                                target_struct_type.members[i].type,
+                                true
+                            );
+
+                            if(!result.status) {
+                                success = false;
+
+                                break;
                             }
 
-                            if(success) {
-                                auto register_index = append_assemble_struct(
+                            member_registers[i] = result.value.register_index;
+                        }
+
+                        if(success) {
+                            auto register_index = append_assemble_struct(
+                                context,
+                                instructions,
+                                range,
+                                Array(undetermined_struct.members.length, member_registers)
+                            );
+
+                            return ok(RegisterValue(ir_type, register_index));
+                        }
+                    }
+                }
+            } else {
+                abort();
+            }
+        }
+    } else if(target_type.kind == TypeKind::UnionType) {
+        auto target_union_type = target_type.union_;
+
+        auto ir_type = get_union_ir_type(info.architecture_sizes, target_union_type);
+
+        if(type.kind == TypeKind::UnionType) {
+            auto union_type = type.union_;
+
+            if(target_union_type.definition == union_type.definition && target_union_type.members.length == union_type.members.length) {
+                auto same_members = true;
+                for(size_t i = 0; i < union_type.members.length; i += 1) {
+                    if(
+                        target_union_type.members[i].name != union_type.members[i].name ||
+                        target_union_type.members[i].type != union_type.members[i].type
+                    ) {
+                        same_members = false;
+
+                        break;
+                    }
+                }
+
+                if(same_members) {
+                    size_t register_index;
+                    if(value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = value.register_;
+
+                        register_index = register_value.register_index;
+                    } else if(value.kind == RuntimeValueKind::AddressedValue) {
+                        auto addressed_value = value.addressed;
+
+                        register_index = append_load(context, instructions, range, addressed_value.pointer_register);
+                    } else {
+                        abort();
+                    }
+
+                    return ok(RegisterValue(ir_type, register_index));
+                }
+            }
+        } else if(type.kind == TypeKind::UndeterminedStruct) {
+            auto undetermined_struct = type.undetermined_struct;
+
+            if(value.kind == RuntimeValueKind::ConstantValue) {
+                auto constant_value = value.constant;
+
+                auto undetermined_struct_value = constant_value.unwrap_struct();
+
+                if(undetermined_struct.members.length == 1) {
+                    for(size_t i = 0; i < target_union_type.members.length; i += 1) {
+                        if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
+                            auto pointer_register = append_allocate_local(
+                                context,
+                                instructions,
+                                range,
+                                ir_type
+                            );
+
+                            auto result = coerce_to_type_register(
+                                info,
+                                scope,
+                                context,
+                                instructions,
+                                range,
+                                undetermined_struct.members[0].type,
+                                AnyRuntimeValue(undetermined_struct_value.members[0]),
+                                target_union_type.members[i].type,
+                                true
+                            );
+
+                            if(result.status) {
+                                auto union_variant_pointer_register = append_pointer_conversion(
                                     context,
                                     instructions,
                                     range,
-                                    Array(undetermined_struct.members.length, member_registers)
+                                    result.value.type,
+                                    pointer_register
                                 );
 
+                                append_store(context, instructions, range, result.value.register_index, union_variant_pointer_register);
+
+                                auto register_index = append_load(context, instructions, range, pointer_register);
+
                                 return ok(RegisterValue(ir_type, register_index));
+                            } else {
+                                break;
                             }
                         }
                     }
@@ -1484,95 +1584,44 @@ static Result<RegisterValue> coerce_to_type_register(
             } else if(value.kind == RuntimeValueKind::UndeterminedStructValue) {
                 auto undetermined_struct_value = value.undetermined_struct;
 
-                if(target_struct_type.definition->is_union) {
-                    if(undetermined_struct.members.length == 1) {
-                        for(size_t i = 0; i < target_struct_type.members.length; i += 1) {
-                            if(target_struct_type.members[i].name == undetermined_struct.members[0].name) {
-                                auto pointer_register = append_allocate_local(
+                if(undetermined_struct.members.length == 1) {
+                    for(size_t i = 0; i < target_union_type.members.length; i += 1) {
+                        if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
+                            auto pointer_register = append_allocate_local(
+                                context,
+                                instructions,
+                                range,
+                                ir_type
+                            );
+
+                            auto result = coerce_to_type_register(
+                                info,
+                                scope,
+                                context,
+                                instructions,
+                                range,
+                                undetermined_struct.members[0].type,
+                                undetermined_struct_value.members[0],
+                                target_union_type.members[i].type,
+                                true
+                            );
+
+                            if(result.status) {
+                                auto union_variant_pointer_register = append_pointer_conversion(
                                     context,
                                     instructions,
                                     range,
-                                    ir_type
+                                    result.value.type,
+                                    pointer_register
                                 );
 
-                                auto result = coerce_to_type_register(
-                                    info,
-                                    scope,
-                                    context,
-                                    instructions,
-                                    range,
-                                    undetermined_struct.members[0].type,
-                                    undetermined_struct_value.members[0],
-                                    target_struct_type.members[i].type,
-                                    true
-                                );
+                                append_store(context, instructions, range, result.value.register_index, union_variant_pointer_register);
 
-                                if(result.status) {
-                                    auto union_variant_pointer_register = append_pointer_conversion(
-                                        context,
-                                        instructions,
-                                        range,
-                                        result.value.type,
-                                        pointer_register
-                                    );
-
-                                    append_store(context, instructions, range, result.value.register_index, union_variant_pointer_register);
-
-                                    auto register_index = append_load(context, instructions, range, pointer_register);
-
-                                    return ok(RegisterValue(ir_type, register_index));
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    if(target_struct_type.members.length == undetermined_struct.members.length) {
-                        auto same_members = true;
-                        for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
-                            if(target_struct_type.members[i].name != undetermined_struct.members[i].name) {
-                                same_members = false;
-
-                                break;
-                            }
-                        }
-
-                        if(same_members) {
-                            auto member_registers = allocate<size_t>(undetermined_struct.members.length);
-
-                            auto success = true;
-                            for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
-                                auto result = coerce_to_type_register(
-                                    info,
-                                    scope,
-                                    context,
-                                    instructions,
-                                    range,
-                                    undetermined_struct.members[i].type,
-                                    undetermined_struct_value.members[i],
-                                    target_struct_type.members[i].type,
-                                    true
-                                );
-
-                                if(!result.status) {
-                                    success = false;
-
-                                    break;
-                                }
-
-                                member_registers[i] = result.value.register_index;
-                            }
-
-                            if(success) {
-                                auto register_index = append_assemble_struct(
-                                    context,
-                                    instructions,
-                                    range,
-                                    Array(undetermined_struct.members.length, member_registers)
-                                );
+                                auto register_index = append_load(context, instructions, range, pointer_register);
 
                                 return ok(RegisterValue(ir_type, register_index));
+                            } else {
+                                break;
                             }
                         }
                     }
@@ -2883,8 +2932,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     if(actual_value.kind == RuntimeValueKind::ConstantValue) {
                         auto struct_value = expression_value.value.constant.unwrap_struct();
 
-                        assert(!struct_type.definition->is_union);
-
                         return ok(TypedRuntimeValue(
                             member_type,
                             AnyRuntimeValue(struct_value.members[i])
@@ -2892,48 +2939,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                         auto register_value = actual_value.register_;
 
-                        size_t register_index;
-                        if(!struct_type.definition->is_union) {
-                            register_index = append_read_struct_member(
-                                context,
-                                instructions,
-                                member_reference->range,
-                                i,
-                                register_value.register_index
-                            );
-                        } else {
-                            auto union_ir_type = get_struct_ir_type(info.architecture_sizes, struct_type);
-
-                            auto local_pointer_register = append_allocate_local(
-                                context,
-                                instructions,
-                                member_reference->range,
-                                union_ir_type
-                            );
-
-                            append_store(
-                                context,
-                                instructions,
-                                member_reference->range,
-                                register_value.register_index,
-                                local_pointer_register
-                            );
-
-                            auto pointer_register = append_pointer_conversion(
-                                context,
-                                instructions,
-                                member_reference->range,
-                                member_ir_type,
-                                local_pointer_register
-                            );
-
-                            register_index = append_load(
-                                context,
-                                instructions,
-                                member_reference->range,
-                                pointer_register
-                            );
-                        }
+                        auto register_index = append_read_struct_member(
+                            context,
+                            instructions,
+                            member_reference->range,
+                            i,
+                            register_value.register_index
+                        );
 
                         return ok(TypedRuntimeValue(
                             member_type,
@@ -2942,24 +2954,84 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     } else if(actual_value.kind == RuntimeValueKind::AddressedValue) {
                         auto addressed_value = actual_value.addressed;
 
-                        size_t pointer_register;
-                        if(!struct_type.definition->is_union) {
-                            pointer_register = append_struct_member_pointer(
-                                context,
-                                instructions,
-                                member_reference->range,
-                                i,
-                                addressed_value.pointer_register
-                            );
-                        } else {
-                            pointer_register = append_pointer_conversion(
-                                context,
-                                instructions,
-                                member_reference->range,
-                                member_ir_type,
-                                addressed_value.pointer_register
-                            );
-                        }
+                        auto pointer_register = append_struct_member_pointer(
+                            context,
+                            instructions,
+                            member_reference->range,
+                            i,
+                            addressed_value.pointer_register
+                        );
+
+                        return ok(TypedRuntimeValue(
+                            member_type,
+                            AnyRuntimeValue(AddressedValue(member_ir_type, pointer_register))
+                        ));
+                    } else {
+                        abort();
+                    }
+                }
+            }
+
+            error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
+
+            return err();
+        } else if(actual_type.kind == TypeKind::UnionType) {
+            auto union_type = actual_type.union_;
+
+            for(size_t i = 0; i < union_type.members.length; i += 1) {
+                if(union_type.members[i].name == member_reference->name.text) {
+                    auto member_type = union_type.members[i].type;
+                    auto member_ir_type = get_runtime_ir_type(info.architecture_sizes, member_type);
+
+                    if(actual_value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = actual_value.register_;
+
+                        auto union_ir_type = get_union_ir_type(info.architecture_sizes, union_type);
+
+                        auto local_pointer_register = append_allocate_local(
+                            context,
+                            instructions,
+                            member_reference->range,
+                            union_ir_type
+                        );
+
+                        append_store(
+                            context,
+                            instructions,
+                            member_reference->range,
+                            register_value.register_index,
+                            local_pointer_register
+                        );
+
+                        auto pointer_register = append_pointer_conversion(
+                            context,
+                            instructions,
+                            member_reference->range,
+                            member_ir_type,
+                            local_pointer_register
+                        );
+
+                        auto register_index = append_load(
+                            context,
+                            instructions,
+                            member_reference->range,
+                            pointer_register
+                        );
+
+                        return ok(TypedRuntimeValue(
+                            member_type,
+                            AnyRuntimeValue(RegisterValue(member_ir_type, register_index))
+                        ));
+                    } else if(actual_value.kind == RuntimeValueKind::AddressedValue) {
+                        auto addressed_value = actual_value.addressed;
+
+                        auto pointer_register = append_pointer_conversion(
+                            context,
+                            instructions,
+                            member_reference->range,
+                            member_ir_type,
+                            addressed_value.pointer_register
+                        );
 
                         return ok(TypedRuntimeValue(
                             member_type,
@@ -3708,6 +3780,77 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 job.resolve_polymorphic_struct.definition = definition;
                 job.resolve_polymorphic_struct.parameters = parameters;
                 job.resolve_polymorphic_struct.scope = polymorphic_struct.parent;
+
+                auto job_index = jobs->append(job);
+
+                return wait(job_index);
+            } else if(type.kind == TypeKind::PolymorphicUnion) {
+                auto polymorphic_union = type.polymorphic_union;
+                auto definition = polymorphic_union.definition;
+
+                auto parameter_count = definition->parameters.length;
+
+                if(function_call->parameters.length != parameter_count) {
+                    error(scope, function_call->range, "Incorrect union parameter count: expected %zu, got %zu", parameter_count, function_call->parameters.length);
+
+                    return err();
+                }
+
+                auto parameters = allocate<AnyConstantValue>(parameter_count);
+
+                for(size_t i = 0; i < parameter_count; i += 1) {
+                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, function_call->parameters[i]));
+
+                    expect(parameter_value, coerce_constant_to_type(
+                        info,
+                        scope,
+                        function_call->parameters[i]->range,
+                        parameter.type,
+                        parameter.value,
+                        polymorphic_union.parameter_types[i],
+                        false
+                    ));
+
+                    parameters[i] = {
+                        parameter_value
+                    };
+                }
+
+                for(size_t i = 0; i < jobs->length; i += 1) {
+                    auto job = (*jobs)[i];
+
+                    if(job.kind == JobKind::ResolvePolymorphicUnion) {
+                        auto resolve_polymorphic_union = job.resolve_polymorphic_union;
+
+                        if(resolve_polymorphic_union.definition == definition && resolve_polymorphic_union.parameters != nullptr) {
+                            auto same_parameters = true;
+                            for(size_t i = 0; i < parameter_count; i += 1) {
+                                if(!constant_values_equal(parameters[i], resolve_polymorphic_union.parameters[i])) {
+                                    same_parameters = false;
+                                    break;
+                                }
+                            }
+
+                            if(same_parameters) {
+                                if(job.state == JobState::Done) {
+                                    return ok(TypedRuntimeValue(
+                                        AnyType::AnyType::create_type_type(),
+                                        AnyRuntimeValue(AnyConstantValue(resolve_polymorphic_union.type))
+                                    ));
+                                } else {
+                                    return wait(i);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                AnyJob job;
+                job.kind = JobKind::ResolvePolymorphicUnion;
+                job.state = JobState::Working;
+                job.resolve_polymorphic_union.definition = definition;
+                job.resolve_polymorphic_union.parameters = parameters;
+                job.resolve_polymorphic_union.scope = polymorphic_union.parent;
 
                 auto job_index = jobs->append(job);
 
@@ -4596,6 +4739,7 @@ static bool is_runtime_statement(Statement* statement) {
         statement->kind == StatementKind::FunctionDeclaration ||
         statement->kind == StatementKind::ConstantDefinition ||
         statement->kind == StatementKind::StructDefinition ||
+        statement->kind == StatementKind::UnionDefinition ||
         statement->kind == StatementKind::StaticIf
     );
 }
