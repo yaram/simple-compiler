@@ -1,0 +1,12 @@
+#import "scancode";
+#import "keycode";
+
+using scancode;
+using keycode;
+
+SDL_Keysym :: struct {
+    scancode: SDL_Scancode,
+    sym: SDL_Keycode,
+    mod: u16,
+    unused: u32
+}

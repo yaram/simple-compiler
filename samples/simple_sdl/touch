@@ -1,0 +1,3 @@
+SDL_TouchID :: i64;
+
+SDL_FingerID :: i64;

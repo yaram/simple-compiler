@@ -1,0 +1,351 @@
+#import "libs";
+#import "video";
+#import "keyboard";
+#import "joystick";
+#import "touch";
+#import "gesture";
+
+using libs;
+using video;
+using keyboard;
+using joystick;
+using touch;
+using gesture;
+
+SDL_EventType :: enum u32 {
+    SDL_FIRSTEVENT,
+    SDL_QUIT = 0x100,
+    SDL_APP_TERMINATING,
+    SDL_APP_LOWMEMORY,
+    SDL_APP_WILLENTERBACKGROUND,
+    SDL_APP_DIDENTERBACKGROUND,
+    SDL_APP_WILLENTERFOREGROUND,
+    SDL_APP_DIDENTERFOREGROUND,
+    SDL_LOCALECHANGED,
+    SDL_DISPLAYEVENT = 0x150,
+    SDL_WINDOWEVENT = 0x200,
+    SDL_SYSWMEVENT,
+    SDL_KEYDOWN = 0x300,
+    SDL_KEYUP,
+    SDL_TEXTEDITING,
+    SDL_TEXTINPUT,
+    SDL_KEYMAPCHANGED,
+    SDL_TEXTEDITING_EXT,
+    SDL_MOUSEMOTION = 0x400,
+    SDL_MOUSEBUTTONDOWN,
+    SDL_MOUSEBUTTONUP,
+    SDL_MOUSEWHEEL,
+    SDL_JOYAXISMOTION = 0x600,
+    SDL_JOYBALLMOTION,
+    SDL_JOYHATMOTION,
+    SDL_JOYBUTTONDOWN,
+    SDL_JOYBUTTONUP,
+    SDL_JOYDEVICEADDED,
+    SDL_JOYDEVICEREMOVED,
+    SDL_JOYBATTERYUPDATED,
+    SDL_CONTROLLERAXISMOTION = 0x650,
+    SDL_CONTROLLERBUTTONDOWN,
+    SDL_CONTROLLERBUTTONUP,
+    SDL_CONTROLLERDEVICEADDED,
+    SDL_CONTROLLERDEVICEREMOVED,
+    SDL_CONTROLLERDEVICEREMAPPED,
+    SDL_CONTROLLERTOUCHPADDOWN,
+    SDL_CONTROLLERTOUCHPADMOTION,
+    SDL_CONTROLLERTOUCHPADUP,
+    SDL_CONTROLLERSENSORUPDATE,
+    SDL_CONTROLLERUPDATECOMPLETE_RESERVED_FOR_SDL3,
+    SDL_CONTROLLERSTEAMHANDLEUPDATED,
+    SDL_FINGERDOWN = 0x700,
+    SDL_FINGERUP,
+    SDL_FINGERMOTION,
+    SDL_DOLLARGESTURE = 0x800,
+    SDL_DOLLARRECORD,
+    SDL_MULTIGESTURE,
+    SDL_CLIPBOARDUPDATE = 0x900,
+    SDL_DROPFILE = 0x1000,
+    SDL_DROPTEXT,
+    SDL_DROPBEGIN,
+    SDL_DROPCOMPLETE,
+    SDL_AUDIODEVICEADDED = 0x1100,
+    SDL_AUDIODEVICEREMOVED,
+    SDL_SENSORUPDATE = 0x1200,
+    SDL_RENDER_TARGETS_RESET = 0x2000,
+    SDL_RENDER_DEVICE_RESET,
+    SDL_POLLSENTINEL = 0x7F00,
+    SDL_USEREVENT = 0x8000,
+    SDL_LASTEVENT = 0xFFFF
+}
+
+SDL_Event :: struct {
+    type: SDL_EventType,
+    timestamp: u32,
+    body: SDL_Event_body
+}
+
+SDL_Event_body :: union {
+    display: SDL_DisplayEvent,
+    window: SDL_WindowEvent,
+    key: SDL_KeyboardEvent,
+    edit: SDL_TextEditingEvent,
+    editExt: SDL_TextEditingExtEvent,
+    text: SDL_TextInputEvent,
+    motion: SDL_MouseMotionEvent,
+    button: SDL_MouseButtonEvent,
+    wheel: SDL_MouseWheelEvent,
+    jaxis: SDL_JoyAxisEvent,
+    jball: SDL_JoyBallEvent,
+    jhat: SDL_JoyHatEvent,
+    jbutton: SDL_JoyButtonEvent,
+    jdevice: SDL_JoyDeviceEvent,
+    jbattery: SDL_JoyBatteryEvent,
+    caxis: SDL_ControllerAxisEvent,
+    cbutton: SDL_ControllerButtonEvent,
+    cdevice: SDL_ControllerDeviceEvent,
+    ctouchpad: SDL_ControllerTouchpadEvent,
+    csensor: SDL_ControllerSensorEvent,
+    adevice: SDL_AudioDeviceEvent,
+    sensor: SDL_SensorEvent,
+    quit: SDL_QuitEvent,
+    user: SDL_UserEvent,
+    syswm: SDL_SysWMEvent,
+    tfinger: SDL_TouchFingerEvent,
+    mgesture: SDL_MultiGestureEvent,
+    dgesture: SDL_DollarGestureEvent,
+    drop: SDL_DropEvent
+}
+
+SDL_DisplayEvent :: struct {
+    display: u32,
+    event: u8,
+    padding1: u8,
+    padding2: u8,
+    padding3: u8,
+    data1: i32
+}
+
+SDL_WindowEvent :: struct {
+    windowID: u32,
+    event: SDL_WindowEventID,
+    padding1: u8,
+    padding2: u8,
+    padding3: u8,
+    data1: i32,
+    data2: i32
+}
+
+SDL_KeyboardEvent :: struct {
+    windowID: u32,
+    state: u8,
+    repeat: u8,
+    padding2: u8,
+    padding3: u8,
+    keysym: SDL_Keysym
+}
+
+SDL_TextEditingEvent :: struct {
+    windowID: u32,
+    text: [32]u8,
+    start: i32,
+    length: i32
+}
+
+SDL_TextEditingExtEvent :: struct {
+    windowID: u32,
+    text: *u8,
+    start: i32,
+    length: i32
+}
+
+SDL_TextInputEvent :: struct {
+    windowID: u32,
+    text: [32]u8
+}
+
+SDL_MouseMotionEvent :: struct {
+    windowID: u32,
+    which: u32,
+    state: u32,
+    x: i32,
+    y: i32,
+    xrel: i32,
+    yrel: i32
+}
+
+SDL_MouseButtonEvent :: struct {
+    windowID: u32,
+    which: u32,
+    button: u8,
+    state: u8,
+    clicks: u8,
+    padding1: u8,
+    x: i32,
+    y: i32
+}
+
+SDL_MouseWheelEvent :: struct {
+    windowID: u32,
+    which: u32,
+    x: i32,
+    y: i32,
+    direction: u32,
+    preciseX: float,
+    preciseY: float,
+    mouseX: i32,
+    mouseY: i32
+}
+
+SDL_JoyAxisEvent :: struct {
+    which: SDL_JoystickID,
+    axis: u8,
+    padding1: u8,
+    padding2: u8,
+    padding3: u8,
+    value: i16,
+    padding4: u16
+}
+
+SDL_JoyBallEvent :: struct {
+    which: SDL_JoystickID,
+    ball: u8,
+    padding1: u8,
+    padding2: u8,
+    padding3: u8,
+    xrel: i16,
+    yrel: i16
+}
+
+SDL_JoyHatEvent :: struct {
+    which: SDL_JoystickID,
+    hat: u8,
+    value: u8,
+    padding1: u8,
+    padding2: u8
+}
+
+SDL_JoyButtonEvent :: struct {
+    which: SDL_JoystickID,
+    button: u8,
+    state: u8,
+    padding1: u8,
+    padding2: u8
+}
+
+SDL_JoyDeviceEvent :: struct {
+    which: i32
+}
+
+SDL_JoyBatteryEvent :: struct {
+    which: SDL_JoystickID,
+    level: SDL_JoystickPowerLevel
+}
+
+SDL_ControllerAxisEvent :: struct {
+    which: SDL_JoystickID,
+    axis: u8,
+    padding1: u8,
+    padding2: u8,
+    padding3: u8,
+    value: i16,
+    padding4: u16
+}
+
+SDL_ControllerButtonEvent :: struct {
+    which: SDL_JoystickID,
+    button: u8,
+    state: u8,
+    padding1: u8,
+    padding2: u8
+}
+
+SDL_ControllerDeviceEvent :: struct {
+    which: i32
+}
+
+SDL_ControllerTouchpadEvent :: struct {
+    which: SDL_JoystickID,
+    touchpad: i32,
+    finger: i32,
+    x: float,
+    y: float,
+    pressure: float
+}
+
+SDL_ControllerSensorEvent :: struct {
+    which: SDL_JoystickID,
+    sensor: i32,
+    data: [3]float,
+    timestamp_us: u64
+}
+
+SDL_AudioDeviceEvent :: struct {
+    which: u32,
+    iscapture: u8,
+    padding1: u8,
+    padding2: u8,
+    padding3: u8
+}
+
+SDL_TouchFingerEvent :: struct {
+    touchId: SDL_TouchID,
+    fingerId: SDL_FingerID,
+    x: float,
+    y: float,
+    dx: float,
+    dy: float,
+    pressure: float,
+    windowID: u32
+}
+
+SDL_MultiGestureEvent :: struct {
+    touchId: SDL_TouchID,
+    dTheta: float,
+    dDist: float,
+    x: float,
+    y: float,
+    numFingers: u16,
+    padding: u16
+}
+
+SDL_DollarGestureEvent :: struct {
+    touchId: SDL_TouchID,
+    gestureId: SDL_GestureID,
+    numFingers: u32,
+    error: float,
+    x: float,
+    y: float
+}
+
+SDL_DropEvent :: struct {
+    file: *u8,
+    windowID: u32
+}
+
+SDL_SensorEvent :: struct {
+    which: i32,
+    data: [6]float,
+    timestamp_us: u64
+}
+
+SDL_QuitEvent :: struct {}
+
+SDL_UserEvent :: struct {
+    windowID: u32,
+    code: i32,
+    data1: *void,
+    data2: *void
+}
+
+SDL_SysWMEvent :: struct {
+    msg: *void
+}
+
+SDL_WindowEvent :: struct {
+    timestamp: u32,
+    windowID: u32,
+    event: u8,
+    padding: [3]u8,
+    data1: i32,
+    data2: i32
+}
+
+SDL_PollEvent :: (event: *SDL_Event) -> i32 #extern(LIBS);

@@ -1,0 +1,21 @@
+#import "libs";
+#import "video";
+#import "rect";
+
+using libs;
+using video;
+using rect;
+
+SDL_Renderer :: void;
+
+SDL_RENDERER_SOFTWARE :: 0x00000001;
+SDL_RENDERER_ACCELERATED :: 0x00000002;
+SDL_RENDERER_PRESENTVSYNC :: 0x00000004;
+SDL_RENDERER_TARGETTEXTURE :: 0x00000008;
+
+SDL_CreateRenderer :: (window: *SDL_Window, index: i32, flags: u32) -> *SDL_Renderer #extern(LIBS);
+
+SDL_RenderPresent :: (renderer: *SDL_Renderer) #extern(LIBS);
+SDL_SetRenderDrawColor :: (renderer: *SDL_Renderer, r: u8, g: u8, b: u8, a: u8) -> i32 #extern(LIBS);
+SDL_RenderClear :: (renderer: *SDL_Renderer) -> i32 #extern(LIBS);
+SDL_RenderFillRect :: (renderer: *SDL_Renderer, rect: *SDL_Rect) -> i32 #extern(LIBS);
