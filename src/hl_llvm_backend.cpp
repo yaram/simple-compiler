@@ -727,7 +727,8 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     String toolchain,
     String config,
     String object_file_path,
-    Array<String> reserved_names
+    Array<String> reserved_names,
+    bool print
 ), (
     top_level_source_file_path,
     statics,
@@ -735,7 +736,8 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     os,
     config,
     object_file_path,
-    reserved_names
+    reserved_names,
+    print
 )) {
     List<NameMapping> name_mappings {};
 
@@ -1945,6 +1947,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     }
 
     LLVMDIBuilderFinalize(debug_builder);
+
+    if(print) {
+        printf("%s\n", LLVMPrintModuleToString(module));
+    }
 
     assert(LLVMVerifyModule(module, LLVMVerifierFailureAction::LLVMAbortProcessAction, nullptr) == 0);
 

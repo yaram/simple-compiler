@@ -45,6 +45,7 @@ static void print_help_message(FILE* file) {
     fprintf(file, "  -no-link  Don't run the linker\n");
     fprintf(file, "  -print-ast  Print abstract syntax tree\n");
     fprintf(file, "  -print-ir  Print internal intermediate representation\n");
+    fprintf(file, "  -print-llvm  Print LLVM IR\n");
     fprintf(file, "  -help  Display this help message then exit\n");
 }
 
@@ -100,6 +101,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     auto no_link = false;
     auto print_ast = false;
     auto print_ir = false;
+    auto print_llvm = false;
 
     int argument_index = 1;
     while(argument_index < arguments.length) {
@@ -172,6 +174,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             print_ast = true;
         } else if(strcmp(argument, "-print-ir") == 0) {
             print_ir = true;
+        } else if(strcmp(argument, "-print-llvm") == 0) {
+            print_llvm = true;
         } else if(strcmp(argument, "-help") == 0) {
             print_help_message(stdout);
 
@@ -1176,7 +1180,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             toolchain,
             config,
             object_file_path,
-            reserved_names
+            reserved_names,
+            print_llvm
         ));
 
         auto main_found = false;

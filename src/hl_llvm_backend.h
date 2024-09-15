@@ -17,5 +17,6 @@ Result<Array<NameMapping>> generate_llvm_object(
     String toolchain,
     String config,
     String object_file_path,
-    Array<String> reserved_names
+    Array<String> reserved_names,
+    bool print
 );
