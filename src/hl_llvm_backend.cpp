@@ -630,6 +630,14 @@ static Result<LLVMCallConv> get_llvm_calling_convention(
                 abort();
             }
         }
+    } else if(architecture == "riscv32"_S) {
+        if(calling_convention == CallingConvention::Default) {
+            return ok(LLVMCallConv::LLVMCCallConv);
+        }
+    } else if(architecture == "riscv64"_S) {
+        if(calling_convention == CallingConvention::Default) {
+            return ok(LLVMCallConv::LLVMCCallConv);
+        }
     } else if(architecture == "wasm32"_S) {
         if(calling_convention == CallingConvention::Default) {
             return ok(LLVMCallConv::LLVMCCallConv);
@@ -2063,20 +2071,24 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         LLVMInitializeX86Target();
         LLVMInitializeX86TargetMC();
         LLVMInitializeX86AsmPrinter();
-
-        auto status = LLVMGetTargetFromTriple(triple.to_c_string(), &target, nullptr);
-        assert(status == 0);
+    } else if(architecture == "riscv32"_S || architecture == "riscv64"_S) {
+        LLVMInitializeRISCVTargetInfo();
+        LLVMInitializeRISCVTarget();
+        LLVMInitializeRISCVTargetMC();
+        LLVMInitializeRISCVAsmPrinter();
     } else if(architecture == "wasm32"_S) {
         LLVMInitializeWebAssemblyTargetInfo();
         LLVMInitializeWebAssemblyTarget();
         LLVMInitializeWebAssemblyTargetMC();
         LLVMInitializeWebAssemblyAsmPrinter();
-
-        auto status = LLVMGetTargetFromTriple(triple.to_c_string(), &target, nullptr);
-        assert(status == 0);
     } else {
         abort();
     }
+
+    auto status = LLVMGetTargetFromTriple(triple.to_c_string(), &target, nullptr);
+    assert(status == 0);
+
+    auto features = get_llvm_features(architecture);
 
     LLVMCodeGenOptLevel optimization_level;
     if(config == "debug"_S) {
@@ -2091,7 +2103,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         target,
         triple.to_c_string(),
         "",
-        "",
+        features.to_c_string(),
         optimization_level,
         LLVMRelocMode::LLVMRelocPIC,
         LLVMCodeModel::LLVMCodeModelDefault

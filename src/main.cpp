@@ -342,6 +342,20 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
     append_global_constant(
         &global_constants,
+        "RISCV32"_S,
+        AnyType::create_boolean(),
+        AnyConstantValue(architecture == "riscv32"_S)
+    );
+
+    append_global_constant(
+        &global_constants,
+        "RISCV64"_S,
+        AnyType::create_boolean(),
+        AnyConstantValue(architecture == "riscv64"_S)
+    );
+
+    append_global_constant(
+        &global_constants,
         "WASM32"_S,
         AnyType::create_boolean(),
         AnyConstantValue(config == "wasm32"_S)
@@ -1235,6 +1249,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         }
 
         auto triple = get_llvm_triple(architecture, os, toolchain);
+        auto features = get_llvm_features(architecture);
 
         command_buffer.append(frontend);
 
@@ -1245,6 +1260,10 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         command_buffer.append(" -nostdlib -fuse-ld=lld --target="_S);
 
         command_buffer.append(triple);
+
+        command_buffer.append(" -march="_S);
+
+        command_buffer.append(features);
 
         if(linker_options.length != 0) {
             command_buffer.append(" -Wl,"_S); 
@@ -1317,6 +1336,10 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         runtime_command_buffer.append("clang -std=gnu99 -ffreestanding -nostdinc -c -target "_S);
 
         runtime_command_buffer.append(triple);
+
+        command_buffer.append(" -march="_S);
+
+        command_buffer.append(features);
 
         runtime_command_buffer.append(" -DMAIN="_S);
         runtime_command_buffer.append(main_function_name);

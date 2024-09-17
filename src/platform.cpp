@@ -13,6 +13,8 @@ bool does_architecture_exist(String architecture) {
     return
         architecture == "x86"_S ||
         architecture == "x64"_S ||
+        architecture == "riscv32"_S ||
+        architecture == "riscv64"_S ||
         architecture == "wasm32"_S
     ;
 }
@@ -29,7 +31,9 @@ bool is_supported_target(String os, String architecture, String toolchain) {
         return 
             (
                 architecture == "x86"_S ||
-                architecture == "x64"_S
+                architecture == "x64"_S ||
+                architecture == "riscv32"_S ||
+                architecture == "riscv64"_S
             ) &&
             toolchain == "gnu"_S
         ;
@@ -61,6 +65,22 @@ ArchitectureSizes get_architecture_sizes(String architecture) {
 
         return sizes;
     } else if(architecture == "x64"_S) {
+        ArchitectureSizes sizes {};
+        sizes.address_size = RegisterSize::Size64;
+        sizes.default_integer_size = RegisterSize::Size64;
+        sizes.default_float_size = RegisterSize::Size64;
+        sizes.boolean_size = RegisterSize::Size8;
+
+        return sizes;
+    } else if(architecture == "riscv32"_S) {
+        ArchitectureSizes sizes {};
+        sizes.address_size = RegisterSize::Size32;
+        sizes.default_integer_size = RegisterSize::Size32;
+        sizes.default_float_size = RegisterSize::Size32;
+        sizes.boolean_size = RegisterSize::Size8;
+
+        return sizes;
+    } else if(architecture == "riscv64"_S) {
         ArchitectureSizes sizes {};
         sizes.address_size = RegisterSize::Size64;
         sizes.default_integer_size = RegisterSize::Size64;
@@ -107,6 +127,10 @@ String get_llvm_triple(String architecture, String os, String toolchain) {
         triple_architecture = "i686"_S;
     } else if(architecture == "x64"_S) {
         triple_architecture = "x86_64"_S;
+    } else if(architecture == "riscv32"_S) {
+        triple_architecture = "riscv32"_S;
+    } else if(architecture == "riscv64"_S) {
+        triple_architecture = "riscv64"_S;
     } else if(architecture == "wasm32"_S) {
         triple_architecture = "wasm32"_S;
     } else {
@@ -148,9 +172,27 @@ String get_llvm_triple(String architecture, String os, String toolchain) {
     return buffer;
 }
 
+String get_llvm_features(String architecture) {
+    if(architecture == "x86"_S) {
+        return ""_S;
+    } else if(architecture == "x64"_S) {
+        return ""_S;
+    } else if(architecture == "riscv32"_S) {
+        return "+m,+a,+f,+d,+c,+zicsr"_S;
+    } else if(architecture == "riscv64"_S) {
+        return "+m,+a,+f,+d,+c,+zicsr"_S;
+    } else if(architecture == "wasm32"_S) {
+        return ""_S;
+    } else {
+        abort();
+    }
+}
+
 String get_host_architecture() {
 #if defined(ARCH_X64)
     return "x64"_S;
+#elif defined(ARCH_RISCV64)
+    return "riscv64"_S;
 #endif
 }
 

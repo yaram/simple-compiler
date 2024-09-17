@@ -18,6 +18,8 @@
 
 #if defined(__x86_64__) || defined(_M_AMD64)
 #define ARCH_X64
+#elif defined(__riscv) && __riscv_xlen == 64
+#define ARCH_RISCV64
 #else
 #error Unsupported architecture
 #endif
@@ -42,6 +44,7 @@ ArchitectureSizes get_architecture_sizes(String architecture);
 String get_default_toolchain(String os);
 
 String get_llvm_triple(String architecture, String os, String toolchain);
+String get_llvm_features(String architecture);
 
 String get_host_architecture();
 String get_host_os();
