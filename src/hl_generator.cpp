@@ -4360,6 +4360,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             if(expression_value.type.kind == TypeKind::Integer) {
                 auto integer = expression_value.type.integer;
+
                 size_t value_register;
                 if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = expression_value.value.register_;
@@ -4389,7 +4390,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         target_integer.size,
                         value_register
                     );
-                } else {
+                } else if(target_integer.size < integer.size) {
                     register_index = append_integer_truncation(
                         context,
                         instructions,
@@ -4397,6 +4398,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         target_integer.size,
                         value_register
                     );
+                } else {
+                    register_index = value_register;
                 }
             } else if(expression_value.type.kind == TypeKind::FloatType) {
                 auto float_type = expression_value.type.float_;
@@ -4622,7 +4625,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         target_enum.backing_type->size,
                         value_register
                     );
-                } else {
+                } else if(target_enum.backing_type->size < integer.size) {
                     register_index = append_integer_truncation(
                         context,
                         instructions,
@@ -4630,6 +4633,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         target_enum.backing_type->size,
                         value_register
                     );
+                } else {
+                    register_index = value_register;
                 }
             }
         } else {

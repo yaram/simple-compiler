@@ -1297,7 +1297,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         auto destination_ir_type = IRType::create_integer(integer_extension->destination_size);
                         auto destination_llvm_type = get_llvm_integer_type(integer_extension->destination_size);
 
-                        assert(destination_ir_type.integer.size > source_value.type.integer.size);
+                        assert(integer_extension->destination_size > source_value.type.integer.size);
 
                         LLVMValueRef value;
                         if(integer_extension->is_signed) {
@@ -1324,7 +1324,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         auto destination_ir_type = IRType::create_integer(integer_truncation->destination_size);
                         auto destination_llvm_type = get_llvm_integer_type(integer_truncation->destination_size);
 
-                        assert(destination_ir_type.integer.size < source_value.type.integer.size);
+                        assert(integer_truncation->destination_size < source_value.type.integer.size);
 
                         llvm_instruction(value, LLVMBuildTrunc(
                             builder,
