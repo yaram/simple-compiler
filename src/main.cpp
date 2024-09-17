@@ -22,6 +22,8 @@ inline String get_default_output_file(String os, bool no_link) {
             return "out.exe"_S;
         } else if(os == "emscripten"_S) {
             return "out.js"_S;
+        } else if(os == "wasi"_S) {
+            return "out.wasm"_S;
         } else {
             return "out"_S;
         }
@@ -39,8 +41,8 @@ static void print_help_message(FILE* file) {
     fprintf(file, "Options:\n");
     fprintf(file, "  -output <output file>  (default: %.*s) Specify output file path\n", STRING_PRINTF_ARGUMENTS(default_output_file));
     fprintf(file, "  -config debug|release  (default: debug) Specify build configuration\n");
-    fprintf(file, "  -arch x64|wasm32  (default: %.*s) Specify CPU architecture to target\n", STRING_PRINTF_ARGUMENTS(default_architecture));
-    fprintf(file, "  -os windows|linux|emscripten  (default: %.*s) Specify operating system to target\n", STRING_PRINTF_ARGUMENTS(default_os));
+    fprintf(file, "  -arch x86|x64|riscv32|riscv64|wasm32  (default: %.*s) Specify CPU architecture to target\n", STRING_PRINTF_ARGUMENTS(default_architecture));
+    fprintf(file, "  -os windows|linux|emscripten|wasi  (default: %.*s) Specify operating system to target\n", STRING_PRINTF_ARGUMENTS(default_os));
     fprintf(file, "  -os gnu|msvc  (default: %.*s) Specify toolchain to use\n", STRING_PRINTF_ARGUMENTS(default_toolchain));
     fprintf(file, "  -no-link  Don't run the linker\n");
     fprintf(file, "  -print-ast  Print abstract syntax tree\n");
@@ -380,6 +382,13 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         "EMSCRIPTEN"_S,
         AnyType::create_boolean(),
         AnyConstantValue(os == "emscripten"_S)
+    );
+
+    append_global_constant(
+        &global_constants,
+        "WASI"_S,
+        AnyType::create_boolean(),
+        AnyConstantValue(os == "wasi"_S)
     );
 
     append_global_constant(
@@ -1175,6 +1184,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
         if(os == "emscripten"_S) {
             reserved_names.append("main"_S);
+        } else if(os == "wasi"_S) {
+            reserved_names.append("_start"_S);
         } else {
             reserved_names.append("entry"_S);
         }
@@ -1243,6 +1254,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 abort();
             }
         } else if(os == "emscripten"_S) {
+            linker_options = ""_S;
+        } else if(os == "wasi"_S) {
             linker_options = ""_S;
         } else {
             linker_options = "--entry=entry"_S;

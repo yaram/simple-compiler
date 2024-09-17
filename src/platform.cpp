@@ -5,7 +5,8 @@ bool does_os_exist(String os) {
     return
         os == "linux"_S ||
         os == "windows"_S ||
-        os == "emscripten"_S
+        os == "emscripten"_S ||
+        os == "wasi"_S
     ;
 }
 
@@ -49,6 +50,8 @@ bool is_supported_target(String os, String architecture, String toolchain) {
             )
         ;
     } else if(os == "emscripten"_S) {
+        return architecture == "wasm32"_S && toolchain == "gnu"_S;
+    } else if(os == "wasi"_S) {
         return architecture == "wasm32"_S && toolchain == "gnu"_S;
     } else {
         abort();
@@ -114,6 +117,8 @@ String get_default_toolchain(String os) {
         }
     } else if(os == "emscripten"_S) {
         return "gnu"_S;
+    } else if(os == "wasi"_S) {
+        return "gnu"_S;
     } else {
         abort();
     }
@@ -148,6 +153,9 @@ String get_llvm_triple(String architecture, String os, String toolchain) {
     } else if(os == "emscripten"_S) {
         triple_vendor = "unknown"_S;
         triple_system = "emscripten"_S;
+    } else if(os == "wasi"_S) {
+        triple_vendor = "unknown"_S;
+        triple_system = "wasi"_S;
     } else {
         abort();
     }
