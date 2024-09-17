@@ -25,7 +25,7 @@ jobs:
 workflows:
   linux-testing:
     jobs:
-      - build
+      - linux-build
       - linux-tests:
           requires:
-            - build
+            - linux-build
