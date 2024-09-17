@@ -53,6 +53,8 @@ struct IRType {
         } struct_;
     };
 
+    bool is_runtime();
+
     bool operator==(IRType other);
     bool operator!=(IRType other);
 

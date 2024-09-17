@@ -3,6 +3,17 @@
 #include <stdio.h>
 #include <string.h>
 
+bool IRType::is_runtime() {
+    return
+        kind == IRTypeKind::Boolean ||
+        kind == IRTypeKind::Integer ||
+        kind == IRTypeKind::Float ||
+        kind == IRTypeKind::Pointer ||
+        kind == IRTypeKind::StaticArray ||
+        kind == IRTypeKind::Struct
+    ;
+}
+
 bool IRType::operator==(IRType other) {
     if(other.kind != kind) {
         return false;
