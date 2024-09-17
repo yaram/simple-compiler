@@ -1641,8 +1641,16 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                         auto initial_constant_values = allocate<LLVMValueRef>(assemble_static_array->element_registers.length);
 
-                        for(size_t i = 0; i < assemble_static_array->element_registers.length; i += 1) {
-                            initial_constant_values[i] = LLVMGetUndef(element_llvm_type);
+                        for(size_t i = 1; i < assemble_static_array->element_registers.length; i += 1) {
+                            auto element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[i]);
+
+                            assert(element_value.type == first_element_value.type);
+
+                            if(LLVMIsConstant(element_value.value)) {
+                                initial_constant_values[i] = element_value.value;
+                            } else {
+                                initial_constant_values[i] = LLVMGetUndef(element_llvm_type);
+                            }
                         }
 
                         auto current_array_value = LLVMConstArray2(
@@ -1666,18 +1674,18 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         for(size_t i = 1; i < assemble_static_array->element_registers.length; i += 1) {
                             auto element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[i]);
 
-                            assert(element_value.type == first_element_value.type);
+                            if(!LLVMIsConstant(element_value.value)) {
+                                current_array_value = LLVMBuildInsertValue(
+                                    builder,
+                                    current_array_value,
+                                    element_value.value,
+                                    (unsigned int)i,
+                                    "insert_value"
+                                );
 
-                            current_array_value = LLVMBuildInsertValue(
-                                builder,
-                                current_array_value,
-                                element_value.value,
-                                (unsigned int)i,
-                                "insert_value"
-                            );
-
-                            if(LLVMIsAInstruction(current_array_value)) {
-                                LLVMInstructionSetDebugLoc(current_array_value, debug_location);
+                                if(LLVMIsAInstruction(current_array_value)) {
+                                    LLVMInstructionSetDebugLoc(current_array_value, debug_location);
+                                }
                             }
                         }
 
@@ -1719,7 +1727,11 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             assert(member_value.type.is_runtime());
 
-                            initial_constant_values[i] = LLVMGetUndef(get_llvm_type(architecture_sizes, member_value.type));
+                            if(LLVMIsConstant(member_value.value)) {
+                                initial_constant_values[i] = member_value.value;
+                            } else {
+                                initial_constant_values[i] = LLVMGetUndef(get_llvm_type(architecture_sizes, member_value.type));
+                            }
                         }
 
                         auto current_struct_value = LLVMConstStruct(
@@ -1735,16 +1747,18 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             member_types[i] = member_value.type;
 
-                            current_struct_value = LLVMBuildInsertValue(
-                                builder,
-                                current_struct_value,
-                                member_value.value,
-                                (unsigned int)i,
-                                "insert_value"
-                            );
+                            if(!LLVMIsConstant(member_value.value)) {
+                                current_struct_value = LLVMBuildInsertValue(
+                                    builder,
+                                    current_struct_value,
+                                    member_value.value,
+                                    (unsigned int)i,
+                                    "insert_value"
+                                );
 
-                            if(LLVMIsAInstruction(current_struct_value)) {
-                                LLVMInstructionSetDebugLoc(current_struct_value, debug_location);
+                                if(LLVMIsAInstruction(current_struct_value)) {
+                                    LLVMInstructionSetDebugLoc(current_struct_value, debug_location);
+                                }
                             }
                         }
 
