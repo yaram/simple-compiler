@@ -161,12 +161,16 @@ String get_llvm_triple(String architecture, String os, String toolchain) {
     }
 
     String triple_abi;
-    if(toolchain == "gnu"_S) {
-        triple_abi = "gnu"_S;
-    } else if(toolchain == "msvc"_S) {
-        triple_abi = "msvc"_S;
+    if(os == "emscripten"_S) {
+        triple_abi = ""_S;
     } else {
-        abort();
+        if(toolchain == "gnu"_S) {
+            triple_abi = "gnu"_S;
+        } else if(toolchain == "msvc"_S) {
+            triple_abi = "msvc"_S;
+        } else {
+            abort();
+        }
     }
 
     buffer.append(triple_architecture);
@@ -174,8 +178,11 @@ String get_llvm_triple(String architecture, String os, String toolchain) {
     buffer.append(triple_vendor);
     buffer.append("-"_S);
     buffer.append(triple_system);
-    buffer.append("-"_S);
-    buffer.append(triple_abi);
+
+    if(triple_abi.length != 0) {
+        buffer.append("-"_S);
+        buffer.append(triple_abi);
+    }
 
     return buffer;
 }
