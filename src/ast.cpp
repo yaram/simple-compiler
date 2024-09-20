@@ -753,6 +753,52 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
 
         indent(indentation_level);
         printf("}");
+    } else if(statement->kind == StatementKind::MultiReturnVariableDeclaration) {
+        auto variable_declaration = (MultiReturnVariableDeclaration*)statement;
+
+        printf("MultiReturnVariableDeclaration: {\n");
+
+        indent(indentation_level + 1);
+        printf("names: [");
+
+        if(variable_declaration->names.length != 0) {
+            printf("\n");
+
+            for(auto name : variable_declaration->names) {
+                indent(indentation_level + 2);
+                print_identifier(name);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
+        }
+
+        printf("]\n");
+
+        indent(indentation_level + 1);
+        printf("function: ");
+        print_expression_internal(variable_declaration->function, indentation_level + 1);
+        printf("\n");
+
+        indent(indentation_level + 1);
+        printf("parameters: [");
+
+        if(variable_declaration->parameters.length != 0) {
+            printf("\n");
+
+            for(auto parameter : variable_declaration->parameters) {
+                indent(indentation_level + 2);
+                print_expression_internal(parameter, indentation_level + 2);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
+        }
+
+        printf("]\n");
+
+        indent(indentation_level);
+        printf("}");
     } else if(statement->kind == StatementKind::Assignment) {
         auto assignment = (Assignment*)statement;
 
@@ -790,6 +836,51 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
         print_expression_internal(binary_operation_assignment->value, indentation_level + 1);
         printf("\n");
 
+        indent(indentation_level);
+        printf("}");
+    } else if(statement->kind == StatementKind::MultiReturnAssignment) {
+        auto assignment = (MultiReturnAssignment*)statement;
+
+        printf("MultiReturnAssignment: {\n");
+
+        indent(indentation_level + 1);
+        printf("targets: [");
+
+        if(assignment->targets.length != 0) {
+            printf("\n");
+
+            for(auto target : assignment->targets) {
+                indent(indentation_level + 2);
+                print_expression_internal(target, indentation_level + 2);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
+        }
+
+        printf("]\n");
+
+        indent(indentation_level + 1);
+        printf("function: ");
+        print_expression_internal(assignment->function, indentation_level + 1);
+        printf("\n");
+
+        indent(indentation_level + 1);
+        printf("parameters: [");
+
+        if(assignment->parameters.length != 0) {
+            printf("\n");
+
+            for(auto parameter : assignment->parameters) {
+                indent(indentation_level + 2);
+                print_expression_internal(parameter, indentation_level + 2);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
+        }
+
+        printf("]\n");
         indent(indentation_level);
         printf("}");
     } else if(statement->kind == StatementKind::IfStatement) {

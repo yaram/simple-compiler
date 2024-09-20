@@ -41,4 +41,4 @@ inline ResultErrorHelper err() {
 }
 
 #define expect(name, expression) auto __##name##_result=(expression);if(!__##name##_result.status)return err();auto name=__##name##_result.value
-#define expect_void(expression) auto __void_result=(expression);if(!__void_result.status)return err()
+#define expect_void(expression) {auto __void_result=(expression);if(!__void_result.status)return err();}

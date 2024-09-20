@@ -317,8 +317,10 @@ enum struct StatementKind {
     EnumDefinition,
     ExpressionStatement,
     VariableDeclaration,
+    MultiReturnVariableDeclaration,
     Assignment,
     BinaryOperationAssignment,
+    MultiReturnAssignment,
     IfStatement,
     WhileLoop,
     ForLoop,
@@ -523,6 +525,26 @@ struct VariableDeclaration : Statement {
     {}
 };
 
+struct MultiReturnVariableDeclaration : Statement {
+    Array<Identifier> names;
+
+    Expression* function;
+
+    Array<Expression*> parameters;
+
+    explicit inline MultiReturnVariableDeclaration(
+        FileRange range,
+        Array<Identifier> names,
+        Expression* function,
+        Array<Expression*> parameters
+    ) :
+        Statement { StatementKind::MultiReturnVariableDeclaration, range },
+        names { names },
+        function { function },
+        parameters { parameters }
+    {}
+};
+
 struct Assignment : Statement {
     Expression* target;
 
@@ -536,6 +558,26 @@ struct Assignment : Statement {
         Statement { StatementKind::Assignment, range },
         target { target },
         value { value }
+    {}
+};
+
+struct MultiReturnAssignment : Statement {
+    Array<Expression*> targets;
+
+    Expression* function;
+
+    Array<Expression*> parameters;
+
+    explicit inline MultiReturnAssignment(
+        FileRange range,
+        Array<Expression*> targets,
+        Expression* function,
+        Array<Expression*> parameters
+    ) :
+        Statement { StatementKind::MultiReturnAssignment, range },
+        targets { targets },
+        function { function },
+        parameters { parameters }
     {}
 };
 

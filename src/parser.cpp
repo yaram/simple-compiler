@@ -2540,6 +2540,272 @@ namespace {
                                     ));
                                 } break;
                             }
+                        } else if(token.kind == TokenKind::Comma) {
+                            consume_token();
+
+                            auto all_identifiers = true;
+                            List<Identifier> identifiers {};
+                            List<Expression*> targets {};
+                            identifiers.append(identifier);
+
+                            while(true) {
+                                if(all_identifiers) {
+                                    expect(token, peek_token());
+
+                                    if(token.kind == TokenKind::Identifier) {
+                                        consume_token();
+
+                                        auto identifier = identifier_from_token(token);
+                                        identifiers.append(identifier);
+
+                                        expect(token, peek_token());
+
+                                        if(token.kind == TokenKind::Comma) {
+                                            consume_token();
+
+                                            continue;
+                                        } else if(token.kind == TokenKind::Equals || token.kind == TokenKind::Colon) {
+                                            break;
+                                        } else {
+                                            for(auto identifier : identifiers) {
+                                                targets.append(named_reference_from_identifier(identifier));
+                                            }
+
+                                            auto expression = named_reference_from_identifier(identifier);
+
+                                            expect(right_expression, parse_expression_continuation(OperatorPrecedence::None, expression));
+
+                                            targets.append(right_expression);
+
+                                            all_identifiers = false;
+
+                                            expect(token, peek_token());
+
+                                            if(token.kind == TokenKind::Comma) {
+                                                consume_token();
+
+                                                continue;
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                    } else {
+                                        for(auto identifier : identifiers) {
+                                            targets.append(named_reference_from_identifier(identifier));
+                                        }
+
+                                        expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                        targets.append(expression);
+
+                                        all_identifiers = false;
+
+                                        expect(token, peek_token());
+
+                                        if(token.kind == TokenKind::Comma) {
+                                            consume_token();
+
+                                            continue;
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                    targets.append(expression);
+
+                                    expect(token, peek_token());
+
+                                    if(token.kind == TokenKind::Comma) {
+                                        consume_token();
+
+                                        continue;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if(all_identifiers) {
+                                expect(token, peek_token());
+
+                                if(token.kind == TokenKind::Equals) {
+                                    consume_token();
+
+                                    auto targets = allocate<Expression*>(identifiers.length);
+
+                                    for(size_t i = 0; i < identifiers.length; i += 1) {
+                                        targets[i] = named_reference_from_identifier(identifiers[i]);
+                                    }
+
+                                    expect(function_expression, parse_expression(OperatorPrecedence::PostfixUnary));
+
+                                    expect_void(expect_basic_token(TokenKind::OpenRoundBracket));
+
+                                    List<Expression*> parameters {};
+
+                                    expect(token, peek_token());
+
+                                    if(token.kind == TokenKind::CloseRoundBracket) {
+                                        consume_token();
+                                    } else {
+                                        while(true) {
+                                            expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                            parameters.append(expression);
+
+                                            expect(token, peek_token());
+
+                                            auto done = false;
+                                            switch(token.kind) {
+                                                case TokenKind::Comma: {
+                                                    consume_token();
+                                                } break;
+
+                                                case TokenKind::CloseRoundBracket: {
+                                                    consume_token();
+
+                                                    done = true;
+                                                } break;
+
+                                                default: {
+                                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+
+                                                    return err();
+                                                } break;
+                                            }
+
+                                            if(done) {
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
+
+                                    return ok((Statement*)new MultiReturnAssignment(
+                                        span_range(first_range, last_range),
+                                        Array(identifiers.length, targets),
+                                        function_expression,
+                                        parameters
+                                    ));
+                                } else if(token.kind == TokenKind::Colon) {
+                                    consume_token();
+
+                                    expect_void(expect_basic_token(TokenKind::Equals));
+
+                                    expect(function_expression, parse_expression(OperatorPrecedence::PostfixUnary));
+
+                                    expect_void(expect_basic_token(TokenKind::OpenRoundBracket));
+
+                                    List<Expression*> parameters {};
+
+                                    expect(token, peek_token());
+
+                                    if(token.kind == TokenKind::CloseRoundBracket) {
+                                        consume_token();
+                                    } else {
+                                        while(true) {
+                                            expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                            parameters.append(expression);
+
+                                            expect(token, peek_token());
+
+                                            auto done = false;
+                                            switch(token.kind) {
+                                                case TokenKind::Comma: {
+                                                    consume_token();
+                                                } break;
+
+                                                case TokenKind::CloseRoundBracket: {
+                                                    consume_token();
+
+                                                    done = true;
+                                                } break;
+
+                                                default: {
+                                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+
+                                                    return err();
+                                                } break;
+                                            }
+
+                                            if(done) {
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
+
+                                    return ok((Statement*)new MultiReturnVariableDeclaration(
+                                        span_range(first_range, last_range),
+                                        identifiers,
+                                        function_expression,
+                                        parameters
+                                    ));
+                                } else {
+                                    error("Expected '=' or ':', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+
+                                    return err();
+                                }
+                            } else {
+                                expect_void(expect_basic_token(TokenKind::Equals));
+
+                                expect(function_expression, parse_expression(OperatorPrecedence::PostfixUnary));
+
+                                expect_void(expect_basic_token(TokenKind::OpenRoundBracket));
+
+                                List<Expression*> parameters {};
+
+                                expect(token, peek_token());
+
+                                if(token.kind == TokenKind::CloseRoundBracket) {
+                                    consume_token();
+                                } else {
+                                    while(true) {
+                                        expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                        parameters.append(expression);
+
+                                        expect(token, peek_token());
+
+                                        auto done = false;
+                                        switch(token.kind) {
+                                            case TokenKind::Comma: {
+                                                consume_token();
+                                            } break;
+
+                                            case TokenKind::CloseRoundBracket: {
+                                                consume_token();
+
+                                                done = true;
+                                            } break;
+
+                                            default: {
+                                                error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+
+                                                return err();
+                                            } break;
+                                        }
+
+                                        if(done) {
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
+
+                                return ok((Statement*)new MultiReturnAssignment(
+                                    span_range(first_range, last_range),
+                                    targets,
+                                    function_expression,
+                                    parameters
+                                ));
+                            }
                         } else {
                             auto expression = named_reference_from_identifier(identifier);
 
@@ -2554,6 +2820,83 @@ namespace {
                                     return ok((Statement*)new ExpressionStatement(
                                         span_range(first_range, token_range(token)),
                                         right_expression
+                                    ));
+                                } break;
+
+                                case TokenKind::Comma: {
+                                    consume_token();
+
+                                    List<Expression*> targets {};
+                                    targets.append(right_expression);
+
+                                    while(true) {
+                                        expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                        targets.append(expression);
+
+                                        expect(token, peek_token());
+
+                                        if(token.kind == TokenKind::Comma) {
+                                            consume_token();
+
+                                            continue;
+                                        } else {
+                                            break;
+                                        }
+                                    }
+
+                                    expect_void(expect_basic_token(TokenKind::Equals));
+
+                                    expect(function_expression, parse_expression(OperatorPrecedence::PostfixUnary));
+
+                                    expect_void(expect_basic_token(TokenKind::OpenRoundBracket));
+
+                                    List<Expression*> parameters {};
+
+                                    expect(token, peek_token());
+
+                                    if(token.kind == TokenKind::CloseRoundBracket) {
+                                        consume_token();
+                                    } else {
+                                        while(true) {
+                                            expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                            parameters.append(expression);
+
+                                            expect(token, peek_token());
+
+                                            auto done = false;
+                                            switch(token.kind) {
+                                                case TokenKind::Comma: {
+                                                    consume_token();
+                                                } break;
+
+                                                case TokenKind::CloseRoundBracket: {
+                                                    consume_token();
+
+                                                    done = true;
+                                                } break;
+
+                                                default: {
+                                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+
+                                                    return err();
+                                                } break;
+                                            }
+
+                                            if(done) {
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
+
+                                    return ok((Statement*)new MultiReturnAssignment(
+                                        span_range(first_range, last_range),
+                                        targets,
+                                        function_expression,
+                                        parameters
                                     ));
                                 } break;
 
@@ -2603,7 +2946,7 @@ namespace {
                                         } break;
 
                                         default: {
-                                            error("Expected '=', '+=', '-=', '*=', '/=', '%=' or ';', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                            error("Expected '=', '+=', '-=', '*=', '/=', '%=', ',' or ';', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
                                             return err();
                                         } break;
@@ -2645,6 +2988,83 @@ namespace {
                             return ok((Statement*)new ExpressionStatement(
                                 span_range(first_range, token_range(token)),
                                 expression
+                            ));
+                        } break;
+
+                        case TokenKind::Comma: {
+                            consume_token();
+
+                            List<Expression*> targets {};
+                            targets.append(expression);
+
+                            while(true) {
+                                expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                targets.append(expression);
+
+                                expect(token, peek_token());
+
+                                if(token.kind == TokenKind::Comma) {
+                                    consume_token();
+
+                                    continue;
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            expect_void(expect_basic_token(TokenKind::Equals));
+
+                            expect(function_expression, parse_expression(OperatorPrecedence::PostfixUnary));
+
+                            expect_void(expect_basic_token(TokenKind::OpenRoundBracket));
+
+                            List<Expression*> parameters {};
+
+                            expect(token, peek_token());
+
+                            if(token.kind == TokenKind::CloseRoundBracket) {
+                                consume_token();
+                            } else {
+                                while(true) {
+                                    expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                    parameters.append(expression);
+
+                                    expect(token, peek_token());
+
+                                    auto done = false;
+                                    switch(token.kind) {
+                                        case TokenKind::Comma: {
+                                            consume_token();
+                                        } break;
+
+                                        case TokenKind::CloseRoundBracket: {
+                                            consume_token();
+
+                                            done = true;
+                                        } break;
+
+                                        default: {
+                                            error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+
+                                            return err();
+                                        } break;
+                                    }
+
+                                    if(done) {
+                                        break;
+                                    }
+                                }
+                            }
+
+                            expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
+
+                            return ok((Statement*)new MultiReturnAssignment(
+                                span_range(first_range, last_range),
+                                targets,
+                                function_expression,
+                                parameters
                             ));
                         } break;
 
