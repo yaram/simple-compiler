@@ -995,13 +995,24 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
                     auto expected_main_return_integer = AnyType(Integer(RegisterSize::Size32, true));
 
-                    if(*function_type.return_type != expected_main_return_integer) {
+                    if(function_type.return_types.length != 1) {
+                        error(
+                            scope,
+                            function_value.declaration->range,
+                            "Incorrect number of return types for 'main'. Expected 1, got %zu",
+                            function_type.return_types.length
+                        );
+
+                        return err();
+                    }
+
+                    if(function_type.return_types[0] != expected_main_return_integer) {
                         error(
                             scope,
                             function_value.declaration->range,
                             "Incorrect 'main' return type. Expected '%.*s', got '%.*s'",
                             STRING_PRINTF_ARGUMENTS(expected_main_return_integer.get_description()),
-                            STRING_PRINTF_ARGUMENTS(function_type.return_type->get_description())
+                            STRING_PRINTF_ARGUMENTS(function_type.return_types[0].get_description())
                         );
 
                         return err();

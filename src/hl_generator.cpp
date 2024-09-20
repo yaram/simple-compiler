@@ -103,7 +103,7 @@ struct VariableScope {
 };
 
 struct GenerationContext {
-    AnyType return_type;
+    Array<AnyType> return_types;
 
     Array<ConstantScope*> child_scopes;
     size_t next_child_scope_index;
@@ -740,7 +740,20 @@ static IRType get_pointable_ir_type(ArchitectureSizes architecture_sizes, AnyTyp
             parameters[i] = get_runtime_ir_type(architecture_sizes, type.function.parameters[i]);
         }
 
-        auto return_type = get_runtime_ir_type(architecture_sizes, *type.function.return_type);
+        IRType return_type;
+        if(type.function.return_types.length == 0) {
+            return_type = IRType::create_void();
+        } else if(type.function.return_types.length == 1) {
+            return_type = get_runtime_ir_type(architecture_sizes, type.function.return_types[0]);
+        } else {
+            auto return_struct_members = allocate<IRType>(type.function.return_types.length);
+
+            for(size_t i = 0; i < type.function.return_types.length; i += 1) {
+                return_struct_members[i] = get_runtime_ir_type(architecture_sizes, type.function.return_types[i]);
+            }
+
+            return_type = IRType::create_struct(Array(type.function.return_types.length, return_struct_members));
+        }
 
         return IRType::create_function(Array(type.function.parameters.length, parameters), heapify(return_type), type.function.calling_convention);
     } else if(type.kind == TypeKind::Void) {
@@ -3669,7 +3682,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 jobs->append(job);
             }
 
-            auto return_is_void = function_type.return_type->kind == TypeKind::Void;
+            if(function_type.return_types.length > 1) {
+                error(scope, function_call->range, "Cannot call multi-return function in this context");
+
+                return err();
+            }
 
             auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(function_type.parameters.length);
 
@@ -3701,7 +3718,17 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             assert(runtime_parameter_index == function_type.parameters.length);
 
-            auto return_ir_type = get_pointable_ir_type(info.architecture_sizes, *function_type.return_type);
+            AnyType return_type;
+            IRType return_ir_type;
+            if(function_type.return_types.length == 0) {
+                return_type = AnyType::create_void();
+                return_ir_type = IRType::create_void();
+            } else {
+                assert(function_type.return_types.length == 1);
+
+                return_type = function_type.return_types[0];
+                return_ir_type = get_runtime_ir_type(info.architecture_sizes, return_type);
+            }
 
             auto pointer_register = append_reference_static(context, instructions, function_call->range, runtime_function);
 
@@ -3713,7 +3740,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             function_call_instruction->calling_convention = function_type.calling_convention;
 
             AnyRuntimeValue value;
-            if(!return_is_void) {
+            if(return_type.kind != TypeKind::Void) {
                 auto return_register = allocate_register(context);
 
                 function_call_instruction->return_register = return_register;
@@ -3726,7 +3753,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             instructions->append(function_call_instruction);
 
             return ok(TypedRuntimeValue(
-                *function_type.return_type,
+                return_type,
                 value
             ));
         } else if(expression_value.type.kind == TypeKind::BuiltinFunction) {
@@ -3792,7 +3819,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return err();
             }
 
-            auto function = pointer.pointed_to_type->function;
+            auto function_type = pointer.pointed_to_type->function;
 
             auto function_ir_type = get_pointable_ir_type(info.architecture_sizes, *pointer.pointed_to_type);
 
@@ -3806,7 +3833,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 expression_value.value
             );
 
-            auto parameter_count = function.parameters.length;
+            auto parameter_count = function_type.parameters.length;
 
             if(function_call->parameters.length != parameter_count) {
                 error(
@@ -3820,7 +3847,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return err();
             }
 
-            auto return_is_void = function.return_type->kind == TypeKind::Void;
+            if(function_type.return_types.length > 1) {
+                error(scope, function_call->range, "Cannot call multi-return function in this context");
+
+                return err();
+            }
 
             auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(parameter_count);
 
@@ -3835,11 +3866,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     function_call->parameters[i]->range,
                     parameter_value.type,
                     parameter_value.value,
-                    function.parameters[i],
+                    function_type.parameters[i],
                     false
                 ));
 
-                auto parameter_ir_type = get_runtime_ir_type(info.architecture_sizes, function.parameters[i]);
+                auto parameter_ir_type = get_runtime_ir_type(info.architecture_sizes, function_type.parameters[i]);
 
                 instruction_parameters[i] = {
                     parameter_ir_type,
@@ -3847,17 +3878,27 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 };
             }
 
-            auto return_ir_type = get_pointable_ir_type(info.architecture_sizes, *function.return_type);
+            AnyType return_type;
+            IRType return_ir_type;
+            if(function_type.return_types.length == 0) {
+                return_type = AnyType::create_void();
+                return_ir_type = IRType::create_void();
+            } else {
+                assert(function_type.return_types.length == 1);
+
+                return_type = function_type.return_types[0];
+                return_ir_type = get_runtime_ir_type(info.architecture_sizes, return_type);
+            }
 
             auto function_call_instruction = new FunctionCallInstruction;
             function_call_instruction->range = function_call->range;
             function_call_instruction->pointer_register = pointer_register;
             function_call_instruction->parameters = Array(parameter_count, instruction_parameters);
             function_call_instruction->return_type = return_ir_type;
-            function_call_instruction->calling_convention = function.calling_convention;
+            function_call_instruction->calling_convention = function_type.calling_convention;
 
             AnyRuntimeValue value;
-            if(!return_is_void) {
+            if(return_type.kind != TypeKind::Void) {
                 auto return_register = allocate_register(context);
 
                 function_call_instruction->return_register = return_register;
@@ -3870,7 +3911,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             instructions->append(function_call_instruction);
 
             return ok(TypedRuntimeValue(
-                *function.return_type,
+                return_type,
                 value
             ));
         } else if(expression_value.type.kind == TypeKind::Type) {
@@ -4880,6 +4921,24 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             parameters[i] = type;
         }
 
+        auto return_type_count = function_type->return_types.length;
+
+        auto return_types = allocate<AnyType>(return_type_count);
+
+        for(size_t i = 0; i < return_type_count; i += 1) {
+            auto expression = function_type->return_types[i];
+
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, expression));
+
+            if(!type.is_runtime_type()) {
+                error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+
+                return err();
+            }
+
+            return_types[i] = type;
+        }
+
         auto is_calling_convention_specified = false;
         auto calling_convention = CallingConvention::Default;
         for(auto tag : function_type->tags) {
@@ -4922,26 +4981,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             }
         }
 
-        AnyType return_type;
-        if(function_type->return_type == nullptr) {
-            return_type = AnyType::create_void();
-        } else {
-            expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, context, instructions, function_type->return_type));
-
-            if(!return_type_value.is_runtime_type()) {
-                error(scope, function_type->return_type->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(return_type_value.get_description()));
-
-                return err();
-            }
-
-            return_type = return_type_value;
-        }
-
         return ok(TypedRuntimeValue(
             AnyType::create_type_type(),
             AnyRuntimeValue(AnyConstantValue(AnyType(FunctionTypeType(
                 Array(parameter_count, parameters),
-                heapify(return_type),
+                Array(return_type_count, return_types),
                 calling_convention
             ))))
         ));
@@ -5585,32 +5629,63 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 auto return_instruction = new ReturnInstruction;
                 return_instruction->range = return_statement->range;
 
-                if(return_statement->value != nullptr) {
-                    if(context->return_type.kind == TypeKind::Void) {
-                        error(scope, return_statement->range, "Erroneous return value");
+                if(return_statement->values.length != context->return_types.length) {
+                    error(
+                        scope,
+                        return_statement->range,
+                        "Incorrect number of returns, expected %zu, got %zu",
+                        context->return_types.length,
+                        return_statement->values.length
+                    );
 
-                        return err();
-                    } else {
-                        expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, return_statement->value));
+                    return err();
+                }
+
+                auto return_type_count = context->return_types.length;
+
+                if(return_type_count == 1) {
+                    expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, return_statement->values[0]));
+
+                    expect(register_value, coerce_to_type_register(
+                        info,
+                        scope,
+                        context,
+                        instructions,
+                        return_statement->values[0]->range,
+                        value.type,
+                        value.value,
+                        context->return_types[0],
+                        false
+                    ));
+
+                    return_instruction->value_register = register_value.register_index;
+                } else if(return_type_count > 1) {
+                    auto return_struct_members = allocate<size_t>(return_type_count);
+
+                    for(size_t i = 0; i < return_type_count; i += 1) {
+                        expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, return_statement->values[i]));
 
                         expect(register_value, coerce_to_type_register(
                             info,
                             scope,
                             context,
                             instructions,
-                            return_statement->value->range,
+                            return_statement->values[i]->range,
                             value.type,
                             value.value,
-                            context->return_type,
+                            context->return_types[i],
                             false
                         ));
 
-                        return_instruction->value_register = register_value.register_index;
+                        return_struct_members[i] = register_value.register_index;
                     }
-                } else if(context->return_type.kind != TypeKind::Void) {
-                    error(scope, return_statement->range, "Missing return value");
 
-                    return err();
+                    return_instruction->value_register = append_assemble_struct(
+                        context,
+                        instructions,
+                        return_statement->range,
+                        Array(return_type_count, return_struct_members)
+                    );
                 }
 
                 instructions->append(return_instruction);
@@ -5676,7 +5751,20 @@ profiled_function(DelayedResult<void>, do_generate_function, (
 
     assert(runtime_parameter_index == runtime_parameter_count);
 
-    auto return_ir_type = get_pointable_ir_type(info.architecture_sizes, *type.return_type);
+    IRType return_ir_type;
+    if(type.return_types.length == 0) {
+        return_ir_type = IRType::create_void();
+    } else if(type.return_types.length == 1) {
+        return_ir_type = get_runtime_ir_type(info.architecture_sizes, type.return_types[0]);
+    } else {
+        auto return_struct_members = allocate<IRType>(type.return_types.length);
+
+        for(size_t i = 0; i < type.return_types.length; i += 1) {
+            return_struct_members[i] = get_runtime_ir_type(info.architecture_sizes, type.return_types[i]);
+        }
+
+        return_ir_type = IRType::create_struct(Array(type.return_types.length, return_struct_members));
+    }
 
     function->name = declaration->name.text;
     function->range = declaration->range;
@@ -5696,7 +5784,7 @@ profiled_function(DelayedResult<void>, do_generate_function, (
 
         GenerationContext context {};
 
-        context.return_type = *type.return_type;
+        context.return_types = type.return_types;
 
         context.next_register = runtime_parameter_count;
 
@@ -5758,7 +5846,7 @@ profiled_function(DelayedResult<void>, do_generate_function, (
         }
 
         if(!has_return_at_end) {
-            if(type.return_type->kind != TypeKind::Void) {
+            if(type.return_types.length > 0) {
                 error(value.body_scope, declaration->range, "Function '%.*s' must end with a return", STRING_PRINTF_ARGUMENTS(declaration->name.text));
 
                 return err();
