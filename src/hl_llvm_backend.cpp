@@ -189,13 +189,89 @@ static LLVMMetadataRef get_llvm_debug_type(
             parameters[i] = get_llvm_debug_type(debug_builder, file_debug_scopes, file_scope, architecture_sizes, function.parameters[i]);
         }
 
-        auto return_llvm_debug_type = get_llvm_debug_type(
-            debug_builder,
-            file_debug_scopes,
-            file_scope,
-            architecture_sizes,
-            *function.return_type
-        );
+        LLVMMetadataRef return_llvm_debug_type;
+        if(function.return_types.length == 0) {
+            auto name = "void"_S;
+            return_llvm_debug_type = LLVMDIBuilderCreateUnspecifiedType(debug_builder, name.elements, name.length);
+        } else if(function.return_types.length == 1) {
+            return_llvm_debug_type = get_llvm_debug_type(
+                debug_builder,
+                file_debug_scopes,
+                file_scope,
+                architecture_sizes,
+                function.return_types[0]
+            );
+        } else {
+            auto elements = allocate<LLVMMetadataRef>(function.return_types.length);
+
+            size_t size = 0;
+            size_t alignment = 0;
+            size_t current_offset = 0;
+            for(size_t i = 0; i < function.return_types.length; i += 1) {
+                auto return_debug_type = get_llvm_debug_type(
+                    debug_builder,
+                    file_debug_scopes,
+                    file_scope,
+                    architecture_sizes,
+                    function.return_types[i]
+                );
+
+                auto member_size = function.return_types[i].get_size(architecture_sizes);
+                auto member_alignment = function.return_types[i].get_alignment(architecture_sizes);
+
+                if(member_alignment > alignment) {
+                    alignment = member_alignment;
+                }
+
+                auto alignment_difference = current_offset % member_alignment;
+
+                uint64_t offset;
+                if(alignment_difference != 0) {
+                    offset = member_alignment - alignment_difference;
+                } else {
+                    offset = 0;
+                }
+
+                auto member_offset = current_offset + offset;
+
+                current_offset += offset + member_size;
+
+                size += offset + member_size;
+
+                elements[i] = LLVMDIBuilderCreateMemberType(
+                    debug_builder,
+                    file_scope,
+                    nullptr,
+                    0,
+                    file_scope,
+                    0,
+                    member_size * 8,
+                    member_alignment * 8,
+                    member_offset * 8,
+                    LLVMDIFlagZero,
+                    return_debug_type
+                );
+            }
+
+            return_llvm_debug_type = LLVMDIBuilderCreateStructType(
+                debug_builder,
+                file_scope,
+                nullptr,
+                0,
+                file_scope,
+                0,
+                size * 8,
+                alignment * 8,
+                LLVMDIFlagZero,
+                nullptr,
+                elements,
+                function.return_types.length,
+                0,
+                nullptr,
+                nullptr,
+                0
+            );
+        }
 
         return LLVMDIBuilderCreateSubroutineType(
             debug_builder,
