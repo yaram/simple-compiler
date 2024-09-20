@@ -1915,6 +1915,45 @@ namespace {
                         return ok((Statement*)new BreakStatement(
                             span_range(first_range, last_range)
                         ));
+                    } else if(token.identifier == "asm"_S) {
+                        expect(assembly, expect_string());
+
+                        expect(token, peek_token());
+
+                        List<InlineAssembly::Binding> bindings {};
+                        if(token.kind == TokenKind::Comma) {
+                            consume_token();
+
+                            while(true) {
+                                expect(description, expect_string());
+
+                                expect_void(expect_basic_token(TokenKind::Equals));
+
+                                expect(value, parse_expression(OperatorPrecedence::None));
+
+                                InlineAssembly::Binding binding {};
+                                binding.description = description;
+                                binding.value = value;
+
+                                bindings.append(binding);
+
+                                expect(token, peek_token());
+
+                                if(token.kind == TokenKind::Comma) {
+                                    consume_token();
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+
+                        expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
+
+                        return ok((Statement*)new InlineAssembly(
+                            span_range(first_range, last_range),
+                            assembly,
+                            bindings
+                        ));
                     } else if(token.identifier == "using"_S) {
                         expect(maybe_export_token, peek_token());
 

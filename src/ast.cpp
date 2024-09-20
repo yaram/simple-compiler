@@ -1029,15 +1029,14 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
     } else if(statement->kind == StatementKind::ReturnStatement) {
         auto return_statement = (ReturnStatement*)statement;
 
-        printf("ReturnStatement");
+        printf("ReturnStatement: [");
 
-        printf(": [");
         if(return_statement->values.length != 0) {
             printf("\n");
 
             for(auto value : return_statement->values) {
-                indent(indentation_level + 2);
-                print_expression_internal(value, indentation_level + 2);
+                indent(indentation_level + 1);
+                print_expression_internal(value, indentation_level + 1);
                 printf("\n");
             }
 
@@ -1047,6 +1046,31 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
         printf("]");
     } else if(statement->kind == StatementKind::BreakStatement) {
         printf("BreakStatement");
+    } else if(statement->kind == StatementKind::InlineAssembly) {
+        auto inline_assembly = (InlineAssembly*)statement;
+
+        printf("InlineAssembly: {\n");
+
+        indent(indentation_level + 1);
+        printf("assembly: \"%.*s\"\n", STRING_PRINTF_ARGUMENTS(inline_assembly->assembly));
+
+        indent(indentation_level + 1);
+        printf("bindings: [");
+
+        if(inline_assembly->bindings.length != 0) {
+            printf("\n");
+
+            for(auto binding : inline_assembly->bindings) {
+                indent(indentation_level + 2);
+                printf("\"%.*s\" = ", STRING_PRINTF_ARGUMENTS(binding.description));
+                print_expression_internal(binding.value, indentation_level + 2);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
+        }
+
+        printf("]");
     } else if(statement->kind == StatementKind::Import) {
         auto import = (Import*)statement;
 

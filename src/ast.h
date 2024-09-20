@@ -326,6 +326,7 @@ enum struct StatementKind {
     ForLoop,
     ReturnStatement,
     BreakStatement,
+    InlineAssembly,
     Import,
     UsingStatement,
     StaticIf
@@ -702,6 +703,27 @@ struct BreakStatement : Statement {
         FileRange range
     ) :
         Statement { StatementKind::BreakStatement, range }
+    {}
+};
+
+struct InlineAssembly : Statement {
+    struct Binding {
+        String description;
+        Expression* value;
+    };
+
+    String assembly;
+
+    Array<Binding> bindings;
+
+    explicit inline InlineAssembly(
+        FileRange range,
+        String assembly,
+        Array<Binding> bindings
+    ) :
+        Statement { StatementKind::InlineAssembly, range },
+        assembly { assembly },
+        bindings { bindings }
     {}
 };
 
