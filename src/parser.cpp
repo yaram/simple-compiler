@@ -350,16 +350,40 @@ namespace {
 
                             expect(post_token, peek_token());
 
-                            Expression* return_type;
+                            List<Expression*> return_types {};
                             if(post_token.kind == TokenKind::Arrow) {
                                 consume_token();
 
-                                expect(expression, parse_expression(OperatorPrecedence::None));
+                                expect(token, peek_token());
 
-                                return_type = expression;
-                                last_range = expression->range;
-                            } else {
-                                return_type = nullptr;
+                                if(token.kind == TokenKind::OpenRoundBracket) {
+                                    consume_token();
+
+                                    while(true) {
+                                        expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                        return_types.append(expression);
+
+                                        expect(token, peek_token());
+
+                                        if(token.kind == TokenKind::Comma) {
+                                            consume_token();
+                                        } else if(token.kind == TokenKind::CloseRoundBracket) {
+                                            consume_token();
+
+                                            last_range = expression->range;
+
+                                            break;
+                                        } else {
+                                            error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                        }
+                                    }
+                                } else {
+                                    expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                    return_types.append(expression);
+                                    last_range = expression->range;
+                                }
                             }
 
                             expect(tags, parse_tags());
@@ -367,7 +391,7 @@ namespace {
                             left_expression = new FunctionType(
                                 span_range(first_range, last_range),
                                 parameters,
-                                return_type,
+                                return_types,
                                 tags
                             );
                         } break;
@@ -379,16 +403,38 @@ namespace {
 
                             expect(token, peek_token());
 
-                            Expression* return_type;
+                            List<Expression*> return_types {};
                             if(token.kind == TokenKind::Arrow) {
                                 consume_token();
 
-                                expect(expression, parse_expression(OperatorPrecedence::None));
+                                expect(token, peek_token());
 
-                                return_type = expression;
-                                last_range = expression->range;
-                            } else {
-                                return_type = nullptr;
+                                if(token.kind == TokenKind::OpenRoundBracket) {
+                                    consume_token();
+
+                                    while(true) {
+                                        expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                        return_types.append(expression);
+
+                                        expect(token, peek_token());
+
+                                        if(token.kind == TokenKind::Comma) {
+                                            consume_token();
+                                        } else if(token.kind == TokenKind::CloseRoundBracket) {
+                                            last_range = token_range(token);
+
+                                            break;
+                                        } else {
+                                            error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                        }
+                                    }
+                                } else {
+                                    expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                    return_types.append(expression);
+                                    last_range = expression->range;
+                                }
                             }
 
                             expect(tags, parse_tags());
@@ -396,7 +442,7 @@ namespace {
                             left_expression = new FunctionType(
                                 span_range(first_range, last_range),
                                 Array<FunctionParameter>::empty(),
-                                return_type,
+                                return_types,
                                 tags
                             );
                         } break;
@@ -484,16 +530,40 @@ namespace {
 
                                 expect(post_token, peek_token());
 
-                                Expression* return_type;
+                                List<Expression*> return_types {};
                                 if(post_token.kind == TokenKind::Arrow) {
                                     consume_token();
 
-                                    expect(expression, parse_expression(OperatorPrecedence::None));
+                                    expect(token, peek_token());
 
-                                    return_type = expression;
-                                    last_range = expression->range;
-                                } else {
-                                    return_type = nullptr;
+                                    if(token.kind == TokenKind::OpenRoundBracket) {
+                                        consume_token();
+
+                                        while(true) {
+                                            expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                            return_types.append(expression);
+
+                                            expect(token, peek_token());
+
+                                            if(token.kind == TokenKind::Comma) {
+                                                consume_token();
+                                            } else if(token.kind == TokenKind::CloseRoundBracket) {
+                                                consume_token();
+
+                                                last_range = token_range(token);
+
+                                                break;
+                                            } else {
+                                                error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                            }
+                                        }
+                                    } else {
+                                        expect(expression, parse_expression(OperatorPrecedence::None));
+
+                                        return_types.append(expression);
+                                        last_range = expression->range;
+                                    }
                                 }
 
                                 expect(tags, parse_tags());
@@ -501,7 +571,7 @@ namespace {
                                 left_expression = new FunctionType(
                                     span_range(first_range, last_range),
                                     parameters,
-                                    return_type,
+                                    return_types,
                                     tags
                                 );
                             } else {
@@ -1378,21 +1448,40 @@ namespace {
 
             expect(pre_token, peek_token());
 
-            Expression* return_type;
-            switch(pre_token.kind) {
-                case TokenKind::Arrow: {
+            List<Expression*> return_types {};
+            if(pre_token.kind == TokenKind::Arrow) {
+                consume_token();
+
+                expect(token, peek_token());
+
+                if(token.kind == TokenKind::OpenRoundBracket) {
                     consume_token();
 
-                    last_range = token_range(pre_token);
+                    while(true) {
+                        expect(expression, parse_expression(OperatorPrecedence::None));
 
+                        return_types.append(expression);
+
+                        expect(token, peek_token());
+
+                        if(token.kind == TokenKind::Comma) {
+                            consume_token();
+                        } else if(token.kind == TokenKind::CloseRoundBracket) {
+                            consume_token();
+
+                            last_range = token_range(token);
+
+                            break;
+                        } else {
+                            error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                        }
+                    }
+                } else {
                     expect(expression, parse_expression(OperatorPrecedence::None));
 
-                    return_type = expression;
-                } break;
-
-                default: {
-                    return_type = nullptr;
-                } break;
+                    return_types.append(expression);
+                    last_range = expression->range;
+                }
             }
 
             expect(tags, parse_tags());
@@ -1425,7 +1514,7 @@ namespace {
                         span_range(name.range, last_range),
                         name,
                         parameters,
-                        return_type,
+                        return_types,
                         tags,
                         statements
                     ));
@@ -1438,7 +1527,7 @@ namespace {
                         span_range(name.range, last_range),
                         name,
                         parameters,
-                        return_type,
+                        return_types,
                         tags
                     ));
                 } break;
@@ -1788,27 +1877,37 @@ namespace {
                     } else if(token.identifier == "return"_S) {
                         expect(token, peek_token());
 
-                        Expression* value;
+                        List<Expression*> values {};
                         FileRange last_range;
                         if(token.kind == TokenKind::Semicolon) {
                             consume_token();
 
                             last_range = token_range(token);
-
-                            value = nullptr;
                         } else {
-                            expect(expression, parse_expression(OperatorPrecedence::None));
+                            while(true) {
+                                expect(expression, parse_expression(OperatorPrecedence::None));
 
-                            expect(range, expect_basic_token_with_range(TokenKind::Semicolon));
+                                values.append(expression);
 
-                            last_range = range;
+                                expect(token, peek_token());
 
-                            value = expression;
+                                if(token.kind == TokenKind::Comma) {
+                                    consume_token();
+                                } else if(token.kind == TokenKind::Semicolon) {
+                                    consume_token();
+
+                                    last_range = token_range(token);
+
+                                    break;
+                                } else {
+                                    error("Expected ',' or ';'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                }
+                            }
                         }
 
                         return ok((Statement*)new ReturnStatement(
                             span_range(first_range, last_range),
-                            value
+                            values
                         ));
                     } else if(token.identifier == "break"_S) {
                         expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));

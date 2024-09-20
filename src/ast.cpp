@@ -347,14 +347,22 @@ static void print_expression_internal(Expression* expression, unsigned int inden
 
         printf("}\n");
 
-        if(function_type->return_type != nullptr) {
-            indent(indentation_level + 1);
-            printf("return_type: ");
+        indent(indentation_level + 1);
+        printf("return_types: [");
 
-            print_expression_internal(function_type->return_type, indentation_level + 1);
-
+        if(function_type->return_types.length != 0) {
             printf("\n");
+
+            for(auto return_type : function_type->return_types) {
+                indent(indentation_level + 2);
+                print_expression_internal(return_type, indentation_level + 2);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
         }
+
+        printf("]\n");
 
         indent(indentation_level + 1);
         printf("tags: {");
@@ -459,14 +467,22 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
 
         printf("}\n");
 
-        if(function_declaration->return_type != nullptr) {
-            indent(indentation_level + 1);
-            printf("return_type: ");
+        indent(indentation_level + 1);
+        printf("return_types: [");
 
-            print_expression_internal(function_declaration->return_type, indentation_level + 1);
-
+        if(function_declaration->return_types.length != 0) {
             printf("\n");
+
+            for(auto return_type : function_declaration->return_types) {
+                indent(indentation_level + 2);
+                print_expression_internal(return_type, indentation_level + 2);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
         }
+
+        printf("]\n");
 
         indent(indentation_level + 1);
         printf("tags: {");
@@ -924,10 +940,20 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
 
         printf("ReturnStatement");
 
-        if(return_statement->value) {
-            printf(": ");
-            print_expression_internal(return_statement->value, indentation_level);
+        printf(": [");
+        if(return_statement->values.length != 0) {
+            printf("\n");
+
+            for(auto value : return_statement->values) {
+                indent(indentation_level + 2);
+                print_expression_internal(value, indentation_level + 2);
+                printf("\n");
+            }
+
+            indent(indentation_level + 1);
         }
+
+        printf("]");
     } else if(statement->kind == StatementKind::BreakStatement) {
         printf("BreakStatement");
     } else if(statement->kind == StatementKind::Import) {

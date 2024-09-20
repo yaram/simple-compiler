@@ -292,19 +292,19 @@ struct ArrayType : Expression {
 struct FunctionType : Expression {
     Array<FunctionParameter> parameters;
 
-    Expression* return_type;
+    Array<Expression*> return_types;
 
     Array<Tag> tags;
 
     explicit inline FunctionType(
         FileRange range,
         Array<FunctionParameter> parameters,
-        Expression* return_type,
+        Array<Expression*> return_types,
         Array<Tag> tags
     ) :
         Expression { ExpressionKind::FunctionType, range },
         parameters { parameters },
-        return_type { return_type },
+        return_types { return_types },
         tags { tags }
     {}
 };
@@ -342,7 +342,7 @@ struct FunctionDeclaration : Statement {
 
     Array<FunctionParameter> parameters;
 
-    Expression* return_type;
+    Array<Expression*> return_types;
 
     Array<Tag> tags;
 
@@ -353,14 +353,14 @@ struct FunctionDeclaration : Statement {
         FileRange range,
         Identifier name,
         Array<FunctionParameter> parameters,
-        Expression* return_type,
+        Array<Expression*> return_types,
         Array<Tag> tags,
         Array<Statement*> statements
     ) :
         Statement { StatementKind::FunctionDeclaration, range },
         name { name },
         parameters { parameters },
-        return_type { return_type },
+        return_types { return_types },
         tags { tags },
         has_body { true },
         statements { statements }
@@ -370,13 +370,13 @@ struct FunctionDeclaration : Statement {
         FileRange range,
         Identifier name,
         Array<FunctionParameter> parameters,
-        Expression* return_type,
+        Array<Expression*> return_types,
         Array<Tag> tags
     ) :
         Statement { StatementKind::FunctionDeclaration, range },
         name { name },
         parameters { parameters },
-        return_type { return_type },
+        return_types { return_types },
         tags { tags },
         has_body { false }
     {}
@@ -644,14 +644,14 @@ struct ForLoop : Statement {
 };
 
 struct ReturnStatement : Statement {
-    Expression* value;
+    Array<Expression*> values;
 
     explicit inline ReturnStatement(
         FileRange range,
-        Expression* value
+        Array<Expression*> values
     ) :
         Statement { StatementKind::ReturnStatement, range },
-        value { value }
+        values { values }
     {}
 };
 
