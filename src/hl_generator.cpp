@@ -5181,6 +5181,384 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 ) {
                     return err();
                 }
+            } else if(statement->kind == StatementKind::MultiReturnVariableDeclaration) {
+                auto variable_declaration = (MultiReturnVariableDeclaration*)statement;
+
+                assert(variable_declaration->names.length > 1);
+
+                expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->function));
+
+                FunctionTypeType function_type;
+                size_t parameter_count;
+                FunctionCallInstruction::Parameter* instruction_parameters;
+                size_t pointer_register;
+                if(expression_value.type.kind == TypeKind::FunctionTypeType || expression_value.type.kind == TypeKind::PolymorphicFunction) {
+                    auto call_parameter_count = variable_declaration->parameters.length;
+
+                    auto call_parameters = allocate<TypedRuntimeValue>(call_parameter_count);
+                    for(size_t i = 0; i < call_parameter_count; i += 1) {
+                        expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->parameters[i]));
+
+                        call_parameters[i] = parameter_value;
+                    }
+
+                    FunctionConstant function_value;
+                    if(expression_value.type.kind == TypeKind::PolymorphicFunction) {
+                        auto constant_value = expression_value.value.unwrap_constant_value();
+
+                        auto polymorphic_function_value = constant_value.unwrap_polymorphic_function();
+
+                        auto declaration_parameters = polymorphic_function_value.declaration->parameters;
+                        auto declaration_parameter_count = declaration_parameters.length;
+
+                        if(call_parameter_count != declaration_parameter_count) {
+                            error(
+                                scope,
+                                variable_declaration->range,
+                                "Incorrect number of parameters. Expected %zu, got %zu",
+                                declaration_parameter_count,
+                                call_parameter_count
+                            );
+
+                            return err();
+                        }
+
+                        auto polymorphic_parameters = allocate<TypedConstantValue>(declaration_parameter_count);
+
+                        for(size_t i = 0; i < declaration_parameter_count; i += 1) {
+                            auto declaration_parameter = declaration_parameters[i];
+
+                            if(declaration_parameter.is_polymorphic_determiner) {
+                                polymorphic_parameters[i].type = call_parameters[i].type;
+                            }
+
+                            if(declaration_parameter.is_constant) {
+                                if(call_parameters[i].value.kind != RuntimeValueKind::ConstantValue) {
+                                    error(
+                                        scope,
+                                        variable_declaration->parameters[i]->range,
+                                        "Non-constant value provided for constant parameter '%.*s'",
+                                        STRING_PRINTF_ARGUMENTS(declaration_parameter.name.text)
+                                    );
+
+                                    return err();
+                                }
+
+                                polymorphic_parameters[i] = TypedConstantValue(
+                                    call_parameters[i].type,
+                                    call_parameters[i].value.constant
+                                );
+                            }
+                        }
+
+                        auto found = false;
+                        for(size_t i = 0; i < jobs->length; i += 1) {
+                            auto job = (*jobs)[i];
+
+                            if(job.kind == JobKind::ResolvePolymorphicFunction) {
+                                auto resolve_polymorphic_function = job.resolve_polymorphic_function;
+
+                                if(
+                                    resolve_polymorphic_function.declaration == polymorphic_function_value.declaration &&
+                                    resolve_polymorphic_function.scope == polymorphic_function_value.scope
+                                ) {
+                                    auto matching_polymorphic_parameters = true;
+                                    for(size_t i = 0; i < declaration_parameter_count; i += 1) {
+                                        auto declaration_parameter = declaration_parameters[i];
+                                        auto call_parameter = polymorphic_parameters[i];
+                                        auto job_parameter = resolve_polymorphic_function.parameters[i];
+
+                                        if(
+                                            (declaration_parameter.is_polymorphic_determiner || declaration_parameter.is_constant) &&
+                                            job_parameter.type != call_parameter.type
+                                        ) {
+                                            matching_polymorphic_parameters = false;
+                                            break;
+                                        }
+
+                                        if(
+                                            declaration_parameter.is_constant &&
+                                            !constant_values_equal(call_parameter.value, job_parameter.value)
+                                        ) {
+                                            matching_polymorphic_parameters = false;
+                                            break;
+                                        }
+                                    }
+
+                                    if(!matching_polymorphic_parameters) {
+                                        continue;
+                                    }
+
+                                    if(job.state == JobState::Done) {
+                                        found = true;
+
+                                        function_type = resolve_polymorphic_function.type;
+                                        function_value = resolve_polymorphic_function.value;
+
+                                        break;
+                                    } else {
+                                        return wait(i);
+                                    }  
+                                }
+                            }
+                        }
+
+                        if(!found) {
+                            auto call_parameter_ranges = allocate<FileRange>(declaration_parameter_count);
+
+                            for(size_t i = 0; i < declaration_parameter_count; i += 1) {
+                                call_parameter_ranges[i] = variable_declaration->parameters[i]->range;
+                            }
+
+                            AnyJob job;
+                            job.kind = JobKind::ResolvePolymorphicFunction;
+                            job.state = JobState::Working;
+                            job.resolve_polymorphic_function.declaration = polymorphic_function_value.declaration;
+                            job.resolve_polymorphic_function.parameters = polymorphic_parameters;
+                            job.resolve_polymorphic_function.scope = polymorphic_function_value.scope;
+                            job.resolve_polymorphic_function.call_scope = scope;
+                            job.resolve_polymorphic_function.call_parameter_ranges = call_parameter_ranges;
+
+                            auto job_index = jobs->append(job);
+
+                            return wait(job_index);
+                        }
+                    } else {
+                        function_type = expression_value.type.function;
+
+                        auto constant_value = expression_value.value.unwrap_constant_value();
+
+                        function_value = constant_value.unwrap_function();
+
+                        if(call_parameter_count != function_type.parameters.length) {
+                            error(
+                                scope,
+                                variable_declaration->range,
+                                "Incorrect number of parameters. Expected %zu, got %zu",
+                                function_type.parameters.length,
+                                call_parameter_count
+                            );
+
+                            return err();
+                        }
+                    }
+
+                    parameter_count = function_type.parameters.length;
+
+                    auto found = false;
+                    Function* runtime_function;
+                    for(size_t i = 0; i < jobs->length; i += 1) {
+                        auto job = (*jobs)[i];
+
+                        if(job.kind == JobKind::GenerateFunction) {
+                            auto generate_function = job.generate_function;
+
+                            if(
+                                AnyType(generate_function.type) == AnyType(function_type) &&
+                                generate_function.value.declaration == function_value.declaration &&
+                                generate_function.value.body_scope == function_value.body_scope
+                            ) {
+                                found = true;
+
+                                runtime_function = generate_function.function;
+
+                                break;
+                            }
+                        }
+                    }
+
+                    if(!found) {
+                        runtime_function = new Function;
+
+                        AnyJob job;
+                        job.kind = JobKind::GenerateFunction;
+                        job.state = JobState::Working;
+                        job.generate_function.type = function_type;
+                        job.generate_function.value = function_value;
+                        job.generate_function.function = runtime_function;
+
+                        jobs->append(job);
+                    }
+
+                    if(function_type.return_types.length != variable_declaration->names.length) {
+                        error(
+                            scope,
+                            variable_declaration->range,
+                            "Incorrect number of variables for function returns. Got %zu, expected %zu",
+                            variable_declaration->names.length,
+                            function_type.return_types.length
+                        );
+
+                        return err();
+                    }
+
+                    instruction_parameters = allocate<FunctionCallInstruction::Parameter>(parameter_count);
+
+                    size_t runtime_parameter_index = 0;
+                    for(size_t i = 0; i < call_parameter_count; i += 1) {
+                        if(!function_value.declaration->parameters[i].is_constant) {
+                            expect(parameter_register, coerce_to_type_register(
+                                info,
+                                scope,
+                                context,
+                                instructions,
+                                variable_declaration->parameters[i]->range,
+                                call_parameters[i].type,
+                                call_parameters[i].value,
+                                function_type.parameters[i],
+                                false
+                            ));
+
+                            auto ir_type = get_runtime_ir_type(info.architecture_sizes, function_type.parameters[i]);
+
+                            instruction_parameters[i] = {
+                                ir_type,
+                                parameter_register.register_index
+                            };
+
+                            runtime_parameter_index += 1;
+                        }
+                    }
+
+                    assert(runtime_parameter_index == parameter_count);
+
+                    pointer_register = append_reference_static(context, instructions, variable_declaration->range, runtime_function);
+                } else if(expression_value.type.kind == TypeKind::BuiltinFunction) {
+                    error(scope, variable_declaration->range, "Builtin functions cannot have multiple returns");
+
+                    return err();
+                } else if(expression_value.type.kind == TypeKind::Pointer) {
+                    auto pointer = expression_value.type.pointer;
+
+                    if(pointer.pointed_to_type->kind != TypeKind::FunctionTypeType) {
+                        error(scope, variable_declaration->function->range, "Cannot call '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+
+                        return err();
+                    }
+
+                    function_type = pointer.pointed_to_type->function;
+
+                    auto function_ir_type = get_pointable_ir_type(info.architecture_sizes, *pointer.pointed_to_type);
+
+                    auto pointer_ir_type = IRType::create_pointer(heapify(function_ir_type));
+
+                    pointer_register = generate_in_register_value(
+                        context,
+                        instructions,
+                        variable_declaration->function->range,
+                        pointer_ir_type,
+                        expression_value.value
+                    );
+
+                    parameter_count = function_type.parameters.length;
+
+                    if(variable_declaration->parameters.length != parameter_count) {
+                        error(
+                            scope,
+                            variable_declaration->range,
+                            "Incorrect number of parameters. Expected %zu, got %zu",
+                            parameter_count,
+                            variable_declaration->parameters.length
+                        );
+
+                        return err();
+                    }
+
+                    if(function_type.return_types.length != variable_declaration->names.length) {
+                        error(
+                            scope,
+                            variable_declaration->range,
+                            "Incorrect number of variables for function returns. Got %zu, expected %zu",
+                            variable_declaration->names.length,
+                            function_type.return_types.length
+                        );
+
+                        return err();
+                    }
+
+                    instruction_parameters = allocate<FunctionCallInstruction::Parameter>(parameter_count);
+
+                    for(size_t i = 0; i < parameter_count; i += 1) {
+                        expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->parameters[i]));
+
+                        expect(parameter_register, coerce_to_type_register(
+                            info,
+                            scope,
+                            context,
+                            instructions,
+                            variable_declaration->parameters[i]->range,
+                            parameter_value.type,
+                            parameter_value.value,
+                            function_type.parameters[i],
+                            false
+                        ));
+
+                        auto parameter_ir_type = get_runtime_ir_type(info.architecture_sizes, function_type.parameters[i]);
+
+                        instruction_parameters[i] = {
+                            parameter_ir_type,
+                            parameter_register.register_index
+                        };
+                    }
+                }
+
+                auto return_struct_member_ir_types = allocate<IRType>(function_type.return_types.length);
+
+                for(size_t i = 0; i < function_type.return_types.length; i += 1) {
+                    return_struct_member_ir_types[i] = get_runtime_ir_type(info.architecture_sizes, function_type.return_types[i]);
+                }
+
+                auto return_ir_type = IRType::create_struct(Array(function_type.return_types.length, return_struct_member_ir_types));
+
+                auto return_register = allocate_register(context);
+
+                auto function_call_instruction = new FunctionCallInstruction;
+                function_call_instruction->range = variable_declaration->range;
+                function_call_instruction->pointer_register = pointer_register;
+                function_call_instruction->parameters = Array(parameter_count, instruction_parameters);
+                function_call_instruction->return_type = return_ir_type;
+                function_call_instruction->return_register = return_register;
+                function_call_instruction->calling_convention = function_type.calling_convention;
+
+                instructions->append(function_call_instruction);
+
+                for(size_t i = 0; i < function_type.return_types.length; i += 1) {
+                    auto return_struct_register = append_read_struct_member(
+                        context,
+                        instructions,
+                        variable_declaration->names[i].range,
+                        i,
+                        return_register
+                    );
+
+                    auto pointer_register = append_allocate_local(
+                        context,
+                        instructions,
+                        variable_declaration->names[i].range,
+                        return_struct_member_ir_types[i],
+                        variable_declaration->names[i].text,
+                        function_type.return_types[i]
+                    );
+
+                    append_store(
+                        context,
+                        instructions,
+                        variable_declaration->names[i].range,
+                        return_struct_register,
+                        pointer_register
+                    );
+
+                    if(
+                        !add_new_variable(
+                            context,
+                            variable_declaration->names[i],
+                            function_type.return_types[i],
+                            AddressedValue(return_struct_member_ir_types[i], pointer_register)
+                        ).status
+                    ) {
+                        return err();
+                    }
+                }
             } else if(statement->kind == StatementKind::Assignment) {
                 auto assignment = (Assignment*)statement;
 
@@ -5218,6 +5596,389 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     register_value.register_index,
                     pointer_register
                 );
+            } else if(statement->kind == StatementKind::MultiReturnAssignment) {
+                auto assignment = (MultiReturnAssignment*)statement;
+
+                assert(assignment->targets.length > 1);
+
+                expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, assignment->function));
+
+                FunctionTypeType function_type;
+                size_t parameter_count;
+                FunctionCallInstruction::Parameter* instruction_parameters;
+                size_t pointer_register;
+                if(expression_value.type.kind == TypeKind::FunctionTypeType || expression_value.type.kind == TypeKind::PolymorphicFunction) {
+                    auto call_parameter_count = assignment->parameters.length;
+
+                    auto call_parameters = allocate<TypedRuntimeValue>(call_parameter_count);
+                    for(size_t i = 0; i < call_parameter_count; i += 1) {
+                        expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, assignment->parameters[i]));
+
+                        call_parameters[i] = parameter_value;
+                    }
+
+                    FunctionConstant function_value;
+                    if(expression_value.type.kind == TypeKind::PolymorphicFunction) {
+                        auto constant_value = expression_value.value.unwrap_constant_value();
+
+                        auto polymorphic_function_value = constant_value.unwrap_polymorphic_function();
+
+                        auto declaration_parameters = polymorphic_function_value.declaration->parameters;
+                        auto declaration_parameter_count = declaration_parameters.length;
+
+                        if(call_parameter_count != declaration_parameter_count) {
+                            error(
+                                scope,
+                                assignment->range,
+                                "Incorrect number of parameters. Expected %zu, got %zu",
+                                declaration_parameter_count,
+                                call_parameter_count
+                            );
+
+                            return err();
+                        }
+
+                        auto polymorphic_parameters = allocate<TypedConstantValue>(declaration_parameter_count);
+
+                        for(size_t i = 0; i < declaration_parameter_count; i += 1) {
+                            auto declaration_parameter = declaration_parameters[i];
+
+                            if(declaration_parameter.is_polymorphic_determiner) {
+                                polymorphic_parameters[i].type = call_parameters[i].type;
+                            }
+
+                            if(declaration_parameter.is_constant) {
+                                if(call_parameters[i].value.kind != RuntimeValueKind::ConstantValue) {
+                                    error(
+                                        scope,
+                                        assignment->parameters[i]->range,
+                                        "Non-constant value provided for constant parameter '%.*s'",
+                                        STRING_PRINTF_ARGUMENTS(declaration_parameter.name.text)
+                                    );
+
+                                    return err();
+                                }
+
+                                polymorphic_parameters[i] = TypedConstantValue(
+                                    call_parameters[i].type,
+                                    call_parameters[i].value.constant
+                                );
+                            }
+                        }
+
+                        auto found = false;
+                        for(size_t i = 0; i < jobs->length; i += 1) {
+                            auto job = (*jobs)[i];
+
+                            if(job.kind == JobKind::ResolvePolymorphicFunction) {
+                                auto resolve_polymorphic_function = job.resolve_polymorphic_function;
+
+                                if(
+                                    resolve_polymorphic_function.declaration == polymorphic_function_value.declaration &&
+                                    resolve_polymorphic_function.scope == polymorphic_function_value.scope
+                                ) {
+                                    auto matching_polymorphic_parameters = true;
+                                    for(size_t i = 0; i < declaration_parameter_count; i += 1) {
+                                        auto declaration_parameter = declaration_parameters[i];
+                                        auto call_parameter = polymorphic_parameters[i];
+                                        auto job_parameter = resolve_polymorphic_function.parameters[i];
+
+                                        if(
+                                            (declaration_parameter.is_polymorphic_determiner || declaration_parameter.is_constant) &&
+                                            job_parameter.type != call_parameter.type
+                                        ) {
+                                            matching_polymorphic_parameters = false;
+                                            break;
+                                        }
+
+                                        if(
+                                            declaration_parameter.is_constant &&
+                                            !constant_values_equal(call_parameter.value, job_parameter.value)
+                                        ) {
+                                            matching_polymorphic_parameters = false;
+                                            break;
+                                        }
+                                    }
+
+                                    if(!matching_polymorphic_parameters) {
+                                        continue;
+                                    }
+
+                                    if(job.state == JobState::Done) {
+                                        found = true;
+
+                                        function_type = resolve_polymorphic_function.type;
+                                        function_value = resolve_polymorphic_function.value;
+
+                                        break;
+                                    } else {
+                                        return wait(i);
+                                    }  
+                                }
+                            }
+                        }
+
+                        if(!found) {
+                            auto call_parameter_ranges = allocate<FileRange>(declaration_parameter_count);
+
+                            for(size_t i = 0; i < declaration_parameter_count; i += 1) {
+                                call_parameter_ranges[i] = assignment->parameters[i]->range;
+                            }
+
+                            AnyJob job;
+                            job.kind = JobKind::ResolvePolymorphicFunction;
+                            job.state = JobState::Working;
+                            job.resolve_polymorphic_function.declaration = polymorphic_function_value.declaration;
+                            job.resolve_polymorphic_function.parameters = polymorphic_parameters;
+                            job.resolve_polymorphic_function.scope = polymorphic_function_value.scope;
+                            job.resolve_polymorphic_function.call_scope = scope;
+                            job.resolve_polymorphic_function.call_parameter_ranges = call_parameter_ranges;
+
+                            auto job_index = jobs->append(job);
+
+                            return wait(job_index);
+                        }
+                    } else {
+                        function_type = expression_value.type.function;
+
+                        auto constant_value = expression_value.value.unwrap_constant_value();
+
+                        function_value = constant_value.unwrap_function();
+
+                        if(call_parameter_count != function_type.parameters.length) {
+                            error(
+                                scope,
+                                assignment->range,
+                                "Incorrect number of parameters. Expected %zu, got %zu",
+                                function_type.parameters.length,
+                                call_parameter_count
+                            );
+
+                            return err();
+                        }
+                    }
+
+                    parameter_count = function_type.parameters.length;
+
+                    auto found = false;
+                    Function* runtime_function;
+                    for(size_t i = 0; i < jobs->length; i += 1) {
+                        auto job = (*jobs)[i];
+
+                        if(job.kind == JobKind::GenerateFunction) {
+                            auto generate_function = job.generate_function;
+
+                            if(
+                                AnyType(generate_function.type) == AnyType(function_type) &&
+                                generate_function.value.declaration == function_value.declaration &&
+                                generate_function.value.body_scope == function_value.body_scope
+                            ) {
+                                found = true;
+
+                                runtime_function = generate_function.function;
+
+                                break;
+                            }
+                        }
+                    }
+
+                    if(!found) {
+                        runtime_function = new Function;
+
+                        AnyJob job;
+                        job.kind = JobKind::GenerateFunction;
+                        job.state = JobState::Working;
+                        job.generate_function.type = function_type;
+                        job.generate_function.value = function_value;
+                        job.generate_function.function = runtime_function;
+
+                        jobs->append(job);
+                    }
+
+                    if(function_type.return_types.length != assignment->targets.length) {
+                        error(
+                            scope,
+                            assignment->range,
+                            "Incorrect number of variables for function returns. Got %zu, expected %zu",
+                            assignment->targets.length,
+                            function_type.return_types.length
+                        );
+
+                        return err();
+                    }
+
+                    instruction_parameters = allocate<FunctionCallInstruction::Parameter>(parameter_count);
+
+                    size_t runtime_parameter_index = 0;
+                    for(size_t i = 0; i < call_parameter_count; i += 1) {
+                        if(!function_value.declaration->parameters[i].is_constant) {
+                            expect(parameter_register, coerce_to_type_register(
+                                info,
+                                scope,
+                                context,
+                                instructions,
+                                assignment->parameters[i]->range,
+                                call_parameters[i].type,
+                                call_parameters[i].value,
+                                function_type.parameters[i],
+                                false
+                            ));
+
+                            auto ir_type = get_runtime_ir_type(info.architecture_sizes, function_type.parameters[i]);
+
+                            instruction_parameters[i] = {
+                                ir_type,
+                                parameter_register.register_index
+                            };
+
+                            runtime_parameter_index += 1;
+                        }
+                    }
+
+                    assert(runtime_parameter_index == parameter_count);
+
+                    pointer_register = append_reference_static(context, instructions, assignment->range, runtime_function);
+                } else if(expression_value.type.kind == TypeKind::BuiltinFunction) {
+                    error(scope, assignment->range, "Builtin functions cannot have multiple returns");
+
+                    return err();
+                } else if(expression_value.type.kind == TypeKind::Pointer) {
+                    auto pointer = expression_value.type.pointer;
+
+                    if(pointer.pointed_to_type->kind != TypeKind::FunctionTypeType) {
+                        error(scope, assignment->function->range, "Cannot call '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+
+                        return err();
+                    }
+
+                    function_type = pointer.pointed_to_type->function;
+
+                    auto function_ir_type = get_pointable_ir_type(info.architecture_sizes, *pointer.pointed_to_type);
+
+                    auto pointer_ir_type = IRType::create_pointer(heapify(function_ir_type));
+
+                    pointer_register = generate_in_register_value(
+                        context,
+                        instructions,
+                        assignment->function->range,
+                        pointer_ir_type,
+                        expression_value.value
+                    );
+
+                    parameter_count = function_type.parameters.length;
+
+                    if(assignment->parameters.length != parameter_count) {
+                        error(
+                            scope,
+                            assignment->range,
+                            "Incorrect number of parameters. Expected %zu, got %zu",
+                            parameter_count,
+                            assignment->parameters.length
+                        );
+
+                        return err();
+                    }
+
+                    if(function_type.return_types.length != assignment->targets.length) {
+                        error(
+                            scope,
+                            assignment->range,
+                            "Incorrect number of variables for function returns. Got %zu, expected %zu",
+                            assignment->targets.length,
+                            function_type.return_types.length
+                        );
+
+                        return err();
+                    }
+
+                    instruction_parameters = allocate<FunctionCallInstruction::Parameter>(parameter_count);
+
+                    for(size_t i = 0; i < parameter_count; i += 1) {
+                        expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, assignment->parameters[i]));
+
+                        expect(parameter_register, coerce_to_type_register(
+                            info,
+                            scope,
+                            context,
+                            instructions,
+                            assignment->parameters[i]->range,
+                            parameter_value.type,
+                            parameter_value.value,
+                            function_type.parameters[i],
+                            false
+                        ));
+
+                        auto parameter_ir_type = get_runtime_ir_type(info.architecture_sizes, function_type.parameters[i]);
+
+                        instruction_parameters[i] = {
+                            parameter_ir_type,
+                            parameter_register.register_index
+                        };
+                    }
+                }
+
+                auto return_struct_member_ir_types = allocate<IRType>(function_type.return_types.length);
+
+                for(size_t i = 0; i < function_type.return_types.length; i += 1) {
+                    return_struct_member_ir_types[i] = get_runtime_ir_type(info.architecture_sizes, function_type.return_types[i]);
+                }
+
+                auto return_ir_type = IRType::create_struct(Array(function_type.return_types.length, return_struct_member_ir_types));
+
+                auto return_register = allocate_register(context);
+
+                auto function_call_instruction = new FunctionCallInstruction;
+                function_call_instruction->range = assignment->range;
+                function_call_instruction->pointer_register = pointer_register;
+                function_call_instruction->parameters = Array(parameter_count, instruction_parameters);
+                function_call_instruction->return_type = return_ir_type;
+                function_call_instruction->return_register = return_register;
+                function_call_instruction->calling_convention = function_type.calling_convention;
+
+                instructions->append(function_call_instruction);
+
+                for(size_t i = 0; i < function_type.return_types.length; i += 1) {
+                    expect_delayed(target, generate_expression(info, jobs, scope, context, instructions, assignment->targets[i]));
+
+                    size_t pointer_register;
+                    if(target.value.kind == RuntimeValueKind::AddressedValue){
+                        auto addressed_value = target.value.addressed;
+
+                        pointer_register = addressed_value.pointer_register;
+                    } else {
+                        error(scope, assignment->targets[i]->range, "Value is not assignable");
+
+                        return err();
+                    }
+
+                    auto return_struct_register = append_read_struct_member(
+                        context,
+                        instructions,
+                        assignment->targets[i]->range,
+                        i,
+                        return_register
+                    );
+
+                    expect(register_value, coerce_to_type_register(
+                        info,
+                        scope,
+                        context,
+                        instructions,
+                        assignment->range,
+                        function_type.return_types[i],
+                        AnyRuntimeValue(RegisterValue(return_struct_member_ir_types[i], return_struct_register)),
+                        target.type,
+                        false
+                    ));
+
+                    append_store(
+                        context,
+                        instructions,
+                        assignment->range,
+                        return_struct_register,
+                        pointer_register
+                    );
+                }
             } else if(statement->kind == StatementKind::BinaryOperationAssignment) {
                 auto binary_operation_assignment = (BinaryOperationAssignment*)statement;
 
