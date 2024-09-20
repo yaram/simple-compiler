@@ -8,7 +8,11 @@ bool AnyType::operator==(AnyType other) {
     }
 
     if(kind == TypeKind::FunctionTypeType) {
-        if(function.parameters.length != other.function.parameters.length) {
+        if(
+            function.parameters.length != other.function.parameters.length ||
+            function.return_types.length != other.function.return_types.length ||
+            function.calling_convention != other.function.calling_convention
+        ) {
             return false;
         }
 
@@ -18,11 +22,13 @@ bool AnyType::operator==(AnyType other) {
             }
         }
 
-        if(function.calling_convention != other.function.calling_convention) {
-            return false;
+        for(size_t i = 0; i < function.return_types.length; i += 1) {
+            if(function.return_types[i] != other.function.return_types[i]) {
+                return false;
+            }
         }
 
-        return *function.return_type == *other.function.return_type;
+        return true;
     } else if(kind == TypeKind::PolymorphicFunction) {
         return false;
     } else if(kind == TypeKind::BuiltinFunction) {
@@ -157,9 +163,24 @@ String AnyType::get_description() {
 
         buffer.append(")"_S);
 
-        if(function.return_type != nullptr) {
-            buffer.append(" . "_S);
-            buffer.append(function.return_type->get_description());
+        if(function.return_types.length != 0) {
+            buffer.append(" -> "_S);
+
+            if(function.return_types.length == 1) {
+                buffer.append(function.return_types[0].get_description());
+            } else {
+                buffer.append("("_S);
+
+                for(size_t i = 0; i < function.return_types.length; i += 1) {
+                    buffer.append(function.return_types[i].get_description());
+
+                    if(i != function.return_types.length - 1) {
+                        buffer.append(","_S);
+                    }
+                }
+
+                buffer.append(")"_S);
+            }
         }
 
         if(function.calling_convention != CallingConvention::Default) {
@@ -412,7 +433,7 @@ uint64_t StructType::get_size(ArchitectureSizes architecture_sizes) {
 
         auto member_size = member.type.get_size(architecture_sizes);
 
-        current_size += offset + member_size;     
+        current_size += offset + member_size;
     }
 
     return current_size;

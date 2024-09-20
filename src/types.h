@@ -11,13 +11,13 @@ struct StructTypeMember;
 
 struct FunctionTypeType {
     inline FunctionTypeType() = default;
-    explicit inline FunctionTypeType(Array<AnyType> parameters, AnyType* return_type, CallingConvention calling_convention) :
-        parameters(parameters), return_type(return_type), calling_convention(calling_convention)
+    explicit inline FunctionTypeType(Array<AnyType> parameters, Array<AnyType> return_types, CallingConvention calling_convention) :
+        parameters(parameters), return_types(return_types), calling_convention(calling_convention)
     {}
 
     Array<AnyType> parameters;
 
-    AnyType* return_type;
+    Array<AnyType> return_types;
 
     CallingConvention calling_convention;
 };

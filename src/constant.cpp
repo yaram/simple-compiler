@@ -3020,6 +3020,24 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             parameters[i] = type;
         }
 
+        auto return_type_count = function_type->return_types.length;
+
+        auto return_types = allocate<AnyType>(return_type_count);
+
+        for(size_t i = 0; i < return_type_count; i += 1) {
+            auto expression = function_type->return_types[i];
+
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, ignore_statement, expression));
+
+            if(!type.is_runtime_type()) {
+                error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+
+                return err();
+            }
+
+            return_types[i] = type;
+        }
+
         auto is_calling_convention_specified = false;
         auto calling_convention = CallingConvention::Default;
         for(auto tag : function_type->tags) {
@@ -3062,27 +3080,12 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             }
         }
 
-        AnyType return_type;
-        if(function_type->return_type == nullptr) {
-            return_type = AnyType::create_void();
-        } else {
-            expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, ignore_statement, function_type->return_type));
-
-            if(!return_type_value.is_runtime_type()) {
-                error(scope, function_type->return_type->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(return_type_value.get_description()));
-
-                return err();
-            }
-
-            return_type = return_type_value;
-        }
-
         return ok(TypedConstantValue(
             AnyType::create_type_type(),
             AnyConstantValue(
                 AnyType(FunctionTypeType(
                     Array(parameter_count, parameters),
-                    heapify(return_type),
+                    Array(return_type_count, return_types),
                     calling_convention
                 ))
             )
@@ -3166,6 +3169,24 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
         }
 
         parameter_types[i] = type;
+    }
+
+    auto return_type_count = declaration->return_types.length;
+
+    auto return_types = allocate<AnyType>(return_type_count);
+
+    for(size_t i = 0; i < return_type_count; i += 1) {
+        auto expression = declaration->return_types[i];
+
+        expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, expression));
+
+        if(!type.is_runtime_type()) {
+            error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+
+            return err();
+        }
+
+        return_types[i] = type;
     }
 
     auto is_external = false;
@@ -3280,21 +3301,6 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
         }
     }
 
-    AnyType return_type;
-    if(declaration->return_type) {
-        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, scope, nullptr, declaration->return_type));
-
-        if(!return_type_value.is_runtime_type()) {
-            error(scope, declaration->return_type->range, "Function return type cannot be '%.*s'", STRING_PRINTF_ARGUMENTS(return_type_value.get_description()));
-
-            return err();
-        }
-
-        return_type = return_type_value;
-    } else {
-        return_type = AnyType::create_void();
-    }
-
     if(is_external && is_no_mangle) {
         error(scope, declaration->range, "External functions cannot be no_mangle");
 
@@ -3313,7 +3319,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
             AnyConstantValue(
                 AnyType(FunctionTypeType(
                     Array(parameter_count, parameter_types),
-                    heapify(return_type),
+                    Array(return_type_count, return_types),
                     calling_convention
                 ))
             )
@@ -3359,7 +3365,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
         return ok(TypedConstantValue(
             AnyType(FunctionTypeType(
                 Array(parameter_count, parameter_types),
-                heapify(return_type),
+                Array(return_type_count, return_types),
                 calling_convention
             )),
             AnyConstantValue(function_constant)
@@ -3500,24 +3506,22 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
 
     assert(runtime_parameter_index == runtime_parameter_count);
 
-    AnyType return_type;
-    if(declaration->return_type) {
-        expect_delayed(return_type_value, evaluate_type_expression(info, jobs, &signature_scope, nullptr, declaration->return_type));
+    auto return_type_count = declaration->return_types.length;
 
-        if(!return_type_value.is_runtime_type()) {
-            error(
-                scope,
-                declaration->return_type->range,
-                "Function returns cannot be of type '%.*s'",
-                STRING_PRINTF_ARGUMENTS(return_type_value.get_description())
-            );
+    auto return_types = allocate<AnyType>(return_type_count);
+
+    for(size_t i = 0; i < return_type_count; i += 1) {
+        auto expression = declaration->return_types[i];
+
+        expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, expression));
+
+        if(!type.is_runtime_type()) {
+            error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
 
             return err();
         }
 
-        return_type = return_type_value;
-    } else {
-        return_type = AnyType::create_void();
+        return_types[i] = type;
     }
 
     for(auto tag : declaration->tags) {
@@ -3566,7 +3570,7 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
     FunctionResolutionResult result {};
     result.type.parameters.length = runtime_parameter_count;
     result.type.parameters.elements = runtime_parameter_types;
-    result.type.return_type = heapify(return_type);
+    result.type.return_types = Array(return_type_count, return_types);
     result.type.calling_convention = CallingConvention::Default;
     result.value = function_constant;
 
