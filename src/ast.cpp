@@ -233,6 +233,10 @@ static void print_expression_internal(Expression* expression, unsigned int inden
                 printf("Pointer");
             } break;
 
+            case UnaryOperation::Operator::PointerDereference: {
+                printf("PointerDereference");
+            } break;
+
             case UnaryOperation::Operator::BooleanInvert: {
                 printf("BooleanInvert");
             } break;

@@ -226,6 +226,7 @@ struct BinaryOperation : Expression {
 struct UnaryOperation : Expression {
     enum struct Operator {
         Pointer,
+        PointerDereference,
         BooleanInvert,
         Negation
     };

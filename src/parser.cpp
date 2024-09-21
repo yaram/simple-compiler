@@ -202,6 +202,18 @@ namespace {
                     );
                 } break;
 
+                case TokenKind::At: {
+                    consume_token();
+
+                    expect(expression, parse_expression(OperatorPrecedence::PrefixUnary));
+
+                    left_expression = new UnaryOperation(
+                        span_range(token_range(token), expression->range),
+                        UnaryOperation::Operator::PointerDereference,
+                        expression
+                    );
+                } break;
+
                 case TokenKind::Hash: {
                     consume_token();
 

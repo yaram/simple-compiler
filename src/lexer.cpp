@@ -524,6 +524,12 @@ namespace {
                     } else {
                         append_single_character_token(line, first_column, &tokens, TokenKind::Ampersand);
                     }
+                } else if(character == '@') {
+                    append_single_character_token(line, column, &tokens, TokenKind::At);
+
+                    consume_current_character();
+
+                    column += 1;
                 } else if(character == '|') {
                     auto first_column = column;
 

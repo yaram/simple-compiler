@@ -104,6 +104,10 @@ void Token::print() {
             printf("DoubleAmpersand");
         } break;
 
+        case TokenKind::At: {
+            printf("At");
+        } break;
+
         case TokenKind::Pipe: {
             printf("Pipe");
         } break;
@@ -266,6 +270,10 @@ String Token::get_text() {
 
         case TokenKind::DoubleAmpersand: {
             return "&&"_S;
+        } break;
+
+        case TokenKind::At: {
+            return "@"_S;
         } break;
 
         case TokenKind::Pipe: {

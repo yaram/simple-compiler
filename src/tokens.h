@@ -28,6 +28,7 @@ enum struct TokenKind {
     DoubleRightArrow,
     Ampersand,
     DoubleAmpersand,
+    At,
     Pipe,
     DoublePipe,
     Hash,
