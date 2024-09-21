@@ -2806,6 +2806,12 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 }
             } break;
 
+            case UnaryOperation::Operator::PointerDereference: {
+                error(scope, unary_operation->range, "Cannot dereference pointers at constant time");
+
+                return err();
+            } break;
+
             case UnaryOperation::Operator::BooleanInvert: {
                 if(expression_value.type.kind == TypeKind::Boolean) {
                     auto boolean_value = (expression_value.value.unwrap_boolean());

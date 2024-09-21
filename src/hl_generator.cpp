@@ -4190,6 +4190,38 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 ));
             } break;
 
+            case UnaryOperation::Operator::PointerDereference: {
+                if(expression_value.type.kind != TypeKind::Pointer) {
+                    error(scope, unary_operation->expression->range, "Expected a pointer, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+
+                    return err();
+                }
+
+                auto pointed_to_type = *expression_value.type.pointer.pointed_to_type;
+
+                if(!pointed_to_type.is_runtime_type()) {
+                    error(scope, unary_operation->expression->range, "Cannot dereference pointers to type '%.*s'", STRING_PRINTF_ARGUMENTS(pointed_to_type.get_description()));
+
+                    return err();
+                }
+
+                auto pointed_to_ir_type = get_runtime_ir_type(info.architecture_sizes, pointed_to_type);
+                auto pointer_ir_type = IRType::create_pointer(heapify(pointed_to_ir_type));
+
+                auto pointer_register = generate_in_register_value(
+                    context,
+                    instructions,
+                    unary_operation->expression->range,
+                    pointer_ir_type,
+                    expression_value.value
+                );
+
+                return ok(TypedRuntimeValue(
+                    pointed_to_type,
+                    AnyRuntimeValue(AddressedValue(pointed_to_ir_type, pointer_register))
+                ));
+            } break;
+
             case UnaryOperation::Operator::BooleanInvert: {
                 if(expression_value.type.kind != TypeKind::Boolean) {
                     error(scope, unary_operation->expression->range, "Expected bool, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
