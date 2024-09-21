@@ -776,24 +776,9 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
         printf("]\n");
 
         indent(indentation_level + 1);
-        printf("function: ");
-        print_expression_internal(variable_declaration->function, indentation_level + 1);
+        printf("initializer: ");
+        print_expression_internal(variable_declaration->initializer, indentation_level + 1);
         printf("\n");
-
-        indent(indentation_level + 1);
-        printf("parameters: [");
-
-        if(variable_declaration->parameters.length != 0) {
-            printf("\n");
-
-            for(auto parameter : variable_declaration->parameters) {
-                indent(indentation_level + 2);
-                print_expression_internal(parameter, indentation_level + 2);
-                printf("\n");
-            }
-
-            indent(indentation_level + 1);
-        }
 
         printf("]\n");
 
@@ -861,24 +846,9 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
         printf("]\n");
 
         indent(indentation_level + 1);
-        printf("function: ");
-        print_expression_internal(assignment->function, indentation_level + 1);
+        printf("value: ");
+        print_expression_internal(assignment->value, indentation_level + 1);
         printf("\n");
-
-        indent(indentation_level + 1);
-        printf("parameters: [");
-
-        if(assignment->parameters.length != 0) {
-            printf("\n");
-
-            for(auto parameter : assignment->parameters) {
-                indent(indentation_level + 2);
-                print_expression_internal(parameter, indentation_level + 2);
-                printf("\n");
-            }
-
-            indent(indentation_level + 1);
-        }
 
         printf("]\n");
         indent(indentation_level);

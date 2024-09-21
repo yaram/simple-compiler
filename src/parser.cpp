@@ -2678,112 +2678,28 @@ namespace {
                                         targets[i] = named_reference_from_identifier(identifiers[i]);
                                     }
 
-                                    expect(function_expression, parse_expression(OperatorPrecedence::PostfixUnary));
-
-                                    expect_void(expect_basic_token(TokenKind::OpenRoundBracket));
-
-                                    List<Expression*> parameters {};
-
-                                    expect(token, peek_token());
-
-                                    if(token.kind == TokenKind::CloseRoundBracket) {
-                                        consume_token();
-                                    } else {
-                                        while(true) {
-                                            expect(expression, parse_expression(OperatorPrecedence::None));
-
-                                            parameters.append(expression);
-
-                                            expect(token, peek_token());
-
-                                            auto done = false;
-                                            switch(token.kind) {
-                                                case TokenKind::Comma: {
-                                                    consume_token();
-                                                } break;
-
-                                                case TokenKind::CloseRoundBracket: {
-                                                    consume_token();
-
-                                                    done = true;
-                                                } break;
-
-                                                default: {
-                                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
-
-                                                    return err();
-                                                } break;
-                                            }
-
-                                            if(done) {
-                                                break;
-                                            }
-                                        }
-                                    }
+                                    expect(value, parse_expression(OperatorPrecedence::None));
 
                                     expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
                                     return ok((Statement*)new MultiReturnAssignment(
                                         span_range(first_range, last_range),
                                         Array(identifiers.length, targets),
-                                        function_expression,
-                                        parameters
+                                        value
                                     ));
                                 } else if(token.kind == TokenKind::Colon) {
                                     consume_token();
 
                                     expect_void(expect_basic_token(TokenKind::Equals));
 
-                                    expect(function_expression, parse_expression(OperatorPrecedence::PostfixUnary));
-
-                                    expect_void(expect_basic_token(TokenKind::OpenRoundBracket));
-
-                                    List<Expression*> parameters {};
-
-                                    expect(token, peek_token());
-
-                                    if(token.kind == TokenKind::CloseRoundBracket) {
-                                        consume_token();
-                                    } else {
-                                        while(true) {
-                                            expect(expression, parse_expression(OperatorPrecedence::None));
-
-                                            parameters.append(expression);
-
-                                            expect(token, peek_token());
-
-                                            auto done = false;
-                                            switch(token.kind) {
-                                                case TokenKind::Comma: {
-                                                    consume_token();
-                                                } break;
-
-                                                case TokenKind::CloseRoundBracket: {
-                                                    consume_token();
-
-                                                    done = true;
-                                                } break;
-
-                                                default: {
-                                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
-
-                                                    return err();
-                                                } break;
-                                            }
-
-                                            if(done) {
-                                                break;
-                                            }
-                                        }
-                                    }
+                                    expect(initializer, parse_expression(OperatorPrecedence::None));
 
                                     expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
                                     return ok((Statement*)new MultiReturnVariableDeclaration(
                                         span_range(first_range, last_range),
                                         identifiers,
-                                        function_expression,
-                                        parameters
+                                        initializer
                                     ));
                                 } else {
                                     error("Expected '=' or ':', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
@@ -2793,56 +2709,14 @@ namespace {
                             } else {
                                 expect_void(expect_basic_token(TokenKind::Equals));
 
-                                expect(function_expression, parse_expression(OperatorPrecedence::PostfixUnary));
-
-                                expect_void(expect_basic_token(TokenKind::OpenRoundBracket));
-
-                                List<Expression*> parameters {};
-
-                                expect(token, peek_token());
-
-                                if(token.kind == TokenKind::CloseRoundBracket) {
-                                    consume_token();
-                                } else {
-                                    while(true) {
-                                        expect(expression, parse_expression(OperatorPrecedence::None));
-
-                                        parameters.append(expression);
-
-                                        expect(token, peek_token());
-
-                                        auto done = false;
-                                        switch(token.kind) {
-                                            case TokenKind::Comma: {
-                                                consume_token();
-                                            } break;
-
-                                            case TokenKind::CloseRoundBracket: {
-                                                consume_token();
-
-                                                done = true;
-                                            } break;
-
-                                            default: {
-                                                error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
-
-                                                return err();
-                                            } break;
-                                        }
-
-                                        if(done) {
-                                            break;
-                                        }
-                                    }
-                                }
+                                expect(value, parse_expression(OperatorPrecedence::None));
 
                                 expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
                                 return ok((Statement*)new MultiReturnAssignment(
                                     span_range(first_range, last_range),
                                     targets,
-                                    function_expression,
-                                    parameters
+                                    value
                                 ));
                             }
                         } else {
@@ -2886,56 +2760,14 @@ namespace {
 
                                     expect_void(expect_basic_token(TokenKind::Equals));
 
-                                    expect(function_expression, parse_expression(OperatorPrecedence::PostfixUnary));
-
-                                    expect_void(expect_basic_token(TokenKind::OpenRoundBracket));
-
-                                    List<Expression*> parameters {};
-
-                                    expect(token, peek_token());
-
-                                    if(token.kind == TokenKind::CloseRoundBracket) {
-                                        consume_token();
-                                    } else {
-                                        while(true) {
-                                            expect(expression, parse_expression(OperatorPrecedence::None));
-
-                                            parameters.append(expression);
-
-                                            expect(token, peek_token());
-
-                                            auto done = false;
-                                            switch(token.kind) {
-                                                case TokenKind::Comma: {
-                                                    consume_token();
-                                                } break;
-
-                                                case TokenKind::CloseRoundBracket: {
-                                                    consume_token();
-
-                                                    done = true;
-                                                } break;
-
-                                                default: {
-                                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
-
-                                                    return err();
-                                                } break;
-                                            }
-
-                                            if(done) {
-                                                break;
-                                            }
-                                        }
-                                    }
+                                    expect(value, parse_expression(OperatorPrecedence::None));
 
                                     expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
                                     return ok((Statement*)new MultiReturnAssignment(
                                         span_range(first_range, last_range),
                                         targets,
-                                        function_expression,
-                                        parameters
+                                        value
                                     ));
                                 } break;
 
@@ -3054,56 +2886,14 @@ namespace {
 
                             expect_void(expect_basic_token(TokenKind::Equals));
 
-                            expect(function_expression, parse_expression(OperatorPrecedence::PostfixUnary));
-
-                            expect_void(expect_basic_token(TokenKind::OpenRoundBracket));
-
-                            List<Expression*> parameters {};
-
-                            expect(token, peek_token());
-
-                            if(token.kind == TokenKind::CloseRoundBracket) {
-                                consume_token();
-                            } else {
-                                while(true) {
-                                    expect(expression, parse_expression(OperatorPrecedence::None));
-
-                                    parameters.append(expression);
-
-                                    expect(token, peek_token());
-
-                                    auto done = false;
-                                    switch(token.kind) {
-                                        case TokenKind::Comma: {
-                                            consume_token();
-                                        } break;
-
-                                        case TokenKind::CloseRoundBracket: {
-                                            consume_token();
-
-                                            done = true;
-                                        } break;
-
-                                        default: {
-                                            error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
-
-                                            return err();
-                                        } break;
-                                    }
-
-                                    if(done) {
-                                        break;
-                                    }
-                                }
-                            }
+                            expect(value, parse_expression(OperatorPrecedence::None));
 
                             expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
                             return ok((Statement*)new MultiReturnAssignment(
                                 span_range(first_range, last_range),
                                 targets,
-                                function_expression,
-                                parameters
+                                value
                             ));
                         } break;
 

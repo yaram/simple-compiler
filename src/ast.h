@@ -529,20 +529,16 @@ struct VariableDeclaration : Statement {
 struct MultiReturnVariableDeclaration : Statement {
     Array<Identifier> names;
 
-    Expression* function;
-
-    Array<Expression*> parameters;
+    Expression* initializer;
 
     explicit inline MultiReturnVariableDeclaration(
         FileRange range,
         Array<Identifier> names,
-        Expression* function,
-        Array<Expression*> parameters
+        Expression* initializer
     ) :
         Statement { StatementKind::MultiReturnVariableDeclaration, range },
         names { names },
-        function { function },
-        parameters { parameters }
+        initializer { initializer }
     {}
 };
 
@@ -565,20 +561,16 @@ struct Assignment : Statement {
 struct MultiReturnAssignment : Statement {
     Array<Expression*> targets;
 
-    Expression* function;
-
-    Array<Expression*> parameters;
+    Expression* value;
 
     explicit inline MultiReturnAssignment(
         FileRange range,
         Array<Expression*> targets,
-        Expression* function,
-        Array<Expression*> parameters
+        Expression* value
     ) :
         Statement { StatementKind::MultiReturnAssignment, range },
         targets { targets },
-        function { function },
-        parameters { parameters }
+        value { value }
     {}
 };
 
