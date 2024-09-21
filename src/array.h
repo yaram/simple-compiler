@@ -1,5 +1,6 @@
 #pragma once
 
+#include <assert.h>
 #include <stddef.h>
 
 template <typename T>
@@ -17,6 +18,8 @@ struct Array {
     T* elements;
 
     inline T &operator[](size_t index) {
+        assert(index < length);
+
         return elements[index];
     }
 

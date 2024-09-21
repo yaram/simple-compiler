@@ -248,6 +248,7 @@ enum struct InstructionKind {
     Store,
     StructMemberPointer,
     PointerIndex,
+    AssemblyInstruction,
     ReferenceStatic
 };
 
@@ -593,6 +594,34 @@ struct PointerIndex : Instruction {
     size_t destination_register;
 
     inline PointerIndex() : Instruction { InstructionKind::PointerIndex } {}
+};
+
+struct AssemblyInstruction : Instruction {
+    struct InputBinding {
+        String constraint;
+
+        size_t source_register;
+    };
+
+    struct IndirectInputBinding {
+        String constraint;
+
+        size_t pointer_register;
+    };
+
+    struct OutputBinding {
+        String constraint;
+
+        size_t pointer_register;
+    };
+
+    String assembly;
+
+    Array<InputBinding> input_bindings;
+    Array<IndirectInputBinding> indirect_input_bindings;
+    Array<OutputBinding> output_bindings;
+
+    inline AssemblyInstruction() : Instruction { InstructionKind::AssemblyInstruction } {}
 };
 
 struct RuntimeStatic;

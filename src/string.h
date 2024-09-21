@@ -7,6 +7,22 @@ struct String : Array<char> {
     static const String from_c_string(const char* c_string);
     char* to_c_string();
 
+    inline String slice(size_t index, size_t length) {
+        assert(index + length <= this->length);
+
+        String result {};
+        result.elements = (char*)((size_t)elements + index);
+        result.length = length;
+
+        return result;
+    }
+
+    inline String slice(size_t index) {
+        assert(index <= length);
+
+        return slice(index, length - index);
+    }
+
     bool operator==(String other);
     bool operator!=(String other);
 };

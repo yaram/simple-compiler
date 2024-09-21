@@ -631,6 +631,22 @@ void Instruction::print(bool has_return) {
             pointer_index->pointer_register,
             pointer_index->destination_register
         );
+    } else if(kind == InstructionKind::AssemblyInstruction) {
+        auto assembly_instruction = (AssemblyInstruction*)this;
+
+        printf("ASM \"%.*s\"", STRING_PRINTF_ARGUMENTS(assembly_instruction->assembly));
+
+        for(auto input : assembly_instruction->input_bindings) {
+            printf(" \"%.*s\" r%zu", STRING_PRINTF_ARGUMENTS(input.constraint), input.source_register);
+        }
+
+        for(auto input : assembly_instruction->indirect_input_bindings) {
+            printf(" \"*%.*s\" r%zu", STRING_PRINTF_ARGUMENTS(input.constraint), input.pointer_register);
+        }
+
+        for(auto output : assembly_instruction->output_bindings) {
+            printf(" \"=%.*s\" r%zu", STRING_PRINTF_ARGUMENTS(output.constraint), output.pointer_register);
+        }
     } else if(kind == InstructionKind::ReferenceStatic) {
         auto reference_static = (ReferenceStatic*)this;
 

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <stdlib.h>
-#include <assert.h>
 #include "array.h"
 
 template <typename T>

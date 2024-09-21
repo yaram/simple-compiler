@@ -708,7 +708,8 @@ struct BreakStatement : Statement {
 
 struct InlineAssembly : Statement {
     struct Binding {
-        String description;
+        String constraint;
+
         Expression* value;
     };
 

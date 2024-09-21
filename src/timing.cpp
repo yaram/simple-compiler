@@ -6,7 +6,7 @@
 
 #include <time.h>
 
-uint64_t get_timer_counts_per_second() {;
+uint64_t get_timer_counts_per_second() {
     return 1000000000;
 }
 

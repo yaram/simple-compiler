@@ -1062,7 +1062,7 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
 
             for(auto binding : inline_assembly->bindings) {
                 indent(indentation_level + 2);
-                printf("\"%.*s\" = ", STRING_PRINTF_ARGUMENTS(binding.description));
+                printf("\"%.*s\" = ", STRING_PRINTF_ARGUMENTS(binding.constraint));
                 print_expression_internal(binding.value, indentation_level + 2);
                 printf("\n");
             }

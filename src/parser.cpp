@@ -1925,14 +1925,14 @@ namespace {
                             consume_token();
 
                             while(true) {
-                                expect(description, expect_string());
+                                expect(constraint, expect_string());
 
                                 expect_void(expect_basic_token(TokenKind::Equals));
 
                                 expect(value, parse_expression(OperatorPrecedence::None));
 
                                 InlineAssembly::Binding binding {};
-                                binding.description = description;
+                                binding.constraint = constraint;
                                 binding.value = value;
 
                                 bindings.append(binding);
