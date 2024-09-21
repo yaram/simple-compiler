@@ -1105,9 +1105,13 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             auto function_value = global_values[i].value;
 
             if(!function->is_external) {
+                auto entry_block = LLVMAppendBasicBlock(function_value, "entry");
+
+                assert(function->instructions.length > 1);
+
                 List<InstructionBlock> blocks {};
 
-                register_instruction_block(&blocks, function_value, 0);
+                register_instruction_block(&blocks, function_value, function->instructions[0]);
 
                 for(size_t i = 1; i < function->instructions.length; i += 1) {
                     auto instruction = function->instructions[i];
@@ -1126,8 +1130,6 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 }
 
                 List<Register> registers {};
-
-                LLVMPositionBuilderAtEnd(builder, blocks[0].block);
 
                 struct Local {
                     AllocateLocal* allocate_local;
@@ -1165,6 +1167,8 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 );
 
                 LLVMSetSubprogram(function_value, function_debug_scope);
+
+                LLVMPositionBuilderAtEnd(builder, entry_block);
 
                 for(auto instruction : function->instructions) {
                     if(instruction->kind == InstructionKind::AllocateLocal) {
@@ -1226,6 +1230,8 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         locals.append(local);
                     }
                 }
+
+                LLVMBuildBr(builder, blocks[0].block);
 
                 for(size_t i = 0 ; i < function->instructions.length; i += 1) {
                     auto instruction = function->instructions[i];
