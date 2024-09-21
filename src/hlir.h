@@ -597,29 +597,15 @@ struct PointerIndex : Instruction {
 };
 
 struct AssemblyInstruction : Instruction {
-    struct InputBinding {
+    struct Binding {
         String constraint;
 
-        size_t source_register;
-    };
-
-    struct IndirectInputBinding {
-        String constraint;
-
-        size_t pointer_register;
-    };
-
-    struct OutputBinding {
-        String constraint;
-
-        size_t pointer_register;
+        size_t register_index;
     };
 
     String assembly;
 
-    Array<InputBinding> input_bindings;
-    Array<IndirectInputBinding> indirect_input_bindings;
-    Array<OutputBinding> output_bindings;
+    Array<Binding> bindings;
 
     inline AssemblyInstruction() : Instruction { InstructionKind::AssemblyInstruction } {}
 };

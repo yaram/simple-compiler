@@ -2094,6 +2094,104 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             pointer_index->destination_register,
                             TypedValue(pointer_value.type, result_pointer_value)
                         ));
+                    } else if(instruction->kind == InstructionKind::AssemblyInstruction) {
+                        auto assembly_instruction = (AssemblyInstruction*)instruction;
+
+                        StringBuffer constraints_buffer {};
+
+                        List<LLVMTypeRef> call_parameter_types {};
+                        List<LLVMValueRef> call_parameters {};
+
+                        List<LLVMTypeRef> call_return_types {};
+                        List<LLVMValueRef> output_binding_pointer_values {};
+
+                        for(size_t i = 0; i < assembly_instruction->bindings.length; i += 1) {
+                            auto binding = assembly_instruction->bindings[i];
+
+                            constraints_buffer.append(binding.constraint);
+                            if(i != assembly_instruction->bindings.length - 1) {
+                                constraints_buffer.append(","_S);
+                            }
+
+                            auto value = get_register_value(*function, function_value, registers, binding.register_index);
+
+                            if(binding.constraint[0] == '=') {
+                                assert(value.type.kind == IRTypeKind::Pointer);
+
+                                auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, *value.type.pointer);
+
+                                call_return_types.append(pointed_to_llvm_type);
+                                output_binding_pointer_values.append(value.value);
+                            } else {
+                                auto llvm_type = get_llvm_type(architecture_sizes, value.type);
+
+                                call_parameter_types.append(llvm_type);
+                                call_parameters.append(value.value);
+                            }
+                        }
+
+                        assert(call_parameter_types.length == call_parameters.length);
+                        assert(call_return_types.length = output_binding_pointer_values.length);
+
+                        LLVMTypeRef llvm_function_return_type;
+                        if(call_return_types.length == 0) {
+                            llvm_function_return_type = LLVMVoidType();
+                        } else if(call_return_types.length == 1) {
+                            llvm_function_return_type = call_return_types[0];
+                        } else {
+                            llvm_function_return_type = LLVMStructType(call_return_types.elements, (unsigned int)call_return_types.length, false);
+                        }
+
+                        auto llvm_function_type = LLVMFunctionType(
+                            llvm_function_return_type,
+                            call_parameter_types.elements,
+                            (unsigned int)call_parameter_types.length,
+                            false
+                        );
+
+                        auto inline_assembly_value = LLVMGetInlineAsm(
+                            llvm_function_type,
+                            assembly_instruction->assembly.elements,
+                            assembly_instruction->assembly.length,
+                            constraints_buffer.elements,
+                            constraints_buffer.length,
+                            false,
+                            false,
+                            LLVMInlineAsmDialectATT,
+                            false
+                        );
+
+                        llvm_instruction(return_value, LLVMBuildCall2(
+                            builder,
+                            llvm_function_type,
+                            inline_assembly_value,
+                            call_parameters.elements,
+                            (unsigned int)call_parameters.length,
+                            "assembly_instruction"
+                        ));
+
+                        if(call_return_types.length == 1) {
+                            llvm_instruction_ignore(LLVMBuildStore(
+                                builder,
+                                return_value,
+                                output_binding_pointer_values[0]
+                            ));
+                        } else if(call_return_types.length > 1) {
+                            for(size_t i = 0; i < call_return_types.length; i += 1) {
+                                llvm_instruction(member_value, LLVMBuildExtractValue(
+                                    builder,
+                                    return_value,
+                                    (unsigned int)i,
+                                    "asm_return_value"
+                                ));
+
+                                llvm_instruction_ignore(LLVMBuildStore(
+                                    builder,
+                                    member_value,
+                                    output_binding_pointer_values[i]
+                                ));
+                            }
+                        }
                     } else if(instruction->kind == InstructionKind::ReferenceStatic) {
                         auto reference_static = (ReferenceStatic*)instruction;
 
@@ -2146,16 +2244,19 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         LLVMInitializeX86TargetInfo();
         LLVMInitializeX86Target();
         LLVMInitializeX86TargetMC();
+        LLVMInitializeX86AsmParser();
         LLVMInitializeX86AsmPrinter();
     } else if(architecture == "riscv32"_S || architecture == "riscv64"_S) {
         LLVMInitializeRISCVTargetInfo();
         LLVMInitializeRISCVTarget();
         LLVMInitializeRISCVTargetMC();
+        LLVMInitializeRISCVAsmParser();
         LLVMInitializeRISCVAsmPrinter();
     } else if(architecture == "wasm32"_S) {
         LLVMInitializeWebAssemblyTargetInfo();
         LLVMInitializeWebAssemblyTarget();
         LLVMInitializeWebAssemblyTargetMC();
+        LLVMInitializeWebAssemblyAsmParser();
         LLVMInitializeWebAssemblyAsmPrinter();
     } else {
         abort();
@@ -2184,7 +2285,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         LLVMRelocMode::LLVMRelocPIC,
         LLVMCodeModel::LLVMCodeModelDefault
     );
-    assert(target_machine);
+    assert(target_machine != nullptr);
 
     char* error_message;
     if(LLVMTargetMachineEmitToFile(target_machine, module, object_file_path.to_c_string(), LLVMCodeGenFileType::LLVMObjectFile, &error_message) != 0) {

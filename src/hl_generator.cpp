@@ -6470,10 +6470,17 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
             } else if(statement->kind == StatementKind::InlineAssembly) {
                 auto inline_assembly = (InlineAssembly*)statement;
 
-                List<AssemblyInstruction::InputBinding> input_bindings {};
-                List<AssemblyInstruction::IndirectInputBinding> indirect_input_bindings {};
-                List<AssemblyInstruction::OutputBinding> output_bindings {};
-                for(auto binding : inline_assembly->bindings) {
+                auto bindings = allocate<AssemblyInstruction::Binding>(inline_assembly->bindings.length);
+
+                for(size_t i = 0; i < inline_assembly->bindings.length; i += 1) {
+                    auto binding = inline_assembly->bindings[i];
+
+                    if(binding.constraint.length < 1) {
+                        error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
+
+                        return err();
+                    }
+
                     expect(value, generate_expression(
                         info,
                         jobs,
@@ -6483,14 +6490,14 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                         binding.value
                     ));
 
-                    if(binding.constraint.length < 1) {
-                        error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
-
-                        return err();
-                    }
-
                     if(binding.constraint[0] == '=') {
                         if(binding.constraint.length < 2) {
+                            error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
+
+                            return err();
+                        }
+
+                        if(binding.constraint[1] == '*') {
                             error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
 
                             return err();
@@ -6504,36 +6511,20 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                         auto pointer_register = value.value.addressed.pointer_register;
 
-                        AssemblyInstruction::OutputBinding output {};
-                        output.constraint = binding.constraint.slice(1);
-                        output.pointer_register = pointer_register;
+                        AssemblyInstruction::Binding instruction_binding {};
+                        instruction_binding.constraint = binding.constraint;
+                        instruction_binding.register_index = pointer_register;
 
-                        output_bindings.append(output);
+                        bindings[i] = instruction_binding;
                     } else if(binding.constraint[0] == '*') {
-                        if(binding.constraint.length < 2) {
-                            error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
+                        error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
 
-                            return err();
-                        }
-
-                        if(value.value.kind != RuntimeValueKind::AddressedValue) {
-                            error(scope, binding.value->range, "Indirect input binding value must be assignable");
-
-                            return err();
-                        }
-
-                        auto pointer_register = value.value.addressed.pointer_register;
-
-                        AssemblyInstruction::IndirectInputBinding indirect_input {};
-                        indirect_input.constraint = binding.constraint.slice(1);
-                        indirect_input.pointer_register = pointer_register;
-
-                        indirect_input_bindings.append(indirect_input);
+                        return err();
                     } else {
-                        expect(coerced_value_type, coerce_to_default_type(info, scope, binding.value->range, value.type));
+                        expect(determined_value_type, coerce_to_default_type(info, scope, binding.value->range, value.type));
 
-                        if(!coerced_value_type.is_runtime_type()) {
-                            error(scope, binding.value->range, "Value of type '%.*s' cannot be used as a binding", STRING_PRINTF_ARGUMENTS(coerced_value_type.get_description()));
+                        if(!determined_value_type.is_runtime_type()) {
+                            error(scope, binding.value->range, "Value of type '%.*s' cannot be used as a binding", STRING_PRINTF_ARGUMENTS(determined_value_type.get_description()));
 
                             return err();
                         }
@@ -6546,26 +6537,24 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                             binding.value->range,
                             value.type,
                             value.value,
-                            coerced_value_type,
+                            determined_value_type,
                             false
                         ));
 
-                        AssemblyInstruction::InputBinding input {};
-                        input.constraint = binding.constraint;
-                        input.source_register = value_register.register_index;
+                        AssemblyInstruction::Binding instruction_binding {};
+                        instruction_binding.constraint = binding.constraint;
+                        instruction_binding.register_index = value_register.register_index;
 
-                        input_bindings.append(input);
+                        bindings[i] = instruction_binding;
                     }
-
-                    auto assembly_instruction = new AssemblyInstruction;
-                    assembly_instruction->range = inline_assembly->range;
-                    assembly_instruction->assembly = inline_assembly->assembly;
-                    assembly_instruction->input_bindings = input_bindings;
-                    assembly_instruction->indirect_input_bindings = indirect_input_bindings;
-                    assembly_instruction->output_bindings = output_bindings;
-
-                    instructions->append(assembly_instruction);
                 }
+
+                auto assembly_instruction = new AssemblyInstruction;
+                assembly_instruction->range = inline_assembly->range;
+                assembly_instruction->assembly = inline_assembly->assembly;
+                assembly_instruction->bindings = Array(inline_assembly->bindings.length, bindings);
+
+                instructions->append(assembly_instruction);
             } else {
                 abort();
             }

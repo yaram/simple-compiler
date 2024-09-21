@@ -103,7 +103,7 @@ target_compile_features(compiler PRIVATE cxx_std_20)
 if(PROFILING)
     target_compile_definitions(compiler PRIVATE PROFILING)
 endif()
-target_link_libraries(compiler PRIVATE LLVMCore LLVMAnalysis LLVMX86CodeGen LLVMRISCVCodeGen LLVMWebAssemblyCodeGen)
+target_link_libraries(compiler PRIVATE LLVMCore LLVMAnalysis LLVMX86CodeGen LLVMX86AsmParser LLVMRISCVCodeGen LLVMRISCVAsmParser LLVMWebAssemblyCodeGen LLVMWebAssemblyAsmParser)
 add_dependencies(compiler copy_runtimes)
 
 if(VENDORED_LLVM)
