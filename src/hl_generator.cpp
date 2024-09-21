@@ -4521,7 +4521,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
                         auto addressed_value = expression_value.value.addressed;
 
-                        register_index = append_load(
+                        value_register = append_load(
                             context,
                             instructions,
                             cast->expression->range,
