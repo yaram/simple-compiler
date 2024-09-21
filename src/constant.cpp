@@ -1902,7 +1902,7 @@ Statement* search_in_declaration_hash_table(DeclarationHashTable declaration_has
     return nullptr;
 }
 
-profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
+static DelayedResult<NameSearchResult> search_for_name_internal(
     GlobalInfo info,
     List<AnyJob>* jobs,
     String name,
@@ -1911,18 +1911,9 @@ profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
     Array<Statement*> statements,
     DeclarationHashTable declarations,
     bool external,
-    Statement* ignore
-), (
-    info,
-    jobs,
-    name,
-    name_hash,
-    scope,
-    statements,
-    declarations,
-    external,
-    ignore
-)) {
+    Statement* ignore,
+    bool* has_reached_ignore_in_scope
+) {
     auto declaration = search_in_declaration_hash_table(declarations, name_hash, name);
 
     if(declaration != nullptr && declaration != ignore) {
@@ -1946,6 +1937,7 @@ profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
     for(auto statement : statements) {
         if(statement == ignore) {
             if(statement->kind == StatementKind::StaticIf) {
+                *has_reached_ignore_in_scope = true;
                 break;
             }
 
@@ -2026,7 +2018,18 @@ profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
 
                         if(job.state == JobState::Done) {
                             if(resolve_static_if.condition) {
-                                expect_delayed(search_value, search_for_name(info, jobs, name, name_hash, scope, static_if->statements, resolve_static_if.declarations, false, nullptr));
+                                expect_delayed(search_value, search_for_name_internal(
+                                    info,
+                                    jobs,
+                                    name,
+                                    name_hash,
+                                    scope,
+                                    static_if->statements,
+                                    resolve_static_if.declarations,
+                                    false,
+                                    ignore,
+                                    has_reached_ignore_in_scope
+                                ));
 
                                 if(search_value.found) {
                                     NameSearchResult result {};
@@ -2055,6 +2058,10 @@ profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
 
             assert(found);
         }
+
+        if(*has_reached_ignore_in_scope) {
+            break;
+        }
     }
 
     for(auto scope_constant : scope->scope_constants) {
@@ -2072,6 +2079,43 @@ profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
     result.found = false;
 
     return ok(result);
+}
+
+profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
+    GlobalInfo info,
+    List<AnyJob>* jobs,
+    String name,
+    uint32_t name_hash,
+    ConstantScope* scope,
+    Array<Statement*> statements,
+    DeclarationHashTable declarations,
+    bool external,
+    Statement* ignore
+), (
+    info,
+    jobs,
+    name,
+    name_hash,
+    scope,
+    statements,
+    declarations,
+    external,
+    ignore
+)) {
+    auto has_reached_ignore_in_scope = false;
+
+    return search_for_name_internal(
+        info,
+        jobs,
+        name,
+        name_hash,
+        scope,
+        statements,
+        declarations,
+        external,
+        ignore,
+        &has_reached_ignore_in_scope
+    );
 }
 
 Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType type, AnyConstantValue value) {
