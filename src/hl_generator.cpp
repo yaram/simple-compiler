@@ -109,6 +109,7 @@ struct GenerationContext {
     size_t next_child_scope_index;
 
     bool in_breakable_scope;
+    bool should_emit_breakable_scope_end;
     List<Jump*> break_jumps;
 
     List<VariableScope> variable_scope_stack;
@@ -5490,7 +5491,11 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 context->variable_scope_stack.length -= 1;
 
-                if((*instructions)[instructions->length - 1]->kind != InstructionKind::ReturnInstruction) {
+                auto last_instruction = (*instructions)[instructions->length - 1];
+                if(
+                    last_instruction->kind != InstructionKind::ReturnInstruction &&
+                    last_instruction->kind != InstructionKind::Jump
+                ) {
                     auto first_end_jump = new Jump;
                     first_end_jump->range = if_statement->range;
 
@@ -5544,7 +5549,11 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     context->variable_scope_stack.length -= 1;
 
-                    if((*instructions)[instructions->length - 1]->kind != InstructionKind::ReturnInstruction) {
+                    auto last_instruction = (*instructions)[instructions->length - 1];
+                    if(
+                        last_instruction->kind != InstructionKind::ReturnInstruction &&
+                        last_instruction->kind != InstructionKind::Jump
+                    ) {
                         auto end_jump = new Jump;
                         end_jump->range = if_statement->range;
 
@@ -5632,7 +5641,11 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 context->variable_scope_stack.length -= 1;
 
-                if((*instructions)[instructions->length - 1]->kind != InstructionKind::ReturnInstruction) {
+                auto last_instruction = (*instructions)[instructions->length - 1];
+                if(
+                    last_instruction->kind != InstructionKind::ReturnInstruction &&
+                    last_instruction->kind != InstructionKind::Jump
+                ) {
                     append_jump(
                         context,
                         instructions,
