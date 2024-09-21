@@ -177,6 +177,13 @@ struct Enum {
     Array<uint64_t> variant_values;
 };
 
+struct MultiReturn {
+    inline MultiReturn() = default;
+    explicit inline MultiReturn(Array<AnyType> types) : types(types) {}
+
+    Array<AnyType> types;
+};
+
 enum struct TypeKind {
     FunctionTypeType,
     PolymorphicFunction,
@@ -197,7 +204,8 @@ enum struct TypeKind {
     PolymorphicUnion,
     UndeterminedStruct,
     Enum,
-    FileModule
+    FileModule,
+    MultiReturn
 };
 
 struct AnyType {
@@ -216,6 +224,7 @@ struct AnyType {
         PolymorphicUnion polymorphic_union;
         UndeterminedStruct undetermined_struct;
         Enum enum_;
+        MultiReturn multi_return;
     };
 
     inline AnyType() = default;
@@ -231,6 +240,7 @@ struct AnyType {
     explicit inline AnyType(PolymorphicUnion polymorphic_union) : kind(TypeKind::PolymorphicUnion), polymorphic_union(polymorphic_union) {}
     explicit inline AnyType(UndeterminedStruct undetermined_struct) : kind(TypeKind::UndeterminedStruct), undetermined_struct(undetermined_struct) {}
     explicit inline AnyType(Enum enum_) : kind(TypeKind::Enum), enum_(enum_) {}
+    explicit inline AnyType(MultiReturn multi_return) : kind(TypeKind::MultiReturn), multi_return(multi_return) {}
 
     static inline AnyType create_polymorphic_function() {
         AnyType result;

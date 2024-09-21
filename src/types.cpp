@@ -138,6 +138,18 @@ bool AnyType::operator==(AnyType other) {
         return a_enum.definition == b_enum.definition;
     } else if(kind == TypeKind::FileModule) {
         return true;
+    } else if(kind == TypeKind::MultiReturn) {
+        if(multi_return.types.length != other.multi_return.types.length) {
+            return false;
+        }
+
+        for(size_t i = 0; i < multi_return.types.length; i += 1) {
+            if(multi_return.types[i] != other.multi_return.types[i]) {
+                return false;
+            }
+        }
+
+        return true;
     } else {
         abort();
     }
@@ -311,6 +323,8 @@ String AnyType::get_description() {
         return enum_.definition->name.text;
     } else if(kind == TypeKind::FileModule) {
         return "{module}"_S;
+    } else if(kind == TypeKind::MultiReturn) {
+        return "{multiple returns}"_S;
     } else {
         abort();
     }
