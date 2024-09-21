@@ -1107,8 +1107,6 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             if(!function->is_external) {
                 auto entry_block = LLVMAppendBasicBlock(function_value, "entry");
 
-                assert(function->instructions.length > 1);
-
                 List<InstructionBlock> blocks {};
 
                 register_instruction_block(&blocks, function_value, function->instructions[0]);
