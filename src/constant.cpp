@@ -1945,6 +1945,10 @@ profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
 
     for(auto statement : statements) {
         if(statement == ignore) {
+            if(statement->kind == StatementKind::StaticIf) {
+                break;
+            }
+
             continue;
         }
 
