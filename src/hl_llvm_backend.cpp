@@ -293,11 +293,15 @@ static LLVMMetadataRef get_llvm_debug_type(
             encoding = DW_ATE_unsigned;
         }
 
-        return LLVMDIBuilderCreateBasicType(debug_builder, name.elements, name.length, 8, encoding, LLVMDIFlagZero);
+        auto size = register_size_to_byte_size(type.integer.size);
+
+        return LLVMDIBuilderCreateBasicType(debug_builder, name.elements, name.length, size * 8, encoding, LLVMDIFlagZero);
     } else if(type.kind == TypeKind::FloatType) {
         auto name = type.get_description();
 
-        return LLVMDIBuilderCreateBasicType(debug_builder, name.elements, name.length, 8, DW_ATE_float, LLVMDIFlagZero);
+        auto size = register_size_to_byte_size(type.float_.size);
+
+        return LLVMDIBuilderCreateBasicType(debug_builder, name.elements, name.length, size * 8, DW_ATE_float, LLVMDIFlagZero);
     } else if(type.kind == TypeKind::Pointer) {
         auto name = type.get_description();
 
