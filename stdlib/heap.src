@@ -1,0 +1,314 @@
+subchunk_size :: 32;
+subchunks_per_chunk :: 128;
+chunk_size :: subchunk_size * subchunks_per_chunk; // Should work out to 4096 for efficiency
+alignment :: 16;
+
+#if WINDOWS {
+    #import "windows.src";
+    using windows;
+
+    allocate_chunk_run :: (chunk_count: usize) -> *void {
+        return VirtualAlloc(0, chunk_size * chunk_count, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    }
+
+    deallocate_chunk_run :: (base_address: *void, chunk_count: usize) {
+        VirtualFree(base_address, 0, MEM_RELEASE);
+    }
+}
+
+#if LINUX {
+    #import "linux.src";
+    using linux;
+
+    allocate_chunk_run :: (chunk_count: usize) -> *void {
+        return_value_1, return_value_2 := syscall(
+            SYS_mmap,
+            0,
+            chunk_size * chunk_count,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS,
+            -1 as usize,
+            0
+        );
+
+        if return_value_1 > -4096 as usize {
+            return 0;
+        }
+
+        return return_value_1 as *void;
+    }
+
+    deallocate_chunk_run :: (base_pointer: *void, chunk_count: usize) {
+        syscall(SYS_munmap, base_pointer as u64, chunk_count * chunk_size, 0, 0, 0, 0);
+    }
+}
+
+// Can overflow, be careful
+divide_round_up :: (left: usize, right: usize) -> usize {
+    return (left + right - 1) / right;
+}
+
+ChunkRunHeader :: struct {
+    next_chunk_run_header: *void, // needs to be void for now because of circular dependency stuff
+    chunk_count: usize
+}
+
+Heap :: struct {
+    first_chunk_run_header: *ChunkRunHeader
+}
+
+AllocationHeader :: struct {
+    chunk_run_header: *ChunkRunHeader,
+    size: usize
+}
+
+allocate :: (heap: *Heap, size: usize) -> *void {
+    if size == 0 {
+        return 0;
+    }
+
+    allocation_header_aligned_size := divide_round_up(size_of(AllocationHeader), alignment) * alignment;
+
+    total_size := allocation_header_aligned_size + size;
+    total_size_in_subchunks := divide_round_up(total_size, subchunk_size);
+
+    previous_chunk_run_header: *ChunkRunHeader = 0;
+    current_chunk_run_header := heap.first_chunk_run_header;
+    while current_chunk_run_header != 0 {
+        subchunk_count := current_chunk_run_header.chunk_count * subchunks_per_chunk;
+
+        preamble_subchunk_count := divide_round_up(size_of(ChunkRunHeader) + subchunk_count * size_of(bool), subchunk_size);
+
+        subchunk_occupied_map: []bool = {
+            length = subchunk_count,
+            pointer = (current_chunk_run_header as usize + size_of(ChunkRunHeader)) as *bool
+        };
+
+        found := false;
+        in_unoccupied_subchunks := false;
+        unoccupied_subchunks_start_index: usize;
+        subchunk_index := preamble_subchunk_count;
+        while subchunk_index < subchunk_count {
+            is_occupied := subchunk_occupied_map[subchunk_index];
+
+            if in_unoccupied_subchunks {
+                if is_occupied {
+                    in_unoccupied_subchunks := false;
+                } else if subchunk_index + 1 - unoccupied_subchunks_start_index == total_size_in_subchunks {
+                    found = true;
+                    break;
+                }
+            } else {
+                if !is_occupied {
+                    in_unoccupied_subchunks = true;
+                    unoccupied_subchunks_start_index = subchunk_index;
+
+                    if total_size_in_subchunks == 1 { 
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            subchunk_index += 1;
+        }
+
+        if found {
+            for 0..total_size_in_subchunks - 1 {
+                subchunk_occupied_map[unoccupied_subchunks_start_index + it] = true;
+            }
+
+            base_address := current_chunk_run_header as usize + unoccupied_subchunks_start_index * subchunk_size;
+
+            allocation_header := base_address as *AllocationHeader;
+            allocation_header.chunk_run_header = current_chunk_run_header;
+            allocation_header.size = size;
+
+            return (base_address + allocation_header_aligned_size) as *void;
+        }
+
+        previous_chunk_run_header = current_chunk_run_header;
+        current_chunk_run_header = current_chunk_run_header.next_chunk_run_header as *ChunkRunHeader;
+    }
+
+    new_chunk_run_chunk_count_guess := divide_round_up(
+        divide_round_up(
+            size_of(ChunkRunHeader) + total_size_in_subchunks * size_of(bool),
+            subchunk_size
+        ) + total_size_in_subchunks,
+        subchunks_per_chunk
+    );
+
+    while true {
+        subchunk_count := new_chunk_run_chunk_count_guess * subchunks_per_chunk;
+
+        preamble_subchunk_count := divide_round_up(size_of(ChunkRunHeader) + subchunk_count * size_of(bool), subchunk_size);
+
+        available_subchunk_count := subchunk_count - preamble_subchunk_count;
+
+        if available_subchunk_count > total_size_in_subchunks || available_subchunk_count == total_size_in_subchunks {
+            break;
+        }
+
+        new_chunk_run_chunk_count_guess += 1;
+    }
+
+    new_chunk_run_chunk_count := new_chunk_run_chunk_count_guess;
+
+    new_chunk_run_header := allocate_chunk_run(new_chunk_run_chunk_count) as *ChunkRunHeader;
+    if new_chunk_run_header == 0 {
+        return 0;
+    }
+
+    new_chunk_run_header.next_chunk_run_header = 0;
+    new_chunk_run_header.chunk_count = new_chunk_run_chunk_count;
+
+    new_chunk_run_subchunk_count := new_chunk_run_chunk_count * subchunks_per_chunk;
+
+    preamble_subchunk_count := divide_round_up(size_of(ChunkRunHeader) + new_chunk_run_subchunk_count * size_of(bool), subchunk_size);
+
+    subchunk_occupied_map: []bool = {
+        length = new_chunk_run_subchunk_count,
+        pointer = (new_chunk_run_header as usize + size_of(ChunkRunHeader)) as *bool
+    };
+
+    for 0..total_size_in_subchunks - 1 {
+        subchunk_occupied_map[preamble_subchunk_count + it] = true;
+    }
+
+    base_address := new_chunk_run_header as usize + preamble_subchunk_count * subchunk_size;
+
+    allocation_header := base_address as *AllocationHeader;
+    allocation_header.chunk_run_header = new_chunk_run_header;
+    allocation_header.size = size;
+
+    if previous_chunk_run_header == 0 {
+        heap.first_chunk_run_header = new_chunk_run_header;
+    } else {
+        previous_chunk_run_header.next_chunk_run_header = new_chunk_run_header as *void;
+    }
+
+    return (base_address + allocation_header_aligned_size) as *void;
+}
+
+reallocate :: (heap: *Heap, pointer: *void, new_size: usize) -> *void {
+    if pointer == 0 {
+        return allocate(heap, new_size);
+    }
+
+    if new_size == 0 {
+        deallocate(heap, pointer);
+        return 0;
+    }
+
+    allocation_header_aligned_size := divide_round_up(size_of(AllocationHeader), alignment) * alignment;
+
+    base_address := pointer as usize - allocation_header_aligned_size;
+
+    allocation_header := base_address as *AllocationHeader;
+
+    chunk_run_address := allocation_header.chunk_run_header as usize;
+
+    occupied_subchunks_start_index := (base_address - chunk_run_address) / subchunk_size;
+
+    bytes: []u8 = { length = allocation_header.size, pointer = pointer as *u8 };
+
+    total_size := allocation_header_aligned_size + allocation_header.size;
+    total_size_in_subchunks := divide_round_up(total_size, subchunk_size);
+
+    subchunk_occupied_map: []bool = {
+        length = allocation_header.chunk_run_header.chunk_count,
+        pointer = (chunk_run_address + size_of(ChunkRunHeader)) as *bool
+    };
+
+    new_total_size := allocation_header_aligned_size + new_size;
+    new_total_size_in_subchunks := divide_round_up(new_total_size, subchunk_size);
+
+    if new_total_size_in_subchunks == total_size_in_subchunks {
+        allocation_header.size = new_size;
+
+        return pointer;
+    } else if new_total_size_in_subchunks < total_size_in_subchunks {
+        for new_total_size_in_subchunks..total_size_in_subchunks - 1 {
+            subchunk_occupied_map[occupied_subchunks_start_index + it] = false;
+        }
+
+        allocation_header.size = new_size;
+
+        return pointer;
+    }
+
+    if occupied_subchunks_start_index + new_total_size_in_subchunks > allocation_header.chunk_run_header.chunk_count * subchunks_per_chunk {
+        new_pointer := allocate(heap, new_size);
+
+        new_bytes: []u8 = { length = new_size, pointer = new_pointer as *u8 };
+
+        for 0..allocation_header.size - 1 {
+            new_bytes[it] = bytes[it];
+        }
+
+        deallocate(heap, pointer);
+
+        return new_pointer;
+    }
+
+    can_expand := true;
+    for total_size_in_subchunks..new_total_size_in_subchunks - 1 {
+        is_occupied := subchunk_occupied_map[occupied_subchunks_start_index + it];
+
+        if is_occupied {
+            can_expand = false;
+            break;
+        }
+    }
+
+    if can_expand {
+        for total_size_in_subchunks..new_total_size_in_subchunks - 1 {
+            subchunk_occupied_map[occupied_subchunks_start_index + it] = true;
+        }
+
+        allocation_header.size = new_size;
+
+        return pointer;
+    }
+
+    new_pointer := allocate(heap, new_size);
+
+    new_bytes: []u8 = { length = new_size, pointer = new_pointer as *u8 };
+
+    for 0..allocation_header.size - 1 {
+        new_bytes[it] = bytes[it];
+    }
+
+    deallocate(heap, pointer);
+
+    return new_pointer;
+}
+
+deallocate :: (heap: *Heap, pointer: *void) {
+    if pointer == 0 {
+        return;
+    }
+
+    allocation_header_aligned_size := divide_round_up(size_of(AllocationHeader), alignment) * alignment;
+
+    base_address := pointer as usize - allocation_header_aligned_size;
+
+    allocation_header := base_address as *AllocationHeader;
+
+    chunk_run_address := allocation_header.chunk_run_header as usize;
+
+    occupied_subchunks_start_index := (base_address - chunk_run_address) / subchunk_size;
+
+    total_size := allocation_header_aligned_size + allocation_header.size;
+    total_size_in_subchunks := divide_round_up(total_size, subchunk_size);
+
+    subchunk_occupied_map: []bool = {
+        length = allocation_header.chunk_run_header.chunk_count,
+        pointer = (chunk_run_address + size_of(ChunkRunHeader)) as *bool
+    };
+
+    for 0..total_size_in_subchunks - 1 {
+        subchunk_occupied_map[occupied_subchunks_start_index + it] = false;
+    }
+}
