@@ -5463,6 +5463,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     return err();
                 }
+
                 auto condition_register = generate_in_register_value(
                     context,
                     instructions,

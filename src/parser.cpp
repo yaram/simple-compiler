@@ -1700,6 +1700,8 @@ namespace {
                                     case TokenKind::OpenCurlyBracket: {
                                         consume_token();
 
+                                        has_else = true;
+
                                         while(true) {
                                             expect(token, peek_token());
 
@@ -1712,7 +1714,7 @@ namespace {
                                             } else {
                                                 expect(statement, parse_statement());
 
-                                                statements.append(statement);
+                                                else_statements.append(statement);
                                             }
                                         }
                                     } break;
