@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include "constant.h"
 #include "timing.h"
 #include "profiler.h"
 #include "lexer.h"
@@ -321,6 +322,13 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         &global_constants,
         "type"_S,
         AnyType::create_type_type()
+    );
+
+    append_global_constant(
+        &global_constants,
+        "undef"_S,
+        AnyType::create_undef(),
+        AnyConstantValue::create_undef()
     );
 
     append_builtin(&global_constants, "size_of"_S);
