@@ -7,11 +7,12 @@ chunk_size :: subchunk_size * subchunks_per_chunk; // Should work out to 4096 fo
 alignment :: 16;
 
 // Can overflow, be careful
-divide_round_up :: (left: usize, right: usize) -> usize {
+divide_round_up :: (left: $T, right: T) -> T {
     return (left + right - 1) / right;
 }
 
 ChunkRunHeader :: struct {
+    previous_chunk_run_header: *void, // needs to be void for now because of circular dependency stuff
     next_chunk_run_header: *void, // needs to be void for now because of circular dependency stuff
     chunk_count: usize
 }
@@ -123,6 +124,7 @@ allocate :: (heap: *Heap, size: usize) -> *void {
         return 0;
     }
 
+    new_chunk_run_header.previous_chunk_run_header = previous_chunk_run_header as *void;
     new_chunk_run_header.next_chunk_run_header = 0;
     new_chunk_run_header.chunk_count = new_chunk_run_chunk_count;
 
@@ -180,7 +182,7 @@ reallocate :: (heap: *Heap, pointer: *void, new_size: usize) -> *void {
     total_size_in_subchunks := divide_round_up(total_size, subchunk_size);
 
     subchunk_occupied_map: []bool = {
-        length = allocation_header.chunk_run_header.chunk_count,
+        length = allocation_header.chunk_run_header.chunk_count * subchunks_per_chunk,
         pointer = (chunk_run_address + size_of(ChunkRunHeader)) as *bool
     };
 
@@ -259,7 +261,8 @@ deallocate :: (heap: *Heap, pointer: *void) {
 
     allocation_header := base_address as *AllocationHeader;
 
-    chunk_run_address := allocation_header.chunk_run_header as usize;
+    chunk_run_header := allocation_header.chunk_run_header;
+    chunk_run_address := chunk_run_header as usize;
 
     occupied_subchunks_start_index := (base_address - chunk_run_address) / subchunk_size;
 
@@ -267,11 +270,48 @@ deallocate :: (heap: *Heap, pointer: *void) {
     total_size_in_subchunks := divide_round_up(total_size, subchunk_size);
 
     subchunk_occupied_map: []bool = {
-        length = allocation_header.chunk_run_header.chunk_count,
+        length = chunk_run_header.chunk_count * subchunks_per_chunk,
         pointer = (chunk_run_address + size_of(ChunkRunHeader)) as *bool
     };
 
-    for 0..total_size_in_subchunks - 1 {
-        subchunk_occupied_map[occupied_subchunks_start_index + it] = false;
+    // Done is this order for good data cache use / prediction
+
+    start_of_chunk_run_is_empty := true;
+
+    for 0..occupied_subchunks_start_index - 1 {
+        if subchunk_occupied_map[it] {
+            start_of_chunk_run_is_empty = false;
+            break;
+        }
     }
+
+    for occupied_subchunks_start_index..occupied_subchunks_start_index + total_size_in_subchunks - 1 {
+        subchunk_occupied_map[it] = false;
+    }
+
+    if !start_of_chunk_run_is_empty {
+        return;
+    }
+
+    for occupied_subchunks_start_index + total_size_in_subchunks..chunk_run_header.chunk_count * subchunks_per_chunk - 1 {
+        if subchunk_occupied_map[it] {
+            return;
+        }
+    }
+
+    if chunk_run_header.previous_chunk_run_header == 0 {
+        heap.first_chunk_run_header = chunk_run_header.next_chunk_run_header as *ChunkRunHeader;
+    } else {
+        previous_chunk_run_header := chunk_run_header.previous_chunk_run_header as *ChunkRunHeader;
+
+        previous_chunk_run_header.next_chunk_run_header = chunk_run_header.next_chunk_run_header;
+    }
+
+    if chunk_run_header.next_chunk_run_header != 0 {
+        next_chunk_run_header := chunk_run_header.next_chunk_run_header as *ChunkRunHeader;
+
+        next_chunk_run_header.previous_chunk_run_header = chunk_run_header.previous_chunk_run_header;
+    }
+
+    unmap_virtual_memory(chunk_run_header as *void, chunk_run_header.chunk_count * chunk_size);
 }
