@@ -1,0 +1,41 @@
+#if WINDOWS {
+    #import "windows.src";
+    using windows;
+
+    map_virtual_memory :: (length: usize) -> *void {
+        return VirtualAlloc(0, length, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    }
+
+    // Must be called with the exact length as a call to map_virtual_memory and the exact returned pointer
+    unmap_virtual_memory :: (pointer: *void, length: usize) {
+        VirtualFree(pointer, 0, MEM_RELEASE);
+    }
+}
+
+#if LINUX {
+    #import "linux.src";
+    using linux;
+
+    map_virtual_memory :: (length: usize) -> *void {
+        return_value_1, return_value_2 := syscall(
+            SYS_mmap,
+            0,
+            length,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS,
+            -1 as usize,
+            0
+        );
+
+        if return_value_1 > -4096 as usize {
+            return 0;
+        }
+
+        return return_value_1 as *void;
+    }
+
+    // Must be called with the exact length as a call to map_virtual_memory and the exact returned pointer
+    unmap_virtual_memory :: (pointer: *void, length: usize) {
+        syscall(SYS_munmap, pointer as u64, length, 0, 0, 0, 0);
+    }
+}
