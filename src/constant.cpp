@@ -3567,7 +3567,7 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
     for(size_t i = 0; i < return_type_count; i += 1) {
         auto expression = declaration->return_types[i];
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, expression));
+        expect_delayed(type, evaluate_type_expression(info, jobs, &signature_scope, nullptr, expression));
 
         if(!type.is_runtime_type()) {
             error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
