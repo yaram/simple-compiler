@@ -155,7 +155,7 @@ Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope
             } break;
         }
 
-        in_range = value >= min && value <= max;
+        in_range = (int64_t)value >= min && (int64_t)value <= max;
     } else {
         if(value < 0) {
             in_range = false;
@@ -183,7 +183,7 @@ Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope
                 } break;
             }
 
-            in_range = (uint64_t)value <= max;
+            in_range = value <= max;
         }
     }
 

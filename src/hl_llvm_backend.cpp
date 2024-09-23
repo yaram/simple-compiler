@@ -114,8 +114,6 @@ static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType ty
     }
 }
 
-
-
 struct FileDebugScope {
     String path;
     LLVMMetadataRef scope;
@@ -592,40 +590,52 @@ static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_si
     LLVMTypeRef result_type;
     LLVMValueRef result_value;
     if(type.kind == IRTypeKind::Boolean) {
-        assert(value.kind == IRConstantValueKind::BooleanConstant);
-
         result_type = get_llvm_integer_type(architecture_sizes.boolean_size);
 
-        result_value = LLVMConstInt(result_type, value.boolean, false);
-    } else if(type.kind == IRTypeKind::Integer) {
-        assert(value.kind == IRConstantValueKind::IntegerConstant);
+        if(value.kind == IRConstantValueKind::BooleanConstant) {
+            result_value = LLVMConstInt(result_type, value.boolean, false);
+        } else {
+            assert(value.kind == IRConstantValueKind::UndefConstant);
 
+            result_value = LLVMGetUndef(result_type);
+        }
+    } else if(type.kind == IRTypeKind::Integer) {
         result_type = get_llvm_integer_type(type.integer.size);
 
-        result_value = LLVMConstInt(result_type, value.integer, false);
-    } else if(type.kind == IRTypeKind::Float) {
-        assert(value.kind == IRConstantValueKind::FloatConstant);
+        if(value.kind == IRConstantValueKind::IntegerConstant) {
+            result_value = LLVMConstInt(result_type, value.integer, false);
+        } else {
+            assert(value.kind == IRConstantValueKind::UndefConstant);
 
+            result_value = LLVMGetUndef(result_type);
+        }
+    } else if(type.kind == IRTypeKind::Float) {
         result_type = get_llvm_float_type(type.float_.size);
 
-        result_value = LLVMConstReal(result_type, value.float_);
-    } else if(type.kind == IRTypeKind::Pointer) {
-        assert(value.kind == IRConstantValueKind::IntegerConstant);
+        if(value.kind == IRConstantValueKind::FloatConstant) {
+            result_value = LLVMConstReal(result_type, value.float_);
+        } else {
+            assert(value.kind == IRConstantValueKind::UndefConstant);
 
+            result_value = LLVMGetUndef(result_type);
+        }
+    } else if(type.kind == IRTypeKind::Pointer) {
         auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, *type.pointer);
 
         result_type = get_llvm_pointer_type(architecture_sizes, *type.pointer);
 
-        auto integer_llvm_type = get_llvm_integer_type(architecture_sizes.address_size);
+        if(value.kind == IRConstantValueKind::IntegerConstant) {
+            auto integer_llvm_type = get_llvm_integer_type(architecture_sizes.address_size);
 
-        auto integer_constant = LLVMConstInt(integer_llvm_type, value.integer, false);
+            auto integer_constant = LLVMConstInt(integer_llvm_type, value.integer, false);
 
-        result_value = LLVMConstIntToPtr(integer_constant, result_type);
+            result_value = LLVMConstIntToPtr(integer_constant, result_type);
+        } else {
+            assert(value.kind == IRConstantValueKind::UndefConstant);
+
+            result_value = LLVMGetUndef(result_type);
+        }
     } else if(type.kind == IRTypeKind::StaticArray) {
-        assert(type.static_array.element_type->is_runtime());
-
-        assert(value.kind == IRConstantValueKind::StaticArrayConstant);
-
         auto static_array = type.static_array;
 
         assert(static_array.length == value.static_array.elements.length);
@@ -634,34 +644,54 @@ static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_si
 
         result_type = LLVMArrayType2(element_llvm_type, static_array.length);
 
-        auto elements = allocate<LLVMValueRef>(static_array.length);
+        if(value.kind == IRConstantValueKind::StaticArrayConstant) {
+            auto elements = allocate<LLVMValueRef>(static_array.length);
 
-        for(size_t i = 0; i < static_array.length; i += 1) {
-            elements[i] = get_llvm_constant(architecture_sizes, *static_array.element_type, value.static_array.elements[i]).value;
+            for(size_t i = 0; i < static_array.length; i += 1) {
+                elements[i] = get_llvm_constant(architecture_sizes, *static_array.element_type, value.static_array.elements[i]).value;
+            }
+
+            result_value = LLVMConstArray2(element_llvm_type, elements, type.static_array.length);
+        } else {
+            assert(value.kind == IRConstantValueKind::UndefConstant);
+
+            result_value = LLVMGetUndef(result_type);
         }
-
-        result_value = LLVMConstArray2(element_llvm_type, elements, type.static_array.length);
     } else if(type.kind == IRTypeKind::Struct) {
-        assert(value.kind == IRConstantValueKind::StructConstant);
-
         auto struct_ = type.struct_;
 
         assert(struct_.members.length == value.struct_.members.length);
 
+
         auto member_types = allocate<LLVMTypeRef>(struct_.members.length);
         auto member_values = allocate<LLVMValueRef>(struct_.members.length);
 
-        for(size_t i = 0; i < struct_.members.length; i += 1) {
-            assert(struct_.members[i].is_runtime());
+        if(value.kind == IRConstantValueKind::StructConstant) {
+            for(size_t i = 0; i < struct_.members.length; i += 1) {
+                assert(struct_.members[i].is_runtime());
 
-            auto result = get_llvm_constant(architecture_sizes, struct_.members[i], value.struct_.members[i]);
+                auto result = get_llvm_constant(architecture_sizes, struct_.members[i], value.struct_.members[i]);
 
-            member_types[i] = result.llvm_type;
-            member_values[i] = result.value;
+                member_types[i] = result.llvm_type;
+                member_values[i] = result.value;
+            }
+
+            result_type = LLVMStructType(member_types, struct_.members.length, false);
+            result_value = LLVMConstStruct(member_values, struct_.members.length, false);
+        } else {
+            assert(value.kind == IRConstantValueKind::UndefConstant);
+
+            auto member_types = allocate<LLVMTypeRef>(struct_.members.length);
+            for(size_t i = 0; i < struct_.members.length; i += 1) {
+                auto result = get_llvm_type(architecture_sizes, struct_.members[i]);
+
+                member_types[i] = result;
+            }
+
+            result_type = LLVMStructType(member_types, struct_.members.length, false);
+
+            result_value = LLVMGetUndef(result_type);
         }
-
-        result_type = LLVMStructType(member_types, struct_.members.length, false);
-        result_value = LLVMConstStruct(member_values, struct_.members.length, false);
     } else {
         abort();
     }
