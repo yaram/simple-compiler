@@ -824,13 +824,11 @@ static IRType get_runtime_ir_type(ArchitectureSizes architecture_sizes, AnyType 
 static IRConstantValue get_runtime_ir_constant_value(AnyConstantValue value);
 
 inline IRConstantValue get_array_ir_constant_value(ArrayConstant array) {
-auto members = allocate<IRConstantValue>(2);
+    auto members = allocate<IRConstantValue>(2);
 
-    members[0].kind = IRConstantValueKind::IntegerConstant;
-    members[0].integer = array.length;
+    members[0] = get_runtime_ir_constant_value(*array.length);
 
-    members[1].kind = IRConstantValueKind::IntegerConstant;
-    members[1].integer = array.pointer;
+    members[1] = get_runtime_ir_constant_value(*array.pointer);
 
     return IRConstantValue::create_struct(Array(2, members));
 }
@@ -868,6 +866,8 @@ static IRConstantValue get_runtime_ir_constant_value(AnyConstantValue value) {
         return get_static_array_ir_constant_value(value.static_array);
     } else if(value.kind == ConstantValueKind::StructConstant) {
         return get_struct_ir_constant_value(value.struct_);
+    } else if(value.kind == ConstantValueKind::UndefConstant) {
+        return IRConstantValue::create_undef();
     } else {
         abort();
     }
@@ -939,6 +939,10 @@ static Result<RegisterValue> coerce_to_integer_register_value(
 
             return ok(RegisterValue(ir_type, register_index));
         }
+    } else if(type.kind == TypeKind::Undef) {
+        auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+        return ok(RegisterValue(ir_type, register_index));
     }
 
     if(!probing) {
@@ -980,6 +984,10 @@ static Result<RegisterValue> coerce_to_float_register_value(
         auto register_index = append_literal(context, instructions, range, ir_type, IRConstantValue::create_float(float_value));
 
         return ok(RegisterValue(ir_type, register_index));
+    } else if(type.kind == TypeKind::Undef) {
+        auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+        return ok(RegisterValue(ir_type, register_index));
     }
 
     if(!probing) {
@@ -1016,6 +1024,10 @@ static Result<RegisterValue> coerce_to_pointer_register_value(
 
             return ok(RegisterValue(ir_type, register_index));
         }
+    } else if(type.kind == TypeKind::Undef) {
+        auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+        return ok(RegisterValue(ir_type, register_index));
     }
 
     if (!probing) {
@@ -1099,145 +1111,66 @@ static Result<RegisterValue> coerce_to_type_register(
         if(type.kind == TypeKind::ArrayTypeType) {
             auto array_type = type.array;
             if(*target_array.element_type == *array_type.element_type) {
-                size_t register_index;
                 if(value.kind == RuntimeValueKind::ConstantValue) {
                     if(value.constant.kind == ConstantValueKind::ArrayConstant) {
                         auto array_value = value.constant.array;
 
                         auto ir_value = get_array_ir_constant_value(array_value);
 
-                        register_index = append_literal(context, instructions, range, ir_type, ir_value);
-                    } else {
-                        auto element_ir_type = get_runtime_ir_type(info.architecture_sizes, *target_array.element_type);
+                        auto register_index = append_literal(context, instructions, range, ir_type, ir_value);
 
-                        auto static_array_value = value.constant.unwrap_static_array();
-
-                        auto ir_value = get_static_array_ir_constant_value(static_array_value);
-
-                        auto static_array_ir_type = IRType::create_static_array(
-                            static_array_value.elements.length,
-                            heapify(element_ir_type)
-                        );
-
-                        auto static_array_literal_register = append_literal(context, instructions, range, static_array_ir_type, ir_value);
-
-                        auto static_array_local_pointer_register = append_allocate_local(context, instructions, range, static_array_ir_type);
-
-                        append_store(context, instructions, range, static_array_literal_register, static_array_local_pointer_register);
-
-                        auto elements_pointer_register = append_pointer_conversion(
-                            context,
-                            instructions,
-                            range,
-                            element_ir_type,
-                            static_array_local_pointer_register
-                        );
-
-                        auto length_register = append_literal(
-                            context,
-                            instructions,
-                            range,
-                            IRType::create_integer(info.architecture_sizes.address_size),
-                            IRConstantValue::create_integer(static_array_value.elements.length)
-                        );
-
-                        auto member_registers = allocate<size_t>(2);
-
-                        member_registers[0] = length_register;
-                        member_registers[1] = elements_pointer_register;
-
-                        register_index = append_assemble_struct(context, instructions, range, Array(2, member_registers));
+                        return ok(RegisterValue(ir_type, register_index));
                     }
                 } else if(value.kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = value.register_;
 
-                    register_index = register_value.register_index;
+                    auto register_index = register_value.register_index;
+
+                    return ok(RegisterValue(ir_type, register_index));
                 } else if(value.kind == RuntimeValueKind::AddressedValue) {
                     auto addressed_value = value.addressed;
 
-                    register_index = append_load(context, instructions, range, addressed_value.pointer_register);
+                    auto register_index = append_load(context, instructions, range, addressed_value.pointer_register);
+
+                    return ok(RegisterValue(ir_type, register_index));
                 } else {
                     abort();
                 }
-
-                return ok(RegisterValue(ir_type, register_index));
             }
         } else if(type.kind == TypeKind::StaticArray) {
             auto static_array = type.static_array;
 
             if(*target_array.element_type == *static_array.element_type) {
-                auto element_ir_type = get_runtime_ir_type(info.architecture_sizes, *target_array.element_type);
-
-                auto static_array_ir_type = IRType::create_static_array(
-                    static_array.length,
-                    heapify(element_ir_type)
-                );
-
-                size_t pointer_register;
-                if(value.kind == RuntimeValueKind::ConstantValue) {
-                    auto static_array_value = value.constant.unwrap_static_array();
-
-                    assert(static_array.length == static_array_value.elements.length);
-
-                    auto ir_value = get_static_array_ir_constant_value(static_array_value);
-
-                    auto static_array_literal_register = append_literal(context, instructions, range, static_array_ir_type, ir_value);
-
-                    auto static_array_local_pointer_register = append_allocate_local(context, instructions, range, static_array_ir_type);
-
-                    append_store(context, instructions, range, static_array_literal_register, static_array_local_pointer_register);
-
-                    pointer_register = append_pointer_conversion(
-                        context,
-                        instructions,
-                        range,
-                        element_ir_type,
-                        static_array_local_pointer_register
-                    );
-                } else if(value.kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = value.register_;
-
-                    auto static_array_local_pointer_register = append_allocate_local(context, instructions, range, static_array_ir_type);
-
-                    append_store(context, instructions, range, register_value.register_index, static_array_local_pointer_register);
-
-                    pointer_register = append_pointer_conversion(
-                        context,
-                        instructions,
-                        range,
-                        element_ir_type,
-                        static_array_local_pointer_register
-                    );
-                } else if(value.kind == RuntimeValueKind::AddressedValue) {
+                if(value.kind == RuntimeValueKind::AddressedValue) {
                     auto addressed_value = value.addressed;
 
-                    pointer_register = append_pointer_conversion(
+                    auto length_register = append_literal(
+                        context,
+                        instructions,
+                        range,
+                        IRType::create_integer(info.architecture_sizes.address_size),
+                        IRConstantValue::create_integer(static_array.length)
+                    );
+
+                    auto element_ir_type = get_runtime_ir_type(info.architecture_sizes, *target_array.element_type);
+
+                    auto pointer_register = append_pointer_conversion(
                         context,
                         instructions,
                         range,
                         element_ir_type,
                         addressed_value.pointer_register
                     );
-                } else {
-                    abort();
+
+                    auto member_registers = allocate<size_t>(2);
+
+                    member_registers[0] = length_register;
+                    member_registers[1] = pointer_register;
+
+                    auto register_index = append_assemble_struct(context, instructions, range, Array(2, member_registers));
+
+                    return ok(RegisterValue(ir_type, register_index));
                 }
-
-                auto length_register = append_literal(
-                    context,
-                    instructions,
-                    range,
-                    IRType::create_integer(info.architecture_sizes.address_size),
-                    IRConstantValue::create_integer(static_array.length)
-                );
-
-                auto member_registers = allocate<size_t>(2);
-
-                member_registers[0] = length_register;
-                member_registers[1] = pointer_register;
-
-                auto register_index = append_assemble_struct(context, instructions, range, Array(2, member_registers));
-
-                return ok(RegisterValue(ir_type, register_index));
             }
         } else if(type.kind == TypeKind::UndeterminedStruct) {
             auto undetermined_struct = type.undetermined_struct;
@@ -1694,7 +1627,13 @@ static Result<RegisterValue> coerce_to_type_register(
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+        if(value.kind == RuntimeValueKind::ConstantValue) {
+            error(scope, range, "Cannot implicitly convert constant '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.constant.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+        } else if(value.kind == RuntimeValueKind::RegisterValue) {
+            error(scope, range, "Cannot implicitly convert anonymous '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+        } else {
+            error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+        }
     }
 
     return err();
@@ -2629,64 +2568,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         instructions,
                         index_reference->expression->range,
                         element_pointer_ir_type,
-                        IRConstantValue::create_integer(array_value.pointer)
+                        get_runtime_ir_constant_value(*array_value.pointer)
                     );
                 } else {
-                    auto static_array_value = expression_value.value.constant.unwrap_static_array();
+                    error(scope, index_reference->expression->range, "Cannot index array constant at runtime");
 
-                    auto static_array_ir_constant = get_static_array_ir_constant_value(static_array_value);
-                    auto static_array_ir_type = IRType::create_static_array(static_array_value.elements.length, heapify(element_ir_type));
-
-                    auto static_array_literal_register = append_literal(
-                        context,
-                        instructions,
-                        index_reference->expression->range,
-                        static_array_ir_type,
-                        static_array_ir_constant
-                    );
-
-                    auto static_array_pointer_register = append_allocate_local(
-                        context,
-                        instructions,
-                        index_reference->expression->range,
-                        static_array_ir_type
-                    );
-
-                    append_store(
-                        context,
-                        instructions,
-                        index_reference->expression->range,
-                        static_array_literal_register,
-                        static_array_pointer_register
-                    );
-
-                    auto elements_pointer_register = append_pointer_conversion(
-                        context,
-                        instructions,
-                        index_reference->range,
-                        element_ir_type,
-                        static_array_pointer_register
-                    );
-
-                    auto pointer_register = append_pointer_index(
-                        context,
-                        instructions,
-                        index_reference->range,
-                        index_register.register_index,
-                        elements_pointer_register
-                    );
-
-                    auto register_index = append_load(
-                        context,
-                        instructions,
-                        index_reference->range,
-                        pointer_register
-                    );
-
-                    return ok(TypedRuntimeValue(
-                        element_type,
-                        AnyRuntimeValue(RegisterValue(element_ir_type, register_index))
-                    ));
+                    return err();
                 }
             } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
                 auto register_value = expression_value.value.register_;
@@ -2727,107 +2614,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto element_pointer_ir_type = IRType::create_pointer(heapify(element_ir_type));
 
             if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                auto static_array_value = expression_value.value.constant.unwrap_static_array();
+                error(scope, index_reference->expression->range, "Cannot index static array constant at runtime");
 
-                assert(static_array.length == static_array_value.elements.length);
-
-                auto ir_constant = get_static_array_ir_constant_value(static_array_value);
-
-                auto literal_register = append_literal(
-                    context,
-                    instructions,
-                    index_reference->expression->range,
-                    ir_type,
-                    ir_constant
-                );
-
-                auto static_array_pointer_register = append_allocate_local(
-                    context,
-                    instructions,
-                    index_reference->expression->range,
-                    ir_type
-                );
-
-                append_store(
-                    context,
-                    instructions,
-                    index_reference->expression->range,
-                    literal_register,
-                    static_array_pointer_register
-                );
-
-                auto elements_pointer_register = append_pointer_conversion(
-                    context,
-                    instructions,
-                    index_reference->range,
-                    element_ir_type,
-                    static_array_pointer_register
-                );
-
-                auto pointer_register = append_pointer_index(
-                    context,
-                    instructions,
-                    index_reference->range,
-                    index_register.register_index,
-                    elements_pointer_register
-                );
-
-                auto register_index = append_load(
-                    context,
-                    instructions,
-                    index_reference->range,
-                    pointer_register
-                );
-
-                return ok(TypedRuntimeValue(
-                    element_type,
-                    AnyRuntimeValue(RegisterValue(element_ir_type, register_index))
-                ));
+                return err();
             } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                auto register_value = expression_value.value.register_;
+                error(scope, index_reference->expression->range, "Cannot index anonymous static array");
 
-                auto static_array_pointer_register = append_allocate_local(
-                    context,
-                    instructions,
-                    index_reference->expression->range,
-                    ir_type
-                );
-
-                append_store(
-                    context,
-                    instructions,
-                    index_reference->expression->range,
-                    register_value.register_index,
-                    static_array_pointer_register
-                );
-
-                auto elements_pointer_register = append_pointer_conversion(
-                    context,
-                    instructions,
-                    index_reference->range,
-                    element_ir_type,
-                    static_array_pointer_register
-                );
-
-                auto pointer_register = append_pointer_index(
-                    context,
-                    instructions,
-                    index_reference->range,
-                    index_register.register_index,
-                    elements_pointer_register
-                );
-
-                auto register_index = append_load(
-                    context,
-                    instructions,
-                    index_reference->range,
-                    pointer_register
-                );
-
-                return ok(TypedRuntimeValue(
-                    element_type,
-                    AnyRuntimeValue(RegisterValue(element_ir_type, register_index))
-                ));
+                return err();
             } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
                 auto addressed_value = expression_value.value.addressed;
 
@@ -2841,6 +2634,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else {
                 abort();
             }
+        } else {
+            error(scope, index_reference->expression->range, "Cannot index '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+
+            return err();
         }
 
         auto pointer_register = append_pointer_index(
@@ -2870,14 +2667,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             size_t pointer_register;
             if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                auto integer_value = expression_value.value.constant.unwrap_integer();
-
                 pointer_register = append_literal(
                     context,
                     instructions,
                     member_reference->expression->range,
                     IRType::create_pointer(heapify(actual_ir_type)),
-                    IRConstantValue::create_integer(integer_value)
+                    get_runtime_ir_constant_value(expression_value.value.constant)
                 );
             } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
                 auto register_value = expression_value.value.register_;
@@ -2912,10 +2707,16 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         auto array_value = expression_value.value.constant.unwrap_array();
 
                         value = AnyRuntimeValue(AnyConstantValue(array_value.length));
-                    } else {
+                    } else if(expression_value.value.constant.kind == ConstantValueKind::StaticArrayConstant) {
                         auto static_array_value = expression_value.value.constant.unwrap_static_array();
 
                         value = AnyRuntimeValue(AnyConstantValue(static_array_value.elements.length));
+                    } else {
+                        assert(expression_value.value.constant.kind == ConstantValueKind::UndefConstant);
+
+                        error(scope, member_reference->range, "Cannot get length of undefined array constant");
+
+                        return err();
                     }
                 } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = actual_value.register_;
@@ -3073,12 +2874,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     auto member_ir_type = get_runtime_ir_type(info.architecture_sizes, member_type);
 
                     if(actual_value.kind == RuntimeValueKind::ConstantValue) {
-                        auto struct_value = expression_value.value.constant.unwrap_struct();
+                        if(expression_value.value.constant.kind == ConstantValueKind::StructConstant) {
+                            auto struct_value = expression_value.value.constant.unwrap_struct();
 
-                        return ok(TypedRuntimeValue(
-                            member_type,
-                            AnyRuntimeValue(struct_value.members[i])
-                        ));
+                            return ok(TypedRuntimeValue(
+                                member_type,
+                                AnyRuntimeValue(struct_value.members[i])
+                            ));
+                        } else {
+                            assert(expression_value.value.constant.kind == ConstantValueKind::UndefConstant);
+
+                            error(scope, member_reference->range, "Cannot access members of undefined array constant");
+
+                            return err();
+                        }
                     } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                         auto register_value = actual_value.register_;
 
@@ -4232,12 +4041,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 size_t register_index;
                 if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                    auto boolean_value = expression_value.value.constant.unwrap_boolean();
+                    if(expression_value.value.constant.kind == ConstantValueKind::BooleanConstant) {
+                        auto boolean_value = expression_value.value.constant.unwrap_boolean();
 
-                    return ok(TypedRuntimeValue(
-                        AnyType::create_boolean(),
-                        AnyRuntimeValue(AnyConstantValue(!boolean_value))
-                    ));
+                        return ok(TypedRuntimeValue(
+                            AnyType::create_boolean(),
+                            AnyRuntimeValue(AnyConstantValue(!boolean_value))
+                        ));
+                    } else {
+                        assert(expression_value.value.constant.kind == ConstantValueKind::UndefConstant);
+
+                        error(scope, unary_operation->expression->range, "Cannot invert an undefined boolean constant");
+
+                        return err();
+                    }
                 } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = expression_value.value.register_;
 
@@ -4276,12 +4093,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     size_t register_index;
                     if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                        auto integer_value = expression_value.value.constant.unwrap_integer();
+                        if(expression_value.value.constant.kind == ConstantValueKind::IntegerConstant) {
+                            auto integer_value = expression_value.value.constant.unwrap_integer();
 
-                        return ok(TypedRuntimeValue(
-                            AnyType::create_undetermined_integer(),
-                            AnyRuntimeValue(AnyConstantValue((uint64_t)-(int64_t)integer_value))
-                        ));
+                            return ok(TypedRuntimeValue(
+                                AnyType::create_undetermined_integer(),
+                                AnyRuntimeValue(AnyConstantValue((uint64_t)-(int64_t)integer_value))
+                            ));
+                        } else {
+                            assert(expression_value.value.constant.kind == ConstantValueKind::UndefConstant);
+
+                            error(scope, unary_operation->expression->range, "Cannot negate an undefined integer constant");
+
+                            return err();
+                        }
                     } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
                         auto register_value = expression_value.value.register_;
 
@@ -4325,12 +4150,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     size_t register_index;
                     if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                        auto float_value = expression_value.value.constant.unwrap_float();
+                        if(expression_value.value.constant.kind == ConstantValueKind::FloatConstant) {
+                            auto float_value = expression_value.value.constant.unwrap_float();
 
-                        return ok(TypedRuntimeValue(
-                            AnyType(float_type),
-                            AnyRuntimeValue(AnyConstantValue(-float_value))
-                        ));
+                            return ok(TypedRuntimeValue(
+                                AnyType(float_type),
+                                AnyRuntimeValue(AnyConstantValue(-float_value))
+                            ));
+                        } else {
+                            assert(expression_value.value.constant.kind == ConstantValueKind::UndefConstant);
+
+                            error(scope, unary_operation->expression->range, "Cannot negate an undefined float constant");
+
+                            return err();
+                        }
                     } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
                         auto register_value = expression_value.value.register_;
 
@@ -4901,12 +4734,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             return err();
         }
 
-        if(array_type->index != nullptr) {
-            expect_delayed(index_value, evaluate_constant_expression(info, jobs, scope, nullptr, array_type->index));
+        if(array_type->length != nullptr) {
+            expect_delayed(index_value, evaluate_constant_expression(info, jobs, scope, nullptr, array_type->length));
 
             expect(length, coerce_constant_to_integer_type(
                 scope,
-                array_type->index->range,
+                array_type->length->range,
                 index_value.type,
                 index_value.value,
                 Integer(
@@ -4916,10 +4749,18 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 false
             ));
 
+            if(length.kind == ConstantValueKind::UndefConstant) {
+                error(scope, array_type->length->range, "Length cannot be undefined");
+
+                return err();
+            }
+
+            auto length_integer = length.unwrap_integer();
+
             return ok(TypedRuntimeValue(
                 AnyType::create_type_type(),
                 AnyRuntimeValue(AnyConstantValue(AnyType(StaticArray(
-                    length,
+                    length_integer,
                     heapify(type)
                 ))))
             ));

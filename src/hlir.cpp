@@ -186,6 +186,8 @@ void IRConstantValue::print() {
         }
 
         printf(" }");
+    } else if(kind == IRConstantValueKind::UndefConstant) {
+        printf("undef");
     } else {
         abort();
     }

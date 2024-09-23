@@ -92,7 +92,6 @@ enum struct ConstantValueKind {
     FloatConstant,
     BooleanConstant,
     VoidConstant,
-    PointerConstant,
     ArrayConstant,
     StaticArrayConstant,
     StructConstant,
@@ -210,6 +209,8 @@ struct AnyConstantValue {
 
         return type;
     }
+
+    String get_description();
 };
 
 const size_t DECLARATION_HASH_TABLE_SIZE = 32;
@@ -345,7 +346,7 @@ void error(ConstantScope* scope, FileRange range, const char* format, ...);
 
 Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType type, AnyConstantValue value);
 
-Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, AnyConstantValue value, bool probing);
+Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, uint64_t value, bool probing);
 Result<AnyConstantValue> coerce_constant_to_integer_type(
     ConstantScope* scope,
     FileRange range,

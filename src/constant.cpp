@@ -18,6 +18,102 @@ void error(ConstantScope* scope, FileRange range, const char* format, ...) {
     va_end(arguments);
 }
 
+String AnyConstantValue::get_description() {
+    if(kind == ConstantValueKind::FunctionConstant) {
+        return function.declaration->name.text;
+    } else if(kind == ConstantValueKind::BuiltinFunctionConstant) {
+        return builtin_function.name;
+    } else if(kind == ConstantValueKind::PolymorphicFunctionConstant) {
+        return polymorphic_function.declaration->name.text;
+    } else if(kind == ConstantValueKind::IntegerConstant) {
+        char buffer[32];
+        auto length = snprintf(buffer, 32, "%zu", integer);
+
+        String string {};
+        string.length = (size_t)length;
+        string.elements = buffer;
+
+        return string;
+    } else if(kind == ConstantValueKind::FloatConstant) {
+        char buffer[32];
+        auto length = snprintf(buffer, 32, "%f", float_);
+
+        String string {};
+        string.length = (size_t)length;
+        string.elements = buffer;
+
+        return string;
+    } else if(kind == ConstantValueKind::BooleanConstant) {
+        if(boolean) {
+            return "true"_S;
+        } else {
+            return "false"_S;
+        }
+    } else if(kind == ConstantValueKind::VoidConstant) {
+        return ""_S;
+    } else if(kind == ConstantValueKind::ArrayConstant) {
+        StringBuffer buffer {};
+
+        buffer.append("{ length = "_S);
+        buffer.append(array.length->get_description());
+        buffer.append(", pointer = "_S);
+        buffer.append(array.pointer->get_description());
+        buffer.append(" }"_S);
+
+        return buffer;
+    } else if(kind == ConstantValueKind::StaticArrayConstant) {
+        if(static_array.elements.length == 0) {
+            return "{}"_S;
+        }
+
+        StringBuffer buffer {};
+
+        buffer.append("{ "_S);
+
+        for(size_t i = 0; i < static_array.elements.length; i += 1) {
+            buffer.append(static_array.elements[i].get_description());
+
+            if(i != static_array.elements.length - 1) {
+                buffer.append(", "_S);
+            }
+        }
+
+        buffer.append(" }"_S);
+
+        return buffer;
+    } else if(kind == ConstantValueKind::StructConstant) {
+        if(struct_.members.length == 0) {
+            return "{}"_S;
+        }
+
+        StringBuffer buffer {};
+
+        buffer.append("{ "_S);
+
+        for(size_t i = 0; i < struct_.members.length; i += 1) {
+            buffer.append("? = "_S);
+
+            buffer.append(struct_.members[i].get_description());
+
+            if(i != struct_.members.length - 1) {
+                buffer.append(", "_S);
+            }
+        }
+
+        buffer.append(" }"_S);
+
+        return buffer;
+    } else if(kind == ConstantValueKind::FileModuleConstant) {
+        return ""_S;
+    } else if(kind == ConstantValueKind::TypeConstant) {
+        return type.get_description();
+    } else if(kind == ConstantValueKind::UndefConstant) {
+        return "undef"_S;
+    } else {
+        abort();
+    }
+}
+
 String get_scope_file_path(ConstantScope scope) {
     auto current = scope;
 
@@ -28,13 +124,7 @@ String get_scope_file_path(ConstantScope scope) {
     return current.file_path;
 }
 
-Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, AnyConstantValue value, bool probing) {
-    if(value.kind == ConstantValueKind::UndefConstant) {
-        return ok();
-    }
-
-    auto integer_value = value.unwrap_integer();
-
+Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, uint64_t value, bool probing) {
     bool in_range;
     if(target_type.is_signed) {
         int64_t min;
@@ -65,9 +155,9 @@ Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope
             } break;
         }
 
-        in_range = integer_value >= min && integer_value <= max;
+        in_range = value >= min && value <= max;
     } else {
-        if(integer_value < 0) {
+        if(value < 0) {
             in_range = false;
         } else {
             uint64_t max;
@@ -93,13 +183,13 @@ Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope
                 } break;
             }
 
-            in_range = (uint64_t)integer_value <= max;
+            in_range = (uint64_t)value <= max;
         }
     }
 
     if(!in_range) {
         if(!probing) {
-            error(scope, range, "Constant '%zd' cannot fit in '%.*s'. You must cast explicitly", integer_value, STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
+            error(scope, range, "Constant '%zd' cannot fit in '%.*s'. You must cast explicitly", value, STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
         }
 
         return err();
@@ -123,7 +213,7 @@ Result<AnyConstantValue> coerce_constant_to_integer_type(
             return ok(value);
         }
     } else if(type.kind == TypeKind::UndeterminedInteger) {
-        expect_void(check_undetermined_integer_to_integer_coercion(scope, range, target_type, value, probing));
+        expect_void(check_undetermined_integer_to_integer_coercion(scope, range, target_type, value.unwrap_integer(), probing));
 
         return ok(value);
     } else if(type.kind == TypeKind::Enum) {
@@ -137,13 +227,13 @@ Result<AnyConstantValue> coerce_constant_to_integer_type(
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
+        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
     }
 
     return err();
 }
 
-static Result<AnyConstantValue> coerce_constant_to_undetermined_integer(
+static Result<uint64_t> coerce_constant_to_undetermined_integer(
     ConstantScope* scope,
     FileRange range,
     AnyType type,
@@ -153,44 +243,44 @@ static Result<AnyConstantValue> coerce_constant_to_undetermined_integer(
     if(type.kind == TypeKind::Integer) {
         auto integer = type.integer;
 
-        if(value.kind == ConstantValueKind::UndefConstant) {
-            return ok(value);
-        }
+        if(value.kind == ConstantValueKind::IntegerConstant) {
+            auto integer_value = value.integer;
 
-        auto integer_value = value.unwrap_integer();
+            switch(integer.size) {
+                case RegisterSize::Size8: {
+                    return ok((uint64_t)(uint8_t)integer_value);
+                } break;
 
-        switch(integer.size) {
-            case RegisterSize::Size8: {
-                return ok(AnyConstantValue((uint64_t)(uint8_t)integer_value));
-            } break;
+                case RegisterSize::Size16: {
+                    return ok((uint64_t)(uint16_t)integer_value);
+                } break;
 
-            case RegisterSize::Size16: {
-                return ok(AnyConstantValue((uint64_t)(uint16_t)integer_value));
-            } break;
+                case RegisterSize::Size32: {
+                    return ok((uint64_t)(uint32_t)integer_value);
+                } break;
 
-            case RegisterSize::Size32: {
-                return ok(AnyConstantValue((uint64_t)(uint32_t)integer_value));
-            } break;
+                case RegisterSize::Size64: {
+                    return ok(integer_value);
+                } break;
 
-            case RegisterSize::Size64: {
-                return ok(AnyConstantValue(integer_value));
-            } break;
-
-            default: {
-                abort();
-            } break;
+                default: {
+                    abort();
+                } break;
+            }
         }
     } else if(type.kind == TypeKind::UndeterminedInteger) {
-        return ok(value);
+        return ok(value.unwrap_integer());
     } else if(type.kind == TypeKind::Enum) {
-        return ok(value);
-    } else {
-        if(!probing) {
-            error(scope, range, "Cannot implicitly convert '%.*s' to '{integer}'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+        if(value.kind == ConstantValueKind::IntegerConstant) {
+            return ok(value.integer);
         }
-
-        return err();
     }
+
+    if(!probing) {
+        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '{integer}'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.get_description()));
+    }
+
+    return err();
 }
 
 static Result<AnyConstantValue> coerce_constant_to_pointer_type(
@@ -214,7 +304,7 @@ static Result<AnyConstantValue> coerce_constant_to_pointer_type(
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
+        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
     }
 
     return err();
@@ -243,42 +333,43 @@ Result<AnyConstantValue> coerce_constant_to_type(
         auto target_float_type = target_type.float_;
 
         if(type.kind == TypeKind::UndeterminedInteger) {
-            return ok(AnyConstantValue((double)(value.unwrap_integer())));
+            return ok(AnyConstantValue((double)value.unwrap_integer()));
         } else if(type.kind == TypeKind::FloatType) {
             auto float_type = type.float_;
 
             if(target_float_type.size == float_type.size) {
-                return ok(AnyConstantValue((value.unwrap_float())));
+                return ok(value);
             }
         } else if(type.kind == TypeKind::UndeterminedFloat) {
-            return ok(AnyConstantValue((value.unwrap_float())));
+            return ok(value);
         } else if(type.kind == TypeKind::Undef) {
             return ok(value);
         }
     } else if(target_type.kind == TypeKind::UndeterminedFloat) {
         if(type.kind == TypeKind::FloatType) {
             auto float_type = type.float_;
-            auto float_value = (value.unwrap_float());
 
-            double value;
-            switch(float_type.size) {
-                case RegisterSize::Size32: {
-                    value = (double)(float)float_value;
-                } break;
+            if(value.kind == ConstantValueKind::FloatConstant) {
+                auto float_value = value.float_;
 
-                case RegisterSize::Size64: {
-                    value = float_value;
-                } break;
+                double value;
+                switch(float_type.size) {
+                    case RegisterSize::Size32: {
+                        value = (double)(float)float_value;
+                    } break;
 
-                default: {
-                    abort();
-                } break;
+                    case RegisterSize::Size64: {
+                        value = float_value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                return ok(AnyConstantValue(value));
             }
-
-            return ok(AnyConstantValue(value));
         } else if(type.kind == TypeKind::UndeterminedFloat) {
-            return ok(AnyConstantValue((value.unwrap_float())));
-        } else if(type.kind == TypeKind::Undef) {
             return ok(value);
         }
     } else if(target_type.kind == TypeKind::Pointer) {
@@ -299,15 +390,11 @@ Result<AnyConstantValue> coerce_constant_to_type(
         } else if(type.kind == TypeKind::StaticArray) {
             auto static_array = type.static_array;
 
-            if(*static_array.element_type != *target_array_type.element_type) {
-                if(!probing) {
-                    error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+            if(value.kind == ConstantValueKind::StaticArrayConstant) {
+                if(*static_array.element_type == *target_array_type.element_type) {
+                    return ok(value);
                 }
-
-                return err();
             }
-
-            return ok(value);
         } else if(type.kind == TypeKind::UndeterminedStruct) {
             auto undetermined_struct = type.undetermined_struct;
 
@@ -409,8 +496,10 @@ Result<AnyConstantValue> coerce_constant_to_type(
         if(type.kind == TypeKind::Integer) {
             auto integer = type.integer;
 
-            if(integer.size == target_enum.backing_type->size && integer.is_signed == target_enum.backing_type->is_signed) {
-                return ok(AnyConstantValue(value.unwrap_integer()));
+            if(value.kind == ConstantValueKind::IntegerConstant) {
+                if(integer.size == target_enum.backing_type->size && integer.is_signed == target_enum.backing_type->is_signed) {
+                    return ok(value);
+                }
             }
         } else if(type.kind == TypeKind::UndeterminedInteger) {
             expect(integer_value, coerce_constant_to_integer_type(scope, range, type, value, *target_enum.backing_type, probing));
@@ -434,7 +523,7 @@ Result<AnyConstantValue> coerce_constant_to_type(
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
     }
 
     return err();
@@ -1037,21 +1126,14 @@ Result<AnyConstantValue> evaluate_constant_cast(
         return ok(coerce_result.value);
     }
 
-    if(value.kind == ConstantValueKind::UndefConstant) {
-        if(!probing) {
-            error(scope, value_range, "Cannot cast an undefined value");
-        }
-
-        return err();
-    }
-
+    if(value.kind != ConstantValueKind::UndefConstant) {
     if(target_type.kind == TypeKind::Integer) {
         auto target_integer = target_type.integer;
 
         if(type.kind == TypeKind::Integer) {
             auto integer = type.integer;
 
-            auto integer_value = (value.unwrap_integer());
+            auto integer_value = value.unwrap_integer();
 
             uint64_t result;
             if(integer.is_signed) {
@@ -1266,242 +1348,243 @@ Result<AnyConstantValue> evaluate_constant_cast(
 
                     case RegisterSize::Size64: {
                         result = integer_value;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                }
+
+                return ok(AnyConstantValue(result));
+            } else if(type.kind == TypeKind::Pointer) {
+                if(target_integer.size == info.architecture_sizes.address_size && !target_integer.is_signed) {
+                    return ok(AnyConstantValue(value.unwrap_integer()));
+                }
+            }
+        } else if(target_type.kind == TypeKind::FloatType) {
+            auto target_float_type = target_type.float_;
+
+            double result;
+            if(type.kind == TypeKind::Integer) {
+                auto integer = type.integer;
+
+                auto integer_value = (value.unwrap_integer());
+
+                double from_value;
+                if(integer.is_signed) {
+                    switch(integer.size) {
+                        case RegisterSize::Size8: {
+                            from_value = (double)(int8_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size16: {
+                            from_value = (double)(int16_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size32: {
+                            from_value = (double)(int32_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size64: {
+                            from_value = (double)(int64_t)integer_value;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } else {
+                    switch(integer.size) {
+                        case RegisterSize::Size8: {
+                            from_value = (double)(uint8_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size16: {
+                            from_value = (double)(uint16_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size32: {
+                            from_value = (double)(uint32_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size64: {
+                            from_value = (double)integer_value;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                }
+
+                double result;
+                switch(target_float_type.size) {
+                    case RegisterSize::Size32: {
+                        result = (double)(float)from_value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = from_value;
                     } break;
 
                     default: {
                         abort();
                     } break;
                 }
-            }
 
-            return ok(AnyConstantValue(result));
-        } else if(type.kind == TypeKind::Pointer) {
-            if(target_integer.size == info.architecture_sizes.address_size && !target_integer.is_signed) {
+                return ok(AnyConstantValue(result));
+            } else if(type.kind == TypeKind::UndeterminedInteger) {
+                auto integer_value = (value.unwrap_integer());
+
+                double result;
+                switch(target_float_type.size) {
+                    case RegisterSize::Size32: {
+                        result = (double)(float)(int64_t)integer_value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = (double)(int64_t)integer_value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                return ok(AnyConstantValue(result));
+            } else if(type.kind == TypeKind::FloatType) {
+                auto float_type = type.float_;
+
+                auto float_value = (value.unwrap_float());
+
+                double from_value;
+                switch(float_type.size) {
+                    case RegisterSize::Size32: {
+                        from_value = (double)(float)float_value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        from_value = float_value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                double result;
+                switch(target_float_type.size) {
+                    case RegisterSize::Size32: {
+                        result = (double)(float)from_value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = from_value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                return ok(AnyConstantValue(result));
+            } else if(type.kind == TypeKind::UndeterminedFloat) {
+                auto float_value = (value.unwrap_float());
+
+                double result;
+                switch(target_float_type.size) {
+                    case RegisterSize::Size32: {
+                        result = (double)(float)float_value;
+                    } break;
+
+                    case RegisterSize::Size64: {
+                        result = float_value;
+                    } break;
+
+                    default: {
+                        abort();
+                    } break;
+                }
+
+                return ok(AnyConstantValue(result));
+            }
+        } else if(target_type.kind == TypeKind::Enum) {
+            auto enum_ = target_type.enum_;
+
+            if(type.kind == TypeKind::Integer) {
+                auto integer = type.integer;
+
+                auto integer_value = (value.unwrap_integer());
+
+                uint64_t result;
+                if(integer.is_signed) {
+                    switch(integer.size) {
+                        case RegisterSize::Size8: {
+                            result = (int8_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size16: {
+                            result = (int16_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size32: {
+                            result = (int32_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size64: {
+                            result = integer_value;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                } else {
+                    switch(integer.size) {
+                        case RegisterSize::Size8: {
+                            result = (uint8_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size16: {
+                            result = (uint16_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size32: {
+                            result = (uint32_t)integer_value;
+                        } break;
+
+                        case RegisterSize::Size64: {
+                            result = integer_value;
+                        } break;
+
+                        default: {
+                            abort();
+                        } break;
+                    }
+                }
+
+                return ok(AnyConstantValue(result));
+            } else if(type.kind == TypeKind::UndeterminedInteger) {
                 return ok(AnyConstantValue(value.unwrap_integer()));
             }
-        }
-    } else if(target_type.kind == TypeKind::FloatType) {
-        auto target_float_type = target_type.float_;
+        } else if(target_type.kind == TypeKind::Pointer) {
+            auto target_pointer = target_type.pointer;
 
-        double result;
-        if(type.kind == TypeKind::Integer) {
-            auto integer = type.integer;
+            if(type.kind == TypeKind::Integer) {
+                auto integer = type.integer;
 
-            auto integer_value = (value.unwrap_integer());
-
-            double from_value;
-            if(integer.is_signed) {
-                switch(integer.size) {
-                    case RegisterSize::Size8: {
-                        from_value = (double)(int8_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size16: {
-                        from_value = (double)(int16_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size32: {
-                        from_value = (double)(int32_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        from_value = (double)(int64_t)integer_value;
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
+                if(integer.size == info.architecture_sizes.address_size && !integer.is_signed) {
+                    return ok(AnyConstantValue(value.unwrap_integer()));
                 }
-            } else {
-                switch(integer.size) {
-                    case RegisterSize::Size8: {
-                        from_value = (double)(uint8_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size16: {
-                        from_value = (double)(uint16_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size32: {
-                        from_value = (double)(uint32_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        from_value = (double)integer_value;
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
-            }
-
-            double result;
-            switch(target_float_type.size) {
-                case RegisterSize::Size32: {
-                    result = (double)(float)from_value;
-                } break;
-
-                case RegisterSize::Size64: {
-                    result = from_value;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            return ok(AnyConstantValue(result));
-        } else if(type.kind == TypeKind::UndeterminedInteger) {
-            auto integer_value = (value.unwrap_integer());
-
-            double result;
-            switch(target_float_type.size) {
-                case RegisterSize::Size32: {
-                    result = (double)(float)(int64_t)integer_value;
-                } break;
-
-                case RegisterSize::Size64: {
-                    result = (double)(int64_t)integer_value;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            return ok(AnyConstantValue(result));
-        } else if(type.kind == TypeKind::FloatType) {
-            auto float_type = type.float_;
-
-            auto float_value = (value.unwrap_float());
-
-            double from_value;
-            switch(float_type.size) {
-                case RegisterSize::Size32: {
-                    from_value = (double)(float)float_value;
-                } break;
-
-                case RegisterSize::Size64: {
-                    from_value = float_value;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            double result;
-            switch(target_float_type.size) {
-                case RegisterSize::Size32: {
-                    result = (double)(float)from_value;
-                } break;
-
-                case RegisterSize::Size64: {
-                    result = from_value;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            return ok(AnyConstantValue(result));
-        } else if(type.kind == TypeKind::UndeterminedFloat) {
-            auto float_value = (value.unwrap_float());
-
-            double result;
-            switch(target_float_type.size) {
-                case RegisterSize::Size32: {
-                    result = (double)(float)float_value;
-                } break;
-
-                case RegisterSize::Size64: {
-                    result = float_value;
-                } break;
-
-                default: {
-                    abort();
-                } break;
-            }
-
-            return ok(AnyConstantValue(result));
-        }
-    } else if(target_type.kind == TypeKind::Enum) {
-        auto enum_ = target_type.enum_;
-
-        if(type.kind == TypeKind::Integer) {
-            auto integer = type.integer;
-
-            auto integer_value = (value.unwrap_integer());
-
-            uint64_t result;
-            if(integer.is_signed) {
-                switch(integer.size) {
-                    case RegisterSize::Size8: {
-                        result = (int8_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size16: {
-                        result = (int16_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size32: {
-                        result = (int32_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        result = integer_value;
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
-            } else {
-                switch(integer.size) {
-                    case RegisterSize::Size8: {
-                        result = (uint8_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size16: {
-                        result = (uint16_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size32: {
-                        result = (uint32_t)integer_value;
-                    } break;
-
-                    case RegisterSize::Size64: {
-                        result = integer_value;
-                    } break;
-
-                    default: {
-                        abort();
-                    } break;
-                }
-            }
-
-            return ok(AnyConstantValue(result));
-        } else if(type.kind == TypeKind::UndeterminedInteger) {
-            return ok(AnyConstantValue(value.unwrap_integer()));
-        }
-    } else if(target_type.kind == TypeKind::Pointer) {
-        auto target_pointer = target_type.pointer;
-
-        if(type.kind == TypeKind::Integer) {
-            auto integer = type.integer;
-
-            if(integer.size == info.architecture_sizes.address_size && !integer.is_signed) {
+            } else if(type.kind == TypeKind::Pointer) {
                 return ok(AnyConstantValue(value.unwrap_integer()));
             }
-        } else if(type.kind == TypeKind::Pointer) {
-            return ok(AnyConstantValue(value.unwrap_integer()));
         }
     }
 
     if(!probing) {
-        error(scope, value_range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+        error(scope, value_range, "Cannot cast from '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
     }
 
     return err();
@@ -1877,7 +1960,7 @@ bool constant_values_equal(AnyConstantValue a, AnyConstantValue b) {
         } break;
 
         case ConstantValueKind::UndefConstant: {
-            return false;
+            return false; // Unsure if this is the right thing to do here? Reminiscent of NaN != NaN
         } break;
 
         default: abort();
@@ -4341,7 +4424,7 @@ profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
                 scope,
                 enum_definition->variants[i].name.range,
                 backing_type,
-                AnyConstantValue(next_value),
+                next_value,
                 false
             ));
 

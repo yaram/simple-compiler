@@ -132,7 +132,8 @@ enum struct IRConstantValueKind {
     FloatConstant,
     BooleanConstant,
     StaticArrayConstant,
-    StructConstant
+    StructConstant,
+    UndefConstant
 };
 
 struct IRConstantValue {
@@ -210,6 +211,13 @@ struct IRConstantValue {
         IRConstantValue result;
         result.kind = IRConstantValueKind::StructConstant;
         result.struct_.members = members;
+
+        return result;
+    }
+
+    static inline IRConstantValue create_undef() {
+        IRConstantValue result;
+        result.kind = IRConstantValueKind::UndefConstant;
 
         return result;
     }
