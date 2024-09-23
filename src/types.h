@@ -205,6 +205,7 @@ enum struct TypeKind {
     UndeterminedStruct,
     Enum,
     FileModule,
+    Undef,
     MultiReturn
 };
 
@@ -294,6 +295,13 @@ struct AnyType {
     static inline AnyType create_file_module() {
         AnyType result;
         result.kind = TypeKind::FileModule;
+
+        return result;
+    }
+
+    static inline AnyType create_undef() {
+        AnyType result;
+        result.kind = TypeKind::Undef;
 
         return result;
     }

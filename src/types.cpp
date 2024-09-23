@@ -29,24 +29,10 @@ bool AnyType::operator==(AnyType other) {
         }
 
         return true;
-    } else if(kind == TypeKind::PolymorphicFunction) {
-        return false;
-    } else if(kind == TypeKind::BuiltinFunction) {
-        return false;
     } else if(kind == TypeKind::Integer) {
         return integer.size == other.integer.size && integer.is_signed == other.integer.is_signed;
-    } else if(kind == TypeKind::UndeterminedInteger) {
-        return true;
-    } else if(kind == TypeKind::Boolean) {
-        return true;
     } else if(kind == TypeKind::FloatType) {
         return float_.size == other.float_.size;
-    } else if(kind == TypeKind::UndeterminedFloat) {
-        return true;
-    } else if(kind == TypeKind::Type) {
-        return true;
-    } else if(kind == TypeKind::Void) {
-        return true;
     } else if(kind == TypeKind::Pointer) {
         auto a_pointer = pointer;
         auto b_pointer = other.pointer;
@@ -136,8 +122,6 @@ bool AnyType::operator==(AnyType other) {
         auto b_enum = other.enum_;
 
         return a_enum.definition == b_enum.definition;
-    } else if(kind == TypeKind::FileModule) {
-        return true;
     } else if(kind == TypeKind::MultiReturn) {
         if(multi_return.types.length != other.multi_return.types.length) {
             return false;
@@ -151,7 +135,8 @@ bool AnyType::operator==(AnyType other) {
 
         return true;
     } else {
-        abort();
+        // For basic types that have no data
+        return true;
     }
 }
 
@@ -323,6 +308,8 @@ String AnyType::get_description() {
         return enum_.definition->name.text;
     } else if(kind == TypeKind::FileModule) {
         return "{module}"_S;
+    } else if(kind == TypeKind::Undef) {
+        return "{undefined value}"_S;
     } else if(kind == TypeKind::MultiReturn) {
         return "{multiple returns}"_S;
     } else {
