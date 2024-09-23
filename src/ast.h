@@ -277,16 +277,16 @@ struct Bake : Expression {
 struct ArrayType : Expression {
     Expression* expression;
 
-    Expression* index;
+    Expression* length;
 
     explicit inline ArrayType(
         FileRange range,
         Expression* expression,
-        Expression* index
+        Expression* length
     ) :
         Expression { ExpressionKind::ArrayType, range },
         expression { expression },
-        index { index }
+        length { length }
     {}
 };
 

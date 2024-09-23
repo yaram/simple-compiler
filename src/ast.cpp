@@ -290,10 +290,10 @@ static void print_expression_internal(Expression* expression, unsigned int inden
         print_expression_internal(array_type->expression, indentation_level + 1);
         printf("\n");
 
-        if(array_type->index) {
+        if(array_type->length) {
             indent(indentation_level + 1);
             printf("index: ");
-            print_expression_internal(array_type->index, indentation_level + 1);
+            print_expression_internal(array_type->length, indentation_level + 1);
             printf("\n");
         }
 

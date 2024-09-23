@@ -28,7 +28,13 @@ String get_scope_file_path(ConstantScope scope) {
     return current.file_path;
 }
 
-Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, int64_t value, bool probing) {
+Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, AnyConstantValue value, bool probing) {
+    if(value.kind == ConstantValueKind::UndefConstant) {
+        return ok();
+    }
+
+    auto integer_value = value.unwrap_integer();
+
     bool in_range;
     if(target_type.is_signed) {
         int64_t min;
@@ -59,9 +65,9 @@ Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope
             } break;
         }
 
-        in_range = value >= min && value <= max;
+        in_range = integer_value >= min && integer_value <= max;
     } else {
-        if(value < 0) {
+        if(integer_value < 0) {
             in_range = false;
         } else {
             uint64_t max;
@@ -87,13 +93,13 @@ Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope
                 } break;
             }
 
-            in_range = (uint64_t)value <= max;
+            in_range = (uint64_t)integer_value <= max;
         }
     }
 
     if(!in_range) {
         if(!probing) {
-            error(scope, range, "Constant '%zd' cannot fit in '%.*s'. You must cast explicitly", value, STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
+            error(scope, range, "Constant '%zd' cannot fit in '%.*s'. You must cast explicitly", integer_value, STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
         }
 
         return err();
@@ -102,7 +108,7 @@ Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope
     return ok();
 }
 
-Result<uint64_t> coerce_constant_to_integer_type(
+Result<AnyConstantValue> coerce_constant_to_integer_type(
     ConstantScope* scope,
     FileRange range,
     AnyType type,
@@ -114,24 +120,20 @@ Result<uint64_t> coerce_constant_to_integer_type(
         auto integer = type.integer;
 
         if(integer.size == target_type.size && integer.is_signed == target_type.is_signed) {
-            return ok(value.unwrap_integer());
+            return ok(value);
         }
     } else if(type.kind == TypeKind::UndeterminedInteger) {
-        auto integer_value = (value.unwrap_integer());
+        expect_void(check_undetermined_integer_to_integer_coercion(scope, range, target_type, value, probing));
 
-        expect_void(check_undetermined_integer_to_integer_coercion(scope, range, target_type, (int64_t)integer_value, probing));
-
-        return ok(integer_value);
+        return ok(value);
     } else if(type.kind == TypeKind::Enum) {
         auto enum_ = type.enum_;
 
         if(enum_.backing_type->size == target_type.size && enum_.backing_type->is_signed == target_type.is_signed) {
-            auto enum_value = value.unwrap_integer();
-
-            return ok(enum_value);
+            return ok(value);
         }
-    } else {
-        
+    } else if(type.kind == TypeKind::Undef) {
+        return ok(value);
     }
 
     if(!probing) {
@@ -141,7 +143,7 @@ Result<uint64_t> coerce_constant_to_integer_type(
     return err();
 }
 
-static Result<uint64_t> coerce_constant_to_undetermined_integer(
+static Result<AnyConstantValue> coerce_constant_to_undetermined_integer(
     ConstantScope* scope,
     FileRange range,
     AnyType type,
@@ -151,23 +153,27 @@ static Result<uint64_t> coerce_constant_to_undetermined_integer(
     if(type.kind == TypeKind::Integer) {
         auto integer = type.integer;
 
-        auto integer_value = (value.unwrap_integer());
+        if(value.kind == ConstantValueKind::UndefConstant) {
+            return ok(value);
+        }
+
+        auto integer_value = value.unwrap_integer();
 
         switch(integer.size) {
             case RegisterSize::Size8: {
-                return ok((uint64_t)(uint8_t)integer_value);
+                return ok(AnyConstantValue((uint64_t)(uint8_t)integer_value));
             } break;
 
             case RegisterSize::Size16: {
-                return ok((uint64_t)(uint16_t)integer_value);
+                return ok(AnyConstantValue((uint64_t)(uint16_t)integer_value));
             } break;
 
             case RegisterSize::Size32: {
-                return ok((uint64_t)(uint32_t)integer_value);
+                return ok(AnyConstantValue((uint64_t)(uint32_t)integer_value));
             } break;
 
             case RegisterSize::Size64: {
-                return ok(integer_value);
+                return ok(AnyConstantValue(integer_value));
             } break;
 
             default: {
@@ -175,9 +181,9 @@ static Result<uint64_t> coerce_constant_to_undetermined_integer(
             } break;
         }
     } else if(type.kind == TypeKind::UndeterminedInteger) {
-        return ok((value.unwrap_integer()));
+        return ok(value);
     } else if(type.kind == TypeKind::Enum) {
-        return ok((value.unwrap_integer()));
+        return ok(value);
     } else {
         if(!probing) {
             error(scope, range, "Cannot implicitly convert '%.*s' to '{integer}'", STRING_PRINTF_ARGUMENTS(type.get_description()));
@@ -187,7 +193,7 @@ static Result<uint64_t> coerce_constant_to_undetermined_integer(
     }
 }
 
-static Result<uint64_t> coerce_constant_to_pointer_type(
+static Result<AnyConstantValue> coerce_constant_to_pointer_type(
     ConstantScope* scope,
     FileRange range,
     AnyType type,
@@ -196,13 +202,15 @@ static Result<uint64_t> coerce_constant_to_pointer_type(
     bool probing
 ) {
     if(type.kind == TypeKind::UndeterminedInteger) {
-        return ok((value.unwrap_integer()));
+        return ok(value);
     } else if(type.kind == TypeKind::Pointer) {
         auto pointer = type.pointer;
 
         if(*pointer.pointed_to_type == *target_type.pointed_to_type) {
-            return ok((value.unwrap_integer()));
+            return ok(value);
         }
+    } else if(type.kind == TypeKind::Undef) {
+        return ok(value);
     }
 
     if(!probing) {
@@ -244,6 +252,8 @@ Result<AnyConstantValue> coerce_constant_to_type(
             }
         } else if(type.kind == TypeKind::UndeterminedFloat) {
             return ok(AnyConstantValue((value.unwrap_float())));
+        } else if(type.kind == TypeKind::Undef) {
+            return ok(value);
         }
     } else if(target_type.kind == TypeKind::UndeterminedFloat) {
         if(type.kind == TypeKind::FloatType) {
@@ -268,6 +278,8 @@ Result<AnyConstantValue> coerce_constant_to_type(
             return ok(AnyConstantValue(value));
         } else if(type.kind == TypeKind::UndeterminedFloat) {
             return ok(AnyConstantValue((value.unwrap_float())));
+        } else if(type.kind == TypeKind::Undef) {
+            return ok(value);
         }
     } else if(target_type.kind == TypeKind::Pointer) {
         auto target_pointer = target_type.pointer;
@@ -330,13 +342,15 @@ Result<AnyConstantValue> coerce_constant_to_type(
 
                     if(length_result.status) {
                         ArrayConstant array_constant {};
-                        array_constant.length = length_result.value;
-                        array_constant.pointer = pointer_result.value;
+                        array_constant.length = heapify(length_result.value);
+                        array_constant.pointer = heapify(pointer_result.value);
 
                         return ok(value);
                     }
                 }
             }
+        } else if(type.kind == TypeKind::Undef) {
+            return ok(value);
         }
     } else if(target_type.kind == TypeKind::StructType) {
         auto target_struct_type = target_type.struct_;
@@ -386,6 +400,8 @@ Result<AnyConstantValue> coerce_constant_to_type(
                     }
                 }
             }
+        } else if(type.kind == TypeKind::Undef) {
+            return ok(value);
         }
     } else if(target_type.kind == TypeKind::Enum) {
         auto target_enum = target_type.enum_;
@@ -406,9 +422,15 @@ Result<AnyConstantValue> coerce_constant_to_type(
             if(target_enum.definition == enum_.definition) {
                 return ok(AnyConstantValue(value.unwrap_integer()));
             }
+        } else if(type.kind == TypeKind::Undef) {
+            return ok(value);
         }
     } else if(type == target_type) {
         return ok(value);
+    } else if(target_type.is_runtime_type()) {
+        if(type.kind == TypeKind::Undef) {
+            return ok(value);
+        }
     }
 
     if(!probing) {
@@ -440,25 +462,31 @@ Result<TypedConstantValue> evaluate_constant_index(
         false
     ));
 
+    if(index.kind == ConstantValueKind::UndefConstant) {
+        error(scope, range, "Index is undefined");
+
+        return err();
+    }
+
+    auto index_integer = index.unwrap_integer();
+
     if(type.kind == TypeKind::ArrayTypeType) {
         auto array_type = type.array;
 
         if(value.kind == ConstantValueKind::StaticArrayConstant) {
-            auto static_array_value = (value.unwrap_static_array());
+            auto static_array_value = value.static_array;
 
-            if(index >= static_array_value.elements.length) {
-                error(scope, index_range, "Array index %zu out of bounds", index);
+            if(index_integer >= static_array_value.elements.length) {
+                error(scope, index_range, "Array index %zu out of bounds", index_integer);
 
                 return err();
             }
 
             return ok(TypedConstantValue(
                 *array_type.element_type,
-                static_array_value.elements[index]
+                static_array_value.elements[index_integer]
             ));
         } else {
-            assert(value.kind == ConstantValueKind::ArrayConstant);
-
             error(scope, range, "Cannot index an array with non-constant elements in a constant context");
 
             return err();
@@ -466,20 +494,26 @@ Result<TypedConstantValue> evaluate_constant_index(
     } else if(type.kind == TypeKind::StaticArray) {
         auto static_array = type.static_array;
 
-        if(index >= static_array.length) {
-            error(scope, index_range, "Array index %zu out of bounds", index);
+        if(index_integer >= static_array.length) {
+            error(scope, index_range, "Array index %zu out of bounds", index_integer);
 
             return err();
         }
 
-        auto static_array_value = (value.unwrap_static_array());
+        if(value.kind == ConstantValueKind::StaticArrayConstant) {
+            auto static_array_value = value.static_array;
 
-        assert(static_array_value.elements.length == static_array.length);
+            assert(static_array_value.elements.length == static_array.length);
 
-        return ok(TypedConstantValue(
-            *static_array.element_type,
-            static_array_value.elements[index]
-        ));
+            return ok(TypedConstantValue(
+                *static_array.element_type,
+                static_array_value.elements[index_integer]
+            ));
+        } else {
+            error(scope, range, "Cannot index an array with non-constant elements in a constant context");
+
+            return err();
+        }
     } else {
         error(scope, range, "Cannot index %.*s", STRING_PRINTF_ARGUMENTS(type.get_description()));
 
@@ -564,14 +598,26 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
 
     expect(coerced_left_value, coerce_constant_to_type(info, scope, left_range, left_type, left_value, type, false));
 
+    if(coerced_left_value.kind == ConstantValueKind::UndefConstant) {
+        error(scope, left_range, "Value is undefined");
+
+        return err();
+    }
+
     expect(coerced_right_value, coerce_constant_to_type(info, scope, right_range, right_type, right_value, type, false));
+
+    if(coerced_right_value.kind == ConstantValueKind::UndefConstant) {
+        error(scope, right_range, "Value is undefined");
+
+        return err();
+    }
 
     if(type.kind == TypeKind::Integer) {
         auto integer = type.integer;
 
-        auto left = (coerced_left_value.unwrap_integer());
+        auto left = coerced_left_value.unwrap_integer();
 
-        auto right = (coerced_right_value.unwrap_integer());
+        auto right = coerced_right_value.unwrap_integer();
 
         switch(binary_operator) {
             case BinaryOperation::Operator::Addition: {
@@ -989,6 +1035,14 @@ Result<AnyConstantValue> evaluate_constant_cast(
 
     if(coerce_result.status) {
         return ok(coerce_result.value);
+    }
+
+    if(value.kind == ConstantValueKind::UndefConstant) {
+        if(!probing) {
+            error(scope, value_range, "Cannot cast an undefined value");
+        }
+
+        return err();
     }
 
     if(target_type.kind == TypeKind::Integer) {
@@ -1822,6 +1876,10 @@ bool constant_values_equal(AnyConstantValue a, AnyConstantValue b) {
             return a.file_module.scope == b.file_module.scope;
         } break;
 
+        case ConstantValueKind::UndefConstant: {
+            return false;
+        } break;
+
         default: abort();
     }
 }
@@ -2124,21 +2182,29 @@ Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType ty
     if(type.kind == TypeKind::StaticArray) {
         element_type = *type.static_array.element_type;
 
-        static_array_value = (value.unwrap_static_array());
+        if(value.kind == ConstantValueKind::StaticArrayConstant) {
+            assert(static_array_value.elements.length == type.static_array.length);
 
-        assert(static_array_value.elements.length == type.static_array.length);
+            static_array_value = value.static_array;
+        } else {
+            error(scope, range, "Cannot use an array with non-constant elements in this context");
+
+            return err();
+        }
     } else if(type.kind == TypeKind::ArrayTypeType) {
         element_type = *type.array.element_type;
 
         if(value.kind == ConstantValueKind::StaticArrayConstant) {
             static_array_value = value.static_array;
         } else {
-            assert(value.kind == ConstantValueKind::ArrayConstant);
-
             error(scope, range, "Cannot use an array with non-constant elements in this context");
+
+            return err();
         }
     } else {
         error(scope, range, "Expected a string ([]u8), got '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+
+        return err();
     }
 
     if(
@@ -2152,7 +2218,15 @@ Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType ty
 
     auto data = allocate<char>(static_array_value.elements.length);
     for(size_t i = 0; i < static_array_value.elements.length; i += 1) {
-        data[i] = (char)(static_array_value.elements[i].unwrap_integer());
+        auto element_value = static_array_value.elements[i];
+
+        if(element_value.kind == ConstantValueKind::UndefConstant) {
+            error(scope, range, "String array is partially undefined, at element %zu", i);
+
+            return err();
+        }
+
+        data[i] = (char)element_value.unwrap_integer();
     }
 
     String string {};
@@ -2224,6 +2298,12 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         auto member_reference = (MemberReference*)expression;
 
         expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, member_reference->expression));
+
+        if(expression_value.value.kind == ConstantValueKind::UndefConstant) {
+            error(scope, member_reference->expression->range, "Cannot access members of an undefined value");
+
+            return err();
+        }
 
         if(expression_value.type.kind == TypeKind::ArrayTypeType) {
             auto array_type = expression_value.type.array;
@@ -2780,6 +2860,12 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
         expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, unary_operation->expression));
 
+        if(expression_value.value.kind == ConstantValueKind::UndefConstant) {
+            error(scope, unary_operation->expression->range, "Value is undefined");
+
+            return err();
+        }
+
         switch(unary_operation->unary_operator) {
             case UnaryOperation::Operator::Pointer: {
                 if(expression_value.type.kind == TypeKind::Type) {
@@ -3013,14 +3099,14 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             return err();
         }
 
-        if(array_type->index != nullptr) {
-            expect_delayed(index_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, array_type->index));
+        if(array_type->length != nullptr) {
+            expect_delayed(length_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, array_type->length));
 
             expect(length, coerce_constant_to_integer_type(
                 scope,
-                array_type->index->range,
-                index_value.type,
-                index_value.value,
+                array_type->length->range,
+                length_value.type,
+                length_value.value,
                 Integer(
                     info.architecture_sizes.address_size,
                     false
@@ -3028,11 +3114,19 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 false
             ));
 
+            if(length.kind == ConstantValueKind::UndefConstant) {
+                error(scope, array_type->length->range, "Length cannot be undefined");
+
+                return err();
+            }
+
+            auto length_integer = length.unwrap_integer();
+
             return ok(TypedConstantValue(
                 AnyType::create_type_type(),
                 AnyConstantValue(
                     AnyType(StaticArray(
-                        length,
+                        length_integer,
                         heapify(type)
                     ))
                 )
@@ -3176,6 +3270,12 @@ DelayedResult<StaticIfResolutionResult> do_resolve_static_if(GlobalInfo info, Li
         return err();
     }
 
+    if(condition.value.kind == ConstantValueKind::UndefConstant) {
+        error(scope, static_if->condition->range, "Condition cannot be undefined");
+
+        return err();
+    }
+
     auto condition_value = (condition.value.unwrap_boolean());
 
     if(condition_value) {
@@ -3268,11 +3368,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
                         array.element_type->kind == TypeKind::ArrayTypeType ||
                         array.element_type->kind == TypeKind::StaticArray
                     ) {
-                        if(parameter.value.kind == ConstantValueKind::ArrayConstant) {
-                            error(scope, tag.parameters[i]->range, "Cannot use an array with non-constant elements in a constant context");
-
-                            return err();
-                        } else {
+                        if(parameter.value.kind == ConstantValueKind::StaticArrayConstant) {
                             auto static_array_value = (parameter.value.unwrap_static_array());
 
                             for(auto element : static_array_value.elements) {
@@ -3280,6 +3376,10 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
 
                                 libraries.append(library_path);
                             }
+                        } else {
+                            error(scope, tag.parameters[i]->range, "Cannot use an array with non-constant elements in a constant context");
+
+                            return err();
                         }
                     } else {
                         expect(library_path, array_to_string(scope, tag.parameters[i]->range, parameter.type, parameter.value));
@@ -3293,6 +3393,12 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
                         static_array.element_type->kind == TypeKind::ArrayTypeType ||
                         static_array.element_type->kind == TypeKind::StaticArray
                     ) {
+                        if(parameter.value.kind == ConstantValueKind::UndefConstant) {
+                            error(scope, tag.parameters[i]->range, "External library list cannot be undefined");
+
+                            return err();
+                        }
+
                         auto static_array_value = (parameter.value.unwrap_static_array());
 
                         assert(static_array.length == static_array_value.elements.length);
@@ -4223,13 +4329,19 @@ profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
                 false
             ));
 
-            value = coerced_variant_value;
+            if(coerced_variant_value.kind == ConstantValueKind::UndefConstant) {
+                error(scope, enum_definition->variants[i].value->range, "Enum variant cannot be undefined");
+
+                return err();
+            }
+
+            value = coerced_variant_value.unwrap_integer();
         } else {
             expect_void(check_undetermined_integer_to_integer_coercion(
                 scope,
                 enum_definition->variants[i].name.range,
                 backing_type,
-                (int64_t)next_value,
+                AnyConstantValue(next_value),
                 false
             ));
 

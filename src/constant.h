@@ -55,11 +55,11 @@ struct BuiltinFunctionConstant {
 
 struct ArrayConstant {
     inline ArrayConstant() = default;
-    explicit inline ArrayConstant(uint64_t length, uint64_t pointer) : length(length), pointer(pointer) {}
+    explicit inline ArrayConstant(AnyConstantValue* length, AnyConstantValue* pointer) : length(length), pointer(pointer) {}
 
-    uint64_t length;
+    AnyConstantValue* length;
 
-    uint64_t pointer;
+    AnyConstantValue* pointer;
 };
 
 struct StaticArrayConstant {
@@ -97,7 +97,8 @@ enum struct ConstantValueKind {
     StaticArrayConstant,
     StructConstant,
     FileModuleConstant,
-    TypeConstant
+    TypeConstant,
+    UndefConstant
 };
 
 struct AnyConstantValue {
@@ -133,6 +134,13 @@ struct AnyConstantValue {
     static inline AnyConstantValue create_void() {
         AnyConstantValue result {};
         result.kind = ConstantValueKind::VoidConstant;
+
+        return result;
+    }
+
+    static inline AnyConstantValue create_undef() {
+        AnyConstantValue result {};
+        result.kind = ConstantValueKind::UndefConstant;
 
         return result;
     }
@@ -337,8 +345,8 @@ void error(ConstantScope* scope, FileRange range, const char* format, ...);
 
 Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType type, AnyConstantValue value);
 
-Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, int64_t value, bool probing);
-Result<uint64_t> coerce_constant_to_integer_type(
+Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, AnyConstantValue value, bool probing);
+Result<AnyConstantValue> coerce_constant_to_integer_type(
     ConstantScope* scope,
     FileRange range,
     AnyType type,
