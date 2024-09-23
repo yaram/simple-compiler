@@ -5089,9 +5089,15 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     }
                 }
 
+                if(variable_declaration->initializer == nullptr) {
+                    error(scope, variable_declaration->range, "Variable must be initialized");
+
+                    return err();
+                }
+
                 AnyType type;
                 AddressedValue addressed_value;
-                if(variable_declaration->type != nullptr && variable_declaration->initializer != nullptr) {
+                if(variable_declaration->type != nullptr) {
                     expect_delayed(type_value, evaluate_type_expression(info, jobs, scope, context, instructions, variable_declaration->type));
 
                     if(!type_value.is_runtime_type()) {
@@ -5136,30 +5142,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     );
 
                     addressed_value = AddressedValue(ir_type, pointer_register);
-                } else if(variable_declaration->type != nullptr) {
-                    expect_delayed(type_value, evaluate_type_expression(info, jobs, scope, context, instructions, variable_declaration->type));
-
-                    if(!type_value.is_runtime_type()) {
-                        error(scope, variable_declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type_value.get_description()));
-
-                        return err();
-                    }
-
-                    type = type_value;
-
-                    auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
-
-                    auto pointer_register = append_allocate_local(
-                        context,
-                        instructions,
-                        variable_declaration->range,
-                        ir_type,
-                        variable_declaration->name.text,
-                        type
-                    );
-
-                    addressed_value = AddressedValue(ir_type, pointer_register);
-                } else if(variable_declaration->initializer != nullptr) {
+                } else {
                     expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->initializer));
 
                     expect(actual_type, coerce_to_default_type(info, scope, variable_declaration->initializer->range, initializer_value.type));
@@ -5204,8 +5187,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     );
 
                     addressed_value = AddressedValue(ir_type, pointer_register);
-                } else {
-                    abort();
                 }
 
                 if(
@@ -6285,7 +6266,13 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
 
         return ok(result);
     } else {
-        if(declaration->type != nullptr && declaration->initializer != nullptr) {
+        if(declaration->initializer == nullptr) {
+            error(scope, declaration->range, "Variable must be initialized");
+
+            return err();
+        }
+
+        if(declaration->type != nullptr) {
             expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, declaration->type));
 
             if(!type.is_runtime_type()) {
@@ -6324,30 +6311,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             result.type = type;
 
             return ok(result);
-        } else if(declaration->type != nullptr) {
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, declaration->type));
-
-            if(!type.is_runtime_type()) {
-                error(scope, declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
-
-                return err();
-            }
-
-            auto static_variable = new StaticVariable;
-            static_variable->name = declaration->name.text;
-            static_variable->path = get_scope_file_path(*scope);
-            static_variable->range = declaration->range;
-            static_variable->type = get_runtime_ir_type(info.architecture_sizes, type);
-            static_variable->is_no_mangle = is_no_mangle;
-            static_variable->is_external = false;
-            static_variable->debug_type = type;
-
-            StaticVariableResult result {};
-            result.static_variable = static_variable;
-            result.type = type;
-
-            return ok(result);
-        } else if(declaration->initializer != nullptr) {
+        } else {
             expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, nullptr, declaration->initializer));
 
             expect(type, coerce_to_default_type(info, scope, declaration->initializer->range, initial_value.type));
@@ -6376,8 +6340,6 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             result.type = type;
 
             return ok(result);
-        } else {
-            abort();
         }
     }
 }
