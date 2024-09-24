@@ -32,7 +32,7 @@ main :: () -> i32 {
 
     running := true;
     while running {
-        event: SDL_Event;
+        event: SDL_Event = undef;
 
         while SDL_PollEvent(*event) != 0 {
             if event.type == SDL_QUIT {
