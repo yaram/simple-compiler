@@ -2266,7 +2266,7 @@ Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType ty
         element_type = *type.static_array.element_type;
 
         if(value.kind == ConstantValueKind::StaticArrayConstant) {
-            assert(static_array_value.elements.length == type.static_array.length);
+            assert(value.static_array.elements.length == type.static_array.length);
 
             static_array_value = value.static_array;
         } else {
