@@ -3660,36 +3660,54 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err();
                 }
 
-                expect(register_value, coerce_to_type_register(
+                if(parameter_value.value.kind != RuntimeValueKind::ConstantValue) {
+                    error(scope, function_call->parameters[0]->range, "Cannot stackify a non-constant value");
+
+                    return err();
+                }
+
+                auto constant_value = parameter_value.value.constant;
+
+                expect(coerced_value, coerce_constant_to_type(
                     info,
                     scope,
-                    context,
-                    instructions,
                     function_call->parameters[0]->range,
                     parameter_value.type,
-                    parameter_value.value,
+                    constant_value,
                     determined_type,
                     false
                 ));
+
+                auto ir_constant_value = get_runtime_ir_constant_value(coerced_value);
+
+                auto ir_type = get_runtime_ir_type(info.architecture_sizes, determined_type);
 
                 auto pointer_register = append_allocate_local(
                     context,
                     instructions,
                     function_call->range,
-                    register_value.type
+                    ir_type
+                );
+
+                auto literal_register = append_literal(
+                    context,
+                    instructions,
+                    function_call->range,
+                    ir_type,
+                    ir_constant_value
                 );
 
                 append_store(
                     context,
                     instructions,
                     function_call->range,
-                    register_value.register_index,
+                    literal_register,
                     pointer_register
                 );
 
                 return ok(TypedRuntimeValue(
                     determined_type,
-                    AnyRuntimeValue(AddressedValue(register_value.type, pointer_register))
+                    AnyRuntimeValue(AddressedValue(ir_type, pointer_register))
                 ));
             } else {
                 abort();
