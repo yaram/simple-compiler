@@ -638,13 +638,13 @@ static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_si
     } else if(type.kind == IRTypeKind::StaticArray) {
         auto static_array = type.static_array;
 
-        assert(static_array.length == value.static_array.elements.length);
-
         auto element_llvm_type = get_llvm_type(architecture_sizes, *static_array.element_type);
 
         result_type = LLVMArrayType2(element_llvm_type, static_array.length);
 
         if(value.kind == IRConstantValueKind::StaticArrayConstant) {
+            assert(static_array.length == value.static_array.elements.length);
+
             auto elements = allocate<LLVMValueRef>(static_array.length);
 
             for(size_t i = 0; i < static_array.length; i += 1) {
@@ -660,13 +660,12 @@ static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_si
     } else if(type.kind == IRTypeKind::Struct) {
         auto struct_ = type.struct_;
 
-        assert(struct_.members.length == value.struct_.members.length);
-
-
         auto member_types = allocate<LLVMTypeRef>(struct_.members.length);
         auto member_values = allocate<LLVMValueRef>(struct_.members.length);
 
         if(value.kind == IRConstantValueKind::StructConstant) {
+            assert(struct_.members.length == value.struct_.members.length);
+
             for(size_t i = 0; i < struct_.members.length; i += 1) {
                 assert(struct_.members[i].is_runtime());
 

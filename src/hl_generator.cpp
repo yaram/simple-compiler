@@ -1065,9 +1065,13 @@ static Result<RegisterValue> coerce_to_type_register(
 
         return ok(register_value);
     } else if(target_type.kind == TypeKind::Boolean) {
-        if(type.kind == TypeKind::Boolean) {
-            auto ir_type = IRType::create_boolean();
+        auto ir_type = IRType::create_boolean();
 
+        if(type.kind == TypeKind::Boolean) {
+            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+            return ok(RegisterValue(ir_type, register_index));
+        } else if(type.kind == TypeKind::Undef) {
             auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
@@ -1268,6 +1272,10 @@ static Result<RegisterValue> coerce_to_type_register(
                     abort();
                 }
             }
+        } else if(type.kind == TypeKind::Undef) {
+            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+            return ok(RegisterValue(ir_type, register_index));
         }
     } else if(target_type.kind == TypeKind::StaticArray) {
         auto target_static_array = target_type.static_array;
@@ -1305,6 +1313,10 @@ static Result<RegisterValue> coerce_to_type_register(
 
                 return ok(RegisterValue(ir_type, register_index));
             }
+        } else if(type.kind == TypeKind::Undef) {
+            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+            return ok(RegisterValue(ir_type, register_index));
         }
     } else if(target_type.kind == TypeKind::StructType) {
         auto target_struct_type = target_type.struct_;
@@ -1454,6 +1466,10 @@ static Result<RegisterValue> coerce_to_type_register(
             } else {
                 abort();
             }
+        } else if(type.kind == TypeKind::Undef) {
+            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+            return ok(RegisterValue(ir_type, register_index));
         }
     } else if(target_type.kind == TypeKind::UnionType) {
         auto target_union_type = target_type.union_;
@@ -1591,6 +1607,10 @@ static Result<RegisterValue> coerce_to_type_register(
             } else {
                 abort();
             }
+        } else if(type.kind == TypeKind::Undef) {
+            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+            return ok(RegisterValue(ir_type, register_index));
         }
     } else if(target_type.kind == TypeKind::Enum) {
         auto target_enum = target_type.enum_;
@@ -1621,6 +1641,10 @@ static Result<RegisterValue> coerce_to_type_register(
 
                 return ok(RegisterValue(ir_type, register_index));
             }
+        } else if(type.kind == TypeKind::Undef) {
+            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+
+            return ok(RegisterValue(ir_type, register_index));
         }
     } else {
         abort();
