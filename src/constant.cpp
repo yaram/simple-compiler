@@ -2761,6 +2761,10 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 error(scope, function_call->range, "'memcpy' cannot be called in a constant context");
 
                 return err();
+            } else if(builtin_function_value.name == "stackify"_S) {
+                error(scope, function_call->range, "'stackify' cannot be called in a constant context");
+
+                return err();
             } else {
                 abort();
             }

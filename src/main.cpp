@@ -334,7 +334,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     append_builtin(&global_constants, "size_of"_S);
     append_builtin(&global_constants, "type_of"_S);
 
-    append_builtin(&global_constants, "memcpy"_S);
+    append_builtin(&global_constants, "stackify"_S);
 
     append_global_constant(
         &global_constants,

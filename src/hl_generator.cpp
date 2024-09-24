@@ -3643,6 +3643,54 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     AnyType::AnyType::create_type_type(),
                     AnyRuntimeValue(AnyConstantValue(parameter_value.type))
                 ));
+            } else if(builtin_function_value.name == "stackify"_S) {
+                if(function_call->parameters.length != 1) {
+                    error(scope, function_call->range, "Incorrect parameter count. Expected 1, got %zu", function_call->parameters.length);
+
+                    return err();
+                }
+
+                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
+
+                expect(determined_type, coerce_to_default_type(info, scope, function_call->parameters[0]->range, parameter_value.type));
+
+                if(!determined_type.is_runtime_type()) {
+                    error(scope, function_call->parameters[0]->range, "Type '%.*s' cannot exist at runtime", STRING_PRINTF_ARGUMENTS(determined_type.get_description()));
+
+                    return err();
+                }
+
+                expect(register_value, coerce_to_type_register(
+                    info,
+                    scope,
+                    context,
+                    instructions,
+                    function_call->parameters[0]->range,
+                    parameter_value.type,
+                    parameter_value.value,
+                    determined_type,
+                    false
+                ));
+
+                auto pointer_register = append_allocate_local(
+                    context,
+                    instructions,
+                    function_call->range,
+                    register_value.type
+                );
+
+                append_store(
+                    context,
+                    instructions,
+                    function_call->range,
+                    register_value.register_index,
+                    pointer_register
+                );
+
+                return ok(TypedRuntimeValue(
+                    determined_type,
+                    AnyRuntimeValue(AddressedValue(register_value.type, pointer_register))
+                ));
             } else {
                 abort();
             }
