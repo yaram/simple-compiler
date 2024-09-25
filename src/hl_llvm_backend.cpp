@@ -1038,6 +1038,70 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             expect(calling_convention, get_llvm_calling_convention(function->path, function->range, os, architecture, function->calling_convention));
 
             LLVMSetFunctionCallConv(global_value.value, calling_convention);
+        } else if(runtime_static->kind == RuntimeStaticKind::StaticConstant) {
+            auto constant = (StaticConstant*)runtime_static;
+
+            assert(constant->type.is_runtime());
+
+            auto llvm_type = get_llvm_type(architecture_sizes, constant->type);
+
+            auto llvm_value = LLVMAddGlobal(module, llvm_type, name.to_c_string());
+            LLVMSetGlobalConstant(llvm_value, true);
+
+            auto value_llvm = get_llvm_constant(architecture_sizes, constant->type, constant->value).value;
+            LLVMSetInitializer(llvm_value, value_llvm);
+
+            global_value = TypedValue(
+                constant->type,
+                llvm_value
+            );
+
+            auto file_debug_scope = get_file_debug_scope(debug_builder, &file_debug_scopes, constant->path);
+
+            auto debug_type = get_llvm_debug_type(
+                debug_builder,
+                &file_debug_scopes,
+                file_debug_scope,
+                architecture_sizes,
+                constant->debug_type
+            );
+
+            auto debug_expression = LLVMDIBuilderCreateExpression(debug_builder, nullptr, 0);
+
+            auto debug_variable_expression = LLVMDIBuilderCreateGlobalVariableExpression(
+                debug_builder,
+                file_debug_scope,
+                constant->name.elements,
+                constant->name.length,
+                name.elements,
+                name.length,
+                file_debug_scope,
+                constant->range.first_line,
+                debug_type,
+                true,
+                debug_expression,
+                nullptr,
+                0
+            );
+
+            auto debug_variable = LLVMDIGlobalVariableExpressionGetVariable(debug_variable_expression);
+
+            auto debug_location = LLVMDIBuilderCreateDebugLocation(
+                LLVMGetGlobalContext(),
+                constant->range.first_line,
+                constant->range.first_column,
+                file_debug_scope,
+                nullptr
+            );
+
+            LLVMDIBuilderInsertDbgValueAtEnd(
+                debug_builder,
+                llvm_value,
+                debug_variable,
+                debug_expression,
+                debug_location,
+                nullptr
+            );
         } else if(runtime_static->kind == RuntimeStaticKind::StaticVariable) {
             auto variable = (StaticVariable*)runtime_static;
 
