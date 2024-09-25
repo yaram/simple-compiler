@@ -3670,6 +3670,61 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     AnyType::AnyType::create_type_type(),
                     AnyRuntimeValue(AnyConstantValue(parameter_value.type))
                 ));
+            } else if(builtin_function_value.name == "globalify"_S) {
+                if(function_call->parameters.length != 1) {
+                    error(scope, function_call->range, "Incorrect parameter count. Expected 1, got %zu", function_call->parameters.length);
+
+                    return err();
+                }
+
+                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
+
+                expect(determined_type, coerce_to_default_type(info, scope, function_call->parameters[0]->range, parameter_value.type));
+
+                if(!determined_type.is_runtime_type()) {
+                    error(scope, function_call->parameters[0]->range, "Type '%.*s' cannot exist at runtime", STRING_PRINTF_ARGUMENTS(determined_type.get_description()));
+
+                    return err();
+                }
+
+                if(parameter_value.value.kind != RuntimeValueKind::ConstantValue) {
+                    error(scope, function_call->parameters[0]->range, "Cannot globalify a non-constant value");
+
+                    return err();
+                }
+
+                auto constant_value = parameter_value.value.constant;
+
+                expect(coerced_value, coerce_constant_to_type(
+                    info,
+                    scope,
+                    function_call->parameters[0]->range,
+                    parameter_value.type,
+                    constant_value,
+                    determined_type,
+                    false
+                ));
+
+                auto static_constant = register_static_constant(
+                    info,
+                    scope,
+                    context,
+                    function_call->range,
+                    determined_type,
+                    coerced_value
+                );
+
+                auto pointer_register = append_reference_static(
+                    context,
+                    instructions,
+                    function_call->range,
+                    static_constant
+                );
+
+                return ok(TypedRuntimeValue(
+                    determined_type,
+                    AnyRuntimeValue(AddressedValue(static_constant->type, pointer_register))
+                ));
             } else if(builtin_function_value.name == "stackify"_S) {
                 if(function_call->parameters.length != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1, got %zu", function_call->parameters.length);

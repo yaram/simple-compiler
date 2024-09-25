@@ -334,6 +334,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     append_builtin(&global_constants, "size_of"_S);
     append_builtin(&global_constants, "type_of"_S);
 
+    append_builtin(&global_constants, "globalify"_S);
     append_builtin(&global_constants, "stackify"_S);
 
     append_global_constant(
@@ -864,6 +865,10 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                                         libraries.append(library);
                                     }
                                 }
+                            }
+
+                            for(auto static_constant : result.value) {
+                                runtime_statics.append(static_constant);
                             }
                         } else {
                             job_after->state = JobState::Waiting;
