@@ -630,6 +630,7 @@ struct ReferenceStatic : Instruction {
 
 enum struct RuntimeStaticKind {
     Function,
+    StaticConstant,
     StaticVariable
 };
 
@@ -661,6 +662,14 @@ struct Function : RuntimeStatic {
     CallingConvention calling_convention;
 
     inline Function() : RuntimeStatic { RuntimeStaticKind::Function } {}
+};
+
+struct StaticConstant : RuntimeStatic {
+    IRType type;
+
+    IRConstantValue value;
+
+    StaticConstant() : RuntimeStatic { RuntimeStaticKind::StaticConstant } {}
 };
 
 struct StaticVariable : RuntimeStatic {

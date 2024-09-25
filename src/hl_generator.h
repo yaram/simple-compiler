@@ -6,7 +6,7 @@
 
 struct AnyJob;
 
-DelayedResult<void> do_generate_function(
+DelayedResult<Array<StaticConstant*>> do_generate_function(
     GlobalInfo info,
     List<AnyJob>* jobs,
     FunctionTypeType type,

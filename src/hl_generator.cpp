@@ -115,6 +115,8 @@ struct GenerationContext {
     List<VariableScope> variable_scope_stack;
 
     size_t next_register;
+
+    List<StaticConstant*> static_constants;
 };
 
 static Result<void> add_new_variable(GenerationContext* context, Identifier name, AnyType type, AddressedValue value) {
@@ -871,6 +873,31 @@ static IRConstantValue get_runtime_ir_constant_value(AnyConstantValue value) {
     } else {
         abort();
     }
+}
+
+static StaticConstant* register_static_constant(
+    GlobalInfo info,
+    ConstantScope* scope,
+    GenerationContext* context,
+    FileRange range,
+    AnyType type,
+    AnyConstantValue value
+) {
+    auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
+    auto ir_value = get_runtime_ir_constant_value(value);
+
+    auto constant = new StaticConstant;
+    constant->name = "static_constant"_S;
+    constant->is_no_mangle = false;
+    constant->path = get_scope_file_path(*scope);
+    constant->range = range;
+    constant->debug_type = type;
+    constant->type = ir_type;
+    constant->value = ir_value;
+
+    context->static_constants.append(constant);
+
+    return constant;
 }
 
 static size_t generate_in_register_value(
@@ -5914,7 +5941,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
     return ok();
 }
 
-profiled_function(DelayedResult<void>, do_generate_function, (
+profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     GlobalInfo info,
     List<AnyJob>* jobs,
     FunctionTypeType type,
@@ -5977,6 +6004,8 @@ profiled_function(DelayedResult<void>, do_generate_function, (
         function->is_external = true;
         function->is_no_mangle = true;
         function->libraries = value.external_libraries;
+
+        return ok(Array<StaticConstant*>::empty());
     } else {
         function->is_external = false;
         function->is_no_mangle = value.is_no_mangle;
@@ -6058,9 +6087,9 @@ profiled_function(DelayedResult<void>, do_generate_function, (
         }
 
         function->instructions = instructions;
-    }
 
-    return ok();
+        return ok((Array<StaticConstant*>)context.static_constants);
+    }
 }
 
 profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variable, (

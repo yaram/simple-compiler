@@ -705,6 +705,12 @@ void RuntimeStatic::print() {
                 }
             }
         }
+    } else if(kind == RuntimeStaticKind::StaticConstant) {
+        auto constant = (StaticConstant*)this;
+
+        constant->type.print();
+        printf(" ");
+        constant->value.print();
     } else if(kind == RuntimeStaticKind::StaticVariable) {
         auto variable = (StaticVariable*)this;
 
