@@ -4,6 +4,7 @@
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
 #include <llvm-c/Analysis.h>
+#include <llvm/IR/LLVMContext.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
@@ -1084,24 +1085,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 0
             );
 
-            auto debug_variable = LLVMDIGlobalVariableExpressionGetVariable(debug_variable_expression);
-
-            auto debug_location = LLVMDIBuilderCreateDebugLocation(
-                LLVMGetGlobalContext(),
-                constant->range.first_line,
-                constant->range.first_column,
-                file_debug_scope,
-                nullptr
-            );
-
-            LLVMDIBuilderInsertDbgValueAtEnd(
-                debug_builder,
-                llvm_value,
-                debug_variable,
-                debug_expression,
-                debug_location,
-                nullptr
-            );
+            LLVMGlobalSetMetadata(llvm_value, llvm::LLVMContext::MD_dbg, debug_variable_expression);
         } else if(runtime_static->kind == RuntimeStaticKind::StaticVariable) {
             auto variable = (StaticVariable*)runtime_static;
 
@@ -1152,24 +1136,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 0
             );
 
-            auto debug_variable = LLVMDIGlobalVariableExpressionGetVariable(debug_variable_expression);
-
-            auto debug_location = LLVMDIBuilderCreateDebugLocation(
-                LLVMGetGlobalContext(),
-                variable->range.first_line,
-                variable->range.first_column,
-                file_debug_scope,
-                nullptr
-            );
-
-            LLVMDIBuilderInsertDbgValueAtEnd(
-                debug_builder,
-                llvm_value,
-                debug_variable,
-                debug_expression,
-                debug_location,
-                nullptr
-            );
+            LLVMGlobalSetMetadata(llvm_value, llvm::LLVMContext::MD_dbg, debug_variable_expression);
         } else {
             abort();
         }
