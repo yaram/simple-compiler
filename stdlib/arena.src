@@ -12,10 +12,6 @@ Arena :: struct {
     current_offset: usize
 }
 
-AllocationHeader :: struct {
-    size: usize
-}
-
 create_arena :: (size: usize) -> (bool, Arena) {
     if size == 0 {
         return false, undef;
@@ -43,9 +39,7 @@ allocate :: (arena: *Arena, size: usize) -> *void {
         return 0;
     }
 
-    allocation_header_aligned_size := divide_round_up(size_of(AllocationHeader), largest_alignment) * largest_alignment;
-
-    total_size := divide_round_up(allocation_header_aligned_size + size, largest_alignment) * largest_alignment;
+    total_size := divide_round_up(size, largest_alignment) * largest_alignment;
 
     if arena.current_offset + total_size > arena.size {
         return 0;
@@ -53,10 +47,7 @@ allocate :: (arena: *Arena, size: usize) -> *void {
 
     base_address := arena.memory as usize + arena.current_offset;
 
-    allocation_header := base_address as *AllocationHeader;
-    allocation_header.size = size;
-
     arena.current_offset += total_size;
 
-    return (base_address + allocation_header_aligned_size) as *void;
+    return base_address as *void;
 }

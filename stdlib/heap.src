@@ -1,8 +1,8 @@
 #import "memory.src";
 using memory;
 
-subchunk_size :: 32;
-chunk_size :: 4096;
+subchunk_size :: 32; // must be divisible by largest_alignment
+chunk_size :: page_size; // must be divisible by subchunk_size
 subchunks_per_chunk :: chunk_size / subchunk_size;
 
 // Can overflow, be careful

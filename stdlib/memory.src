@@ -1,4 +1,5 @@
 largest_alignment :: 16;
+page_size :: 4096;
 
 #if WINDOWS {
     #import "windows.src";

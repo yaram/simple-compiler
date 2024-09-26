@@ -1,0 +1,93 @@
+#import "memory.src";
+using memory;
+
+chunk_size :: page_size; // must be divisible by largest_alignment
+
+// Can overflow, be careful
+divide_round_up :: (left: $T, right: T) -> T {
+    return (left + right - 1) / right;
+}
+
+ChunkRunHeader :: struct {
+    next_chunk_run_header: *void, // needs to be void for now because of circular dependency stuff
+    chunk_count: usize
+}
+
+ExpandingArena :: struct {
+    first_chunk_run_header: *ChunkRunHeader,
+    current_chunk_run_header: *ChunkRunHeader,
+    current_offset: usize
+}
+
+create_expanding_arena :: () -> ExpandingArena {
+    return {
+        first_chunk_run_header = 0,
+        current_chunk_run_header = 0,
+        current_offset = 0
+    };
+}
+
+destroy_expanding_arena :: (arena: ExpandingArena) {
+    current_chunk_run_header := arena.first_chunk_run_header;
+    while current_chunk_run_header != 0 {
+        next_chunk_run_header := current_chunk_run_header.next_chunk_run_header as *ChunkRunHeader;
+
+        unmap_virtual_memory(current_chunk_run_header as *void, current_chunk_run_header.chunk_count * chunk_size);
+
+        current_chunk_run_header = next_chunk_run_header;
+    }
+}
+
+reset_expanding_arena :: (arena: *ExpandingArena) {
+    arena.current_chunk_run_header = arena.first_chunk_run_header;
+    arena.current_offset = 0;
+}
+
+allocate :: (arena: *ExpandingArena, size: usize) -> *void {
+    if size == 0 {
+        return 0;
+    }
+
+    total_size := divide_round_up(size, largest_alignment) * largest_alignment;
+
+    current_chunk_run_header := arena.current_chunk_run_header;
+
+    if current_chunk_run_header != 0 {
+        if
+            arena.current_offset + total_size < arena.current_chunk_run_header.chunk_count * chunk_size ||
+            arena.current_offset + total_size == arena.current_chunk_run_header.chunk_count * chunk_size
+        {
+            base_address := current_chunk_run_header as usize + arena.current_offset;
+
+            arena.current_offset += total_size;
+
+            return base_address as *void;
+        }
+    }
+
+    aligned_header_size := divide_round_up(size_of(ChunkRunHeader), largest_alignment) * largest_alignment;
+
+    new_chunk_run_chunk_count := divide_round_up(aligned_header_size + total_size, chunk_size);
+
+    new_chunk_run_header := map_virtual_memory(new_chunk_run_chunk_count * chunk_size) as *ChunkRunHeader;
+    if new_chunk_run_header == 0 {
+        return 0;
+    }
+
+    new_chunk_run_header.next_chunk_run_header = 0;
+    new_chunk_run_header.chunk_count = new_chunk_run_chunk_count;
+
+    if current_chunk_run_header == 0 {
+        arena.first_chunk_run_header = new_chunk_run_header;
+    } else {
+        current_chunk_run_header.next_chunk_run_header = new_chunk_run_header as *void;
+    }
+
+    arena.current_chunk_run_header = new_chunk_run_header;
+
+    arena.current_offset = aligned_header_size + total_size;
+
+    base_address := new_chunk_run_header as usize + aligned_header_size;
+
+    return base_address as *void;
+}
