@@ -16,6 +16,7 @@
 #include "platform.h"
 #include "profiler.h"
 #include "path.h"
+#include "llvm-c/Types.h"
 
 static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType type);
 
@@ -967,6 +968,22 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         file_debug_scopes.append(entry);
     }
 
+    bool should_generate_debug_types;
+    if(config == "debug"_S) {
+        should_generate_debug_types = true;
+    } else if(config == "release"_S) {
+        should_generate_debug_types = false;
+    } else {
+        abort();
+    }
+
+    LLVMDWARFEmissionKind emission_kind;
+    if(should_generate_debug_types) {
+        emission_kind = LLVMDWARFEmissionFull;
+    } else {
+        emission_kind = LLVMDWARFEmissionLineTablesOnly;
+    }
+
     auto producer_name = "simple-compiler"_S;
     auto debug_compile_unit = LLVMDIBuilderCreateCompileUnit(
         debug_builder,
@@ -980,7 +997,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         0,
         nullptr, 
         0,
-        LLVMDWARFEmissionFull,
+        emission_kind,
         0,
         false,
         false,
@@ -1006,6 +1023,8 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             }
         }
         assert(found);
+
+        auto file_debug_scope = get_file_debug_scope(debug_builder, &file_debug_scopes, runtime_static->path);
 
         TypedValue global_value;
         if(runtime_static->kind == RuntimeStaticKind::Function) {
@@ -1057,8 +1076,6 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 llvm_value
             );
 
-            auto file_debug_scope = get_file_debug_scope(debug_builder, &file_debug_scopes, constant->path);
-
             auto debug_type = get_llvm_debug_type(
                 debug_builder,
                 &file_debug_scopes,
@@ -1107,8 +1124,6 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                 LLVMSetInitializer(global_value.value, initial_value_llvm);
             }
-
-            auto file_debug_scope = get_file_debug_scope(debug_builder, &file_debug_scopes, variable->path);
 
             auto debug_type = get_llvm_debug_type(
                 debug_builder,
@@ -1224,6 +1239,8 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     false
                 );
 
+                function_debug_scope = function_debug_scope;
+
                 LLVMSetSubprogram(function_value, function_debug_scope);
 
                 LLVMPositionBuilderAtEnd(builder, entry_block);
@@ -1247,7 +1264,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         auto pointer_value = LLVMBuildAlloca(builder, llvm_type, "allocate_local");
                         if(!allocate_local->has_debug_info) {
                             LLVMInstructionSetDebugLoc(pointer_value, debug_location);
-                        } else {
+                        } else if(should_generate_debug_types) {
                             auto debug_type = get_llvm_debug_type(
                                 debug_builder,
                                 &file_debug_scopes,
@@ -2292,7 +2309,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     }
                 }
 
-                LLVMDIBuilderFinalizeSubprogram(debug_builder, function_debug_scope);
+                if(should_generate_debug_types) {
+                    LLVMDIBuilderFinalizeSubprogram(debug_builder, function_debug_scope);
+                }
             }
         }
     }
