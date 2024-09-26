@@ -2,9 +2,8 @@
 using memory;
 
 subchunk_size :: 32;
-subchunks_per_chunk :: 128;
-chunk_size :: subchunk_size * subchunks_per_chunk; // Should work out to 4096 for efficiency
-alignment :: 16;
+chunk_size :: 4096;
+subchunks_per_chunk :: chunk_size / subchunk_size;
 
 // Can overflow, be careful
 divide_round_up :: (left: $T, right: T) -> T {
@@ -26,12 +25,29 @@ AllocationHeader :: struct {
     size: usize
 }
 
+create_heap :: () -> Heap {
+    return {
+        first_chunk_run_header = 0
+    };
+}
+
+destroy_heap :: (heap: Heap) {
+    current_chunk_run_header := heap.first_chunk_run_header;
+    while current_chunk_run_header != 0 {
+        next_chunk_run_header := current_chunk_run_header.next_chunk_run_header as *ChunkRunHeader;
+
+        unmap_virtual_memory(current_chunk_run_header as *void, current_chunk_run_header.chunk_count * chunk_size);
+
+        current_chunk_run_header = next_chunk_run_header;
+    }
+}
+
 allocate :: (heap: *Heap, size: usize) -> *void {
     if size == 0 {
         return 0;
     }
 
-    allocation_header_aligned_size := divide_round_up(size_of(AllocationHeader), alignment) * alignment;
+    allocation_header_aligned_size := divide_round_up(size_of(AllocationHeader), largest_alignment) * largest_alignment;
 
     total_size := allocation_header_aligned_size + size;
     total_size_in_subchunks := divide_round_up(total_size, subchunk_size);
@@ -50,7 +66,7 @@ allocate :: (heap: *Heap, size: usize) -> *void {
 
         found := false;
         in_unoccupied_subchunks := false;
-        unoccupied_subchunks_start_index: usize;
+        unoccupied_subchunks_start_index: usize = undef;
         subchunk_index := preamble_subchunk_count;
         while subchunk_index < subchunk_count {
             is_occupied := subchunk_occupied_map[subchunk_index];
@@ -166,7 +182,7 @@ reallocate :: (heap: *Heap, pointer: *void, new_size: usize) -> *void {
         return 0;
     }
 
-    allocation_header_aligned_size := divide_round_up(size_of(AllocationHeader), alignment) * alignment;
+    allocation_header_aligned_size := divide_round_up(size_of(AllocationHeader), largest_alignment) * largest_alignment;
 
     base_address := pointer as usize - allocation_header_aligned_size;
 
@@ -255,7 +271,7 @@ deallocate :: (heap: *Heap, pointer: *void) {
         return;
     }
 
-    allocation_header_aligned_size := divide_round_up(size_of(AllocationHeader), alignment) * alignment;
+    allocation_header_aligned_size := divide_round_up(size_of(AllocationHeader), largest_alignment) * largest_alignment;
 
     base_address := pointer as usize - allocation_header_aligned_size;
 

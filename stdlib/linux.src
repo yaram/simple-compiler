@@ -461,8 +461,8 @@
         argument_5: u32,
         argument_6: u32
     ) -> (u32, u32) {
-        return_value_1: u32;
-        return_value_2: u32;
+        return_value_1: u32 = undef;
+        return_value_2: u32 = undef;
 
         asm
             "int $$0x80",
@@ -866,8 +866,8 @@
         argument_5: u64,
         argument_6: u64
     ) -> (u64, u64) {
-        return_value_1: u64;
-        return_value_2: u64;
+        return_value_1: u64 = undef;
+        return_value_2: u64 = undef;
 
         asm
             "syscall",
@@ -1206,8 +1206,8 @@
         argument_5: u32,
         argument_6: u32
     ) -> (u32, u32) {
-        return_value_1: u32;
-        return_value_2: u32;
+        return_value_1: u32 = undef;
+        return_value_2: u32 = undef;
 
         asm
             "ecall",
@@ -1556,8 +1556,8 @@
         argument_5: u64,
         argument_6: u64
     ) -> (u64, u64) {
-        return_value_1: u64;
-        return_value_2: u64;
+        return_value_1: u64 = undef;
+        return_value_2: u64 = undef;
 
         asm
             "ecall",
