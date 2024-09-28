@@ -1963,6 +1963,64 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                     TypedValue(function_call->return_type, value)
                                 ));
                             }
+                        } else if(instruction->kind == InstructionKind::IntrinsicCallInstruction) {
+                            auto intrinsic_call = (IntrinsicCallInstruction*)instruction;
+
+                            auto parameter_count = intrinsic_call->parameters.length;
+
+                            auto parameter_types = allocate<LLVMTypeRef>(parameter_count);
+                            auto parameter_values = allocate<LLVMValueRef>(parameter_count);
+                            for(size_t i = 0; i < parameter_count; i += 1) {
+                                auto parameter = intrinsic_call->parameters[i];
+
+                                parameter_types[i] = get_llvm_type(architecture_sizes, parameter.type);
+
+                                parameter_values[i] = get_register_value(*function, function_value, registers, parameter.register_index).value;
+                            }
+
+                            auto return_llvm_type = get_llvm_type(architecture_sizes, intrinsic_call->return_type);
+
+                            auto function_llvm_type = LLVMFunctionType(return_llvm_type, parameter_types, (unsigned int)parameter_count, false);
+
+                            const char* intrinsic_name;
+                            if(intrinsic_call->intrinsic == IntrinsicCallInstruction::Intrinsic::Sqrt) {
+                                intrinsic_name = "llvm.sqrt";
+                            } else {
+                                abort();
+                            }
+
+                            auto intrinsic_id = LLVMLookupIntrinsicID(intrinsic_name, strlen(intrinsic_name));
+                            assert(intrinsic_id != 0);
+
+                            auto intrinsic_value = LLVMGetIntrinsicDeclaration(
+                                module,
+                                intrinsic_id,
+                                parameter_types,
+                                parameter_count
+                            );
+
+                            const char* name;
+                            if(intrinsic_call->has_return) {
+                                name = "intrinsic_call";
+                            } else {
+                                name = "";
+                            }
+
+                            llvm_instruction(value, LLVMBuildCall2(
+                                builder,
+                                function_llvm_type,
+                                intrinsic_value,
+                                parameter_values,
+                                (unsigned int)parameter_count,
+                                name
+                            ));
+
+                            if(intrinsic_call->has_return) {
+                                registers.append(Register(
+                                    intrinsic_call->return_register,
+                                    TypedValue(intrinsic_call->return_type, value)
+                                ));
+                            }
                         } else if(instruction->kind == InstructionKind::ReturnInstruction) {
                             auto return_instruction = (ReturnInstruction*)instruction;
 
