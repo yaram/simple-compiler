@@ -606,8 +606,15 @@ void Instruction::print(Array<Block*> blocks, bool has_return) {
         auto struct_member_pointer = (StructMemberPointer*)this;
 
         printf(
-            "STRUCTPTR %zu, r%zu, r%zu",
-            struct_member_pointer->member_index,
+            "STRUCTPTR %zu, *",
+            struct_member_pointer->member_index
+        );
+
+        auto struct_type = IRType::create_struct(struct_member_pointer->members);
+        struct_type.print();
+
+        printf(
+            " r%zu, r%zu",
             struct_member_pointer->pointer_register,
             struct_member_pointer->destination_register
         );
@@ -632,7 +639,16 @@ void Instruction::print(Array<Block*> blocks, bool has_return) {
         printf("ASM \"%.*s\"", STRING_PRINTF_ARGUMENTS(assembly_instruction->assembly));
 
         for(auto binding : assembly_instruction->bindings) {
-            printf(" \"%.*s\" r%zu", STRING_PRINTF_ARGUMENTS(binding.constraint), binding.register_index);
+            assert(binding.constraint.length > 0);
+
+            printf(" \"%.*s\"", STRING_PRINTF_ARGUMENTS(binding.constraint));
+
+            if(binding.constraint[0] == '=') {
+                printf(" *");
+                binding.pointed_to_type.print();
+            }
+
+            printf(" r%zu", binding.register_index);
         }
     } else if(kind == InstructionKind::ReferenceStatic) {
         auto reference_static = (ReferenceStatic*)this;
