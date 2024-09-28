@@ -1,3 +1,9 @@
+#import "stdlib/memory.src";
+using memory;
+
+#import "stdlib/expanding_arena.src";
+using expanding_arena;
+
 #import "sdl.src";
 
 using sdl;
@@ -6,13 +12,24 @@ using SDL_EventType;
 using SDL_Keycode;
 using SDL_WindowEventID;
 
+prng :: (state: *u32) -> u32 {
+    x := @state;
+
+    x = x + (x << 13);
+    x = x + (x >> 17);
+    x = x + (x << 5);
+
+    @state = x;
+
+    return x;
+}
+
 main :: () -> i32 {
     if SDL_Init(SDL_INIT_VIDEO) != 0 {
         return 1;
     }
 
-    window_title := "Test\0";
-    window := SDL_CreateWindow(window_title.pointer, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, SDL_WINDOW_SHOWN);
+    window := SDL_CreateWindow(globalify("Test\0").pointer, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, SDL_WINDOW_SHOWN);
     if window == 0 {
         return 1;
     }
@@ -22,13 +39,37 @@ main :: () -> i32 {
         return 1;
     }
 
-    x: i32 = 0;
-    y: i32 = 0;
+    rand_state: u32 = 1;
 
-    moving_left := false;
-    moving_right := false;
-    moving_up := false;
-    moving_down := false;
+    point_mass :: 1;
+
+    Point :: struct {
+        x: f32,
+        y: f32,
+        velocity_x: f32,
+        velocity_y: f32
+    }
+
+    point_count :: 1024;
+
+    points: []Point = {
+        length = point_count,
+        pointer = map_virtual_memory(point_count * size_of(Point)) as *Point
+    };
+
+    next_points: []Point = {
+        length = point_count,
+        pointer = map_virtual_memory(point_count * size_of(Point)) as *Point
+    };
+
+    for 0..points.length - 1 {
+        points[it] = {
+            x = (prng(*rand_state) % 1280) as f32,
+            y = (prng(*rand_state) % 720) as f32,
+            velocity_x = 0,
+            velocity_y = 0
+        };
+    }
 
     running := true;
     while running {
@@ -43,57 +84,58 @@ main :: () -> i32 {
                 if window_event.event == SDL_WINDOWEVENT_CLOSE {
                     running = false;
                 }
-            } else if event.type == SDL_KEYDOWN {
-                key_event := event.body.key;
-
-                if key_event.keysym.sym == SDLK_a {
-                    moving_left = true;
-                } else if key_event.keysym.sym == SDLK_d {
-                    moving_right = true;
-                } else if key_event.keysym.sym == SDLK_w {
-                    moving_up = true;
-                } else if key_event.keysym.sym == SDLK_s {
-                    moving_down = true;
-                }
-            } else if event.type == SDL_KEYUP {
-                key_event := event.body.key;
-
-                if key_event.keysym.sym == SDLK_a {
-                    moving_left = false;
-                } else if key_event.keysym.sym == SDLK_d {
-                    moving_right = false;
-                } else if key_event.keysym.sym == SDLK_w {
-                    moving_up = false;
-                } else if key_event.keysym.sym == SDLK_s {
-                    moving_down = false;
-                }
             }
         }
 
-        speed: i32 = 2;
+        timestep :: 0.1;
 
-        if moving_left {
-            x -= speed;
+        for 0..points.length - 1 {
+            point := *points[it];
+            next_point := *next_points[it];
+
+            force_x: f32 = 0.0;
+            force_y: f32 = 0.0;
+            for 0..points.length - 1 {
+                other_point := *points[it];
+
+                difference_x := other_point.x - point.x;
+                difference_y := other_point.y - point.y;
+
+                distance := sqrt(difference_x * difference_x + difference_y * difference_y);
+
+                if distance < 0.001 {
+                    distance = 0.001;
+                }
+
+                force := point_mass * point_mass / distance;
+
+                direction_x := difference_x / distance;
+                direction_y := difference_y / distance;
+
+                force_x += force * direction_x;
+                force_y += force * direction_y;
+            }
+
+            next_point.velocity_x = point.velocity_x + timestep * force_x / point_mass;
+            next_point.velocity_y = point.velocity_y + timestep * force_y / point_mass;
+
+            next_point.x = point.x + timestep * next_point.velocity_x;
+            next_point.y = point.y + timestep * next_point.velocity_y;
         }
 
-        if moving_right {
-            x += speed;
-        }
-
-        if moving_up {
-            y -= speed;
-        }
-
-        if moving_down {
-            y += speed;
-        }
+        temp := points;
+        points = next_points;
+        next_points = temp;
 
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0xFF);
         SDL_RenderClear(renderer);
 
-        SDL_SetRenderDrawColor(renderer, 0xFF, 0, 0, 0xFF);
-        rect: SDL_Rect = { x = x, y = y, w = 100, h = 100 };
-        SDL_RenderFillRect(renderer, *rect);
+        SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
+
+        for 0..points.length - 1 {
+            rect: SDL_Rect = { x = points[it].x as i32, y = points[it].y as i32, w = 1, h = 1 };
+            SDL_RenderFillRect(renderer, *rect);
+        }
 
         SDL_RenderPresent(renderer);
     }
