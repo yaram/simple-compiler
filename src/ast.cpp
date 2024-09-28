@@ -63,6 +63,14 @@ static void print_binary_operator(BinaryOperation::Operator binary_operator) {
             printf("BitwiseOr");
         } break;
 
+        case BinaryOperation::Operator::LeftShift: {
+            printf("LeftShift");
+        } break;
+
+        case BinaryOperation::Operator::RightShift: {
+            printf("RightShift");
+        } break;
+
         case BinaryOperation::Operator::BooleanAnd: {
             printf("BooleanAnd");
         } break;
@@ -682,9 +690,14 @@ static void print_statement_internal(Statement* statement, unsigned int indentat
 
             for(auto variant : enum_definition->variants) {
                 indent(indentation_level + 2);
+
                 print_identifier(variant.name);
-                printf(" = ");
-                print_expression_internal(variant.value, indentation_level + 2);
+
+                if(variant.value != nullptr) {
+                    printf(" = ");
+                    print_expression_internal(variant.value, indentation_level + 2);
+                }
+
                 printf("\n");
             }
 
