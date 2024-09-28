@@ -52,10 +52,10 @@ allocate :: (arena: *ExpandingArena, size: usize) -> *void {
 
     current_chunk_run_header := arena.current_chunk_run_header;
 
-    if current_chunk_run_header != 0 {
+    while current_chunk_run_header != 0 {
         if
-            arena.current_offset + total_size < arena.current_chunk_run_header.chunk_count * chunk_size ||
-            arena.current_offset + total_size == arena.current_chunk_run_header.chunk_count * chunk_size
+            arena.current_offset + total_size < current_chunk_run_header.chunk_count * chunk_size ||
+            arena.current_offset + total_size == current_chunk_run_header.chunk_count * chunk_size
         {
             base_address := current_chunk_run_header as usize + arena.current_offset;
 
@@ -63,6 +63,8 @@ allocate :: (arena: *ExpandingArena, size: usize) -> *void {
 
             return base_address as *void;
         }
+
+        current_chunk_run_header = current_chunk_run_header.next_chunk_run_header as *ChunkRunHeader;
     }
 
     aligned_header_size := divide_round_up(size_of(ChunkRunHeader), largest_alignment) * largest_alignment;
