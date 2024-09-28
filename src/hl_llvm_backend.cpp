@@ -60,39 +60,21 @@ inline LLVMTypeRef get_llvm_float_type(RegisterSize size) {
     }
 }
 
-inline LLVMTypeRef get_llvm_pointer_type(ArchitectureSizes architecture_sizes, IRType pointed_to_type) {
-    if(pointed_to_type.kind == IRTypeKind::Void) {
-        return LLVMPointerTypeInContext(LLVMGetGlobalContext(), 0);
-    } else {
-        return LLVMPointerType(get_llvm_type(architecture_sizes, pointed_to_type), 0);
-    }
+inline LLVMTypeRef get_llvm_pointer_type(ArchitectureSizes architecture_sizes) {
+    return LLVMPointerTypeInContext(LLVMGetGlobalContext(), 0);
 }
 
 static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType type) {
-    if(type.kind == IRTypeKind::Function) {
-        auto function = type.function;
-
-        auto parameters = allocate<LLVMTypeRef>(function.parameters.length);
-
-        for(size_t i = 0; i < function.parameters.length; i += 1) {
-            parameters[i] = get_llvm_type(architecture_sizes, function.parameters[i]);
-        }
-
-        auto return_llvm_type = get_llvm_type(architecture_sizes, *function.return_type);
-
-        return LLVMFunctionType(return_llvm_type, parameters, (unsigned int)function.parameters.length, false);
-    } else if(type.kind == IRTypeKind::Boolean) {
+    if(type.kind == IRTypeKind::Boolean) {
         return get_llvm_integer_type(architecture_sizes.boolean_size);
     } else if(type.kind == IRTypeKind::Integer) {
         return get_llvm_integer_type(type.integer.size);
     } else if(type.kind == IRTypeKind::Float) {
         return get_llvm_float_type(type.float_.size);
     } else if(type.kind == IRTypeKind::Pointer) {
-        return get_llvm_pointer_type(architecture_sizes, *type.pointer);
+        return get_llvm_pointer_type(architecture_sizes);
     } else if(type.kind == IRTypeKind::StaticArray) {
         auto static_array = type.static_array;
-
-        assert(static_array.element_type->is_runtime());
 
         auto element_llvm_type = get_llvm_type(architecture_sizes, *static_array.element_type);
 
@@ -103,14 +85,10 @@ static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType ty
         auto members = allocate<LLVMTypeRef>(struct_.members.length);
 
         for(size_t i = 0; i < struct_.members.length; i += 1) {
-            assert(struct_.members[i].is_runtime());
-
             members[i] = get_llvm_type(architecture_sizes, struct_.members[i]);
         }
 
         return LLVMStructType(members, struct_.members.length, false);
-    } else if(type.kind == IRTypeKind::Void) {
-        return LLVMVoidType();
     } else {
         abort();
     }
@@ -622,9 +600,7 @@ static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_si
             result_value = LLVMGetUndef(result_type);
         }
     } else if(type.kind == IRTypeKind::Pointer) {
-        auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, *type.pointer);
-
-        result_type = get_llvm_pointer_type(architecture_sizes, *type.pointer);
+        result_type = get_llvm_pointer_type(architecture_sizes);
 
         if(value.kind == IRConstantValueKind::IntegerConstant) {
             auto integer_llvm_type = get_llvm_integer_type(architecture_sizes.address_size);
@@ -669,8 +645,6 @@ static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_si
             assert(struct_.members.length == value.struct_.members.length);
 
             for(size_t i = 0; i < struct_.members.length; i += 1) {
-                assert(struct_.members[i].is_runtime());
-
                 auto result = get_llvm_constant(architecture_sizes, struct_.members[i], value.struct_.members[i]);
 
                 member_types[i] = result.llvm_type;
@@ -968,7 +942,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         0
     );
 
-    auto global_values = allocate<TypedValue>(statics.length);
+    auto global_values = allocate<LLVMValueRef>(statics.length);
 
     for(size_t i = 0; i < statics.length; i += 1) {
         auto runtime_static = statics[i];
@@ -987,7 +961,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
         auto file_debug_scope = get_file_debug_scope(debug_builder, &file_debug_scopes, runtime_static->path);
 
-        TypedValue global_value;
+        LLVMValueRef global_value;
         if(runtime_static->kind == RuntimeStaticKind::Function) {
             auto function = (Function*)runtime_static;
 
@@ -996,46 +970,37 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             for(size_t i = 0; i < parameter_count; i += 1) {
                 auto parameter = function->parameters[i];
 
-                assert(parameter.is_runtime());
-
                 parameter_llvm_types[i] = get_llvm_type(architecture_sizes, parameter);
             }
 
-            auto return_llvm_type = get_llvm_type(architecture_sizes, function->return_type);
-
-            assert(function->return_type.is_runtime() || function->return_type.kind == IRTypeKind::Void);
+            LLVMTypeRef return_llvm_type;
+            if(function->has_return) {
+                return_llvm_type = get_llvm_type(architecture_sizes, function->return_type);
+            } else {
+                return_llvm_type = LLVMVoidType();
+            }
 
             auto function_llvm_type = LLVMFunctionType(return_llvm_type, parameter_llvm_types, (unsigned int)parameter_count, false);
 
-            global_value = TypedValue(
-                IRType::create_function(function->parameters, heapify(function->return_type), function->calling_convention),
-                LLVMAddFunction(module, name.to_c_string(), function_llvm_type)
-            );
+            global_value = LLVMAddFunction(module, name.to_c_string(), function_llvm_type);
 
             if(function->is_external) {
-                LLVMSetLinkage(global_value.value, LLVMLinkage::LLVMExternalLinkage);
+                LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
             }
 
             expect(calling_convention, get_llvm_calling_convention(function->path, function->range, os, architecture, function->calling_convention));
 
-            LLVMSetFunctionCallConv(global_value.value, calling_convention);
+            LLVMSetFunctionCallConv(global_value, calling_convention);
         } else if(runtime_static->kind == RuntimeStaticKind::StaticConstant) {
             auto constant = (StaticConstant*)runtime_static;
 
-            assert(constant->type.is_runtime());
-
             auto llvm_type = get_llvm_type(architecture_sizes, constant->type);
 
-            auto llvm_value = LLVMAddGlobal(module, llvm_type, name.to_c_string());
-            LLVMSetGlobalConstant(llvm_value, true);
+            global_value = LLVMAddGlobal(module, llvm_type, name.to_c_string());
+            LLVMSetGlobalConstant(global_value, true);
 
-            auto value_llvm = get_llvm_constant(architecture_sizes, constant->type, constant->value).value;
-            LLVMSetInitializer(llvm_value, value_llvm);
-
-            global_value = TypedValue(
-                constant->type,
-                llvm_value
-            );
+            auto constant_value_llvm = get_llvm_constant(architecture_sizes, constant->type, constant->value).value;
+            LLVMSetInitializer(global_value, constant_value_llvm);
 
             auto debug_type = get_llvm_debug_type(
                 debug_builder,
@@ -1063,27 +1028,20 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 0
             );
 
-            LLVMGlobalSetMetadata(llvm_value, llvm::LLVMContext::MD_dbg, debug_variable_expression);
+            LLVMGlobalSetMetadata(global_value, llvm::LLVMContext::MD_dbg, debug_variable_expression);
         } else if(runtime_static->kind == RuntimeStaticKind::StaticVariable) {
             auto variable = (StaticVariable*)runtime_static;
 
-            assert(variable->type.is_runtime());
-
             auto llvm_type = get_llvm_type(architecture_sizes, variable->type);
 
-            auto llvm_value = LLVMAddGlobal(module, llvm_type, name.to_c_string());
-
-            global_value = TypedValue(
-                variable->type,
-                llvm_value
-            );
+            global_value = LLVMAddGlobal(module, llvm_type, name.to_c_string());
 
             if(variable->is_external) {
-                LLVMSetLinkage(global_value.value, LLVMLinkage::LLVMExternalLinkage);
+                LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
             } else if(variable->has_initial_value) {
                 auto initial_value_llvm = get_llvm_constant(architecture_sizes, variable->type, variable->initial_value).value;
 
-                LLVMSetInitializer(global_value.value, initial_value_llvm);
+                LLVMSetInitializer(global_value, initial_value_llvm);
             }
 
             auto debug_type = get_llvm_debug_type(
@@ -1112,7 +1070,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 0
             );
 
-            LLVMGlobalSetMetadata(llvm_value, llvm::LLVMContext::MD_dbg, debug_variable_expression);
+            LLVMGlobalSetMetadata(global_value, llvm::LLVMContext::MD_dbg, debug_variable_expression);
         } else {
             abort();
         }
@@ -1138,7 +1096,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         if(runtime_static->kind == RuntimeStaticKind::Function) {
             auto function = (Function*)runtime_static;
 
-            auto function_value = global_values[i].value;
+            auto function_value = global_values[i];
 
             if(!function->is_external) {
                 auto entry_llvm_block = LLVMAppendBasicBlock(function_value, "entry");
@@ -1202,8 +1160,6 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     for(auto instruction : block->instructions) {
                         if(instruction->kind == InstructionKind::AllocateLocal) {
                             auto allocate_local = (AllocateLocal*)instruction;
-
-                            assert(allocate_local->type.is_runtime());
 
                             auto debug_location = LLVMDIBuilderCreateDebugLocation(
                                 LLVMGetGlobalContext(),
@@ -1602,7 +1558,6 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             assert(source_value_a.type.kind == IRTypeKind::Pointer);
                             assert(source_value_b.type.kind == IRTypeKind::Pointer);
-                            assert(*source_value_a.type.pointer == *source_value_b.type.pointer);
 
                             auto value_a = source_value_a.value;
                             auto value_b = source_value_b.value;
@@ -1622,23 +1577,6 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 pointer_equality->destination_register,
                                 TypedValue(IRType::create_boolean(), extended_value)
                             ));
-                        } else if(instruction->kind == InstructionKind::PointerConversion) {
-                            auto pointer_conversion = (PointerConversion*)instruction;
-
-                            auto source_value = get_register_value(*function, function_value, registers, pointer_conversion->source_register);
-
-                            assert(source_value.type.kind == IRTypeKind::Pointer);
-
-                            auto destination_type = IRType::create_pointer(heapify(pointer_conversion->destination_pointed_to_type));
-
-                            auto destination_llvm_type = get_llvm_pointer_type(architecture_sizes, pointer_conversion->destination_pointed_to_type);
-
-                            llvm_instruction(result_value, LLVMBuildPointerCast(builder, source_value.value, destination_llvm_type, "pointer_conversion"));
-
-                            registers.append(Register(
-                                pointer_conversion->destination_register,
-                                TypedValue(destination_type, result_value)
-                            ));
                         } else if(instruction->kind == InstructionKind::PointerFromInteger) {
                             auto pointer_from_integer = (PointerFromInteger*)instruction;
 
@@ -1646,15 +1584,13 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             assert(source_value.type.kind == IRTypeKind::Integer);
 
-                            auto destination_type = IRType::create_pointer(heapify(pointer_from_integer->destination_pointed_to_type));
-
-                            auto destination_llvm_type = get_llvm_pointer_type(architecture_sizes, pointer_from_integer->destination_pointed_to_type);
+                            auto destination_llvm_type = get_llvm_pointer_type(architecture_sizes);
 
                             llvm_instruction(result_value, LLVMBuildIntToPtr(builder, source_value.value, destination_llvm_type, "integer_to_pointer"));
 
                             registers.append(Register(
                                 pointer_from_integer->destination_register,
-                                TypedValue(destination_type, result_value)
+                                TypedValue(IRType::create_pointer(), result_value)
                             ));
                         } else if(instruction->kind == InstructionKind::IntegerFromPointer) {
                             auto integer_from_pointer = (IntegerFromPointer*)instruction;
@@ -1756,8 +1692,6 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             auto first_element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[0]);
 
-                            assert(first_element_value.type.is_runtime());
-
                             auto element_llvm_type = get_llvm_type(architecture_sizes, first_element_value.type);
                             auto llvm_type = LLVMArrayType2(element_llvm_type, assemble_static_array->element_registers.length);
 
@@ -1846,8 +1780,6 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             for(size_t i = 0; i < assemble_struct->member_registers.length; i += 1) {
                                 auto member_value = get_register_value(*function, function_value, registers, assemble_struct->member_registers[i]);
-
-                                assert(member_value.type.is_runtime());
 
                                 if(LLVMIsConstant(member_value.value)) {
                                     initial_constant_values[i] = member_value.value;
@@ -1985,18 +1917,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             assert(function_pointer_value.type.kind == IRTypeKind::Pointer);
 
-                            auto function_type = *function_pointer_value.type.pointer;
-
-                            assert(function_type.kind == IRTypeKind::Function);
-                            assert(function_type.function.parameters.length == parameter_count);
-                            assert(*function_type.function.return_type == function_call->return_type);
-
                             auto parameter_types = allocate<LLVMTypeRef>(parameter_count);
                             auto parameter_values = allocate<LLVMValueRef>(parameter_count);
                             for(size_t i = 0; i < parameter_count; i += 1) {
                                 auto parameter = function_call->parameters[i];
-
-                                assert(function_type.function.parameters[i] == parameter.type);
 
                                 parameter_types[i] = get_llvm_type(architecture_sizes, parameter.type);
 
@@ -2008,7 +1932,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             auto function_llvm_type = LLVMFunctionType(return_llvm_type, parameter_types, (unsigned int)parameter_count, false);
 
                             const char* name;
-                            if(function_call->return_type.kind != IRTypeKind::Void) {
+                            if(function_call->has_return) {
                                 name = "call";
                             } else {
                                 name = "";
@@ -2033,7 +1957,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             LLVMSetInstructionCallConv(value, calling_convention);
 
-                            if(function_call->return_type.kind != IRTypeKind::Void) {
+                            if(function_call->has_return) {
                                 registers.append(Register(
                                     function_call->return_register,
                                     TypedValue(function_call->return_type, value)
@@ -2042,7 +1966,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         } else if(instruction->kind == InstructionKind::ReturnInstruction) {
                             auto return_instruction = (ReturnInstruction*)instruction;
 
-                            if(function->return_type.kind != IRTypeKind::Void) {
+                            if(function->has_return) {
                                 auto return_value = get_register_value(*function, function_value, registers, return_instruction->value_register);
 
                                 assert(return_value.type == function->return_type);
@@ -2066,42 +1990,33 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             }
                             assert(found);
 
-                            auto pointer_type = IRType::create_pointer(heapify(allocate_local->type));
-
                             registers.append(Register(
                                 allocate_local->destination_register,
-                                TypedValue(pointer_type, pointer_value)
+                                TypedValue(IRType::create_pointer(), pointer_value)
                             ));
                         } else if(instruction->kind == InstructionKind::Load) {
                             auto load = (Load*)instruction;
 
                             auto pointer_register = get_register_value(*function, function_value, registers, load->pointer_register);
 
-                            auto type = *pointer_register.type.pointer;
-
                             assert(pointer_register.type.kind == IRTypeKind::Pointer);
-                            assert(type.is_runtime());
 
-                            
-                            auto llvm_type = get_llvm_type(architecture_sizes, type);
+                            auto llvm_type = get_llvm_type(architecture_sizes, load->destination_type);
 
                             llvm_instruction(value, LLVMBuildLoad2(builder, llvm_type, pointer_register.value, "load"));
 
                             registers.append(Register(
                                 load->destination_register,
-                                TypedValue(type, value)
+                                TypedValue(load->destination_type, value)
                             ));
                         } else if(instruction->kind == InstructionKind::Store) {
                             auto store = (Store*)instruction;
 
                             auto source_value = get_register_value(*function, function_value, registers, store->source_register);
 
-                            assert(source_value.type.is_runtime());
-
                             auto pointer_value = get_register_value(*function, function_value, registers, store->pointer_register);
 
                             assert(pointer_value.type.kind == IRTypeKind::Pointer);
-                            assert(*pointer_value.type.pointer == source_value.type);
 
                             llvm_instruction_ignore(LLVMBuildStore(builder, source_value.value, pointer_value.value));
                         } else if(instruction->kind == InstructionKind::StructMemberPointer) {
@@ -2111,12 +2026,11 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             assert(pointer_value.type.kind == IRTypeKind::Pointer);
 
-                            auto struct_type = *pointer_value.type.pointer;
+                            assert(struct_member_pointer->member_index < struct_member_pointer->members.length);
 
-                            assert(struct_type.kind == IRTypeKind::Struct);
-                            assert(struct_member_pointer->member_index < struct_type.struct_.members.length);
+                            auto member_type = struct_member_pointer->members[struct_member_pointer->member_index];
 
-                            auto member_type = struct_type.struct_.members[struct_member_pointer->member_index];
+                            auto struct_type = IRType::create_struct(struct_member_pointer->members);
 
                             auto struct_llvm_type = get_llvm_type(architecture_sizes, struct_type);
 
@@ -2128,11 +2042,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 "struct_member_pointer"
                             ));
 
-                            auto member_pointer_type = IRType::create_pointer(heapify(member_type));
-
                             registers.append(Register(
                                 struct_member_pointer->destination_register,
-                                TypedValue(member_pointer_type, member_pointer_value)
+                                TypedValue(IRType::create_pointer(), member_pointer_value)
                             ));
                         } else if(instruction->kind == InstructionKind::PointerIndex) {
                             auto pointer_index = (PointerIndex*)instruction;
@@ -2145,11 +2057,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             assert(pointer_value.type.kind == IRTypeKind::Pointer);
 
-                            auto pointed_to_type = *pointer_value.type.pointer;
-
-                            assert(pointed_to_type.is_runtime());
-
-                            auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, pointed_to_type);
+                            auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, pointer_index->pointed_to_type);
 
                             llvm_instruction(result_pointer_value, LLVMBuildGEP2(
                                 builder,
@@ -2188,7 +2096,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 if(binding.constraint[0] == '=') {
                                     assert(value.type.kind == IRTypeKind::Pointer);
 
-                                    auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, *value.type.pointer);
+                                    auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, binding.pointed_to_type);
 
                                     call_return_types.append(pointed_to_llvm_type);
                                     output_binding_pointer_values.append(value.value);
@@ -2266,7 +2174,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             auto reference_static = (ReferenceStatic*)instruction;
 
                             auto found = false;
-                            TypedValue global_value;
+                            LLVMValueRef global_value;
                             for(size_t i = 0; i < statics.length; i += 1) {
                                 if(statics[i] == reference_static->runtime_static) {
                                     global_value = global_values[i];
@@ -2279,7 +2187,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             registers.append(Register(
                                 reference_static->destination_register,
-                                TypedValue(IRType::create_pointer(heapify(global_value.type)), global_value.value)
+                                TypedValue(IRType::create_pointer(), global_value)
                             ));
                         } else {
                             abort();
