@@ -10,7 +10,6 @@
 #include "types.h"
 
 enum struct IRTypeKind {
-    Function,
     Boolean,
     Integer,
     Float,
@@ -39,8 +38,6 @@ struct IRType {
             RegisterSize size;
         } float_;
 
-        IRType* pointer;
-
         struct {
             uint64_t length;
 
@@ -52,20 +49,8 @@ struct IRType {
         } struct_;
     };
 
-    bool is_runtime();
-
     bool operator==(IRType other);
     bool operator!=(IRType other);
-
-    static inline IRType create_function(Array<IRType> parameters, IRType* return_type, CallingConvention calling_convention) {
-        IRType result {};
-        result.kind = IRTypeKind::Function;
-        result.function.parameters = parameters;
-        result.function.return_type = return_type;
-        result.function.calling_convention = calling_convention;
-
-        return result;
-    }
 
     static inline IRType create_boolean() {
         IRType result {};
@@ -90,10 +75,9 @@ struct IRType {
         return result;
     }
 
-    static inline IRType create_pointer(IRType* pointed_to_type) {
+    static inline IRType create_pointer() {
         IRType result {};
         result.kind = IRTypeKind::Pointer;
-        result.pointer = pointed_to_type;
 
         return result;
     }
@@ -230,7 +214,6 @@ enum struct InstructionKind {
     FloatFromInteger,
     IntegerFromFloat,
     PointerEquality,
-    PointerConversion,
     PointerFromInteger,
     IntegerFromPointer,
     BooleanArithmeticOperation,
@@ -406,19 +389,9 @@ struct PointerEquality : Instruction {
     inline PointerEquality() : Instruction { InstructionKind::PointerEquality } {}
 };
 
-struct PointerConversion : Instruction {
-    size_t source_register;
-
-    IRType destination_pointed_to_type;
-    size_t destination_register;
-
-    inline PointerConversion() : Instruction { InstructionKind::PointerConversion } {}
-};
-
 struct PointerFromInteger : Instruction {
     size_t source_register;
 
-    IRType destination_pointed_to_type;
     size_t destination_register;
 
     inline PointerFromInteger() : Instruction { InstructionKind::PointerFromInteger } {}
@@ -567,6 +540,7 @@ struct AllocateLocal : Instruction {
 struct Load : Instruction {
     size_t pointer_register;
 
+    IRType destination_type;
     size_t destination_register;
 
     inline Load() : Instruction { InstructionKind::Load } {}
@@ -593,6 +567,7 @@ struct StructMemberPointer : Instruction {
 struct PointerIndex : Instruction {
     size_t index_register;
 
+    IRType pointed_to_type;
     size_t pointer_register;
 
     size_t destination_register;

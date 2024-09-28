@@ -3,52 +3,19 @@
 #include <stdio.h>
 #include <string.h>
 
-bool IRType::is_runtime() {
-    return
-        kind == IRTypeKind::Boolean ||
-        kind == IRTypeKind::Integer ||
-        kind == IRTypeKind::Float ||
-        kind == IRTypeKind::Pointer ||
-        kind == IRTypeKind::StaticArray ||
-        kind == IRTypeKind::Struct
-    ;
-}
-
 bool IRType::operator==(IRType other) {
     if(other.kind != kind) {
         return false;
     }
 
-    if(kind == IRTypeKind::Function) {
-        if(
-            *function.return_type != *other.function.return_type ||
-            function.calling_convention != other.function.calling_convention ||
-            function.parameters.length != other.function.parameters.length
-        ) {
-            return false;
-        }
-
-        for(size_t i = 0; i < function.parameters.length; i += 1) {
-            if(function.parameters[i] != other.function.parameters[i]) {
-                return false;
-            }
-        }
-
-        return true;
-    } else if(kind == IRTypeKind::Boolean) {
+    if(kind == IRTypeKind::Boolean) {
         return true;
     } else if(kind == IRTypeKind::Integer) {
         return integer.size == other.integer.size;
     } else if(kind == IRTypeKind::Float) {
         return float_.size == other.float_.size;
     } else if(kind == IRTypeKind::Pointer) {
-        if(pointer == nullptr && other.pointer == nullptr) {
-            return true;
-        } else if(pointer != nullptr && other.pointer != nullptr) {
-            return *pointer == *other.pointer;
-        } else {
-            return false;
-        }
+        return true;
     } else if(kind == IRTypeKind::StaticArray) {
         return
             static_array.length == other.static_array.length &&
@@ -100,27 +67,7 @@ inline String register_size_name(RegisterSize size){
 }
 
 void IRType::print() {
-    if(kind == IRTypeKind::Function) {
-        printf("(");
-
-        for(size_t i = 0; i < function.parameters.length; i += 1) {
-            function.parameters[i].print();
-
-            if(i != function.parameters.length - 1) {
-                printf(", ");
-            }
-        }
-
-        printf(") -> ");
-
-        function.return_type->print();
-
-        if(function.calling_convention == CallingConvention::Default){
-
-        } else if(function.calling_convention == CallingConvention::StdCall) {
-            printf(" stdcall");
-        }
-    } else if(kind == IRTypeKind::Boolean) {
+    if(kind == IRTypeKind::Boolean) {
         printf("bool");
     } else if(kind == IRTypeKind::Integer) {
         printf("i%.*s", STRING_PRINTF_ARGUMENTS(register_size_name(integer.size)));
@@ -128,12 +75,6 @@ void IRType::print() {
         printf("f%.*s", STRING_PRINTF_ARGUMENTS(register_size_name(float_.size)));
     } else if(kind == IRTypeKind::Pointer) {
         printf("*");
-
-        if(pointer == nullptr) {
-            pointer->print();
-        } else {
-            printf("void");
-        }
     } else if(kind == IRTypeKind::StaticArray) {
         printf("[%" PRIu64 "]", static_array.length);
 
@@ -422,14 +363,6 @@ void Instruction::print(Array<Block*> blocks, bool has_return) {
             pointer_equality->source_register_b,
             pointer_equality->destination_register
         );
-    } else if(kind == InstructionKind::PointerConversion) {
-        auto pointer_conversion = (PointerConversion*)this;
-
-        printf("PTRCAST r%zu, *", pointer_conversion->source_register);
-
-        pointer_conversion->destination_pointed_to_type.print();
-        
-        printf(" r%zu", pointer_conversion->destination_register);
     } else if(kind == InstructionKind::IntegerFromPointer) {
         auto integer_from_pointer = (IntegerFromPointer*)this;
 
@@ -442,11 +375,11 @@ void Instruction::print(Array<Block*> blocks, bool has_return) {
     } else if(kind == InstructionKind::PointerFromInteger) {
         auto pointer_from_integer = (PointerFromInteger*)this;
 
-        printf("ITOPTR r%zu, *", pointer_from_integer->source_register);
-
-        pointer_from_integer->destination_pointed_to_type.print();
-
-        printf(" r%zu", pointer_from_integer->destination_register);
+        printf(
+            "ITOPTR r%zu, r%zu",
+            pointer_from_integer->source_register,
+            pointer_from_integer->destination_register
+        );
     } else if(kind == InstructionKind::BooleanArithmeticOperation) {
         auto boolean_arithmetic_operation = (BooleanArithmeticOperation*)this;
 
@@ -651,7 +584,13 @@ void Instruction::print(Array<Block*> blocks, bool has_return) {
         auto load = (Load*)this;
 
         printf(
-            "LOAD r%zu, r%zu",
+            "LOAD *"
+        );
+
+        load->destination_type.print();
+
+        printf(
+            " r%zu, r%zu",
             load->pointer_register,
             load->destination_register
         );
@@ -676,8 +615,14 @@ void Instruction::print(Array<Block*> blocks, bool has_return) {
         auto pointer_index = (PointerIndex*)this;
 
         printf(
-            "PTRINDEX r%zu, r%zu, r%zu",
-            pointer_index->index_register,
+            "PTRINDEX r%zu, *",
+            pointer_index->index_register
+        );
+
+        pointer_index->pointed_to_type.print();
+
+        printf(
+            " r%zu, r%zu",
             pointer_index->pointer_register,
             pointer_index->destination_register
         );
