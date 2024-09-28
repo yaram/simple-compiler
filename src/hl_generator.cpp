@@ -4909,6 +4909,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     }
 }
 
+static bool does_current_block_need_finisher(GenerationContext* context) {
+    if(context->instructions.length == 0) {
+        return true;
+    }
+
+    auto last_instruction = context->instructions[context->instructions.length - 1];
+
+    return
+        last_instruction->kind != InstructionKind::ReturnInstruction &&
+        last_instruction->kind != InstructionKind::Branch &&
+        last_instruction->kind != InstructionKind::Jump
+    ;
+}
+
 static void enter_new_block(GenerationContext* context, FileRange range) {
     if(context->instructions.length == 0) {
         // New block is not required
@@ -4919,11 +4933,7 @@ static void enter_new_block(GenerationContext* context, FileRange range) {
 
     auto last_instruction = context->instructions[context->instructions.length - 1];
 
-    if(
-        last_instruction->kind != InstructionKind::ReturnInstruction &&
-        last_instruction->kind != InstructionKind::Branch &&
-        last_instruction->kind != InstructionKind::Jump
-    ) {
+    if(does_current_block_need_finisher(context)) {
         append_jump(context, range, new_block);
     }
 
@@ -4935,15 +4945,7 @@ static void enter_new_block(GenerationContext* context, FileRange range) {
 }
 
 static void change_block(GenerationContext* context, FileRange range, Block* block) {
-    assert(context->instructions.length != 0);
-
-    auto last_instruction = context->instructions[context->instructions.length - 1];
-
-    assert(
-        last_instruction->kind == InstructionKind::ReturnInstruction ||
-        last_instruction->kind == InstructionKind::Branch ||
-        last_instruction->kind == InstructionKind::Jump
-    );
+    assert(!does_current_block_need_finisher(context));
 
     context->current_block->instructions = context->instructions;
     context->blocks.append(context->current_block);
@@ -4984,6 +4986,8 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 return err();
             }
+
+            assert(does_current_block_need_finisher(context));
 
             if(statement->kind == StatementKind::ExpressionStatement) {
                 auto expression_statement = (ExpressionStatement*)statement;
@@ -5386,7 +5390,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 context->variable_scope_stack.length -= 1;
 
-                append_jump(context, if_statement->range, end_block);
+                if(does_current_block_need_finisher(context)) {
+                    append_jump(context, if_statement->range, end_block);
+                }
 
                 for(size_t i = 0; i < if_statement->else_ifs.length; i += 1) {
                     change_block(context, if_statement->range, next_block);
@@ -5422,6 +5428,8 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                         next_block
                     );
 
+                    change_block(context, if_statement->range, body_block);
+
                     auto else_if_scope = context->child_scopes[context->next_child_scope_index];
                     context->next_child_scope_index += 1;
                     assert(context->next_child_scope_index <= context->child_scopes.length);
@@ -5435,7 +5443,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     context->variable_scope_stack.length -= 1;
 
-                    append_jump(context, if_statement->range, end_block);
+                    if(does_current_block_need_finisher(context)) {
+                        append_jump(context, if_statement->range, end_block);
+                    }
                 }
 
                 if(if_statement->else_statements.length != 0) {
@@ -5454,7 +5464,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     context->variable_scope_stack.length -= 1;
 
-                    append_jump(context, if_statement->range, end_block);
+                    if(does_current_block_need_finisher(context)) {
+                        append_jump(context, if_statement->range, end_block);
+                    }
                 }
 
                 change_block(context, if_statement->range, end_block);
@@ -5516,7 +5528,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 context->variable_scope_stack.length -= 1;
 
-                append_jump(context, while_loop->range, condition_block);
+                if(does_current_block_need_finisher(context)) {
+                    append_jump(context, while_loop->range, condition_block);
+                }
 
                 change_block(context, while_loop->range, end_block);
             } else if(statement->kind == StatementKind::ForLoop) {
@@ -5620,8 +5634,8 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     context,
                     for_loop->range,
                     condition_register,
-                    body_block,
-                    end_block
+                    end_block,
+                    body_block
                 );
 
                 change_block(context, for_loop->range, body_block);
@@ -5672,7 +5686,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 append_store(context, for_loop->range, next_index_register, index_pointer_register);
 
-                append_jump(context, for_loop->range, condition_block);
+                if(does_current_block_need_finisher(context)) {
+                    append_jump(context, for_loop->range, condition_block);
+                }
 
                 change_block(context, for_loop->range, end_block);
             } else if(statement->kind == StatementKind::ReturnStatement) {
