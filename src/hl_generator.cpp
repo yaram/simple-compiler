@@ -365,29 +365,9 @@ static size_t append_pointer_equality(
     return destination_register;
 }
 
-static size_t append_pointer_conversion(
-    GenerationContext* context,
-    FileRange range,
-    IRType destination_pointed_to_type,
-    size_t source_register
-) {
-    auto destination_register = allocate_register(context);
-
-    auto pointer_conversion = new PointerConversion;
-    pointer_conversion->range = range;
-    pointer_conversion->source_register = source_register;
-    pointer_conversion->destination_pointed_to_type = destination_pointed_to_type;
-    pointer_conversion->destination_register = destination_register;
-
-    context->instructions.append(pointer_conversion);
-
-    return destination_register;
-}
-
 static size_t append_pointer_from_integer(
     GenerationContext* context,
     FileRange range,
-    IRType destination_pointed_to_type,
     size_t source_register
 ) {
     auto destination_register = allocate_register(context);
@@ -395,7 +375,6 @@ static size_t append_pointer_from_integer(
     auto pointer_from_integer = new PointerFromInteger;
     pointer_from_integer->range = range;
     pointer_from_integer->source_register = source_register;
-    pointer_from_integer->destination_pointed_to_type = destination_pointed_to_type;
     pointer_from_integer->destination_register = destination_register;
 
     context->instructions.append(pointer_from_integer);
@@ -632,13 +611,15 @@ static size_t append_allocate_local(
 static size_t append_load(
     GenerationContext* context,
     FileRange range,
-    size_t pointer_register
+    size_t pointer_register,
+    IRType destination_type
 ) {
     auto destination_register = allocate_register(context);
 
     auto load = new Load;
     load->range = range;
     load->pointer_register = pointer_register;
+    load->destination_type = destination_type;
     load->destination_register = destination_register;
 
     context->instructions.append(load);
@@ -683,6 +664,7 @@ static size_t append_pointer_index(
     GenerationContext* context,
     FileRange range,
     size_t index_register,
+    IRType pointed_to_type,
     size_t pointer_register
 ) {
     auto destination_register = allocate_register(context);
@@ -690,6 +672,7 @@ static size_t append_pointer_index(
     auto pointer_index = new PointerIndex;
     pointer_index->range = range;
     pointer_index->index_register = index_register;
+    pointer_index->pointed_to_type = pointed_to_type;
     pointer_index->pointer_register = pointer_register;
     pointer_index->destination_register = destination_register;
 
@@ -711,38 +694,6 @@ static size_t append_reference_static(GenerationContext* context, FileRange rang
     return destination_register;
 }
 
-static IRType get_runtime_ir_type(ArchitectureSizes architecture_sizes, AnyType type);
-
-static IRType get_pointable_ir_type(ArchitectureSizes architecture_sizes, AnyType type) {
-    if(type.kind == TypeKind::FunctionTypeType) {
-        auto parameters = allocate<IRType>(type.function.parameters.length);
-
-        for(size_t i = 0; i < type.function.parameters.length; i += 1) {
-            parameters[i] = get_runtime_ir_type(architecture_sizes, type.function.parameters[i]);
-        }
-
-        bool has_return;
-        IRType* return_type;
-        if(type.function.return_types.length == 0) {
-            return_type = nullptr;
-        } else if(type.function.return_types.length == 1) {
-            return_type = heapify(get_runtime_ir_type(architecture_sizes, type.function.return_types[0]));
-        } else {
-            auto return_struct_members = allocate<IRType>(type.function.return_types.length);
-
-            for(size_t i = 0; i < type.function.return_types.length; i += 1) {
-                return_struct_members[i] = get_runtime_ir_type(architecture_sizes, type.function.return_types[i]);
-            }
-
-            return_type = heapify(IRType::create_struct(Array(type.function.return_types.length, return_struct_members)));
-        }
-
-        return IRType::create_function(Array(type.function.parameters.length, parameters), return_type, type.function.calling_convention);
-    } else {
-        return get_runtime_ir_type(architecture_sizes, type);
-    }
-}
-
 inline IRType get_array_ir_type(ArchitectureSizes architecture_sizes, ArrayTypeType array) {
     auto members = allocate<IRType>(2);
 
@@ -750,15 +701,16 @@ inline IRType get_array_ir_type(ArchitectureSizes architecture_sizes, ArrayTypeT
     members[0].integer.size = architecture_sizes.address_size;
 
     members[1].kind = IRTypeKind::Pointer;
-    members[1].pointer = heapify(get_runtime_ir_type(architecture_sizes, *array.element_type));
 
     return IRType::create_struct(Array(2, members));
 }
 
+static IRType get_ir_type(ArchitectureSizes architecture_sizes, AnyType type);
+
 inline IRType get_static_array_ir_type(ArchitectureSizes architecture_sizes, StaticArray static_array) {
     return IRType::create_static_array(
         static_array.length,
-        heapify(get_runtime_ir_type(architecture_sizes, *static_array.element_type))
+        heapify(get_ir_type(architecture_sizes, *static_array.element_type))
     );
 }
 
@@ -766,7 +718,7 @@ inline IRType get_struct_ir_type(ArchitectureSizes architecture_sizes, StructTyp
     auto members = allocate<IRType>(struct_.members.length);
 
     for(size_t i = 0; i < struct_.members.length; i += 1) {
-        members[i] = get_runtime_ir_type(architecture_sizes, struct_.members[i].type);
+        members[i] = get_ir_type(architecture_sizes, struct_.members[i].type);
     }
 
     return IRType::create_struct(Array(struct_.members.length, members));
@@ -776,7 +728,7 @@ inline IRType get_union_ir_type(ArchitectureSizes architecture_sizes, UnionType 
     return IRType::create_static_array(union_.get_size(architecture_sizes), heapify(IRType::create_integer(RegisterSize::Size8)));
 }
 
-static IRType get_runtime_ir_type(ArchitectureSizes architecture_sizes, AnyType type) {
+static IRType get_ir_type(ArchitectureSizes architecture_sizes, AnyType type) {
     if(type.kind == TypeKind::Integer) {
         return IRType::create_integer(type.integer.size);
     } else if(type.kind == TypeKind::Boolean) {
@@ -784,14 +736,7 @@ static IRType get_runtime_ir_type(ArchitectureSizes architecture_sizes, AnyType 
     } else if(type.kind == TypeKind::FloatType) {
         return IRType::create_float(type.float_.size);
     } else if(type.kind == TypeKind::Pointer) {
-        IRType* pointed_to_type;
-        if(type.pointer.pointed_to_type->kind == TypeKind::Void) {
-            pointed_to_type = nullptr;
-        } else {
-            pointed_to_type = heapify(get_pointable_ir_type(architecture_sizes, *type.pointer.pointed_to_type));
-        }
-
-        return IRType::create_pointer(pointed_to_type);
+        return IRType::create_pointer();
     } else if(type.kind == TypeKind::ArrayTypeType) {
         return get_array_ir_type(architecture_sizes, type.array);
     } else if(type.kind == TypeKind::StaticArray) {
@@ -867,7 +812,7 @@ static StaticConstant* register_static_constant(
     AnyType type,
     AnyConstantValue value
 ) {
-    auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
+    auto ir_type = get_ir_type(info.architecture_sizes, type);
     auto ir_value = get_runtime_ir_constant_value(value);
 
     auto constant = new StaticConstant;
@@ -907,7 +852,7 @@ static size_t generate_in_register_value(
 
         assert(addressed_value.pointed_to_type == type);
 
-        return append_load(context, range, addressed_value.pointer_register);
+        return append_load(context, range, addressed_value.pointer_register, type);
     } else {
         abort();
     }
@@ -1015,7 +960,7 @@ static Result<RegisterValue> coerce_to_pointer_register_value(
     Pointer target_type,
     bool probing
 ) {
-    auto ir_type = IRType::create_pointer(heapify(get_pointable_ir_type(info.architecture_sizes, *target_type.pointed_to_type)));
+    auto ir_type = IRType::create_pointer();
 
     if(type.kind == TypeKind::UndeterminedInteger) {
         auto integer_value = value.unwrap_constant_value().unwrap_integer();
@@ -1137,7 +1082,7 @@ static Result<RegisterValue> coerce_to_type_register(
                 } else if(value.kind == RuntimeValueKind::AddressedValue) {
                     auto addressed_value = value.addressed;
 
-                    auto register_index = append_load(context, range, addressed_value.pointer_register);
+                    auto register_index = append_load(context, range, addressed_value.pointer_register, ir_type);
 
                     return ok(RegisterValue(ir_type, register_index));
                 } else {
@@ -1158,19 +1103,12 @@ static Result<RegisterValue> coerce_to_type_register(
                         IRConstantValue::create_integer(static_array.length)
                     );
 
-                    auto element_ir_type = get_runtime_ir_type(info.architecture_sizes, *target_array.element_type);
-
-                    auto pointer_register = append_pointer_conversion(
-                        context,
-                        range,
-                        element_ir_type,
-                        addressed_value.pointer_register
-                    );
+                    auto element_ir_type = get_ir_type(info.architecture_sizes, *target_array.element_type);
 
                     auto member_registers = allocate<size_t>(2);
 
                     member_registers[0] = length_register;
-                    member_registers[1] = pointer_register;
+                    member_registers[1] = addressed_value.pointer_register;
 
                     auto register_index = append_assemble_struct(context, range, Array(2, member_registers));
 
@@ -1302,7 +1240,7 @@ static Result<RegisterValue> coerce_to_type_register(
                 } else if(value.kind == RuntimeValueKind::AddressedValue) {
                     auto addressed_value = value.addressed;
 
-                    register_index = append_load(context, range, addressed_value.pointer_register);
+                    register_index = append_load(context, range, addressed_value.pointer_register, ir_type);
                 } else {
                     abort();
                 }
@@ -1344,7 +1282,7 @@ static Result<RegisterValue> coerce_to_type_register(
                     } else if(value.kind == RuntimeValueKind::AddressedValue) {
                         auto addressed_value = value.addressed;
 
-                        register_index = append_load(context, range, addressed_value.pointer_register);
+                        register_index = append_load(context, range, addressed_value.pointer_register, ir_type);
                     } else {
                         abort();
                     }
@@ -1493,7 +1431,7 @@ static Result<RegisterValue> coerce_to_type_register(
                     } else if(value.kind == RuntimeValueKind::AddressedValue) {
                         auto addressed_value = value.addressed;
 
-                        register_index = append_load(context, range, addressed_value.pointer_register);
+                        register_index = append_load(context, range, addressed_value.pointer_register, ir_type);
                     } else {
                         abort();
                     }
@@ -1530,16 +1468,9 @@ static Result<RegisterValue> coerce_to_type_register(
                             );
 
                             if(result.status) {
-                                auto union_variant_pointer_register = append_pointer_conversion(
-                                    context,
-                                    range,
-                                    result.value.type,
-                                    pointer_register
-                                );
+                                append_store(context, range, result.value.register_index, pointer_register);
 
-                                append_store(context, range, result.value.register_index, union_variant_pointer_register);
-
-                                auto register_index = append_load(context, range, pointer_register);
+                                auto register_index = append_load(context, range, pointer_register, ir_type);
 
                                 return ok(RegisterValue(ir_type, register_index));
                             } else {
@@ -1572,16 +1503,9 @@ static Result<RegisterValue> coerce_to_type_register(
                             );
 
                             if(result.status) {
-                                auto union_variant_pointer_register = append_pointer_conversion(
-                                    context,
-                                    range,
-                                    result.value.type,
-                                    pointer_register
-                                );
+                                append_store(context, range, result.value.register_index, pointer_register);
 
-                                append_store(context, range, result.value.register_index, union_variant_pointer_register);
-
-                                auto register_index = append_load(context, range, pointer_register);
+                                auto register_index = append_load(context, range, pointer_register, ir_type);
 
                                 return ok(RegisterValue(ir_type, register_index));
                             } else {
@@ -1857,7 +1781,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             result_type = AnyType::create_boolean();
         }
 
-        auto result_ir_type = get_runtime_ir_type(info.architecture_sizes, result_type);
+        auto result_ir_type = get_ir_type(info.architecture_sizes, result_type);
 
         return ok(TypedRuntimeValue(
             result_type,
@@ -2041,7 +1965,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             result_type = AnyType::create_boolean();
         }
 
-        auto result_ir_type = get_runtime_ir_type(info.architecture_sizes, result_type);
+        auto result_ir_type = get_ir_type(info.architecture_sizes, result_type);
 
         return ok(TypedRuntimeValue(
             result_type,
@@ -2355,7 +2279,7 @@ static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name
                                         generate_static_variable.static_variable
                                     );
 
-                                    auto ir_type = get_runtime_ir_type(info.architecture_sizes, generate_static_variable.type);
+                                    auto ir_type = get_ir_type(info.architecture_sizes, generate_static_variable.type);
 
                                     RuntimeNameSearchResult result {};
                                     result.found = true;
@@ -2537,8 +2461,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             element_type = *array_type.element_type;
 
             auto ir_type = get_array_ir_type(info.architecture_sizes, array_type);
-            element_ir_type = get_runtime_ir_type(info.architecture_sizes, element_type);
-            auto element_pointer_ir_type = IRType::create_pointer(heapify(element_ir_type));
+            element_ir_type = get_ir_type(info.architecture_sizes, element_type);
 
             if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
                 if(expression_value.value.constant.kind == ConstantValueKind::ArrayConstant) {
@@ -2547,7 +2470,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     base_pointer_register = append_literal(
                         context,
                         index_reference->expression->range,
-                        element_pointer_ir_type,
+                        IRType::create_pointer(),
                         get_runtime_ir_constant_value(*array_value.pointer)
                     );
                 } else {
@@ -2577,7 +2500,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 base_pointer_register = append_load(
                     context,
                     index_reference->expression->range,
-                    member_pointer
+                    member_pointer,
+                    IRType::create_pointer()
                 );
             } else {
                 abort();
@@ -2587,8 +2511,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             element_type = *static_array.element_type;
 
             auto ir_type = get_static_array_ir_type(info.architecture_sizes, static_array);
-            element_ir_type = get_runtime_ir_type(info.architecture_sizes, element_type);
-            auto element_pointer_ir_type = IRType::create_pointer(heapify(element_ir_type));
+            element_ir_type = get_ir_type(info.architecture_sizes, element_type);
 
             if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
                 error(scope, index_reference->expression->range, "Cannot index static array constant at runtime");
@@ -2601,12 +2524,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
                 auto addressed_value = expression_value.value.addressed;
 
-                base_pointer_register = append_pointer_conversion(
-                    context,
-                    index_reference->expression->range,
-                    element_ir_type,
-                    addressed_value.pointer_register
-                );
+                base_pointer_register = addressed_value.pointer_register;
             } else {
                 abort();
             }
@@ -2620,6 +2538,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             context,
             index_reference->range,
             index_register.register_index,
+            element_ir_type,
             base_pointer_register
         );
 
@@ -2638,14 +2557,20 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto pointer = expression_value.type.pointer;
             actual_type = *pointer.pointed_to_type;
 
-            auto actual_ir_type = get_pointable_ir_type(info.architecture_sizes, actual_type);
+            if(!actual_type.is_runtime_type()) {
+                error(scope, member_reference->expression->range, "Cannot access members of '%.*s'", STRING_PRINTF_ARGUMENTS(actual_type.get_description()));
+
+                return err();
+            }
+
+            auto actual_ir_type = get_ir_type(info.architecture_sizes, actual_type);
 
             size_t pointer_register;
             if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
                 pointer_register = append_literal(
                     context,
                     member_reference->expression->range,
-                    IRType::create_pointer(heapify(actual_ir_type)),
+                    IRType::create_pointer(),
                     get_runtime_ir_constant_value(expression_value.value.constant)
                 );
             } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
@@ -2658,7 +2583,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 pointer_register = append_load(
                     context,
                     member_reference->expression->range,
-                    addressed_value.pointer_register
+                    addressed_value.pointer_register,
+                    IRType::create_pointer()
                 );
             } else {
                 abort();
@@ -2731,7 +2657,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     value
                 ));
             } else if(member_reference->name.text == "pointer"_S) {
-                auto element_ir_type = get_runtime_ir_type(info.architecture_sizes, *array_type.element_type);
+                auto element_ir_type = get_ir_type(info.architecture_sizes, *array_type.element_type);
 
                 AnyRuntimeValue value;
                 if(actual_value.kind == RuntimeValueKind::ConstantValue) {
@@ -2747,7 +2673,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = actual_value.register_;
 
-                    auto length_register = append_read_struct_member(
+                    auto pointer_register = append_read_struct_member(
                         context,
                         member_reference->range,
                         1,
@@ -2755,8 +2681,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     );
 
                     value = AnyRuntimeValue(RegisterValue(
-                        IRType::create_pointer(heapify(element_ir_type)),
-                        length_register
+                        IRType::create_pointer(),
+                        pointer_register
                     ));
                 } else if(actual_value.kind == RuntimeValueKind::AddressedValue) {
                     auto addressed_value = actual_value.addressed;
@@ -2769,7 +2695,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     );
 
                     value = AnyRuntimeValue(AddressedValue(
-                        IRType::create_pointer(heapify(element_ir_type)),
+                        element_ir_type,
                         pointer_register
                     ));
                 } else {
@@ -2788,7 +2714,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         } else if(actual_type.kind == TypeKind::StaticArray) {
             auto static_array = actual_type.static_array;
 
-            auto element_ir_type = get_runtime_ir_type(info.architecture_sizes, *static_array.element_type);
+            auto element_ir_type = get_ir_type(info.architecture_sizes, *static_array.element_type);
 
             if(member_reference->name.text == "length"_S) {
                 return ok(TypedRuntimeValue(
@@ -2811,12 +2737,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 } else if(actual_value.kind == RuntimeValueKind::AddressedValue) {
                     auto addressed_value = actual_value.addressed;
 
-                    pointer_register = append_pointer_conversion(
-                        context,
-                        member_reference->range,
-                        element_ir_type,
-                        addressed_value.pointer_register
-                    );
+                    pointer_register = addressed_value.pointer_register;
                 } else {
                     abort();
                 }
@@ -2824,7 +2745,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return ok(TypedRuntimeValue(
                     AnyType(Pointer(static_array.element_type)),
                     AnyRuntimeValue(RegisterValue(
-                        IRType::create_pointer(heapify(element_ir_type)),
+                        IRType::create_pointer(),
                         pointer_register
                     ))
                 ));
@@ -2839,7 +2760,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             for(size_t i = 0; i < struct_type.members.length; i += 1) {
                 if(struct_type.members[i].name == member_reference->name.text) {
                     auto member_type = struct_type.members[i].type;
-                    auto member_ir_type = get_runtime_ir_type(info.architecture_sizes, member_type);
+                    auto member_ir_type = get_ir_type(info.architecture_sizes, member_type);
 
                     if(actual_value.kind == RuntimeValueKind::ConstantValue) {
                         if(expression_value.value.constant.kind == ConstantValueKind::StructConstant) {
@@ -2899,14 +2820,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             for(size_t i = 0; i < union_type.members.length; i += 1) {
                 if(union_type.members[i].name == member_reference->name.text) {
                     auto member_type = union_type.members[i].type;
-                    auto member_ir_type = get_runtime_ir_type(info.architecture_sizes, member_type);
+                    auto member_ir_type = get_ir_type(info.architecture_sizes, member_type);
 
                     if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                         auto register_value = actual_value.register_;
 
                         auto union_ir_type = get_union_ir_type(info.architecture_sizes, union_type);
 
-                        auto local_pointer_register = append_allocate_local(
+                        auto pointer_register = append_allocate_local(
                             context,
                             member_reference->range,
                             union_ir_type
@@ -2916,20 +2837,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                             context,
                             member_reference->range,
                             register_value.register_index,
-                            local_pointer_register
-                        );
-
-                        auto pointer_register = append_pointer_conversion(
-                            context,
-                            member_reference->range,
-                            member_ir_type,
-                            local_pointer_register
+                            pointer_register
                         );
 
                         auto register_index = append_load(
                             context,
                             member_reference->range,
-                            pointer_register
+                            pointer_register,
+                            member_ir_type
                         );
 
                         return ok(TypedRuntimeValue(
@@ -2939,12 +2854,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     } else if(actual_value.kind == RuntimeValueKind::AddressedValue) {
                         auto addressed_value = actual_value.addressed;
 
-                        auto pointer_register = append_pointer_conversion(
-                            context,
-                            member_reference->range,
-                            member_ir_type,
-                            addressed_value.pointer_register
-                        );
+                        auto pointer_register = addressed_value.pointer_register;
 
                         return ok(TypedRuntimeValue(
                             member_type,
@@ -3159,7 +3069,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 Array(element_count, element_values)
             )));
         } else {
-            auto element_ir_type = get_runtime_ir_type(info.architecture_sizes, determined_element_type);
+            auto element_ir_type = get_ir_type(info.architecture_sizes, determined_element_type);
 
             auto element_registers = allocate<size_t>(element_count);
 
@@ -3466,7 +3376,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         false
                     ));
 
-                    auto ir_type = get_runtime_ir_type(info.architecture_sizes, function_type.parameters[i]);
+                    auto ir_type = get_ir_type(info.architecture_sizes, function_type.parameters[i]);
 
                     instruction_parameters[i] = {
                         ir_type,
@@ -3488,14 +3398,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else if(function_type.return_types.length == 1) {
                 return_type = function_type.return_types[0];
                 has_ir_return = true;
-                return_ir_type = get_runtime_ir_type(info.architecture_sizes, return_type);
+                return_ir_type = get_ir_type(info.architecture_sizes, return_type);
             } else {
                 return_type = AnyType(MultiReturn(function_type.return_types));
 
                 auto member_ir_types = allocate<IRType>(function_type.return_types.length);
 
                 for(size_t i = 0; i < function_type.return_types.length; i += 1) {
-                    member_ir_types[i] = get_runtime_ir_type(info.architecture_sizes, function_type.return_types[i]);
+                    member_ir_types[i] = get_ir_type(info.architecture_sizes, function_type.return_types[i]);
                 }
 
                 has_ir_return = true;
@@ -3671,7 +3581,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 auto ir_constant_value = get_runtime_ir_constant_value(coerced_value);
 
-                auto ir_type = get_runtime_ir_type(info.architecture_sizes, determined_type);
+                auto ir_type = get_ir_type(info.architecture_sizes, determined_type);
 
                 auto pointer_register = append_allocate_local(
                     context,
@@ -3711,14 +3621,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             auto function_type = pointer.pointed_to_type->function;
 
-            auto function_ir_type = get_pointable_ir_type(info.architecture_sizes, *pointer.pointed_to_type);
-
-            auto pointer_ir_type = IRType::create_pointer(heapify(function_ir_type));
-
             auto pointer_register = generate_in_register_value(
                 context,
                 function_call->expression->range,
-                pointer_ir_type,
+                IRType::create_pointer(),
                 expression_value.value
             );
 
@@ -3752,7 +3658,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     false
                 ));
 
-                auto parameter_ir_type = get_runtime_ir_type(info.architecture_sizes, function_type.parameters[i]);
+                auto parameter_ir_type = get_ir_type(info.architecture_sizes, function_type.parameters[i]);
 
                 instruction_parameters[i] = {
                     parameter_ir_type,
@@ -3769,14 +3675,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else if(function_type.return_types.length == 1) {
                 return_type = function_type.return_types[0];
                 has_ir_return = true;
-                return_ir_type = get_runtime_ir_type(info.architecture_sizes, return_type);
+                return_ir_type = get_ir_type(info.architecture_sizes, return_type);
             } else {
                 return_type = AnyType(MultiReturn(function_type.return_types));
 
                 auto member_ir_types = allocate<IRType>(function_type.return_types.length);
 
                 for(size_t i = 0; i < function_type.return_types.length; i += 1) {
-                    member_ir_types[i] = get_runtime_ir_type(info.architecture_sizes, function_type.return_types[i]);
+                    member_ir_types[i] = get_ir_type(info.architecture_sizes, function_type.return_types[i]);
                 }
 
                 has_ir_return = true;
@@ -4069,12 +3975,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     abort();
                 }
 
-                auto pointed_to_ir_type = get_pointable_ir_type(info.architecture_sizes, expression_value.type);
-                auto ir_type = IRType::create_pointer(heapify(pointed_to_ir_type));
-
                 return ok(TypedRuntimeValue(
                     AnyType(Pointer(heapify(expression_value.type))),
-                    AnyRuntimeValue(RegisterValue(ir_type, pointer_register))
+                    AnyRuntimeValue(RegisterValue(IRType::create_pointer(), pointer_register))
                 ));
             } break;
 
@@ -4093,13 +3996,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err();
                 }
 
-                auto pointed_to_ir_type = get_runtime_ir_type(info.architecture_sizes, pointed_to_type);
-                auto pointer_ir_type = IRType::create_pointer(heapify(pointed_to_ir_type));
+                auto pointed_to_ir_type = get_ir_type(info.architecture_sizes, pointed_to_type);
 
                 auto pointer_register = generate_in_register_value(
                     context,
                     unary_operation->expression->range,
-                    pointer_ir_type,
+                    IRType::create_pointer(),
                     expression_value.value
                 );
 
@@ -4142,7 +4044,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     register_index = append_load(
                         context,
                         unary_operation->expression->range,
-                        addressed_value.pointer_register
+                        addressed_value.pointer_register,
+                        IRType::create_boolean()
                     );
                 }
 
@@ -4166,6 +4069,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     ));
                 } else if(expression_value.type.kind == TypeKind::Integer) {
                     auto integer = expression_value.type.integer;
+
+                    auto ir_type = IRType::create_integer(integer.size);
 
                     size_t register_index;
                     if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
@@ -4193,11 +4098,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         register_index = append_load(
                             context,
                             unary_operation->expression->range,
-                            addressed_value.pointer_register
+                            addressed_value.pointer_register,
+                            ir_type
                         );
                     }
-
-                    auto ir_type = IRType::create_integer(integer.size);
 
                     auto zero_register = append_literal(
                         context,
@@ -4220,6 +4124,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     ));
                 } else if(expression_value.type.kind == TypeKind::FloatType) {
                     auto float_type = expression_value.type.float_;
+
+                    auto ir_type = IRType::create_float(float_type.size);
 
                     size_t register_index;
                     if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
@@ -4247,11 +4153,10 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         register_index = append_load(
                             context,
                             unary_operation->expression->range,
-                            addressed_value.pointer_register
+                            addressed_value.pointer_register,
+                            ir_type
                         );
                     }
-
-                    auto ir_type = IRType::create_float(float_type.size);
 
                     auto zero_register = append_literal(
                         context,
@@ -4352,7 +4257,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     value_register = append_load(
                         context,
                         cast->expression->range,
-                        addressed_value.pointer_register
+                        addressed_value.pointer_register,
+                        addressed_value.pointed_to_type
                     );
                 } else {
                     abort();
@@ -4391,7 +4297,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     value_register = append_load(
                         context,
                         cast->expression->range,
-                        addressed_value.pointer_register
+                        addressed_value.pointer_register,
+                        addressed_value.pointed_to_type
                     );
                 } else {
                     abort();
@@ -4421,7 +4328,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         value_register = append_load(
                             context,
                             cast->expression->range,
-                            addressed_value.pointer_register
+                            addressed_value.pointer_register,
+                            addressed_value.pointed_to_type
                         );
                     } else {
                         abort();
@@ -4452,7 +4360,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     value_register = append_load(
                         context,
                         cast->expression->range,
-                        addressed_value.pointer_register
+                        addressed_value.pointer_register,
+                        addressed_value.pointed_to_type
                     );
                 } else {
                     abort();
@@ -4479,7 +4388,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     value_register = append_load(
                         context,
                         cast->expression->range,
-                        addressed_value.pointer_register
+                        addressed_value.pointer_register,
+                        addressed_value.pointed_to_type
                     );
                 } else {
                     abort();
@@ -4495,8 +4405,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             }
         } else if(target_type.kind == TypeKind::Pointer) {
             auto target_pointer = target_type.pointer;
-
-            auto pointed_to_ir_type = get_pointable_ir_type(info.architecture_sizes, *target_pointer.pointed_to_type);
 
             if(expression_value.type.kind == TypeKind::Integer) {
                 auto integer = expression_value.type.integer;
@@ -4515,7 +4423,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         value_register = append_load(
                             context,
                             cast->expression->range,
-                            addressed_value.pointer_register
+                            addressed_value.pointer_register,
+                            addressed_value.pointed_to_type
                         );
                     } else {
                         abort();
@@ -4524,7 +4433,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     register_index = append_pointer_from_integer(
                         context,
                         cast->range,
-                        pointed_to_ir_type,
                         value_register
                     );
                 }
@@ -4543,18 +4451,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     value_register = append_load(
                         context,
                         cast->expression->range,
-                        addressed_value.pointer_register
+                        addressed_value.pointer_register,
+                        addressed_value.pointed_to_type
                     );
                 } else {
                     abort();
                 }
 
-                register_index = append_pointer_conversion(
-                    context,
-                    cast->range,
-                    pointed_to_ir_type,
-                    value_register
-                );
+                register_index = value_register;
             }
         } else if(target_type.kind == TypeKind::Enum) {
             auto target_enum = target_type.enum_;
@@ -4572,7 +4476,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     value_register = append_load(
                         context,
                         cast->expression->range,
-                        addressed_value.pointer_register
+                        addressed_value.pointer_register,
+                        addressed_value.pointed_to_type
                     );
                 } else {
                     abort();
@@ -4604,7 +4509,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         }
 
         if(has_cast) {
-            auto ir_type = get_runtime_ir_type(info.architecture_sizes, target_type);
+            auto ir_type = get_ir_type(info.architecture_sizes, target_type);
 
             return ok(TypedRuntimeValue(
                 target_type,
@@ -5047,7 +4952,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, variable_declaration->initializer));
 
-                    auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
+                    auto ir_type = get_ir_type(info.architecture_sizes, type);
 
                     auto pointer_register = append_allocate_local(
                         context,
@@ -5089,7 +4994,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     type = actual_type;
 
-                    auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
+                    auto ir_type = get_ir_type(info.architecture_sizes, type);
 
                     auto pointer_register = append_allocate_local(
                         context,
@@ -5162,7 +5067,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 auto return_struct_member_ir_types = allocate<IRType>(return_types.length);
 
                 for(size_t i = 0; i < return_types.length; i += 1) {
-                    return_struct_member_ir_types[i] = get_runtime_ir_type(info.architecture_sizes, return_types[i]);
+                    return_struct_member_ir_types[i] = get_ir_type(info.architecture_sizes, return_types[i]);
                 }
 
                 for(size_t i = 0; i < return_types.length; i += 1) {
@@ -5266,7 +5171,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 auto return_struct_member_ir_types = allocate<IRType>(return_types.length);
 
                 for(size_t i = 0; i < return_types.length; i += 1) {
-                    return_struct_member_ir_types[i] = get_runtime_ir_type(info.architecture_sizes, return_types[i]);
+                    return_struct_member_ir_types[i] = get_ir_type(info.architecture_sizes, return_types[i]);
                 }
 
                 for(size_t i = 0; i < return_types.length; i += 1) {
@@ -5626,7 +5531,8 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 auto current_index_register = append_load(
                     context,
                     for_loop->range,
-                    index_pointer_register
+                    index_pointer_register,
+                    determined_index_ir_type
                 );
 
                 IntegerComparisonOperation::Operation operation;
@@ -5905,7 +5811,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         if(!declaration->parameters[i].is_constant) {
             auto argument_type = type.parameters[runtime_parameter_index];
 
-            ir_parameters[runtime_parameter_index] = get_runtime_ir_type(info.architecture_sizes, argument_type);
+            ir_parameters[runtime_parameter_index] = get_ir_type(info.architecture_sizes, argument_type);
 
             runtime_parameter_index += 1;
         }
@@ -5919,12 +5825,12 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         has_ir_return = false;
     } else if(type.return_types.length == 1) {
         has_ir_return = true;
-        return_ir_type = get_runtime_ir_type(info.architecture_sizes, type.return_types[0]);
+        return_ir_type = get_ir_type(info.architecture_sizes, type.return_types[0]);
     } else {
         auto return_struct_members = allocate<IRType>(type.return_types.length);
 
         for(size_t i = 0; i < type.return_types.length; i += 1) {
-            return_struct_members[i] = get_runtime_ir_type(info.architecture_sizes, type.return_types[i]);
+            return_struct_members[i] = get_ir_type(info.architecture_sizes, type.return_types[i]);
         }
 
         has_ir_return = true;
@@ -6164,7 +6070,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
         static_variable->is_no_mangle = true;
         static_variable->path = get_scope_file_path(*scope);
         static_variable->range = declaration->range;
-        static_variable->type = get_runtime_ir_type(info.architecture_sizes, type);
+        static_variable->type = get_ir_type(info.architecture_sizes, type);
         static_variable->is_external = true;
         static_variable->libraries = external_libraries;
         static_variable->debug_type = type;
@@ -6209,7 +6115,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             static_variable->is_no_mangle = is_no_mangle;
             static_variable->path = get_scope_file_path(*scope);
             static_variable->range = declaration->range;
-            static_variable->type = get_runtime_ir_type(info.architecture_sizes, type);
+            static_variable->type = get_ir_type(info.architecture_sizes, type);
             static_variable->is_external = false;
             static_variable->has_initial_value = true;
             static_variable->initial_value = ir_initial_value;
@@ -6237,7 +6143,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             static_variable->name = declaration->name.text;
             static_variable->path = get_scope_file_path(*scope);
             static_variable->range = declaration->range;
-            static_variable->type = get_runtime_ir_type(info.architecture_sizes, type);
+            static_variable->type = get_ir_type(info.architecture_sizes, type);
             static_variable->is_no_mangle = is_no_mangle;
             static_variable->is_external = false;
             static_variable->has_initial_value = true;
