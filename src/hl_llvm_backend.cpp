@@ -804,45 +804,6 @@ static TypedValue get_register_value(Function function, LLVMValueRef function_va
     abort();
 }
 
-struct InstructionBlock {
-    inline InstructionBlock(Instruction* instruction, LLVMBasicBlockRef block) : instruction(instruction), block(block) {}
-
-    Instruction* instruction;
-
-    LLVMBasicBlockRef block;
-};
-
-inline void register_instruction_block(List<InstructionBlock>* blocks, LLVMValueRef function, Instruction* instruction) {
-    StringBuffer block_name {};
-    block_name.append("block_"_S);
-    block_name.append_integer(blocks->length);
-
-    blocks->append(InstructionBlock(
-        instruction,
-        LLVMAppendBasicBlock(function, block_name.to_c_string())
-    ));
-}
-
-inline void maybe_register_instruction_block(List<InstructionBlock>* blocks, LLVMValueRef function, Instruction* instruction) {
-    for(auto block : *blocks) {
-        if(block.instruction == instruction) {
-            return;
-        }
-    }
-
-    register_instruction_block(blocks, function, instruction);
-}
-
-inline LLVMBasicBlockRef get_instruction_block(List<InstructionBlock> blocks, Instruction* instruction) {
-    for(auto block : blocks) {
-        if(block.instruction == instruction) {
-            return block.block;
-        }
-    }
-
-    abort();
-}
-
 #define llvm_instruction(variable_name, call) auto variable_name=(call);if(LLVMIsAInstruction(variable_name))LLVMInstructionSetDebugLoc(variable_name, debug_location)
 #define llvm_instruction_ignore(call) { auto value=(call);if(LLVMIsAInstruction(value))LLVMInstructionSetDebugLoc(value, debug_location); }
 
@@ -1180,26 +1141,18 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             auto function_value = global_values[i].value;
 
             if(!function->is_external) {
-                auto entry_block = LLVMAppendBasicBlock(function_value, "entry");
+                auto entry_llvm_block = LLVMAppendBasicBlock(function_value, "entry");
 
-                List<InstructionBlock> blocks {};
+                auto llvm_blocks = allocate<LLVMBasicBlockRef>(function->blocks.length);
 
-                register_instruction_block(&blocks, function_value, function->instructions[0]);
+                for(size_t i = 0; i < function->blocks.length; i += 1) {
+                    auto block = function->blocks[i];
 
-                for(size_t i = 1; i < function->instructions.length; i += 1) {
-                    auto instruction = function->instructions[i];
+                    StringBuffer block_name {};
+                    block_name.append("block_"_S);
+                    block_name.append_integer(i);
 
-                    if(instruction->kind == InstructionKind::Jump) {
-                        auto jump = (Jump*)instruction;
-
-                        maybe_register_instruction_block(&blocks, function_value, function->instructions[jump->destination_instruction]);
-                    } else if(instruction->kind == InstructionKind::Branch) {
-                        auto branch = (Branch*)instruction;
-
-                        maybe_register_instruction_block(&blocks, function_value, function->instructions[branch->destination_instruction]);
-
-                        maybe_register_instruction_block(&blocks, function_value, function->instructions[i + 1]);
-                    }
+                    llvm_blocks[i] = LLVMAppendBasicBlock(function_value, block_name.to_c_string());
                 }
 
                 List<Register> registers {};
@@ -1243,1074 +1196,1099 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                 LLVMSetSubprogram(function_value, function_debug_scope);
 
-                LLVMPositionBuilderAtEnd(builder, entry_block);
+                LLVMPositionBuilderAtEnd(builder, entry_llvm_block);
 
-                for(auto instruction : function->instructions) {
-                    if(instruction->kind == InstructionKind::AllocateLocal) {
-                        auto allocate_local = (AllocateLocal*)instruction;
+                for(auto block : function->blocks) {
+                    for(auto instruction : block->instructions) {
+                        if(instruction->kind == InstructionKind::AllocateLocal) {
+                            auto allocate_local = (AllocateLocal*)instruction;
 
-                        assert(allocate_local->type.is_runtime());
+                            assert(allocate_local->type.is_runtime());
 
+                            auto debug_location = LLVMDIBuilderCreateDebugLocation(
+                                LLVMGetGlobalContext(),
+                                allocate_local->range.first_line,
+                                allocate_local->range.first_column,
+                                function_debug_scope,
+                                nullptr
+                            );
+
+                            auto llvm_type = get_llvm_type(architecture_sizes, allocate_local->type);
+
+                            auto pointer_value = LLVMBuildAlloca(builder, llvm_type, "allocate_local");
+                            if(!allocate_local->has_debug_info) {
+                                LLVMInstructionSetDebugLoc(pointer_value, debug_location);
+                            } else if(should_generate_debug_types) {
+                                auto debug_type = get_llvm_debug_type(
+                                    debug_builder,
+                                    &file_debug_scopes,
+                                    file_debug_scope,
+                                    architecture_sizes,
+                                    allocate_local->debug_type
+                                );
+
+                                auto debug_variable = LLVMDIBuilderCreateAutoVariable(
+                                    debug_builder,
+                                    function_debug_scope,
+                                    allocate_local->debug_name.elements,
+                                    allocate_local->debug_name.length,
+                                    file_debug_scope,
+                                    allocate_local->range.first_line,
+                                    debug_type,
+                                    false,
+                                    LLVMDIFlagZero,
+                                    0
+                                );
+
+                                auto debug_expression = LLVMDIBuilderCreateExpression(debug_builder, nullptr, 0);
+
+                                LLVMDIBuilderInsertDeclareAtEnd(
+                                    debug_builder,
+                                    pointer_value,
+                                    debug_variable,
+                                    debug_expression,
+                                    debug_location,
+                                    entry_llvm_block
+                                );
+                            }
+
+                            Local local {};
+                            local.allocate_local = allocate_local;
+                            local.pointer_value = pointer_value;
+
+                            locals.append(local);
+                        }
+                    }
+                }
+
+                assert(function->blocks.length != 0);
+
+                LLVMBuildBr(builder, llvm_blocks[0]);
+
+                for(size_t i = 0; i < function->blocks.length; i += 1) {
+                    auto block = function->blocks[i];
+
+                    LLVMPositionBuilderAtEnd(builder, llvm_blocks[i]);
+
+                    for(auto instruction : block->instructions) {
                         auto debug_location = LLVMDIBuilderCreateDebugLocation(
                             LLVMGetGlobalContext(),
-                            allocate_local->range.first_line,
-                            allocate_local->range.first_column,
+                            instruction->range.first_line,
+                            instruction->range.first_column,
                             function_debug_scope,
                             nullptr
                         );
 
-                        auto llvm_type = get_llvm_type(architecture_sizes, allocate_local->type);
+                        if(instruction->kind == InstructionKind::IntegerArithmeticOperation) {
+                            auto integer_arithmetic_operation = (IntegerArithmeticOperation*)instruction;
 
-                        auto pointer_value = LLVMBuildAlloca(builder, llvm_type, "allocate_local");
-                        if(!allocate_local->has_debug_info) {
-                            LLVMInstructionSetDebugLoc(pointer_value, debug_location);
-                        } else if(should_generate_debug_types) {
-                            auto debug_type = get_llvm_debug_type(
-                                debug_builder,
-                                &file_debug_scopes,
-                                file_debug_scope,
-                                architecture_sizes,
-                                allocate_local->debug_type
-                            );
+                            auto source_value_a = get_register_value(*function, function_value, registers, integer_arithmetic_operation->source_register_a);
+                            auto source_value_b = get_register_value(*function, function_value, registers, integer_arithmetic_operation->source_register_b);
 
-                            auto debug_variable = LLVMDIBuilderCreateAutoVariable(
-                                debug_builder,
-                                function_debug_scope,
-                                allocate_local->debug_name.elements,
-                                allocate_local->debug_name.length,
-                                file_debug_scope,
-                                allocate_local->range.first_line,
-                                debug_type,
-                                false,
-                                LLVMDIFlagZero,
-                                0
-                            );
+                            assert(source_value_a.type.kind == IRTypeKind::Integer);
+                            assert(source_value_b.type.kind == IRTypeKind::Integer);
+                            assert(source_value_a.type.integer.size == source_value_b.type.integer.size);
 
-                            auto debug_expression = LLVMDIBuilderCreateExpression(debug_builder, nullptr, 0);
+                            auto value_a = source_value_a.value;
+                            auto value_b = source_value_b.value;
 
-                            LLVMDIBuilderInsertDeclareAtEnd(
-                                debug_builder,
-                                pointer_value,
-                                debug_variable,
-                                debug_expression,
-                                debug_location,
-                                blocks[0].block
-                            );
-                        }
+                            LLVMValueRef value;
+                            switch(integer_arithmetic_operation->operation) {
+                                case IntegerArithmeticOperation::Operation::Add: {
+                                    value = LLVMBuildAdd(builder, value_a, value_b, "add");
+                                } break;
 
-                        Local local {};
-                        local.allocate_local = allocate_local;
-                        local.pointer_value = pointer_value;
+                                case IntegerArithmeticOperation::Operation::Subtract: {
+                                    value = LLVMBuildSub(builder, value_a, value_b, "subtract");
+                                } break;
 
-                        locals.append(local);
-                    }
-                }
+                                case IntegerArithmeticOperation::Operation::Multiply: {
+                                    value = LLVMBuildMul(builder, value_a, value_b, "multiply");
+                                } break;
 
-                LLVMBuildBr(builder, blocks[0].block);
+                                case IntegerArithmeticOperation::Operation::SignedDivide: {
+                                    value = LLVMBuildSDiv(builder, value_a, value_b, "divide");
+                                } break;
 
-                for(size_t i = 0 ; i < function->instructions.length; i += 1) {
-                    auto instruction = function->instructions[i];
+                                case IntegerArithmeticOperation::Operation::UnsignedDivide: {
+                                    value = LLVMBuildUDiv(builder, value_a, value_b, "divide");
+                                } break;
 
-                    for(auto block : blocks) {
-                        if(block.instruction == instruction) {
-                            LLVMPositionBuilderAtEnd(builder, block.block);
-                        }
-                    }
+                                case IntegerArithmeticOperation::Operation::SignedModulus: {
+                                    value = LLVMBuildSRem(builder, value_a, value_b, "modulus");
+                                } break;
 
-                    auto debug_location = LLVMDIBuilderCreateDebugLocation(
-                        LLVMGetGlobalContext(),
-                        instruction->range.first_line,
-                        instruction->range.first_column,
-                        function_debug_scope,
-                        nullptr
-                    );
+                                case IntegerArithmeticOperation::Operation::UnsignedModulus: {
+                                    value = LLVMBuildURem(builder, value_a, value_b, "modulus");
+                                } break;
 
-                    auto might_need_terminator = true;
-                    if(instruction->kind == InstructionKind::IntegerArithmeticOperation) {
-                        auto integer_arithmetic_operation = (IntegerArithmeticOperation*)instruction;
+                                case IntegerArithmeticOperation::Operation::BitwiseAnd: {
+                                    value = LLVMBuildAnd(builder, value_a, value_b, "and");
+                                } break;
 
-                        auto source_value_a = get_register_value(*function, function_value, registers, integer_arithmetic_operation->source_register_a);
-                        auto source_value_b = get_register_value(*function, function_value, registers, integer_arithmetic_operation->source_register_b);
+                                case IntegerArithmeticOperation::Operation::BitwiseOr: {
+                                    value = LLVMBuildOr(builder, value_a, value_b, "or");
+                                } break;
 
-                        assert(source_value_a.type.kind == IRTypeKind::Integer);
-                        assert(source_value_b.type.kind == IRTypeKind::Integer);
-                        assert(source_value_a.type.integer.size == source_value_b.type.integer.size);
+                                case IntegerArithmeticOperation::Operation::LeftShift: {
+                                    value = LLVMBuildShl(builder, value_a, value_b, "left_shift");
+                                } break;
 
-                        auto value_a = source_value_a.value;
-                        auto value_b = source_value_b.value;
+                                case IntegerArithmeticOperation::Operation::RightShift: {
+                                    value = LLVMBuildLShr(builder, value_a, value_b, "right_shift");
+                                } break;
 
-                        LLVMValueRef value;
-                        switch(integer_arithmetic_operation->operation) {
-                            case IntegerArithmeticOperation::Operation::Add: {
-                                value = LLVMBuildAdd(builder, value_a, value_b, "add");
-                            } break;
+                                case IntegerArithmeticOperation::Operation::RightArithmeticShift: {
+                                    value = LLVMBuildAShr(builder, value_a, value_b, "right_arithmetic_shift");
+                                } break;
 
-                            case IntegerArithmeticOperation::Operation::Subtract: {
-                                value = LLVMBuildSub(builder, value_a, value_b, "subtract");
-                            } break;
+                                if(LLVMIsAInstruction(value)) {
+                                    LLVMInstructionSetDebugLoc(value, debug_location);
+                                }
 
-                            case IntegerArithmeticOperation::Operation::Multiply: {
-                                value = LLVMBuildMul(builder, value_a, value_b, "multiply");
-                            } break;
+                                default: {
+                                    abort();
+                                } break;
+                            }
 
-                            case IntegerArithmeticOperation::Operation::SignedDivide: {
-                                value = LLVMBuildSDiv(builder, value_a, value_b, "divide");
-                            } break;
+                            registers.append(Register(
+                                integer_arithmetic_operation->destination_register,
+                                TypedValue(source_value_a.type, value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::IntegerComparisonOperation) {
+                            auto integer_comparison_operation = (IntegerComparisonOperation*)instruction;
 
-                            case IntegerArithmeticOperation::Operation::UnsignedDivide: {
-                                value = LLVMBuildUDiv(builder, value_a, value_b, "divide");
-                            } break;
+                            auto source_value_a = get_register_value(*function, function_value, registers, integer_comparison_operation->source_register_a);
+                            auto source_value_b = get_register_value(*function, function_value, registers, integer_comparison_operation->source_register_b);
 
-                            case IntegerArithmeticOperation::Operation::SignedModulus: {
-                                value = LLVMBuildSRem(builder, value_a, value_b, "modulus");
-                            } break;
+                            assert(source_value_a.type.kind == IRTypeKind::Integer);
+                            assert(source_value_b.type.kind == IRTypeKind::Integer);
+                            assert(source_value_a.type.integer.size == source_value_b.type.integer.size);
 
-                            case IntegerArithmeticOperation::Operation::UnsignedModulus: {
-                                value = LLVMBuildURem(builder, value_a, value_b, "modulus");
-                            } break;
+                            auto value_a = source_value_a.value;
+                            auto value_b = source_value_b.value;
 
-                            case IntegerArithmeticOperation::Operation::BitwiseAnd: {
-                                value = LLVMBuildAnd(builder, value_a, value_b, "and");
-                            } break;
+                            LLVMIntPredicate predicate;
+                            const char* name;
+                            switch(integer_comparison_operation->operation) {
+                                case IntegerComparisonOperation::Operation::Equal: {
+                                    predicate = LLVMIntPredicate::LLVMIntEQ;
+                                    name = "equal";
+                                } break;
 
-                            case IntegerArithmeticOperation::Operation::BitwiseOr: {
-                                value = LLVMBuildOr(builder, value_a, value_b, "or");
-                            } break;
+                                case IntegerComparisonOperation::Operation::SignedLessThan: {
+                                    predicate = LLVMIntPredicate::LLVMIntSLT;
+                                    name = "less_than";
+                                } break;
 
-                            case IntegerArithmeticOperation::Operation::LeftShift: {
-                                value = LLVMBuildShl(builder, value_a, value_b, "left_shift");
-                            } break;
+                                case IntegerComparisonOperation::Operation::UnsignedLessThan: {
+                                    predicate = LLVMIntPredicate::LLVMIntULT;
+                                    name = "less_than";
+                                } break;
 
-                            case IntegerArithmeticOperation::Operation::RightShift: {
-                                value = LLVMBuildLShr(builder, value_a, value_b, "right_shift");
-                            } break;
+                                case IntegerComparisonOperation::Operation::SignedGreaterThan: {
+                                    predicate = LLVMIntPredicate::LLVMIntSGT;
+                                    name = "greater_than";
+                                } break;
 
-                            case IntegerArithmeticOperation::Operation::RightArithmeticShift: {
-                                value = LLVMBuildAShr(builder, value_a, value_b, "right_arithmetic_shift");
-                            } break;
+                                case IntegerComparisonOperation::Operation::UnsignedGreaterThan: {
+                                    predicate = LLVMIntPredicate::LLVMIntUGT;
+                                    name = "greater_than";
+                                } break;
+
+                                default: {
+                                    abort();
+                                } break;
+                            }
+
+                            llvm_instruction(value, LLVMBuildICmp(builder, predicate, value_a, value_b, name));
+
+                            llvm_instruction(extended_value, LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend"));
+
+                            registers.append(Register(
+                                integer_comparison_operation->destination_register,
+                                TypedValue(IRType::create_boolean(), extended_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::IntegerExtension) {
+                            auto integer_extension = (IntegerExtension*)instruction;
+
+                            auto source_value = get_register_value(*function, function_value, registers, integer_extension->source_register);
+
+                            assert(source_value.type.kind == IRTypeKind::Integer);
+
+                            auto destination_ir_type = IRType::create_integer(integer_extension->destination_size);
+                            auto destination_llvm_type = get_llvm_integer_type(integer_extension->destination_size);
+
+                            assert(integer_extension->destination_size > source_value.type.integer.size);
+
+                            LLVMValueRef value;
+                            if(integer_extension->is_signed) {
+                                value = LLVMBuildSExt(builder, source_value.value, destination_llvm_type , "extend");
+                            } else {
+                                value = LLVMBuildZExt(builder, source_value.value, destination_llvm_type, "extend");
+                            }
 
                             if(LLVMIsAInstruction(value)) {
                                 LLVMInstructionSetDebugLoc(value, debug_location);
                             }
 
-                            default: {
-                                abort();
-                            } break;
-                        }
-
-                        registers.append(Register(
-                            integer_arithmetic_operation->destination_register,
-                            TypedValue(source_value_a.type, value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::IntegerComparisonOperation) {
-                        auto integer_comparison_operation = (IntegerComparisonOperation*)instruction;
-
-                        auto source_value_a = get_register_value(*function, function_value, registers, integer_comparison_operation->source_register_a);
-                        auto source_value_b = get_register_value(*function, function_value, registers, integer_comparison_operation->source_register_b);
-
-                        assert(source_value_a.type.kind == IRTypeKind::Integer);
-                        assert(source_value_b.type.kind == IRTypeKind::Integer);
-                        assert(source_value_a.type.integer.size == source_value_b.type.integer.size);
-
-                        auto value_a = source_value_a.value;
-                        auto value_b = source_value_b.value;
-
-                        LLVMIntPredicate predicate;
-                        const char* name;
-                        switch(integer_comparison_operation->operation) {
-                            case IntegerComparisonOperation::Operation::Equal: {
-                                predicate = LLVMIntPredicate::LLVMIntEQ;
-                                name = "add";
-                            } break;
-
-                            case IntegerComparisonOperation::Operation::SignedLessThan: {
-                                predicate = LLVMIntPredicate::LLVMIntSLT;
-                                name = "less_than";
-                            } break;
-
-                            case IntegerComparisonOperation::Operation::UnsignedLessThan: {
-                                predicate = LLVMIntPredicate::LLVMIntULT;
-                                name = "less_than";
-                            } break;
-
-                            case IntegerComparisonOperation::Operation::SignedGreaterThan: {
-                                predicate = LLVMIntPredicate::LLVMIntSGT;
-                                name = "greater_than";
-                            } break;
-
-                            case IntegerComparisonOperation::Operation::UnsignedGreaterThan: {
-                                predicate = LLVMIntPredicate::LLVMIntUGT;
-                                name = "greater_than";
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
-
-                        llvm_instruction(value, LLVMBuildICmp(builder, predicate, value_a, value_b, name));
-
-                        llvm_instruction(extended_value, LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend"));
-
-                        registers.append(Register(
-                            integer_comparison_operation->destination_register,
-                            TypedValue(IRType::create_boolean(), extended_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::IntegerExtension) {
-                        auto integer_extension = (IntegerExtension*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, integer_extension->source_register);
-
-                        assert(source_value.type.kind == IRTypeKind::Integer);
-
-                        auto destination_ir_type = IRType::create_integer(integer_extension->destination_size);
-                        auto destination_llvm_type = get_llvm_integer_type(integer_extension->destination_size);
-
-                        assert(integer_extension->destination_size > source_value.type.integer.size);
-
-                        LLVMValueRef value;
-                        if(integer_extension->is_signed) {
-                            value = LLVMBuildSExt(builder, source_value.value, destination_llvm_type , "extend");
-                        } else {
-                            value = LLVMBuildZExt(builder, source_value.value, destination_llvm_type, "extend");
-                        }
-
-                        if(LLVMIsAInstruction(value)) {
-                            LLVMInstructionSetDebugLoc(value, debug_location);
-                        }
-
-                        registers.append(Register(
-                            integer_extension->destination_register,
-                            TypedValue(destination_ir_type, value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::IntegerTruncation) {
-                        auto integer_truncation = (IntegerTruncation*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, integer_truncation->source_register);
-
-                        assert(source_value.type.kind == IRTypeKind::Integer);
-
-                        auto destination_ir_type = IRType::create_integer(integer_truncation->destination_size);
-                        auto destination_llvm_type = get_llvm_integer_type(integer_truncation->destination_size);
-
-                        assert(integer_truncation->destination_size < source_value.type.integer.size);
-
-                        llvm_instruction(value, LLVMBuildTrunc(
-                            builder,
-                            source_value.value,
-                            destination_llvm_type,
-                            "truncate"
-                        ));
-
-                        registers.append(Register(
-                            integer_truncation->destination_register,
-                            TypedValue(destination_ir_type, value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::FloatArithmeticOperation) {
-                        auto float_arithmetic_operation = (FloatArithmeticOperation*)instruction;
-
-                        auto source_value_a = get_register_value(*function, function_value, registers, float_arithmetic_operation->source_register_a);
-                        auto source_value_b = get_register_value(*function, function_value, registers, float_arithmetic_operation->source_register_b);
-
-                        assert(source_value_a.type.kind == IRTypeKind::Float);
-                        assert(source_value_b.type.kind == IRTypeKind::Float);
-                        assert(source_value_a.type.float_.size == source_value_b.type.float_.size);
-
-                        auto value_a = source_value_a.value;
-                        auto value_b = source_value_b.value;
-
-                        LLVMValueRef value;
-                        switch(float_arithmetic_operation->operation) {
-                            case FloatArithmeticOperation::Operation::Add: {
-                                value = LLVMBuildFAdd(builder, value_a, value_b, "add");
-                            } break;
-
-                            case FloatArithmeticOperation::Operation::Subtract: {
-                                value = LLVMBuildFSub(builder, value_a, value_b, "subtract");
-                            } break;
-
-                            case FloatArithmeticOperation::Operation::Multiply: {
-                                value = LLVMBuildFMul(builder, value_a, value_b, "multiply");
-                            } break;
-
-                            case FloatArithmeticOperation::Operation::Divide: {
-                                value = LLVMBuildFDiv(builder, value_a, value_b, "divide");
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
-
-                        if(LLVMIsAInstruction(value)) {
-                            LLVMInstructionSetDebugLoc(value, debug_location);
-                        }
-
-                        registers.append(Register(
-                            float_arithmetic_operation->destination_register,
-                            TypedValue(source_value_a.type, value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::FloatComparisonOperation) {
-                        auto float_comparison_operation = (FloatComparisonOperation*)instruction;
-
-                        auto source_value_a = get_register_value(*function, function_value, registers, float_comparison_operation->source_register_a);
-                        auto source_value_b = get_register_value(*function, function_value, registers, float_comparison_operation->source_register_b);
-
-                        assert(source_value_a.type.kind == IRTypeKind::Float);
-                        assert(source_value_b.type.kind == IRTypeKind::Float);
-                        assert(source_value_a.type.float_.size == source_value_b.type.float_.size);
-
-                        auto value_a = source_value_a.value;
-                        auto value_b = source_value_b.value;
-
-                        LLVMRealPredicate predicate;
-                        const char* name;
-                        switch(float_comparison_operation->operation) {
-                            case FloatComparisonOperation::Operation::Equal: {
-                                predicate = LLVMRealPredicate::LLVMRealOEQ;
-                                name = "add";
-                            } break;
-
-                            case FloatComparisonOperation::Operation::LessThan: {
-                                predicate = LLVMRealPredicate::LLVMRealOLT;
-                                name = "greater_than";
-                            } break;
-
-                            case FloatComparisonOperation::Operation::GreaterThan: {
-                                predicate = LLVMRealPredicate::LLVMRealOGT;
-                                name = "less_than";
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
-
-                        llvm_instruction(value, LLVMBuildFCmp(builder, predicate, value_a, value_b, name));
-
-                        llvm_instruction(extended_value, LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend"));
-
-                        registers.append(Register(
-                            float_comparison_operation->destination_register,
-                            TypedValue(IRType::create_boolean(), extended_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::FloatConversion) {
-                        auto float_conversion = (FloatConversion*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, float_conversion->source_register);
-
-                        assert(source_value.type.kind == IRTypeKind::Float);
-
-                        auto destination_llvm_type = get_llvm_float_type(float_conversion->destination_size);
-
-                        llvm_instruction(value, LLVMBuildFPCast(builder, source_value.value, destination_llvm_type, "float_conversion"));
-
-                        registers.append(Register(
-                            float_conversion->destination_register,
-                            TypedValue(source_value.type, value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::IntegerFromFloat) {
-                        auto integer_from_float = (IntegerFromFloat*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, integer_from_float->source_register);
-
-                        assert(source_value.type.kind == IRTypeKind::Float);
-
-                        auto destination_ir_type = IRType::create_integer(integer_from_float->destination_size);
-                        auto destination_llvm_type = get_llvm_integer_type(integer_from_float->destination_size);
-
-                        llvm_instruction(value, LLVMBuildFPToSI(builder, source_value.value, destination_llvm_type, "integer_from_float"));
-
-                        registers.append(Register(
-                            integer_from_float->destination_register,
-                            TypedValue(destination_ir_type, value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::FloatFromInteger) {
-                        auto float_from_integer = (FloatFromInteger*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, float_from_integer->source_register);
-
-                        assert(source_value.type.kind == IRTypeKind::Integer);
-
-                        auto destination_ir_type = IRType::create_float(float_from_integer->destination_size);
-                        auto destination_llvm_type = get_llvm_float_type(float_from_integer->destination_size);
-
-                        llvm_instruction(value, LLVMBuildSIToFP(builder, source_value.value, destination_llvm_type, "float_from_integer"));
-
-                        registers.append(Register(
-                            float_from_integer->destination_register,
-                            TypedValue(destination_ir_type, value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::PointerEquality) {
-                        auto pointer_equality = (PointerEquality*)instruction;
-
-                        auto source_value_a = get_register_value(*function, function_value, registers, pointer_equality->source_register_a);
-                        auto source_value_b = get_register_value(*function, function_value, registers, pointer_equality->source_register_b);
-
-                        assert(source_value_a.type.kind == IRTypeKind::Pointer);
-                        assert(source_value_b.type.kind == IRTypeKind::Pointer);
-                        assert(*source_value_a.type.pointer == *source_value_b.type.pointer);
-
-                        auto value_a = source_value_a.value;
-                        auto value_b = source_value_b.value;
-
-                        auto integer_llvm_type = get_llvm_integer_type(architecture_sizes.address_size);
-
-                        auto pointer_llvm_type = get_llvm_type(architecture_sizes, source_value_a.type);
-
-                        llvm_instruction(integer_value_a, LLVMBuildPtrToInt(builder, value_a, integer_llvm_type, "pointer_to_int"));
-                        llvm_instruction(integer_value_b, LLVMBuildPtrToInt(builder, value_b, integer_llvm_type, "pointer_to_int"));
-
-                        llvm_instruction(value, LLVMBuildICmp(builder, LLVMIntPredicate::LLVMIntEQ, integer_value_a, integer_value_b, "pointer_equality"));
-
-                        llvm_instruction(extended_value, LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend"));
-
-                        registers.append(Register(
-                            pointer_equality->destination_register,
-                            TypedValue(IRType::create_boolean(), extended_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::PointerConversion) {
-                        auto pointer_conversion = (PointerConversion*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, pointer_conversion->source_register);
-
-                        assert(source_value.type.kind == IRTypeKind::Pointer);
-
-                        auto destination_type = IRType::create_pointer(heapify(pointer_conversion->destination_pointed_to_type));
-
-                        auto destination_llvm_type = get_llvm_pointer_type(architecture_sizes, pointer_conversion->destination_pointed_to_type);
-
-                        llvm_instruction(result_value, LLVMBuildPointerCast(builder, source_value.value, destination_llvm_type, "pointer_conversion"));
-
-                        registers.append(Register(
-                            pointer_conversion->destination_register,
-                            TypedValue(destination_type, result_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::PointerFromInteger) {
-                        auto pointer_from_integer = (PointerFromInteger*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, pointer_from_integer->source_register);
-
-                        assert(source_value.type.kind == IRTypeKind::Integer);
-
-                        auto destination_type = IRType::create_pointer(heapify(pointer_from_integer->destination_pointed_to_type));
-
-                        auto destination_llvm_type = get_llvm_pointer_type(architecture_sizes, pointer_from_integer->destination_pointed_to_type);
-
-                        llvm_instruction(result_value, LLVMBuildIntToPtr(builder, source_value.value, destination_llvm_type, "integer_to_pointer"));
-
-                        registers.append(Register(
-                            pointer_from_integer->destination_register,
-                            TypedValue(destination_type, result_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::IntegerFromPointer) {
-                        auto integer_from_pointer = (IntegerFromPointer*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, integer_from_pointer->source_register);
-
-                        assert(source_value.type.kind == IRTypeKind::Pointer);
-
-                        auto destination_type = IRType::create_integer(integer_from_pointer->destination_size);
-                        auto destination_llvm_type = get_llvm_integer_type(integer_from_pointer->destination_size);
-
-                        llvm_instruction(result_value, LLVMBuildPtrToInt(builder, source_value.value, destination_llvm_type, "pointer_to_integer"));
-
-                        registers.append(Register(
-                            integer_from_pointer->destination_register,
-                            TypedValue(destination_type, result_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::BooleanArithmeticOperation) {
-                        auto boolean_arithmetic_operation = (BooleanArithmeticOperation*)instruction;
-
-                        auto source_value_a = get_register_value(*function, function_value, registers, boolean_arithmetic_operation->source_register_a);
-                        auto source_value_b = get_register_value(*function, function_value, registers, boolean_arithmetic_operation->source_register_b);
-
-                        assert(source_value_a.type.kind == IRTypeKind::Boolean);
-                        assert(source_value_b.type.kind == IRTypeKind::Boolean);
-
-                        llvm_instruction(value_a, LLVMBuildTrunc(builder, source_value_a.value, LLVMInt1Type(), "truncate"));
-                        llvm_instruction(value_b, LLVMBuildTrunc(builder, source_value_b.value, LLVMInt1Type(), "truncate"));
-
-                        LLVMValueRef value;
-                        switch(boolean_arithmetic_operation->operation) {
-                            case BooleanArithmeticOperation::Operation::BooleanAnd: {
-                                value = LLVMBuildAnd(builder, value_a, value_b, "and");
-                            } break;
-
-                            case BooleanArithmeticOperation::Operation::BooleanOr: {
-                                value = LLVMBuildOr(builder, value_a, value_b, "or");
-                            } break;
-
-                            default: {
-                                abort();
-                            } break;
-                        }
-
-                        if(LLVMIsAInstruction(value)) {
-                            LLVMInstructionSetDebugLoc(value, debug_location);
-                        }
-
-                        llvm_instruction(extended_value, LLVMBuildZExt(
-                            builder,
-                            value,
-                            get_llvm_integer_type(architecture_sizes.boolean_size),
-                            "extend"
-                        ));
-
-                        registers.append(Register(
-                            boolean_arithmetic_operation->destination_register,
-                            TypedValue(source_value_a.type, extended_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::BooleanEquality) {
-                        auto boolean_equality = (BooleanEquality*)instruction;
-
-                        auto source_value_a = get_register_value(*function, function_value, registers, boolean_equality->source_register_a);
-                        auto source_value_b = get_register_value(*function, function_value, registers, boolean_equality->source_register_b);
-
-                        assert(source_value_a.type.kind == IRTypeKind::Boolean);
-                        assert(source_value_b.type.kind == IRTypeKind::Boolean);
-
-                        llvm_instruction(value_a, LLVMBuildTrunc(builder, source_value_a.value, LLVMInt1Type(), "truncate"));
-                        llvm_instruction(value_b, LLVMBuildTrunc(builder, source_value_b.value, LLVMInt1Type(), "truncate"));
-
-                        llvm_instruction(value, LLVMBuildICmp(builder, LLVMIntPredicate::LLVMIntEQ, value_a, value_b, "pointer_equality"));
-
-                        llvm_instruction(extended_value, LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend"));
-
-                        registers.append(Register(
-                            boolean_equality->destination_register,
-                            TypedValue(IRType::create_boolean(), extended_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::BooleanInversion) {
-                        auto boolean_inversion = (BooleanInversion*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, boolean_inversion->source_register);
-
-                        assert(source_value.type.kind == IRTypeKind::Boolean);
-
-                        llvm_instruction(value, LLVMBuildTrunc(builder, source_value.value, LLVMInt1Type(), "truncate"));
-
-                        llvm_instruction(result_value, LLVMBuildNot(builder, value, "boolean_inversion"));
-
-                        llvm_instruction(extended_value, LLVMBuildZExt(builder, result_value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend"));
-
-                        registers.append(Register(
-                            boolean_inversion->destination_register,
-                            TypedValue(IRType::create_boolean(), extended_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::AssembleStaticArray) {
-                        auto assemble_static_array = (AssembleStaticArray*)instruction;
-
-                        auto first_element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[0]);
-
-                        assert(first_element_value.type.is_runtime());
-
-                        auto element_llvm_type = get_llvm_type(architecture_sizes, first_element_value.type);
-                        auto llvm_type = LLVMArrayType2(element_llvm_type, assemble_static_array->element_registers.length);
-
-                        auto initial_constant_values = allocate<LLVMValueRef>(assemble_static_array->element_registers.length);
-
-                        for(size_t i = 1; i < assemble_static_array->element_registers.length; i += 1) {
-                            auto element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[i]);
-
-                            assert(element_value.type == first_element_value.type);
-
-                            if(LLVMIsConstant(element_value.value)) {
-                                initial_constant_values[i] = element_value.value;
-                            } else {
-                                initial_constant_values[i] = LLVMGetUndef(element_llvm_type);
-                            }
-                        }
-
-                        auto current_array_value = LLVMConstArray2(
-                            element_llvm_type,
-                            initial_constant_values,
-                            assemble_static_array->element_registers.length
-                        );
-
-                        current_array_value = LLVMBuildInsertValue(
-                            builder,
-                            current_array_value,
-                            first_element_value.value,
-                            0,
-                            "insert_value"
-                        );
-
-                        if(LLVMIsAInstruction(current_array_value)) {
-                            LLVMInstructionSetDebugLoc(current_array_value, debug_location);
-                        }
-
-                        for(size_t i = 1; i < assemble_static_array->element_registers.length; i += 1) {
-                            auto element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[i]);
-
-                            if(!LLVMIsConstant(element_value.value)) {
-                                current_array_value = LLVMBuildInsertValue(
-                                    builder,
-                                    current_array_value,
-                                    element_value.value,
-                                    (unsigned int)i,
-                                    "insert_value"
-                                );
-
-                                if(LLVMIsAInstruction(current_array_value)) {
-                                    LLVMInstructionSetDebugLoc(current_array_value, debug_location);
-                                }
-                            }
-                        }
-
-                        auto type = IRType::create_static_array(
-                            assemble_static_array->element_registers.length,
-                            heapify(first_element_value.type)
-                        );
-
-                        registers.append(Register(
-                            assemble_static_array->destination_register,
-                            TypedValue(type, current_array_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::ReadStaticArrayElement) {
-                        auto read_static_array_element = (ReadStaticArrayElement*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, read_static_array_element->source_register);
-
-                        assert(source_value.type.kind == IRTypeKind::StaticArray);
-                        assert(read_static_array_element->element_index < source_value.type.static_array.length);
-
-                        llvm_instruction(result_value, LLVMBuildExtractValue(
-                            builder,
-                            source_value.value,
-                            (unsigned int)read_static_array_element->element_index,
-                            "read_static_array_element"
-                        ));
-
-                        registers.append(Register(
-                            read_static_array_element->destination_register,
-                            TypedValue(*source_value.type.static_array.element_type, result_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::AssembleStruct) {
-                        auto assemble_struct = (AssembleStruct*)instruction;
-
-                        auto initial_constant_values = allocate<LLVMValueRef>(assemble_struct->member_registers.length);
-
-                        for(size_t i = 0; i < assemble_struct->member_registers.length; i += 1) {
-                            auto member_value = get_register_value(*function, function_value, registers, assemble_struct->member_registers[i]);
-
-                            assert(member_value.type.is_runtime());
-
-                            if(LLVMIsConstant(member_value.value)) {
-                                initial_constant_values[i] = member_value.value;
-                            } else {
-                                initial_constant_values[i] = LLVMGetUndef(get_llvm_type(architecture_sizes, member_value.type));
-                            }
-                        }
-
-                        auto current_struct_value = LLVMConstStruct(
-                            initial_constant_values,
-                            assemble_struct->member_registers.length,
-                            false
-                        );
-
-                        auto member_types = allocate<IRType>(assemble_struct->member_registers.length);
-
-                        for(size_t i = 0; i < assemble_struct->member_registers.length; i += 1) {
-                            auto member_value = get_register_value(*function, function_value, registers, assemble_struct->member_registers[i]);
-
-                            member_types[i] = member_value.type;
-
-                            if(!LLVMIsConstant(member_value.value)) {
-                                current_struct_value = LLVMBuildInsertValue(
-                                    builder,
-                                    current_struct_value,
-                                    member_value.value,
-                                    (unsigned int)i,
-                                    "insert_value"
-                                );
-
-                                if(LLVMIsAInstruction(current_struct_value)) {
-                                    LLVMInstructionSetDebugLoc(current_struct_value, debug_location);
-                                }
-                            }
-                        }
-
-                        auto type = IRType::create_struct(Array(assemble_struct->member_registers.length, member_types));
-
-                        registers.append(Register(
-                            assemble_struct->destination_register,
-                            TypedValue(type, current_struct_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::ReadStructMember) {
-                        auto read_struct_member = (ReadStructMember*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, read_struct_member->source_register);
-
-                        assert(source_value.type.kind == IRTypeKind::Struct);
-                        assert(read_struct_member->member_index < source_value.type.struct_.members.length);
-
-                        llvm_instruction(result_value, LLVMBuildExtractValue(
-                            builder,
-                            source_value.value,
-                            (unsigned int)read_struct_member->member_index,
-                            "read_struct_member"
-                        ));
-
-                        registers.append(Register(
-                            read_struct_member->destination_register,
-                            TypedValue(source_value.type.struct_.members[read_struct_member->member_index], result_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::Literal) {
-                        auto literal = (Literal*)instruction;
-
-                        auto llvm_constant_result = get_llvm_constant(architecture_sizes, literal->type, literal->value);
-
-                        registers.append(Register(
-                            literal->destination_register,
-                            TypedValue(literal->type, llvm_constant_result.value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::Jump) {
-                        auto jump = (Jump*)instruction;
-
-                        auto destination = get_instruction_block(blocks, function->instructions[jump->destination_instruction]);
-
-                        llvm_instruction_ignore(LLVMBuildBr(builder, destination));
-
-                        might_need_terminator = false;
-                    } else if(instruction->kind == InstructionKind::Branch) {
-                        auto branch = (Branch*)instruction;
-
-                        auto condition_value = get_register_value(*function, function_value, registers, branch->condition_register);
-
-                        assert(condition_value.type.kind == IRTypeKind::Boolean);
-
-                        llvm_instruction(truncated_condition_value, LLVMBuildTrunc(builder, condition_value.value, LLVMInt1Type(), "truncate"));
-
-                        auto destination = get_instruction_block(blocks, function->instructions[branch->destination_instruction]);
-
-                        auto next = get_instruction_block(blocks, function->instructions[i + 1]);
-
-                        llvm_instruction_ignore(LLVMBuildCondBr(builder, truncated_condition_value, destination, next));
-
-                        might_need_terminator = false;
-                    } else if(instruction->kind == InstructionKind::FunctionCallInstruction) {
-                        auto function_call = (FunctionCallInstruction*)instruction;
-
-                        auto parameter_count = function_call->parameters.length;
-
-                        auto function_pointer_value = get_register_value(*function, function_value, registers, function_call->pointer_register);
-
-                        assert(function_pointer_value.type.kind == IRTypeKind::Pointer);
-
-                        auto function_type = *function_pointer_value.type.pointer;
-
-                        assert(function_type.kind == IRTypeKind::Function);
-                        assert(function_type.function.parameters.length == parameter_count);
-                        assert(*function_type.function.return_type == function_call->return_type);
-
-                        auto parameter_types = allocate<LLVMTypeRef>(parameter_count);
-                        auto parameter_values = allocate<LLVMValueRef>(parameter_count);
-                        for(size_t i = 0; i < parameter_count; i += 1) {
-                            auto parameter = function_call->parameters[i];
-
-                            assert(function_type.function.parameters[i] == parameter.type);
-
-                            parameter_types[i] = get_llvm_type(architecture_sizes, parameter.type);
-
-                            parameter_values[i] = get_register_value(*function, function_value, registers, parameter.register_index).value;
-                        }
-
-                        auto return_llvm_type = get_llvm_type(architecture_sizes, function_call->return_type);
-
-                        auto function_llvm_type = LLVMFunctionType(return_llvm_type, parameter_types, (unsigned int)parameter_count, false);
-
-                        const char* name;
-                        if(function_call->return_type.kind != IRTypeKind::Void) {
-                            name = "call";
-                        } else {
-                            name = "";
-                        }
-
-                        llvm_instruction(value, LLVMBuildCall2(
-                            builder,
-                            function_llvm_type,
-                            function_pointer_value.value,
-                            parameter_values,
-                            (unsigned int)parameter_count,
-                            name
-                        ));
-
-                        expect(calling_convention, get_llvm_calling_convention(
-                            function->path,
-                            function_call->range,
-                            os,
-                            architecture,
-                            function_call->calling_convention
-                        ));
-
-                        LLVMSetInstructionCallConv(value, calling_convention);
-
-                        if(function_call->return_type.kind != IRTypeKind::Void) {
                             registers.append(Register(
-                                function_call->return_register,
-                                TypedValue(function_call->return_type, value)
+                                integer_extension->destination_register,
+                                TypedValue(destination_ir_type, value)
                             ));
-                        }
-                    } else if(instruction->kind == InstructionKind::ReturnInstruction) {
-                        auto return_instruction = (ReturnInstruction*)instruction;
+                        } else if(instruction->kind == InstructionKind::IntegerTruncation) {
+                            auto integer_truncation = (IntegerTruncation*)instruction;
 
-                        if(function->return_type.kind != IRTypeKind::Void) {
-                            auto return_value = get_register_value(*function, function_value, registers, return_instruction->value_register);
+                            auto source_value = get_register_value(*function, function_value, registers, integer_truncation->source_register);
 
-                            assert(return_value.type == function->return_type);
+                            assert(source_value.type.kind == IRTypeKind::Integer);
 
-                            llvm_instruction_ignore(LLVMBuildRet(builder, return_value.value));
-                        } else {
-                            llvm_instruction_ignore(LLVMBuildRetVoid(builder));
-                        }
+                            auto destination_ir_type = IRType::create_integer(integer_truncation->destination_size);
+                            auto destination_llvm_type = get_llvm_integer_type(integer_truncation->destination_size);
 
-                        might_need_terminator = false;
-                    } else if(instruction->kind == InstructionKind::AllocateLocal) {
-                        auto allocate_local = (AllocateLocal*)instruction;
+                            assert(integer_truncation->destination_size < source_value.type.integer.size);
 
-                        auto found = false;
-                        LLVMValueRef pointer_value;
-                        for(auto local : locals) {
-                            if(local.allocate_local == allocate_local) {
-                                pointer_value = local.pointer_value;
-                                found = true;
-
-                                break;
-                            }
-                        }
-                        assert(found);
-
-                        auto pointer_type = IRType::create_pointer(heapify(allocate_local->type));
-
-                        registers.append(Register(
-                            allocate_local->destination_register,
-                            TypedValue(pointer_type, pointer_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::Load) {
-                        auto load = (Load*)instruction;
-
-                        auto pointer_register = get_register_value(*function, function_value, registers, load->pointer_register);
-
-                        auto type = *pointer_register.type.pointer;
-
-                        assert(pointer_register.type.kind == IRTypeKind::Pointer);
-                        assert(type.is_runtime());
-
-                        
-                        auto llvm_type = get_llvm_type(architecture_sizes, type);
-
-                        llvm_instruction(value, LLVMBuildLoad2(builder, llvm_type, pointer_register.value, "load"));
-
-                        registers.append(Register(
-                            load->destination_register,
-                            TypedValue(type, value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::Store) {
-                        auto store = (Store*)instruction;
-
-                        auto source_value = get_register_value(*function, function_value, registers, store->source_register);
-
-                        assert(source_value.type.is_runtime());
-
-                        auto pointer_value = get_register_value(*function, function_value, registers, store->pointer_register);
-
-                        assert(pointer_value.type.kind == IRTypeKind::Pointer);
-                        assert(*pointer_value.type.pointer == source_value.type);
-
-                        llvm_instruction_ignore(LLVMBuildStore(builder, source_value.value, pointer_value.value));
-                    } else if(instruction->kind == InstructionKind::StructMemberPointer) {
-                        auto struct_member_pointer = (StructMemberPointer*)instruction;
-
-                        auto pointer_value = get_register_value(*function, function_value, registers, struct_member_pointer->pointer_register);
-
-                        assert(pointer_value.type.kind == IRTypeKind::Pointer);
-
-                        auto struct_type = *pointer_value.type.pointer;
-
-                        assert(struct_type.kind == IRTypeKind::Struct);
-                        assert(struct_member_pointer->member_index < struct_type.struct_.members.length);
-
-                        auto member_type = struct_type.struct_.members[struct_member_pointer->member_index];
-
-                        auto struct_llvm_type = get_llvm_type(architecture_sizes, struct_type);
-
-                        llvm_instruction(member_pointer_value, LLVMBuildStructGEP2(
-                            builder,
-                            struct_llvm_type,
-                            pointer_value.value,
-                            struct_member_pointer->member_index,
-                            "struct_member_pointer"
-                        ));
-
-                        auto member_pointer_type = IRType::create_pointer(heapify(member_type));
-
-                        registers.append(Register(
-                            struct_member_pointer->destination_register,
-                            TypedValue(member_pointer_type, member_pointer_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::PointerIndex) {
-                        auto pointer_index = (PointerIndex*)instruction;
-
-                        auto index_value = get_register_value(*function, function_value, registers, pointer_index->index_register);
-
-                        assert(index_value.type.kind == IRTypeKind::Integer);
-
-                        auto pointer_value = get_register_value(*function, function_value, registers, pointer_index->pointer_register);
-
-                        assert(pointer_value.type.kind == IRTypeKind::Pointer);
-
-                        auto pointed_to_type = *pointer_value.type.pointer;
-
-                        assert(pointed_to_type.is_runtime());
-
-                        auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, pointed_to_type);
-
-                        llvm_instruction(result_pointer_value, LLVMBuildGEP2(
-                            builder,
-                            pointed_to_llvm_type,
-                            pointer_value.value,
-                            &index_value.value,
-                            1,
-                            "pointer_index"
-                        ));
-
-                        registers.append(Register(
-                            pointer_index->destination_register,
-                            TypedValue(pointer_value.type, result_pointer_value)
-                        ));
-                    } else if(instruction->kind == InstructionKind::AssemblyInstruction) {
-                        auto assembly_instruction = (AssemblyInstruction*)instruction;
-
-                        StringBuffer constraints_buffer {};
-
-                        List<LLVMTypeRef> call_parameter_types {};
-                        List<LLVMValueRef> call_parameters {};
-
-                        List<LLVMTypeRef> call_return_types {};
-                        List<LLVMValueRef> output_binding_pointer_values {};
-
-                        for(size_t i = 0; i < assembly_instruction->bindings.length; i += 1) {
-                            auto binding = assembly_instruction->bindings[i];
-
-                            constraints_buffer.append(binding.constraint);
-                            if(i != assembly_instruction->bindings.length - 1) {
-                                constraints_buffer.append(","_S);
-                            }
-
-                            auto value = get_register_value(*function, function_value, registers, binding.register_index);
-
-                            if(binding.constraint[0] == '=') {
-                                assert(value.type.kind == IRTypeKind::Pointer);
-
-                                auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, *value.type.pointer);
-
-                                call_return_types.append(pointed_to_llvm_type);
-                                output_binding_pointer_values.append(value.value);
-                            } else {
-                                auto llvm_type = get_llvm_type(architecture_sizes, value.type);
-
-                                call_parameter_types.append(llvm_type);
-                                call_parameters.append(value.value);
-                            }
-                        }
-
-                        assert(call_parameter_types.length == call_parameters.length);
-                        assert(call_return_types.length = output_binding_pointer_values.length);
-
-                        LLVMTypeRef llvm_function_return_type;
-                        if(call_return_types.length == 0) {
-                            llvm_function_return_type = LLVMVoidType();
-                        } else if(call_return_types.length == 1) {
-                            llvm_function_return_type = call_return_types[0];
-                        } else {
-                            llvm_function_return_type = LLVMStructType(call_return_types.elements, (unsigned int)call_return_types.length, false);
-                        }
-
-                        auto llvm_function_type = LLVMFunctionType(
-                            llvm_function_return_type,
-                            call_parameter_types.elements,
-                            (unsigned int)call_parameter_types.length,
-                            false
-                        );
-
-                        auto inline_assembly_value = LLVMGetInlineAsm(
-                            llvm_function_type,
-                            assembly_instruction->assembly.elements,
-                            assembly_instruction->assembly.length,
-                            constraints_buffer.elements,
-                            constraints_buffer.length,
-                            false,
-                            false,
-                            LLVMInlineAsmDialectATT,
-                            false
-                        );
-
-                        llvm_instruction(return_value, LLVMBuildCall2(
-                            builder,
-                            llvm_function_type,
-                            inline_assembly_value,
-                            call_parameters.elements,
-                            (unsigned int)call_parameters.length,
-                            "assembly_instruction"
-                        ));
-
-                        if(call_return_types.length == 1) {
-                            llvm_instruction_ignore(LLVMBuildStore(
+                            llvm_instruction(value, LLVMBuildTrunc(
                                 builder,
-                                return_value,
-                                output_binding_pointer_values[0]
+                                source_value.value,
+                                destination_llvm_type,
+                                "truncate"
                             ));
-                        } else if(call_return_types.length > 1) {
-                            for(size_t i = 0; i < call_return_types.length; i += 1) {
-                                llvm_instruction(member_value, LLVMBuildExtractValue(
-                                    builder,
-                                    return_value,
-                                    (unsigned int)i,
-                                    "asm_return_value"
-                                ));
 
+                            registers.append(Register(
+                                integer_truncation->destination_register,
+                                TypedValue(destination_ir_type, value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::FloatArithmeticOperation) {
+                            auto float_arithmetic_operation = (FloatArithmeticOperation*)instruction;
+
+                            auto source_value_a = get_register_value(*function, function_value, registers, float_arithmetic_operation->source_register_a);
+                            auto source_value_b = get_register_value(*function, function_value, registers, float_arithmetic_operation->source_register_b);
+
+                            assert(source_value_a.type.kind == IRTypeKind::Float);
+                            assert(source_value_b.type.kind == IRTypeKind::Float);
+                            assert(source_value_a.type.float_.size == source_value_b.type.float_.size);
+
+                            auto value_a = source_value_a.value;
+                            auto value_b = source_value_b.value;
+
+                            LLVMValueRef value;
+                            switch(float_arithmetic_operation->operation) {
+                                case FloatArithmeticOperation::Operation::Add: {
+                                    value = LLVMBuildFAdd(builder, value_a, value_b, "add");
+                                } break;
+
+                                case FloatArithmeticOperation::Operation::Subtract: {
+                                    value = LLVMBuildFSub(builder, value_a, value_b, "subtract");
+                                } break;
+
+                                case FloatArithmeticOperation::Operation::Multiply: {
+                                    value = LLVMBuildFMul(builder, value_a, value_b, "multiply");
+                                } break;
+
+                                case FloatArithmeticOperation::Operation::Divide: {
+                                    value = LLVMBuildFDiv(builder, value_a, value_b, "divide");
+                                } break;
+
+                                default: {
+                                    abort();
+                                } break;
+                            }
+
+                            if(LLVMIsAInstruction(value)) {
+                                LLVMInstructionSetDebugLoc(value, debug_location);
+                            }
+
+                            registers.append(Register(
+                                float_arithmetic_operation->destination_register,
+                                TypedValue(source_value_a.type, value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::FloatComparisonOperation) {
+                            auto float_comparison_operation = (FloatComparisonOperation*)instruction;
+
+                            auto source_value_a = get_register_value(*function, function_value, registers, float_comparison_operation->source_register_a);
+                            auto source_value_b = get_register_value(*function, function_value, registers, float_comparison_operation->source_register_b);
+
+                            assert(source_value_a.type.kind == IRTypeKind::Float);
+                            assert(source_value_b.type.kind == IRTypeKind::Float);
+                            assert(source_value_a.type.float_.size == source_value_b.type.float_.size);
+
+                            auto value_a = source_value_a.value;
+                            auto value_b = source_value_b.value;
+
+                            LLVMRealPredicate predicate;
+                            const char* name;
+                            switch(float_comparison_operation->operation) {
+                                case FloatComparisonOperation::Operation::Equal: {
+                                    predicate = LLVMRealPredicate::LLVMRealOEQ;
+                                    name = "add";
+                                } break;
+
+                                case FloatComparisonOperation::Operation::LessThan: {
+                                    predicate = LLVMRealPredicate::LLVMRealOLT;
+                                    name = "greater_than";
+                                } break;
+
+                                case FloatComparisonOperation::Operation::GreaterThan: {
+                                    predicate = LLVMRealPredicate::LLVMRealOGT;
+                                    name = "less_than";
+                                } break;
+
+                                default: {
+                                    abort();
+                                } break;
+                            }
+
+                            llvm_instruction(value, LLVMBuildFCmp(builder, predicate, value_a, value_b, name));
+
+                            llvm_instruction(extended_value, LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend"));
+
+                            registers.append(Register(
+                                float_comparison_operation->destination_register,
+                                TypedValue(IRType::create_boolean(), extended_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::FloatConversion) {
+                            auto float_conversion = (FloatConversion*)instruction;
+
+                            auto source_value = get_register_value(*function, function_value, registers, float_conversion->source_register);
+
+                            assert(source_value.type.kind == IRTypeKind::Float);
+
+                            auto destination_llvm_type = get_llvm_float_type(float_conversion->destination_size);
+
+                            llvm_instruction(value, LLVMBuildFPCast(builder, source_value.value, destination_llvm_type, "float_conversion"));
+
+                            registers.append(Register(
+                                float_conversion->destination_register,
+                                TypedValue(source_value.type, value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::IntegerFromFloat) {
+                            auto integer_from_float = (IntegerFromFloat*)instruction;
+
+                            auto source_value = get_register_value(*function, function_value, registers, integer_from_float->source_register);
+
+                            assert(source_value.type.kind == IRTypeKind::Float);
+
+                            auto destination_ir_type = IRType::create_integer(integer_from_float->destination_size);
+                            auto destination_llvm_type = get_llvm_integer_type(integer_from_float->destination_size);
+
+                            llvm_instruction(value, LLVMBuildFPToSI(builder, source_value.value, destination_llvm_type, "integer_from_float"));
+
+                            registers.append(Register(
+                                integer_from_float->destination_register,
+                                TypedValue(destination_ir_type, value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::FloatFromInteger) {
+                            auto float_from_integer = (FloatFromInteger*)instruction;
+
+                            auto source_value = get_register_value(*function, function_value, registers, float_from_integer->source_register);
+
+                            assert(source_value.type.kind == IRTypeKind::Integer);
+
+                            auto destination_ir_type = IRType::create_float(float_from_integer->destination_size);
+                            auto destination_llvm_type = get_llvm_float_type(float_from_integer->destination_size);
+
+                            llvm_instruction(value, LLVMBuildSIToFP(builder, source_value.value, destination_llvm_type, "float_from_integer"));
+
+                            registers.append(Register(
+                                float_from_integer->destination_register,
+                                TypedValue(destination_ir_type, value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::PointerEquality) {
+                            auto pointer_equality = (PointerEquality*)instruction;
+
+                            auto source_value_a = get_register_value(*function, function_value, registers, pointer_equality->source_register_a);
+                            auto source_value_b = get_register_value(*function, function_value, registers, pointer_equality->source_register_b);
+
+                            assert(source_value_a.type.kind == IRTypeKind::Pointer);
+                            assert(source_value_b.type.kind == IRTypeKind::Pointer);
+                            assert(*source_value_a.type.pointer == *source_value_b.type.pointer);
+
+                            auto value_a = source_value_a.value;
+                            auto value_b = source_value_b.value;
+
+                            auto integer_llvm_type = get_llvm_integer_type(architecture_sizes.address_size);
+
+                            auto pointer_llvm_type = get_llvm_type(architecture_sizes, source_value_a.type);
+
+                            llvm_instruction(integer_value_a, LLVMBuildPtrToInt(builder, value_a, integer_llvm_type, "pointer_to_int"));
+                            llvm_instruction(integer_value_b, LLVMBuildPtrToInt(builder, value_b, integer_llvm_type, "pointer_to_int"));
+
+                            llvm_instruction(value, LLVMBuildICmp(builder, LLVMIntPredicate::LLVMIntEQ, integer_value_a, integer_value_b, "pointer_equality"));
+
+                            llvm_instruction(extended_value, LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend"));
+
+                            registers.append(Register(
+                                pointer_equality->destination_register,
+                                TypedValue(IRType::create_boolean(), extended_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::PointerConversion) {
+                            auto pointer_conversion = (PointerConversion*)instruction;
+
+                            auto source_value = get_register_value(*function, function_value, registers, pointer_conversion->source_register);
+
+                            assert(source_value.type.kind == IRTypeKind::Pointer);
+
+                            auto destination_type = IRType::create_pointer(heapify(pointer_conversion->destination_pointed_to_type));
+
+                            auto destination_llvm_type = get_llvm_pointer_type(architecture_sizes, pointer_conversion->destination_pointed_to_type);
+
+                            llvm_instruction(result_value, LLVMBuildPointerCast(builder, source_value.value, destination_llvm_type, "pointer_conversion"));
+
+                            registers.append(Register(
+                                pointer_conversion->destination_register,
+                                TypedValue(destination_type, result_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::PointerFromInteger) {
+                            auto pointer_from_integer = (PointerFromInteger*)instruction;
+
+                            auto source_value = get_register_value(*function, function_value, registers, pointer_from_integer->source_register);
+
+                            assert(source_value.type.kind == IRTypeKind::Integer);
+
+                            auto destination_type = IRType::create_pointer(heapify(pointer_from_integer->destination_pointed_to_type));
+
+                            auto destination_llvm_type = get_llvm_pointer_type(architecture_sizes, pointer_from_integer->destination_pointed_to_type);
+
+                            llvm_instruction(result_value, LLVMBuildIntToPtr(builder, source_value.value, destination_llvm_type, "integer_to_pointer"));
+
+                            registers.append(Register(
+                                pointer_from_integer->destination_register,
+                                TypedValue(destination_type, result_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::IntegerFromPointer) {
+                            auto integer_from_pointer = (IntegerFromPointer*)instruction;
+
+                            auto source_value = get_register_value(*function, function_value, registers, integer_from_pointer->source_register);
+
+                            assert(source_value.type.kind == IRTypeKind::Pointer);
+
+                            auto destination_type = IRType::create_integer(integer_from_pointer->destination_size);
+                            auto destination_llvm_type = get_llvm_integer_type(integer_from_pointer->destination_size);
+
+                            llvm_instruction(result_value, LLVMBuildPtrToInt(builder, source_value.value, destination_llvm_type, "pointer_to_integer"));
+
+                            registers.append(Register(
+                                integer_from_pointer->destination_register,
+                                TypedValue(destination_type, result_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::BooleanArithmeticOperation) {
+                            auto boolean_arithmetic_operation = (BooleanArithmeticOperation*)instruction;
+
+                            auto source_value_a = get_register_value(*function, function_value, registers, boolean_arithmetic_operation->source_register_a);
+                            auto source_value_b = get_register_value(*function, function_value, registers, boolean_arithmetic_operation->source_register_b);
+
+                            assert(source_value_a.type.kind == IRTypeKind::Boolean);
+                            assert(source_value_b.type.kind == IRTypeKind::Boolean);
+
+                            llvm_instruction(value_a, LLVMBuildTrunc(builder, source_value_a.value, LLVMInt1Type(), "truncate"));
+                            llvm_instruction(value_b, LLVMBuildTrunc(builder, source_value_b.value, LLVMInt1Type(), "truncate"));
+
+                            LLVMValueRef value;
+                            switch(boolean_arithmetic_operation->operation) {
+                                case BooleanArithmeticOperation::Operation::BooleanAnd: {
+                                    value = LLVMBuildAnd(builder, value_a, value_b, "and");
+                                } break;
+
+                                case BooleanArithmeticOperation::Operation::BooleanOr: {
+                                    value = LLVMBuildOr(builder, value_a, value_b, "or");
+                                } break;
+
+                                default: {
+                                    abort();
+                                } break;
+                            }
+
+                            if(LLVMIsAInstruction(value)) {
+                                LLVMInstructionSetDebugLoc(value, debug_location);
+                            }
+
+                            llvm_instruction(extended_value, LLVMBuildZExt(
+                                builder,
+                                value,
+                                get_llvm_integer_type(architecture_sizes.boolean_size),
+                                "extend"
+                            ));
+
+                            registers.append(Register(
+                                boolean_arithmetic_operation->destination_register,
+                                TypedValue(source_value_a.type, extended_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::BooleanEquality) {
+                            auto boolean_equality = (BooleanEquality*)instruction;
+
+                            auto source_value_a = get_register_value(*function, function_value, registers, boolean_equality->source_register_a);
+                            auto source_value_b = get_register_value(*function, function_value, registers, boolean_equality->source_register_b);
+
+                            assert(source_value_a.type.kind == IRTypeKind::Boolean);
+                            assert(source_value_b.type.kind == IRTypeKind::Boolean);
+
+                            llvm_instruction(value_a, LLVMBuildTrunc(builder, source_value_a.value, LLVMInt1Type(), "truncate"));
+                            llvm_instruction(value_b, LLVMBuildTrunc(builder, source_value_b.value, LLVMInt1Type(), "truncate"));
+
+                            llvm_instruction(value, LLVMBuildICmp(builder, LLVMIntPredicate::LLVMIntEQ, value_a, value_b, "pointer_equality"));
+
+                            llvm_instruction(extended_value, LLVMBuildZExt(builder, value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend"));
+
+                            registers.append(Register(
+                                boolean_equality->destination_register,
+                                TypedValue(IRType::create_boolean(), extended_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::BooleanInversion) {
+                            auto boolean_inversion = (BooleanInversion*)instruction;
+
+                            auto source_value = get_register_value(*function, function_value, registers, boolean_inversion->source_register);
+
+                            assert(source_value.type.kind == IRTypeKind::Boolean);
+
+                            llvm_instruction(value, LLVMBuildTrunc(builder, source_value.value, LLVMInt1Type(), "truncate"));
+
+                            llvm_instruction(result_value, LLVMBuildNot(builder, value, "boolean_inversion"));
+
+                            llvm_instruction(extended_value, LLVMBuildZExt(builder, result_value, get_llvm_integer_type(architecture_sizes.boolean_size), "extend"));
+
+                            registers.append(Register(
+                                boolean_inversion->destination_register,
+                                TypedValue(IRType::create_boolean(), extended_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::AssembleStaticArray) {
+                            auto assemble_static_array = (AssembleStaticArray*)instruction;
+
+                            auto first_element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[0]);
+
+                            assert(first_element_value.type.is_runtime());
+
+                            auto element_llvm_type = get_llvm_type(architecture_sizes, first_element_value.type);
+                            auto llvm_type = LLVMArrayType2(element_llvm_type, assemble_static_array->element_registers.length);
+
+                            auto initial_constant_values = allocate<LLVMValueRef>(assemble_static_array->element_registers.length);
+
+                            for(size_t i = 1; i < assemble_static_array->element_registers.length; i += 1) {
+                                auto element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[i]);
+
+                                assert(element_value.type == first_element_value.type);
+
+                                if(LLVMIsConstant(element_value.value)) {
+                                    initial_constant_values[i] = element_value.value;
+                                } else {
+                                    initial_constant_values[i] = LLVMGetUndef(element_llvm_type);
+                                }
+                            }
+
+                            auto current_array_value = LLVMConstArray2(
+                                element_llvm_type,
+                                initial_constant_values,
+                                assemble_static_array->element_registers.length
+                            );
+
+                            current_array_value = LLVMBuildInsertValue(
+                                builder,
+                                current_array_value,
+                                first_element_value.value,
+                                0,
+                                "insert_value"
+                            );
+
+                            if(LLVMIsAInstruction(current_array_value)) {
+                                LLVMInstructionSetDebugLoc(current_array_value, debug_location);
+                            }
+
+                            for(size_t i = 1; i < assemble_static_array->element_registers.length; i += 1) {
+                                auto element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[i]);
+
+                                if(!LLVMIsConstant(element_value.value)) {
+                                    current_array_value = LLVMBuildInsertValue(
+                                        builder,
+                                        current_array_value,
+                                        element_value.value,
+                                        (unsigned int)i,
+                                        "insert_value"
+                                    );
+
+                                    if(LLVMIsAInstruction(current_array_value)) {
+                                        LLVMInstructionSetDebugLoc(current_array_value, debug_location);
+                                    }
+                                }
+                            }
+
+                            auto type = IRType::create_static_array(
+                                assemble_static_array->element_registers.length,
+                                heapify(first_element_value.type)
+                            );
+
+                            registers.append(Register(
+                                assemble_static_array->destination_register,
+                                TypedValue(type, current_array_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::ReadStaticArrayElement) {
+                            auto read_static_array_element = (ReadStaticArrayElement*)instruction;
+
+                            auto source_value = get_register_value(*function, function_value, registers, read_static_array_element->source_register);
+
+                            assert(source_value.type.kind == IRTypeKind::StaticArray);
+                            assert(read_static_array_element->element_index < source_value.type.static_array.length);
+
+                            llvm_instruction(result_value, LLVMBuildExtractValue(
+                                builder,
+                                source_value.value,
+                                (unsigned int)read_static_array_element->element_index,
+                                "read_static_array_element"
+                            ));
+
+                            registers.append(Register(
+                                read_static_array_element->destination_register,
+                                TypedValue(*source_value.type.static_array.element_type, result_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::AssembleStruct) {
+                            auto assemble_struct = (AssembleStruct*)instruction;
+
+                            auto initial_constant_values = allocate<LLVMValueRef>(assemble_struct->member_registers.length);
+
+                            for(size_t i = 0; i < assemble_struct->member_registers.length; i += 1) {
+                                auto member_value = get_register_value(*function, function_value, registers, assemble_struct->member_registers[i]);
+
+                                assert(member_value.type.is_runtime());
+
+                                if(LLVMIsConstant(member_value.value)) {
+                                    initial_constant_values[i] = member_value.value;
+                                } else {
+                                    initial_constant_values[i] = LLVMGetUndef(get_llvm_type(architecture_sizes, member_value.type));
+                                }
+                            }
+
+                            auto current_struct_value = LLVMConstStruct(
+                                initial_constant_values,
+                                assemble_struct->member_registers.length,
+                                false
+                            );
+
+                            auto member_types = allocate<IRType>(assemble_struct->member_registers.length);
+
+                            for(size_t i = 0; i < assemble_struct->member_registers.length; i += 1) {
+                                auto member_value = get_register_value(*function, function_value, registers, assemble_struct->member_registers[i]);
+
+                                member_types[i] = member_value.type;
+
+                                if(!LLVMIsConstant(member_value.value)) {
+                                    current_struct_value = LLVMBuildInsertValue(
+                                        builder,
+                                        current_struct_value,
+                                        member_value.value,
+                                        (unsigned int)i,
+                                        "insert_value"
+                                    );
+
+                                    if(LLVMIsAInstruction(current_struct_value)) {
+                                        LLVMInstructionSetDebugLoc(current_struct_value, debug_location);
+                                    }
+                                }
+                            }
+
+                            auto type = IRType::create_struct(Array(assemble_struct->member_registers.length, member_types));
+
+                            registers.append(Register(
+                                assemble_struct->destination_register,
+                                TypedValue(type, current_struct_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::ReadStructMember) {
+                            auto read_struct_member = (ReadStructMember*)instruction;
+
+                            auto source_value = get_register_value(*function, function_value, registers, read_struct_member->source_register);
+
+                            assert(source_value.type.kind == IRTypeKind::Struct);
+                            assert(read_struct_member->member_index < source_value.type.struct_.members.length);
+
+                            llvm_instruction(result_value, LLVMBuildExtractValue(
+                                builder,
+                                source_value.value,
+                                (unsigned int)read_struct_member->member_index,
+                                "read_struct_member"
+                            ));
+
+                            registers.append(Register(
+                                read_struct_member->destination_register,
+                                TypedValue(source_value.type.struct_.members[read_struct_member->member_index], result_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::Literal) {
+                            auto literal = (Literal*)instruction;
+
+                            auto llvm_constant_result = get_llvm_constant(architecture_sizes, literal->type, literal->value);
+
+                            registers.append(Register(
+                                literal->destination_register,
+                                TypedValue(literal->type, llvm_constant_result.value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::Jump) {
+                            auto jump = (Jump*)instruction;
+
+                            auto found_block = false;
+                            size_t block_index;
+                            for(size_t i = 0; i < function->blocks.length; i += 1) {
+                                if(function->blocks[i] == jump->destination_block) {
+                                    block_index = i;
+                                    found_block = true;
+
+                                    break;
+                                }
+                            }
+
+                            assert(found_block);
+
+                            llvm_instruction_ignore(LLVMBuildBr(builder, llvm_blocks[block_index]));
+                        } else if(instruction->kind == InstructionKind::Branch) {
+                            auto branch = (Branch*)instruction;
+
+                            auto condition_value = get_register_value(*function, function_value, registers, branch->condition_register);
+
+                            assert(condition_value.type.kind == IRTypeKind::Boolean);
+
+                            llvm_instruction(truncated_condition_value, LLVMBuildTrunc(builder, condition_value.value, LLVMInt1Type(), "truncate"));
+
+                            auto found_true_block = false;
+                            size_t block_true_index;
+                            for(size_t i = 0; i < function->blocks.length; i += 1) {
+                                if(function->blocks[i] == branch->true_destination_block) {
+                                    block_true_index = i;
+                                    found_true_block = true;
+
+                                    break;
+                                }
+                            }
+
+                            assert(found_true_block);
+
+                            auto found_false_block = false;
+                            size_t block_false_index;
+                            for(size_t i = 0; i < function->blocks.length; i += 1) {
+                                if(function->blocks[i] == branch->false_destination_block) {
+                                    block_false_index = i;
+                                    found_false_block = true;
+
+                                    break;
+                                }
+                            }
+
+                            assert(found_false_block);
+
+                            llvm_instruction_ignore(LLVMBuildCondBr(
+                                builder,
+                                truncated_condition_value,
+                                llvm_blocks[block_true_index],
+                                llvm_blocks[block_false_index]
+                            ));
+                        } else if(instruction->kind == InstructionKind::FunctionCallInstruction) {
+                            auto function_call = (FunctionCallInstruction*)instruction;
+
+                            auto parameter_count = function_call->parameters.length;
+
+                            auto function_pointer_value = get_register_value(*function, function_value, registers, function_call->pointer_register);
+
+                            assert(function_pointer_value.type.kind == IRTypeKind::Pointer);
+
+                            auto function_type = *function_pointer_value.type.pointer;
+
+                            assert(function_type.kind == IRTypeKind::Function);
+                            assert(function_type.function.parameters.length == parameter_count);
+                            assert(*function_type.function.return_type == function_call->return_type);
+
+                            auto parameter_types = allocate<LLVMTypeRef>(parameter_count);
+                            auto parameter_values = allocate<LLVMValueRef>(parameter_count);
+                            for(size_t i = 0; i < parameter_count; i += 1) {
+                                auto parameter = function_call->parameters[i];
+
+                                assert(function_type.function.parameters[i] == parameter.type);
+
+                                parameter_types[i] = get_llvm_type(architecture_sizes, parameter.type);
+
+                                parameter_values[i] = get_register_value(*function, function_value, registers, parameter.register_index).value;
+                            }
+
+                            auto return_llvm_type = get_llvm_type(architecture_sizes, function_call->return_type);
+
+                            auto function_llvm_type = LLVMFunctionType(return_llvm_type, parameter_types, (unsigned int)parameter_count, false);
+
+                            const char* name;
+                            if(function_call->return_type.kind != IRTypeKind::Void) {
+                                name = "call";
+                            } else {
+                                name = "";
+                            }
+
+                            llvm_instruction(value, LLVMBuildCall2(
+                                builder,
+                                function_llvm_type,
+                                function_pointer_value.value,
+                                parameter_values,
+                                (unsigned int)parameter_count,
+                                name
+                            ));
+
+                            expect(calling_convention, get_llvm_calling_convention(
+                                function->path,
+                                function_call->range,
+                                os,
+                                architecture,
+                                function_call->calling_convention
+                            ));
+
+                            LLVMSetInstructionCallConv(value, calling_convention);
+
+                            if(function_call->return_type.kind != IRTypeKind::Void) {
+                                registers.append(Register(
+                                    function_call->return_register,
+                                    TypedValue(function_call->return_type, value)
+                                ));
+                            }
+                        } else if(instruction->kind == InstructionKind::ReturnInstruction) {
+                            auto return_instruction = (ReturnInstruction*)instruction;
+
+                            if(function->return_type.kind != IRTypeKind::Void) {
+                                auto return_value = get_register_value(*function, function_value, registers, return_instruction->value_register);
+
+                                assert(return_value.type == function->return_type);
+
+                                llvm_instruction_ignore(LLVMBuildRet(builder, return_value.value));
+                            } else {
+                                llvm_instruction_ignore(LLVMBuildRetVoid(builder));
+                            }
+                        } else if(instruction->kind == InstructionKind::AllocateLocal) {
+                            auto allocate_local = (AllocateLocal*)instruction;
+
+                            auto found = false;
+                            LLVMValueRef pointer_value;
+                            for(auto local : locals) {
+                                if(local.allocate_local == allocate_local) {
+                                    pointer_value = local.pointer_value;
+                                    found = true;
+
+                                    break;
+                                }
+                            }
+                            assert(found);
+
+                            auto pointer_type = IRType::create_pointer(heapify(allocate_local->type));
+
+                            registers.append(Register(
+                                allocate_local->destination_register,
+                                TypedValue(pointer_type, pointer_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::Load) {
+                            auto load = (Load*)instruction;
+
+                            auto pointer_register = get_register_value(*function, function_value, registers, load->pointer_register);
+
+                            auto type = *pointer_register.type.pointer;
+
+                            assert(pointer_register.type.kind == IRTypeKind::Pointer);
+                            assert(type.is_runtime());
+
+                            
+                            auto llvm_type = get_llvm_type(architecture_sizes, type);
+
+                            llvm_instruction(value, LLVMBuildLoad2(builder, llvm_type, pointer_register.value, "load"));
+
+                            registers.append(Register(
+                                load->destination_register,
+                                TypedValue(type, value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::Store) {
+                            auto store = (Store*)instruction;
+
+                            auto source_value = get_register_value(*function, function_value, registers, store->source_register);
+
+                            assert(source_value.type.is_runtime());
+
+                            auto pointer_value = get_register_value(*function, function_value, registers, store->pointer_register);
+
+                            assert(pointer_value.type.kind == IRTypeKind::Pointer);
+                            assert(*pointer_value.type.pointer == source_value.type);
+
+                            llvm_instruction_ignore(LLVMBuildStore(builder, source_value.value, pointer_value.value));
+                        } else if(instruction->kind == InstructionKind::StructMemberPointer) {
+                            auto struct_member_pointer = (StructMemberPointer*)instruction;
+
+                            auto pointer_value = get_register_value(*function, function_value, registers, struct_member_pointer->pointer_register);
+
+                            assert(pointer_value.type.kind == IRTypeKind::Pointer);
+
+                            auto struct_type = *pointer_value.type.pointer;
+
+                            assert(struct_type.kind == IRTypeKind::Struct);
+                            assert(struct_member_pointer->member_index < struct_type.struct_.members.length);
+
+                            auto member_type = struct_type.struct_.members[struct_member_pointer->member_index];
+
+                            auto struct_llvm_type = get_llvm_type(architecture_sizes, struct_type);
+
+                            llvm_instruction(member_pointer_value, LLVMBuildStructGEP2(
+                                builder,
+                                struct_llvm_type,
+                                pointer_value.value,
+                                struct_member_pointer->member_index,
+                                "struct_member_pointer"
+                            ));
+
+                            auto member_pointer_type = IRType::create_pointer(heapify(member_type));
+
+                            registers.append(Register(
+                                struct_member_pointer->destination_register,
+                                TypedValue(member_pointer_type, member_pointer_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::PointerIndex) {
+                            auto pointer_index = (PointerIndex*)instruction;
+
+                            auto index_value = get_register_value(*function, function_value, registers, pointer_index->index_register);
+
+                            assert(index_value.type.kind == IRTypeKind::Integer);
+
+                            auto pointer_value = get_register_value(*function, function_value, registers, pointer_index->pointer_register);
+
+                            assert(pointer_value.type.kind == IRTypeKind::Pointer);
+
+                            auto pointed_to_type = *pointer_value.type.pointer;
+
+                            assert(pointed_to_type.is_runtime());
+
+                            auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, pointed_to_type);
+
+                            llvm_instruction(result_pointer_value, LLVMBuildGEP2(
+                                builder,
+                                pointed_to_llvm_type,
+                                pointer_value.value,
+                                &index_value.value,
+                                1,
+                                "pointer_index"
+                            ));
+
+                            registers.append(Register(
+                                pointer_index->destination_register,
+                                TypedValue(pointer_value.type, result_pointer_value)
+                            ));
+                        } else if(instruction->kind == InstructionKind::AssemblyInstruction) {
+                            auto assembly_instruction = (AssemblyInstruction*)instruction;
+
+                            StringBuffer constraints_buffer {};
+
+                            List<LLVMTypeRef> call_parameter_types {};
+                            List<LLVMValueRef> call_parameters {};
+
+                            List<LLVMTypeRef> call_return_types {};
+                            List<LLVMValueRef> output_binding_pointer_values {};
+
+                            for(size_t i = 0; i < assembly_instruction->bindings.length; i += 1) {
+                                auto binding = assembly_instruction->bindings[i];
+
+                                constraints_buffer.append(binding.constraint);
+                                if(i != assembly_instruction->bindings.length - 1) {
+                                    constraints_buffer.append(","_S);
+                                }
+
+                                auto value = get_register_value(*function, function_value, registers, binding.register_index);
+
+                                if(binding.constraint[0] == '=') {
+                                    assert(value.type.kind == IRTypeKind::Pointer);
+
+                                    auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, *value.type.pointer);
+
+                                    call_return_types.append(pointed_to_llvm_type);
+                                    output_binding_pointer_values.append(value.value);
+                                } else {
+                                    auto llvm_type = get_llvm_type(architecture_sizes, value.type);
+
+                                    call_parameter_types.append(llvm_type);
+                                    call_parameters.append(value.value);
+                                }
+                            }
+
+                            assert(call_parameter_types.length == call_parameters.length);
+                            assert(call_return_types.length = output_binding_pointer_values.length);
+
+                            LLVMTypeRef llvm_function_return_type;
+                            if(call_return_types.length == 0) {
+                                llvm_function_return_type = LLVMVoidType();
+                            } else if(call_return_types.length == 1) {
+                                llvm_function_return_type = call_return_types[0];
+                            } else {
+                                llvm_function_return_type = LLVMStructType(call_return_types.elements, (unsigned int)call_return_types.length, false);
+                            }
+
+                            auto llvm_function_type = LLVMFunctionType(
+                                llvm_function_return_type,
+                                call_parameter_types.elements,
+                                (unsigned int)call_parameter_types.length,
+                                false
+                            );
+
+                            auto inline_assembly_value = LLVMGetInlineAsm(
+                                llvm_function_type,
+                                assembly_instruction->assembly.elements,
+                                assembly_instruction->assembly.length,
+                                constraints_buffer.elements,
+                                constraints_buffer.length,
+                                false,
+                                false,
+                                LLVMInlineAsmDialectATT,
+                                false
+                            );
+
+                            llvm_instruction(return_value, LLVMBuildCall2(
+                                builder,
+                                llvm_function_type,
+                                inline_assembly_value,
+                                call_parameters.elements,
+                                (unsigned int)call_parameters.length,
+                                "assembly_instruction"
+                            ));
+
+                            if(call_return_types.length == 1) {
                                 llvm_instruction_ignore(LLVMBuildStore(
                                     builder,
-                                    member_value,
-                                    output_binding_pointer_values[i]
+                                    return_value,
+                                    output_binding_pointer_values[0]
                                 ));
+                            } else if(call_return_types.length > 1) {
+                                for(size_t i = 0; i < call_return_types.length; i += 1) {
+                                    llvm_instruction(member_value, LLVMBuildExtractValue(
+                                        builder,
+                                        return_value,
+                                        (unsigned int)i,
+                                        "asm_return_value"
+                                    ));
+
+                                    llvm_instruction_ignore(LLVMBuildStore(
+                                        builder,
+                                        member_value,
+                                        output_binding_pointer_values[i]
+                                    ));
+                                }
                             }
-                        }
-                    } else if(instruction->kind == InstructionKind::ReferenceStatic) {
-                        auto reference_static = (ReferenceStatic*)instruction;
+                        } else if(instruction->kind == InstructionKind::ReferenceStatic) {
+                            auto reference_static = (ReferenceStatic*)instruction;
 
-                        auto found = false;
-                        TypedValue global_value;
-                        for(size_t i = 0; i < statics.length; i += 1) {
-                            if(statics[i] == reference_static->runtime_static) {
-                                global_value = global_values[i];
-                                found = true;
+                            auto found = false;
+                            TypedValue global_value;
+                            for(size_t i = 0; i < statics.length; i += 1) {
+                                if(statics[i] == reference_static->runtime_static) {
+                                    global_value = global_values[i];
+                                    found = true;
 
-                                break;
+                                    break;
+                                }
                             }
-                        }
-                        assert(found);
+                            assert(found);
 
-                        registers.append(Register(
-                            reference_static->destination_register,
-                            TypedValue(IRType::create_pointer(heapify(global_value.type)), global_value.value)
-                        ));
-                    } else {
-                        abort();
+                            registers.append(Register(
+                                reference_static->destination_register,
+                                TypedValue(IRType::create_pointer(heapify(global_value.type)), global_value.value)
+                            ));
+                        } else {
+                            abort();
+                        }
                     }
 
-                    if(might_need_terminator) {
-                        for(auto block : blocks) {
-                            if(block.instruction == function->instructions[i + 1]) {
-                                llvm_instruction_ignore(LLVMBuildBr(builder, block.block));
-                            }
-                        }
+                    if(should_generate_debug_types) {
+                        LLVMDIBuilderFinalizeSubprogram(debug_builder, function_debug_scope);
                     }
-                }
-
-                if(should_generate_debug_types) {
-                    LLVMDIBuilderFinalizeSubprogram(debug_builder, function_debug_scope);
                 }
             }
         }
