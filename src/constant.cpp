@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <math.h>
 #include "profiler.h"
 #include "string.h"
 #include "util.h"
@@ -2769,6 +2770,58 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 error(scope, function_call->range, "'stackify' cannot be called in a constant context");
 
                 return err();
+            } else if(builtin_function_value.name == "sqrt"_S) {
+                if(function_call->parameters.length != 1) {
+                    error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.length);
+
+                    return err();
+                }
+
+                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[0]));
+
+                RegisterSize result_size;
+                double value;
+                if(parameter_value.type.kind == TypeKind::UndeterminedInteger) {
+                    if(parameter_value.value.kind == ConstantValueKind::UndefConstant) {
+                        error(scope, function_call->parameters[0]->range, "Value is undefined");
+
+                        return err();
+                    }
+
+                    auto integer_value = parameter_value.value.unwrap_integer();
+
+                    result_size = info.architecture_sizes.default_float_size;
+                    value = (double)integer_value;
+                } else if(parameter_value.type.kind == TypeKind::UndeterminedFloat) {
+                    if(parameter_value.value.kind == ConstantValueKind::UndefConstant) {
+                        error(scope, function_call->parameters[0]->range, "Value is undefined");
+
+                        return err();
+                    }
+
+                    result_size = info.architecture_sizes.default_float_size;
+                    value = parameter_value.value.unwrap_float();
+                } else if(parameter_value.type.kind == TypeKind::FloatType) {
+                    if(parameter_value.value.kind == ConstantValueKind::UndefConstant) {
+                        error(scope, function_call->parameters[0]->range, "Value is undefined");
+
+                        return err();
+                    }
+
+                    result_size = parameter_value.type.float_.size;
+                    value = parameter_value.value.unwrap_float();
+                } else {
+                    error(scope, function_call->parameters[0]->range, "Expected a float type, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description()));
+
+                    return err();
+                }
+
+                auto result = sqrt(value);
+
+                return ok(TypedConstantValue(
+                    AnyType(FloatType(result_size)),
+                    AnyConstantValue(result)
+                ));
             } else {
                 abort();
             }
