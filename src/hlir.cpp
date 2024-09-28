@@ -193,7 +193,7 @@ void IRConstantValue::print() {
     }
 }
 
-void Instruction::print(bool has_return) {
+void Instruction::print(Array<Block*> blocks, bool has_return) {
     if(kind == InstructionKind::IntegerArithmeticOperation) {
         auto integer_arithmetic_operation = (IntegerArithmeticOperation*)this;
 
@@ -542,14 +542,54 @@ void Instruction::print(bool has_return) {
     } else if(kind == InstructionKind::Jump) {
         auto jump = (Jump*)this;
 
-        printf("JMP %zu", jump->destination_instruction);
+        auto found = false;
+        size_t index;
+        for(size_t i = 0; i < blocks.length; i += 1) {
+            if(blocks[i] == jump->destination_block) {
+                index = i;
+                found = true;
+
+                break;
+            }
+        }
+
+        assert(found);
+
+        printf("JMP block %zu", index);
     } else if(kind == InstructionKind::Branch) {
         auto branch = (Branch*)this;
 
+        auto true_found = false;
+        size_t true_index;
+        for(size_t i = 0; i < blocks.length; i += 1) {
+            if(blocks[i] == branch->true_destination_block) {
+                true_index = i;
+                true_found = true;
+
+                break;
+            }
+        }
+
+        assert(true_found);
+
+        auto false_found = false;
+        size_t false_index;
+        for(size_t i = 0; i < blocks.length; i += 1) {
+            if(blocks[i] == branch->false_destination_block) {
+                false_index = i;
+                false_found = true;
+
+                break;
+            }
+        }
+
+        assert(false_found);
+
         printf(
-            "BR r%zu, %zu",
+            "BR r%zu, block %zu, block %zu",
             branch->condition_register,
-            branch->destination_instruction
+            true_index,
+            false_index
         );
     } else if(kind == InstructionKind::FunctionCallInstruction) {
         auto function_call = (FunctionCallInstruction*)this;
@@ -685,23 +725,29 @@ void RuntimeStatic::print() {
         } else {
             printf("\n");
 
-            char buffer[20];
-            snprintf(buffer, 20, "%zu", function->instructions.length - 1);
-            size_t max_index_digits = strlen(buffer);
+            for(size_t k = 0; k < function->blocks.length; k += 1) {
+                auto block = function->blocks[k];
 
-            for(size_t i = 0; i < function->instructions.length; i += 1) {
-                auto index_digits = printf("%zu", i);
+                printf("block %zu\n", k);
 
-                for(size_t j = 0; j < max_index_digits - index_digits; j += 1) {
-                    printf(" ");
-                }
+                char buffer[20];
+                snprintf(buffer, 20, "%zu", block->instructions.length - 1);
+                size_t max_index_digits = strlen(buffer);
 
-                printf(" : ");
+                for(size_t i = 0; i < block->instructions.length; i += 1) {
+                    auto index_digits = printf("%zu", i);
 
-                function->instructions[i]->print(function->return_type.kind != IRTypeKind::Void);
+                    for(size_t j = 0; j < max_index_digits - index_digits; j += 1) {
+                        printf(" ");
+                    }
 
-                if(i != function->instructions.length - 1) {
-                    printf("\n");
+                    printf(" : ");
+
+                    block->instructions[i]->print(function->blocks, function->return_type.kind != IRTypeKind::Void);
+
+                    if(i != block->instructions.length - 1) {
+                        printf("\n");
+                    }
                 }
             }
         }

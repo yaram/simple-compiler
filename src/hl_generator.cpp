@@ -109,10 +109,13 @@ struct GenerationContext {
     size_t next_child_scope_index;
 
     bool in_breakable_scope;
-    bool should_emit_breakable_scope_end;
-    List<Jump*> break_jumps;
+    Block* break_end_block;
 
     List<VariableScope> variable_scope_stack;
+
+    List<Block*> blocks;
+    Block* current_block;
+    List<Instruction*> instructions;
 
     size_t next_register;
 
@@ -160,7 +163,6 @@ inline size_t allocate_register(GenerationContext* context) {
 
 static size_t append_integer_arithmetic_operation(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     IntegerArithmeticOperation::Operation operation,
     size_t source_register_a,
@@ -175,14 +177,13 @@ static size_t append_integer_arithmetic_operation(
     integer_arithmetic_operation->source_register_b = source_register_b;
     integer_arithmetic_operation->destination_register = destination_register;
 
-    instructions->append(integer_arithmetic_operation);
+    context->instructions.append(integer_arithmetic_operation);
 
     return destination_register;
 }
 
 static size_t append_integer_comparison_operation(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     IntegerComparisonOperation::Operation operation,
     size_t source_register_a,
@@ -197,14 +198,13 @@ static size_t append_integer_comparison_operation(
     integer_comparison_operation->source_register_b = source_register_b;
     integer_comparison_operation->destination_register = destination_register;
 
-    instructions->append(integer_comparison_operation);
+    context->instructions.append(integer_comparison_operation);
 
     return destination_register;
 }
 
 static size_t append_integer_extension(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     bool is_signed,
     RegisterSize destination_size,
@@ -219,14 +219,13 @@ static size_t append_integer_extension(
     integer_extension->destination_size = destination_size;
     integer_extension->destination_register = destination_register;
 
-    instructions->append(integer_extension);
+    context->instructions.append(integer_extension);
 
     return destination_register;
 }
 
 static size_t append_integer_truncation(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     RegisterSize destination_size,
     size_t source_register
@@ -239,14 +238,13 @@ static size_t append_integer_truncation(
     integer_truncation->destination_size = destination_size;
     integer_truncation->destination_register = destination_register;
 
-    instructions->append(integer_truncation);
+    context->instructions.append(integer_truncation);
 
     return destination_register;
 }
 
 static size_t append_float_arithmetic_operation(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     FloatArithmeticOperation::Operation operation,
     size_t source_register_a,
@@ -261,14 +259,13 @@ static size_t append_float_arithmetic_operation(
     float_arithmetic_operation->source_register_b = source_register_b;
     float_arithmetic_operation->destination_register = destination_register;
 
-    instructions->append(float_arithmetic_operation);
+    context->instructions.append(float_arithmetic_operation);
 
     return destination_register;
 }
 
 static size_t append_float_comparison_operation(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     FloatComparisonOperation::Operation operation,
     size_t source_register_a,
@@ -283,14 +280,13 @@ static size_t append_float_comparison_operation(
     float_comparison_operation->source_register_b = source_register_b;
     float_comparison_operation->destination_register = destination_register;
 
-    instructions->append(float_comparison_operation);
+    context->instructions.append(float_comparison_operation);
 
     return destination_register;
 }
 
 static size_t append_float_conversion(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     RegisterSize destination_size,
     size_t source_register
@@ -303,14 +299,13 @@ static size_t append_float_conversion(
     float_conversion->destination_size = destination_size;
     float_conversion->destination_register = destination_register;
 
-    instructions->append(float_conversion);
+    context->instructions.append(float_conversion);
 
     return destination_register;
 }
 
 static size_t append_float_from_integer(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     bool is_signed,
     RegisterSize destination_size,
@@ -325,14 +320,13 @@ static size_t append_float_from_integer(
     float_from_integer->destination_size = destination_size;
     float_from_integer->destination_register = destination_register;
 
-    instructions->append(float_from_integer);
+    context->instructions.append(float_from_integer);
 
     return destination_register;
 }
 
 static size_t append_integer_from_float(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     bool is_signed,
     RegisterSize destination_size,
@@ -347,14 +341,13 @@ static size_t append_integer_from_float(
     integer_from_float->destination_size = destination_size;
     integer_from_float->destination_register = destination_register;
 
-    instructions->append(integer_from_float);
+    context->instructions.append(integer_from_float);
 
     return destination_register;
 }
 
 static size_t append_pointer_equality(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     size_t source_register_a,
     size_t source_register_b
@@ -367,14 +360,13 @@ static size_t append_pointer_equality(
     pointer_equality->source_register_b = source_register_b;
     pointer_equality->destination_register = destination_register;
 
-    instructions->append(pointer_equality);
+    context->instructions.append(pointer_equality);
 
     return destination_register;
 }
 
 static size_t append_pointer_conversion(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     IRType destination_pointed_to_type,
     size_t source_register
@@ -387,14 +379,13 @@ static size_t append_pointer_conversion(
     pointer_conversion->destination_pointed_to_type = destination_pointed_to_type;
     pointer_conversion->destination_register = destination_register;
 
-    instructions->append(pointer_conversion);
+    context->instructions.append(pointer_conversion);
 
     return destination_register;
 }
 
 static size_t append_pointer_from_integer(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     IRType destination_pointed_to_type,
     size_t source_register
@@ -407,14 +398,13 @@ static size_t append_pointer_from_integer(
     pointer_from_integer->destination_pointed_to_type = destination_pointed_to_type;
     pointer_from_integer->destination_register = destination_register;
 
-    instructions->append(pointer_from_integer);
+    context->instructions.append(pointer_from_integer);
 
     return destination_register;
 }
 
 static size_t append_integer_from_pointer(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     RegisterSize destination_size,
     size_t source_register
@@ -427,14 +417,13 @@ static size_t append_integer_from_pointer(
     integer_from_pointer->destination_size = destination_size;
     integer_from_pointer->destination_register = destination_register;
 
-    instructions->append(integer_from_pointer);
+    context->instructions.append(integer_from_pointer);
 
     return destination_register;
 }
 
 static size_t append_boolean_arithmetic_operation(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     BooleanArithmeticOperation::Operation operation,
     size_t source_register_a,
@@ -449,14 +438,13 @@ static size_t append_boolean_arithmetic_operation(
     boolean_arithmetic_operation->source_register_b = source_register_b;
     boolean_arithmetic_operation->destination_register = destination_register;
 
-    instructions->append(boolean_arithmetic_operation);
+    context->instructions.append(boolean_arithmetic_operation);
 
     return destination_register;
 }
 
 static size_t append_boolean_equality(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     size_t source_register_a,
     size_t source_register_b
@@ -469,14 +457,13 @@ static size_t append_boolean_equality(
     boolean_equality->source_register_b = source_register_b;
     boolean_equality->destination_register = destination_register;
 
-    instructions->append(boolean_equality);
+    context->instructions.append(boolean_equality);
 
     return destination_register;
 }
 
 static size_t append_boolean_inversion(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     size_t source_register
 ) {
@@ -487,14 +474,13 @@ static size_t append_boolean_inversion(
     boolean_inversion->source_register = source_register;
     boolean_inversion->destination_register = destination_register;
 
-    instructions->append(boolean_inversion);
+    context->instructions.append(boolean_inversion);
 
     return destination_register;
 }
 
 static size_t append_assemble_static_array(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     Array<size_t> element_registers
 ) {
@@ -505,14 +491,13 @@ static size_t append_assemble_static_array(
     assembly_static_array->element_registers = element_registers;
     assembly_static_array->destination_register = destination_register;
 
-    instructions->append(assembly_static_array);
+    context->instructions.append(assembly_static_array);
 
     return destination_register;
 }
 
 static size_t append_read_static_array_element(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     size_t element_index,
     size_t source_register
@@ -525,14 +510,13 @@ static size_t append_read_static_array_element(
     read_static_array_element->source_register = source_register;
     read_static_array_element->destination_register = destination_register;
 
-    instructions->append(read_static_array_element);
+    context->instructions.append(read_static_array_element);
 
     return destination_register;
 }
 
 static size_t append_assemble_struct(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     Array<size_t> member_registers
 ) {
@@ -543,14 +527,13 @@ static size_t append_assemble_struct(
     assemble_struct->member_registers = member_registers;
     assemble_struct->destination_register = destination_register;
 
-    instructions->append(assemble_struct);
+    context->instructions.append(assemble_struct);
 
     return destination_register;
 }
 
 static size_t append_read_struct_member(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     size_t member_index,
     size_t source_register
@@ -563,12 +546,12 @@ static size_t append_read_struct_member(
     read_read_struct_member->source_register = source_register;
     read_read_struct_member->destination_register = destination_register;
 
-    instructions->append(read_read_struct_member);
+    context->instructions.append(read_read_struct_member);
 
     return destination_register;
 }
 
-static size_t append_literal(GenerationContext* context, List<Instruction*>* instructions, FileRange range, IRType type, IRConstantValue value) {
+static size_t append_literal(GenerationContext* context, FileRange range, IRType type, IRConstantValue value) {
     auto destination_register = allocate_register(context);
 
     auto literal = new Literal;
@@ -577,37 +560,37 @@ static size_t append_literal(GenerationContext* context, List<Instruction*>* ins
     literal->type = type;
     literal->value = value;
 
-    instructions->append(literal);
+    context->instructions.append(literal);
 
     return destination_register;
 }
 
-static void append_jump(GenerationContext* context, List<Instruction*>* instructions, FileRange range, size_t destination_instruction) {
+static void append_jump(GenerationContext* context, FileRange range, Block* destination_block) {
     auto jump = new Jump;
     jump->range = range;
-    jump->destination_instruction = destination_instruction;
+    jump->destination_block = destination_block;
 
-    instructions->append(jump);
+    context->instructions.append(jump);
 }
 
 static void append_branch(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     size_t condition_register,
-    size_t destination_instruction
+    Block* true_destination_block,
+    Block* false_destination_block
 ) {
     auto branch = new Branch;
     branch->range = range;
     branch->condition_register = condition_register;
-    branch->destination_instruction = destination_instruction;
+    branch->true_destination_block = true_destination_block;
+    branch->false_destination_block = false_destination_block;
 
-    instructions->append(branch);
+    context->instructions.append(branch);
 }
 
 static size_t append_allocate_local(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     IRType type
 ) {
@@ -619,14 +602,13 @@ static size_t append_allocate_local(
     allocate_local->destination_register = destination_register;
     allocate_local->has_debug_info = false;
 
-    instructions->append(allocate_local);
+    context->instructions.append(allocate_local);
 
     return destination_register;
 }
 
 static size_t append_allocate_local(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     IRType type,
     String debug_name,
@@ -642,14 +624,13 @@ static size_t append_allocate_local(
     allocate_local->debug_name = debug_name;
     allocate_local->debug_type = debug_type;
 
-    instructions->append(allocate_local);
+    context->instructions.append(allocate_local);
 
     return destination_register;
 }
 
 static size_t append_load(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     size_t pointer_register
 ) {
@@ -660,14 +641,13 @@ static size_t append_load(
     load->pointer_register = pointer_register;
     load->destination_register = destination_register;
 
-    instructions->append(load);
+    context->instructions.append(load);
 
     return destination_register;
 }
 
 static void append_store(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     size_t source_register,
     size_t pointer_register
@@ -677,12 +657,11 @@ static void append_store(
     store->source_register = source_register;
     store->pointer_register = pointer_register;
 
-    instructions->append(store);
+    context->instructions.append(store);
 }
 
 static size_t append_struct_member_pointer(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     size_t member_index,
     size_t pointer_register
@@ -695,14 +674,13 @@ static size_t append_struct_member_pointer(
     struct_member_pointer->pointer_register = pointer_register;
     struct_member_pointer->destination_register = destination_register;
 
-    instructions->append(struct_member_pointer);
+    context->instructions.append(struct_member_pointer);
 
     return destination_register;
 }
 
 static size_t append_pointer_index(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     size_t index_register,
     size_t pointer_register
@@ -715,12 +693,12 @@ static size_t append_pointer_index(
     pointer_index->pointer_register = pointer_register;
     pointer_index->destination_register = destination_register;
 
-    instructions->append(pointer_index);
+    context->instructions.append(pointer_index);
 
     return destination_register;
 }
 
-static size_t append_reference_static(GenerationContext* context, List<Instruction*>* instructions, FileRange range, RuntimeStatic* runtime_static) {
+static size_t append_reference_static(GenerationContext* context, FileRange range, RuntimeStatic* runtime_static) {
     auto destination_register = allocate_register(context);
 
     auto reference_static = new ReferenceStatic;
@@ -728,7 +706,7 @@ static size_t append_reference_static(GenerationContext* context, List<Instructi
     reference_static->runtime_static = runtime_static;
     reference_static->destination_register = destination_register;
 
-    instructions->append(reference_static);
+    context->instructions.append(reference_static);
 
     return destination_register;
 }
@@ -902,7 +880,6 @@ static StaticConstant* register_static_constant(
 
 static size_t generate_in_register_value(
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     IRType type,
     AnyRuntimeValue value
@@ -912,7 +889,7 @@ static size_t generate_in_register_value(
 
         auto ir_constant_value = get_runtime_ir_constant_value(constant_value);
 
-        return append_literal(context, instructions, range, type, ir_constant_value);
+        return append_literal(context, range, type, ir_constant_value);
     } else if(value.kind == RuntimeValueKind::RegisterValue) {
         auto register_value = value.register_;
 
@@ -924,7 +901,7 @@ static size_t generate_in_register_value(
 
         assert(addressed_value.pointed_to_type == type);
 
-        return append_load(context, instructions, range, addressed_value.pointer_register);
+        return append_load(context, range, addressed_value.pointer_register);
     } else {
         abort();
     }
@@ -933,7 +910,6 @@ static size_t generate_in_register_value(
 static Result<RegisterValue> coerce_to_integer_register_value(
     ConstantScope* scope,
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     AnyType type,
     AnyRuntimeValue value,
@@ -946,7 +922,7 @@ static Result<RegisterValue> coerce_to_integer_register_value(
         auto integer = type.integer;
 
         if(integer.size == target_type.size && integer.is_signed == target_type.is_signed) {
-            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+            auto register_index = generate_in_register_value(context, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
         }
@@ -955,19 +931,19 @@ static Result<RegisterValue> coerce_to_integer_register_value(
 
         expect_void(check_undetermined_integer_to_integer_coercion(scope, range, target_type, (int64_t)integer_value, probing));
 
-        auto register_index = append_literal(context, instructions, range, ir_type, IRConstantValue::create_integer(integer_value));
+        auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_integer(integer_value));
 
         return ok(RegisterValue(ir_type, register_index));
     } else if(type.kind == TypeKind::Enum) {
         auto enum_ = type.enum_;
 
         if(enum_.backing_type->is_signed == target_type.is_signed && enum_.backing_type->size == target_type.size) {
-            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+            auto register_index = generate_in_register_value(context, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
         }
     } else if(type.kind == TypeKind::Undef) {
-        auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+        auto register_index = generate_in_register_value(context, range, ir_type, value);
 
         return ok(RegisterValue(ir_type, register_index));
     }
@@ -982,7 +958,6 @@ static Result<RegisterValue> coerce_to_integer_register_value(
 static Result<RegisterValue> coerce_to_float_register_value(
     ConstantScope* scope,
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     AnyType type,
     AnyRuntimeValue value,
@@ -994,25 +969,25 @@ static Result<RegisterValue> coerce_to_float_register_value(
     if(type.kind == TypeKind::UndeterminedInteger) {
         auto integer_value = value.unwrap_constant_value().unwrap_integer();
 
-        auto register_index = append_literal(context, instructions, range, ir_type, IRConstantValue::create_float((double)integer_value));
+        auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_float((double)integer_value));
 
         return ok(RegisterValue(ir_type, register_index));
     } else if(type.kind == TypeKind::FloatType) {
         auto float_type = type.float_;
 
         if(target_type.size == float_type.size) {
-            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+            auto register_index = generate_in_register_value(context, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
         }
     } else if(type.kind == TypeKind::UndeterminedFloat) {
         auto float_value = value.unwrap_constant_value().unwrap_float();
 
-        auto register_index = append_literal(context, instructions, range, ir_type, IRConstantValue::create_float(float_value));
+        auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_float(float_value));
 
         return ok(RegisterValue(ir_type, register_index));
     } else if(type.kind == TypeKind::Undef) {
-        auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+        auto register_index = generate_in_register_value(context, range, ir_type, value);
 
         return ok(RegisterValue(ir_type, register_index));
     }
@@ -1028,7 +1003,6 @@ static Result<RegisterValue> coerce_to_pointer_register_value(
     GlobalInfo info,
     ConstantScope* scope,
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     AnyType type,
     AnyRuntimeValue value,
@@ -1040,19 +1014,19 @@ static Result<RegisterValue> coerce_to_pointer_register_value(
     if(type.kind == TypeKind::UndeterminedInteger) {
         auto integer_value = value.unwrap_constant_value().unwrap_integer();
 
-        auto register_index = append_literal(context, instructions, range, ir_type, IRConstantValue::create_integer(integer_value));
+        auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_integer(integer_value));
 
         return ok(RegisterValue(ir_type, register_index));
     } else if(type.kind == TypeKind::Pointer) {
         auto pointer = type.pointer;
 
         if(*pointer.pointed_to_type == *target_type.pointed_to_type) {
-            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+            auto register_index = generate_in_register_value(context, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
         }
     } else if(type.kind == TypeKind::Undef) {
-        auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+        auto register_index = generate_in_register_value(context, range, ir_type, value);
 
         return ok(RegisterValue(ir_type, register_index));
     }
@@ -1069,7 +1043,6 @@ static Result<RegisterValue> coerce_to_type_register(
     GlobalInfo info,
     ConstantScope* scope,
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     AnyType type,
     AnyRuntimeValue value,
@@ -1082,7 +1055,6 @@ static Result<RegisterValue> coerce_to_type_register(
         expect(register_value, coerce_to_integer_register_value(
             scope,
             context,
-            instructions,
             range,
             type,
             value,
@@ -1095,11 +1067,11 @@ static Result<RegisterValue> coerce_to_type_register(
         auto ir_type = IRType::create_boolean();
 
         if(type.kind == TypeKind::Boolean) {
-            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+            auto register_index = generate_in_register_value(context, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
         } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+            auto register_index = generate_in_register_value(context, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
         }
@@ -1109,7 +1081,6 @@ static Result<RegisterValue> coerce_to_type_register(
         expect(register_index, coerce_to_float_register_value(
             scope,
             context,
-            instructions,
             range,
             type,
             value,
@@ -1125,7 +1096,6 @@ static Result<RegisterValue> coerce_to_type_register(
             info,
             scope,
             context,
-            instructions,
             range,
             type,
             value,
@@ -1148,7 +1118,7 @@ static Result<RegisterValue> coerce_to_type_register(
 
                         auto ir_value = get_array_ir_constant_value(array_value);
 
-                        auto register_index = append_literal(context, instructions, range, ir_type, ir_value);
+                        auto register_index = append_literal(context, range, ir_type, ir_value);
 
                         return ok(RegisterValue(ir_type, register_index));
                     }
@@ -1161,7 +1131,7 @@ static Result<RegisterValue> coerce_to_type_register(
                 } else if(value.kind == RuntimeValueKind::AddressedValue) {
                     auto addressed_value = value.addressed;
 
-                    auto register_index = append_load(context, instructions, range, addressed_value.pointer_register);
+                    auto register_index = append_load(context, range, addressed_value.pointer_register);
 
                     return ok(RegisterValue(ir_type, register_index));
                 } else {
@@ -1177,7 +1147,6 @@ static Result<RegisterValue> coerce_to_type_register(
 
                     auto length_register = append_literal(
                         context,
-                        instructions,
                         range,
                         IRType::create_integer(info.architecture_sizes.address_size),
                         IRConstantValue::create_integer(static_array.length)
@@ -1187,7 +1156,6 @@ static Result<RegisterValue> coerce_to_type_register(
 
                     auto pointer_register = append_pointer_conversion(
                         context,
-                        instructions,
                         range,
                         element_ir_type,
                         addressed_value.pointer_register
@@ -1198,7 +1166,7 @@ static Result<RegisterValue> coerce_to_type_register(
                     member_registers[0] = length_register;
                     member_registers[1] = pointer_register;
 
-                    auto register_index = append_assemble_struct(context, instructions, range, Array(2, member_registers));
+                    auto register_index = append_assemble_struct(context, range, Array(2, member_registers));
 
                     return ok(RegisterValue(ir_type, register_index));
                 }
@@ -1219,7 +1187,6 @@ static Result<RegisterValue> coerce_to_type_register(
                     auto length_result = coerce_to_integer_register_value(
                         scope,
                         context,
-                        instructions,
                         range,
                         undetermined_struct.members[0].type,
                         AnyRuntimeValue(undetermined_struct_value.members[0]),
@@ -1235,7 +1202,6 @@ static Result<RegisterValue> coerce_to_type_register(
                             info,
                             scope,
                             context,
-                            instructions,
                             range,
                             undetermined_struct.members[1].type,
                             AnyRuntimeValue(undetermined_struct_value.members[1]),
@@ -1249,7 +1215,7 @@ static Result<RegisterValue> coerce_to_type_register(
                             member_registers[0] = length_result.value.register_index;
                             member_registers[1] = pointer_result.value.register_index;
 
-                            auto register_index = append_assemble_struct(context, instructions, range, Array(2, member_registers));
+                            auto register_index = append_assemble_struct(context, range, Array(2, member_registers));
 
                             return ok(RegisterValue(ir_type, register_index));
                         }
@@ -1260,7 +1226,6 @@ static Result<RegisterValue> coerce_to_type_register(
                     auto length_result = coerce_to_integer_register_value(
                         scope,
                         context,
-                        instructions,
                         range,
                         undetermined_struct.members[0].type,
                         undetermined_struct_value.members[0],
@@ -1276,7 +1241,6 @@ static Result<RegisterValue> coerce_to_type_register(
                             info,
                             scope,
                             context,
-                            instructions,
                             range,
                             undetermined_struct.members[1].type,
                             undetermined_struct_value.members[1],
@@ -1290,7 +1254,7 @@ static Result<RegisterValue> coerce_to_type_register(
                             member_registers[0] = length_result.value.register_index;
                             member_registers[1] = pointer_result.value.register_index;
 
-                            auto register_index = append_assemble_struct(context, instructions, range, Array(2, member_registers));
+                            auto register_index = append_assemble_struct(context, range, Array(2, member_registers));
 
                             return ok(RegisterValue(ir_type, register_index));
                         }
@@ -1300,7 +1264,7 @@ static Result<RegisterValue> coerce_to_type_register(
                 }
             }
         } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+            auto register_index = generate_in_register_value(context, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
         }
@@ -1321,7 +1285,6 @@ static Result<RegisterValue> coerce_to_type_register(
 
                     register_index = append_literal(
                         context,
-                        instructions,
                         range,
                         ir_type,
                         ir_constant_value
@@ -1333,7 +1296,7 @@ static Result<RegisterValue> coerce_to_type_register(
                 } else if(value.kind == RuntimeValueKind::AddressedValue) {
                     auto addressed_value = value.addressed;
 
-                    register_index = append_load(context, instructions, range, addressed_value.pointer_register);
+                    register_index = append_load(context, range, addressed_value.pointer_register);
                 } else {
                     abort();
                 }
@@ -1341,7 +1304,7 @@ static Result<RegisterValue> coerce_to_type_register(
                 return ok(RegisterValue(ir_type, register_index));
             }
         } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+            auto register_index = generate_in_register_value(context, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
         }
@@ -1375,7 +1338,7 @@ static Result<RegisterValue> coerce_to_type_register(
                     } else if(value.kind == RuntimeValueKind::AddressedValue) {
                         auto addressed_value = value.addressed;
 
-                        register_index = append_load(context, instructions, range, addressed_value.pointer_register);
+                        register_index = append_load(context, range, addressed_value.pointer_register);
                     } else {
                         abort();
                     }
@@ -1410,7 +1373,6 @@ static Result<RegisterValue> coerce_to_type_register(
                                 info,
                                 scope,
                                 context,
-                                instructions,
                                 range,
                                 undetermined_struct.members[i].type,
                                 AnyRuntimeValue(undetermined_struct_value.members[i]),
@@ -1430,7 +1392,6 @@ static Result<RegisterValue> coerce_to_type_register(
                         if(success) {
                             auto register_index = append_assemble_struct(
                                 context,
-                                instructions,
                                 range,
                                 Array(undetermined_struct.members.length, member_registers)
                             );
@@ -1461,7 +1422,6 @@ static Result<RegisterValue> coerce_to_type_register(
                                 info,
                                 scope,
                                 context,
-                                instructions,
                                 range,
                                 undetermined_struct.members[i].type,
                                 undetermined_struct_value.members[i],
@@ -1481,7 +1441,6 @@ static Result<RegisterValue> coerce_to_type_register(
                         if(success) {
                             auto register_index = append_assemble_struct(
                                 context,
-                                instructions,
                                 range,
                                 Array(undetermined_struct.members.length, member_registers)
                             );
@@ -1494,7 +1453,7 @@ static Result<RegisterValue> coerce_to_type_register(
                 abort();
             }
         } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+            auto register_index = generate_in_register_value(context, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
         }
@@ -1528,7 +1487,7 @@ static Result<RegisterValue> coerce_to_type_register(
                     } else if(value.kind == RuntimeValueKind::AddressedValue) {
                         auto addressed_value = value.addressed;
 
-                        register_index = append_load(context, instructions, range, addressed_value.pointer_register);
+                        register_index = append_load(context, range, addressed_value.pointer_register);
                     } else {
                         abort();
                     }
@@ -1549,7 +1508,6 @@ static Result<RegisterValue> coerce_to_type_register(
                         if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
                             auto pointer_register = append_allocate_local(
                                 context,
-                                instructions,
                                 range,
                                 ir_type
                             );
@@ -1558,7 +1516,6 @@ static Result<RegisterValue> coerce_to_type_register(
                                 info,
                                 scope,
                                 context,
-                                instructions,
                                 range,
                                 undetermined_struct.members[0].type,
                                 AnyRuntimeValue(undetermined_struct_value.members[0]),
@@ -1569,15 +1526,14 @@ static Result<RegisterValue> coerce_to_type_register(
                             if(result.status) {
                                 auto union_variant_pointer_register = append_pointer_conversion(
                                     context,
-                                    instructions,
                                     range,
                                     result.value.type,
                                     pointer_register
                                 );
 
-                                append_store(context, instructions, range, result.value.register_index, union_variant_pointer_register);
+                                append_store(context, range, result.value.register_index, union_variant_pointer_register);
 
-                                auto register_index = append_load(context, instructions, range, pointer_register);
+                                auto register_index = append_load(context, range, pointer_register);
 
                                 return ok(RegisterValue(ir_type, register_index));
                             } else {
@@ -1594,7 +1550,6 @@ static Result<RegisterValue> coerce_to_type_register(
                         if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
                             auto pointer_register = append_allocate_local(
                                 context,
-                                instructions,
                                 range,
                                 ir_type
                             );
@@ -1603,7 +1558,6 @@ static Result<RegisterValue> coerce_to_type_register(
                                 info,
                                 scope,
                                 context,
-                                instructions,
                                 range,
                                 undetermined_struct.members[0].type,
                                 undetermined_struct_value.members[0],
@@ -1614,15 +1568,14 @@ static Result<RegisterValue> coerce_to_type_register(
                             if(result.status) {
                                 auto union_variant_pointer_register = append_pointer_conversion(
                                     context,
-                                    instructions,
                                     range,
                                     result.value.type,
                                     pointer_register
                                 );
 
-                                append_store(context, instructions, range, result.value.register_index, union_variant_pointer_register);
+                                append_store(context, range, result.value.register_index, union_variant_pointer_register);
 
-                                auto register_index = append_load(context, instructions, range, pointer_register);
+                                auto register_index = append_load(context, range, pointer_register);
 
                                 return ok(RegisterValue(ir_type, register_index));
                             } else {
@@ -1635,7 +1588,7 @@ static Result<RegisterValue> coerce_to_type_register(
                 abort();
             }
         } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+            auto register_index = generate_in_register_value(context, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
         }
@@ -1648,7 +1601,7 @@ static Result<RegisterValue> coerce_to_type_register(
             auto integer = type.integer;
 
             if(integer.size == target_enum.backing_type->size && integer.is_signed == target_enum.backing_type->is_signed) {
-                auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+                auto register_index = generate_in_register_value(context, range, ir_type, value);
 
                 return ok(RegisterValue(ir_type, register_index));
             }
@@ -1657,19 +1610,19 @@ static Result<RegisterValue> coerce_to_type_register(
 
             expect_void(check_undetermined_integer_to_integer_coercion(scope, range, *target_enum.backing_type, (int64_t)integer_value, probing));
 
-            auto register_index = append_literal(context, instructions, range, ir_type, IRConstantValue::create_integer(integer_value));
+            auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_integer(integer_value));
 
             return ok(RegisterValue(ir_type, register_index));
         } else if(type.kind == TypeKind::Enum) {
             auto enum_ = type.enum_;
 
             if(target_enum.definition == enum_.definition) {
-                auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+                auto register_index = generate_in_register_value(context, range, ir_type, value);
 
                 return ok(RegisterValue(ir_type, register_index));
             }
         } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, instructions, range, ir_type, value);
+            auto register_index = generate_in_register_value(context, range, ir_type, value);
 
             return ok(RegisterValue(ir_type, register_index));
         }
@@ -1695,7 +1648,6 @@ static DelayedResult<TypedRuntimeValue> generate_expression(
     List<AnyJob>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
-    List<Instruction*>* instructions,
     Expression* expression
 );
 
@@ -1704,10 +1656,9 @@ static DelayedResult<AnyType> evaluate_type_expression(
     List<AnyJob>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
-    List<Instruction*>* instructions,
     Expression* expression
 ) {
-    expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, expression));
+    expect_delayed(expression_value, generate_expression(info, jobs, scope, context, expression));
 
     if(expression_value.type.kind == TypeKind::Type) {
         auto constant_value = expression_value.value.unwrap_constant_value();
@@ -1725,15 +1676,14 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
     List<AnyJob>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
-    List<Instruction*>* instructions,
     FileRange range,
     Expression* left_expression,
     Expression* right_expression,
     BinaryOperation::Operator binary_operator
 ) {
-    expect_delayed(left, generate_expression(info, jobs, scope, context, instructions, left_expression));
+    expect_delayed(left, generate_expression(info, jobs, scope, context, left_expression));
 
-    expect_delayed(right, generate_expression(info, jobs, scope, context, instructions, right_expression));
+    expect_delayed(right, generate_expression(info, jobs, scope, context, right_expression));
 
     if(left.value.kind == RuntimeValueKind::ConstantValue && right.value.kind == RuntimeValueKind::ConstantValue) {
         expect(constant, evaluate_constant_binary_operation(
@@ -1765,7 +1715,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         expect(left_register, coerce_to_integer_register_value(
             scope,
             context,
-            instructions,
             left_expression->range,
             left.type,
             left.value,
@@ -1776,7 +1725,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         expect(right_register, coerce_to_integer_register_value(
             scope,
             context,
-            instructions,
             right_expression->range,
             right.type,
             right.value,
@@ -1845,7 +1793,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         if(is_arithmetic) {
             result_register = append_integer_arithmetic_operation(
                 context,
-                instructions,
                 range,
                 arithmetic_operation,
                 left_register.register_index,
@@ -1891,7 +1838,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
             result_register = append_integer_comparison_operation(
                 context,
-                instructions,
                 range,
                 comparison_operation,
                 left_register.register_index,
@@ -1899,7 +1845,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             );
 
             if(invert) {
-                result_register = append_boolean_inversion(context, instructions, range, result_register);
+                result_register = append_boolean_inversion(context, range, result_register);
             }
 
             result_type = AnyType::create_boolean();
@@ -1920,7 +1866,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
         auto ir_type = IRType::create_boolean();
 
-        auto left_register = generate_in_register_value(context, instructions, left_expression->range, ir_type, left.value);
+        auto left_register = generate_in_register_value(context, left_expression->range, ir_type, left.value);
 
         if(right.type.kind != TypeKind::Boolean) {
             error(scope, right_expression->range, "Expected 'bool', got '%.*s'", STRING_PRINTF_ARGUMENTS(right.type.get_description()));
@@ -1928,7 +1874,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             return err();
         }
 
-        auto right_register = generate_in_register_value(context, instructions, right_expression->range, ir_type, right.value);
+        auto right_register = generate_in_register_value(context, right_expression->range, ir_type, right.value);
 
         auto is_arithmetic = true;
         BooleanArithmeticOperation::Operation arithmetic_operation;
@@ -1950,7 +1896,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         if(is_arithmetic) {
             result_register = append_boolean_arithmetic_operation(
                 context,
-                instructions,
                 range,
                 arithmetic_operation,
                 left_register,
@@ -1974,14 +1919,13 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
             result_register = append_boolean_equality(
                 context,
-                instructions,
                 range,
                 left_register,
                 right_register
             );
 
             if(invert) {
-                result_register = append_boolean_inversion(context, instructions, range, result_register);
+                result_register = append_boolean_inversion(context, range, result_register);
             }
         }
 
@@ -1995,7 +1939,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         expect(left_register, coerce_to_float_register_value(
             scope,
             context,
-            instructions,
             left_expression->range,
             left.type,
             left.value,
@@ -2006,7 +1949,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         expect(right_register, coerce_to_float_register_value(
             scope,
             context,
-            instructions,
             right_expression->range,
             right.type,
             right.value,
@@ -2043,7 +1985,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         if(is_arithmetic) {
             result_register = append_float_arithmetic_operation(
                 context,
-                instructions,
                 range,
                 arithmetic_operation,
                 left_register.register_index,
@@ -2081,7 +2022,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
             result_register = append_float_comparison_operation(
                 context,
-                instructions,
                 range,
                 comparison_operation,
                 left_register.register_index,
@@ -2089,7 +2029,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             );
 
             if(invert) {
-                result_register = append_boolean_inversion(context, instructions, range, result_register);
+                result_register = append_boolean_inversion(context, range, result_register);
             }
 
             result_type = AnyType::create_boolean();
@@ -2108,7 +2048,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             info,
             scope,
             context,
-            instructions,
             left_expression->range,
             left.type,
             left.value,
@@ -2120,7 +2059,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             info,
             scope,
             context,
-            instructions,
             right_expression->range,
             right.type,
             right.value,
@@ -2145,14 +2083,13 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
         auto result_register = append_pointer_equality(
             context,
-            instructions,
             range,
             left_register.register_index,
             right_register.register_index
         );
 
         if(invert) {
-            result_register = append_boolean_inversion(context, instructions, range, result_register);
+            result_register = append_boolean_inversion(context, range, result_register);
         }
 
         return ok(TypedRuntimeValue(
@@ -2166,7 +2103,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             info,
             scope,
             context,
-            instructions,
             left_expression->range,
             left.type,
             left.value,
@@ -2178,7 +2114,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             info,
             scope,
             context,
-            instructions,
             right_expression->range,
             right.type,
             right.value,
@@ -2207,7 +2142,6 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
         auto result_register = append_integer_comparison_operation(
             context,
-            instructions,
             range,
             operation,
             left_register.register_index,
@@ -2215,7 +2149,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         );
 
         if(invert) {
-            result_register = append_boolean_inversion(context, instructions, range, result_register);
+            result_register = append_boolean_inversion(context, range, result_register);
         }
 
         return ok(TypedRuntimeValue(
@@ -2239,7 +2173,6 @@ static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name
     List<AnyJob>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
-    List<Instruction*>* instructions,
     String name,
     uint32_t name_hash,
     ConstantScope* name_scope,
@@ -2252,7 +2185,6 @@ static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name
     jobs,
     scope,
     context,
-    instructions,
     name,
     name_hash,
     name_scope,
@@ -2296,7 +2228,6 @@ static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name
                         jobs,
                         file_module.scope,
                         context,
-                        instructions,
                         name,
                         name_hash,
                         name_scope,
@@ -2364,7 +2295,6 @@ static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name
                                     jobs,
                                     scope,
                                     context,
-                                    instructions,
                                     name,
                                     name_hash,
                                     name_scope,
@@ -2415,7 +2345,6 @@ static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name
                                 if(job.state == JobState::Done) {
                                     auto pointer_register = append_reference_static(
                                         context,
-                                        instructions,
                                         name_range,
                                         generate_static_variable.static_variable
                                     );
@@ -2463,14 +2392,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     List<AnyJob>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
-    List<Instruction*>* instructions,
     Expression* expression
 ), (
     info,
     jobs,
     scope,
     context,
-    instructions,
     expression
 )) {
     if(expression->kind == ExpressionKind::NamedReference) {
@@ -2497,7 +2424,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 jobs,
                 current_scope.constant_scope,
                 context,
-                instructions,
                 named_reference->name.text,
                 name_hash,
                 scope,
@@ -2524,7 +2450,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 jobs,
                 current_scope,
                 context,
-                instructions,
                 named_reference->name.text,
                 name_hash,
                 scope,
@@ -2563,9 +2488,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     } else if(expression->kind == ExpressionKind::IndexReference) {
         auto index_reference = (IndexReference*)expression;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, index_reference->expression));
+        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, index_reference->expression));
 
-        expect_delayed(index, generate_expression(info, jobs, scope, context, instructions, index_reference->index));
+        expect_delayed(index, generate_expression(info, jobs, scope, context, index_reference->index));
 
         if(expression_value.value.kind == RuntimeValueKind::ConstantValue && index.value.kind == RuntimeValueKind::ConstantValue) {
              expect(constant, evaluate_constant_index(
@@ -2588,7 +2513,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         expect(index_register, coerce_to_integer_register_value(
             scope,
             context,
-            instructions,
             index_reference->index->range,
             index.type,
             index.value,
@@ -2616,7 +2540,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     base_pointer_register = append_literal(
                         context,
-                        instructions,
                         index_reference->expression->range,
                         element_pointer_ir_type,
                         get_runtime_ir_constant_value(*array_value.pointer)
@@ -2631,7 +2554,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 base_pointer_register = append_read_struct_member(
                     context,
-                    instructions,
                     index_reference->expression->range,
                     1,
                     register_value.register_index
@@ -2641,7 +2563,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 auto member_pointer = append_struct_member_pointer(
                     context,
-                    instructions,
                     index_reference->expression->range,
                     1,
                     addressed_value.pointer_register
@@ -2649,7 +2570,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 base_pointer_register = append_load(
                     context,
-                    instructions,
                     index_reference->expression->range,
                     member_pointer
                 );
@@ -2677,7 +2597,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 base_pointer_register = append_pointer_conversion(
                     context,
-                    instructions,
                     index_reference->expression->range,
                     element_ir_type,
                     addressed_value.pointer_register
@@ -2693,7 +2612,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto pointer_register = append_pointer_index(
             context,
-            instructions,
             index_reference->range,
             index_register.register_index,
             base_pointer_register
@@ -2706,7 +2624,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     } else if(expression->kind == ExpressionKind::MemberReference) {
         auto member_reference = (MemberReference*)expression;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, member_reference->expression));
+        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, member_reference->expression));
 
         AnyType actual_type;
         AnyRuntimeValue actual_value;
@@ -2720,7 +2638,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
                 pointer_register = append_literal(
                     context,
-                    instructions,
                     member_reference->expression->range,
                     IRType::create_pointer(heapify(actual_ir_type)),
                     get_runtime_ir_constant_value(expression_value.value.constant)
@@ -2734,7 +2651,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 pointer_register = append_load(
                     context,
-                    instructions,
                     member_reference->expression->range,
                     addressed_value.pointer_register
                 );
@@ -2774,7 +2690,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto length_register = append_read_struct_member(
                         context,
-                        instructions,
                         member_reference->range,
                         0,
                         register_value.register_index
@@ -2789,7 +2704,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto pointer_register = append_struct_member_pointer(
                         context,
-                        instructions,
                         member_reference->range,
                         0,
                         addressed_value.pointer_register
@@ -2829,7 +2743,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto length_register = append_read_struct_member(
                         context,
-                        instructions,
                         member_reference->range,
                         1,
                         register_value.register_index
@@ -2844,7 +2757,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto pointer_register = append_struct_member_pointer(
                         context,
-                        instructions,
                         member_reference->range,
                         1,
                         addressed_value.pointer_register
@@ -2895,7 +2807,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     pointer_register = append_pointer_conversion(
                         context,
-                        instructions,
                         member_reference->range,
                         element_ir_type,
                         addressed_value.pointer_register
@@ -2944,7 +2855,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         auto register_index = append_read_struct_member(
                             context,
-                            instructions,
                             member_reference->range,
                             i,
                             register_value.register_index
@@ -2959,7 +2869,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         auto pointer_register = append_struct_member_pointer(
                             context,
-                            instructions,
                             member_reference->range,
                             i,
                             addressed_value.pointer_register
@@ -2993,14 +2902,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         auto local_pointer_register = append_allocate_local(
                             context,
-                            instructions,
                             member_reference->range,
                             union_ir_type
                         );
 
                         append_store(
                             context,
-                            instructions,
                             member_reference->range,
                             register_value.register_index,
                             local_pointer_register
@@ -3008,7 +2915,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         auto pointer_register = append_pointer_conversion(
                             context,
-                            instructions,
                             member_reference->range,
                             member_ir_type,
                             local_pointer_register
@@ -3016,7 +2922,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         auto register_index = append_load(
                             context,
-                            instructions,
                             member_reference->range,
                             pointer_register
                         );
@@ -3030,7 +2935,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         auto pointer_register = append_pointer_conversion(
                             context,
-                            instructions,
                             member_reference->range,
                             member_ir_type,
                             addressed_value.pointer_register
@@ -3095,7 +2999,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 jobs,
                 file_module_value.scope,
                 context,
-                instructions,
                 member_reference->name.text,
                 calculate_string_hash(member_reference->name.text),
                 scope,
@@ -3204,7 +3107,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             return err();
         }
 
-        expect_delayed(first_element, generate_expression(info, jobs, scope, context, instructions, array_literal->elements[0]));
+        expect_delayed(first_element, generate_expression(info, jobs, scope, context, array_literal->elements[0]));
 
         expect(determined_element_type, coerce_to_default_type(info, scope, array_literal->elements[0]->range, first_element.type));
 
@@ -3219,7 +3122,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto all_constant = first_element.value.kind == RuntimeValueKind::ConstantValue;
         for(size_t i = 1; i < element_count; i += 1) {
-            expect_delayed(element, generate_expression(info, jobs, scope, context, instructions, array_literal->elements[i]));
+            expect_delayed(element, generate_expression(info, jobs, scope, context, array_literal->elements[i]));
 
             elements[i] = element;
 
@@ -3259,7 +3162,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     info,
                     scope,
                     context,
-                    instructions,
                     array_literal->elements[i]->range,
                     elements[i].type,
                     elements[i].value,
@@ -3272,7 +3174,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             auto register_index = append_assemble_static_array(
                 context,
-                instructions,
                 array_literal->range,
                 Array(element_count, element_registers)
             );
@@ -3314,7 +3215,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             }
 
-            expect_delayed(member, generate_expression(info, jobs, scope, context, instructions, struct_literal->members[i].value));
+            expect_delayed(member, generate_expression(info, jobs, scope, context, struct_literal->members[i].value));
 
             type_members[i] = {
                 struct_literal->members[i].name.text,
@@ -3354,14 +3255,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     } else if(expression->kind == ExpressionKind::FunctionCall) {
         auto function_call = (FunctionCall*)expression;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, function_call->expression));
+        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, function_call->expression));
 
         if(expression_value.type.kind == TypeKind::FunctionTypeType || expression_value.type.kind == TypeKind::PolymorphicFunction) {
             auto call_parameter_count = function_call->parameters.length;
 
             auto call_parameters = allocate<TypedRuntimeValue>(call_parameter_count);
             for(size_t i = 0; i < call_parameter_count; i += 1) {
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[i]));
+                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[i]));
 
                 call_parameters[i] = parameter_value;
             }
@@ -3552,7 +3453,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         info,
                         scope,
                         context,
-                        instructions,
                         function_call->parameters[i]->range,
                         call_parameters[i].type,
                         call_parameters[i].value,
@@ -3593,7 +3493,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return_ir_type = IRType::create_struct(Array(function_type.return_types.length, member_ir_types));
             }
 
-            auto pointer_register = append_reference_static(context, instructions, function_call->range, runtime_function);
+            auto pointer_register = append_reference_static(context, function_call->range, runtime_function);
 
             auto function_call_instruction = new FunctionCallInstruction;
             function_call_instruction->range = function_call->range;
@@ -3613,7 +3513,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 value = AnyRuntimeValue(AnyConstantValue::create_void());
             }
 
-            instructions->append(function_call_instruction);
+            context->instructions.append(function_call_instruction);
 
             return ok(TypedRuntimeValue(
                 return_type,
@@ -3631,7 +3531,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err();
                 }
 
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
+                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[0]));
 
                 AnyType type;
                 if(parameter_value.type.kind == TypeKind::Type) {
@@ -3664,7 +3564,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err();
                 }
 
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
+                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[0]));
 
                 return ok(TypedRuntimeValue(
                     AnyType::AnyType::create_type_type(),
@@ -3677,7 +3577,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err();
                 }
 
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
+                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[0]));
 
                 expect(determined_type, coerce_to_default_type(info, scope, function_call->parameters[0]->range, parameter_value.type));
 
@@ -3716,7 +3616,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 auto pointer_register = append_reference_static(
                     context,
-                    instructions,
                     function_call->range,
                     static_constant
                 );
@@ -3732,7 +3631,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err();
                 }
 
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[0]));
+                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[0]));
 
                 expect(determined_type, coerce_to_default_type(info, scope, function_call->parameters[0]->range, parameter_value.type));
 
@@ -3766,14 +3665,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 auto pointer_register = append_allocate_local(
                     context,
-                    instructions,
                     function_call->range,
                     ir_type
                 );
 
                 auto literal_register = append_literal(
                     context,
-                    instructions,
                     function_call->range,
                     ir_type,
                     ir_constant_value
@@ -3781,7 +3678,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 append_store(
                     context,
-                    instructions,
                     function_call->range,
                     literal_register,
                     pointer_register
@@ -3811,7 +3707,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             auto pointer_register = generate_in_register_value(
                 context,
-                instructions,
                 function_call->expression->range,
                 pointer_ir_type,
                 expression_value.value
@@ -3834,13 +3729,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(parameter_count);
 
             for(size_t i = 0; i < parameter_count; i += 1) {
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[i]));
+                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[i]));
 
                 expect(parameter_register, coerce_to_type_register(
                     info,
                     scope,
                     context,
-                    instructions,
                     function_call->parameters[i]->range,
                     parameter_value.type,
                     parameter_value.value,
@@ -3894,7 +3788,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 value = AnyRuntimeValue(AnyConstantValue::create_void());
             }
 
-            instructions->append(function_call_instruction);
+            context->instructions.append(function_call_instruction);
 
             return ok(TypedRuntimeValue(
                 return_type,
@@ -4065,7 +3959,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             jobs,
             scope,
             context,
-            instructions,
             binary_operation->range,
             binary_operation->left,
             binary_operation->right,
@@ -4076,7 +3969,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     } else if(expression->kind == ExpressionKind::UnaryOperation) {
         auto unary_operation = (UnaryOperation*)expression;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, unary_operation->expression));
+        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, unary_operation->expression));
 
         switch(unary_operation->unary_operator) {
             case UnaryOperation::Operator::Pointer: {
@@ -4126,7 +4019,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         pointer_register = append_reference_static(
                             context,
-                            instructions,
                             unary_operation->range,
                             runtime_function
                         );
@@ -4192,7 +4084,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 auto pointer_register = generate_in_register_value(
                     context,
-                    instructions,
                     unary_operation->expression->range,
                     pointer_ir_type,
                     expression_value.value
@@ -4236,13 +4127,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     register_index = append_load(
                         context,
-                        instructions,
                         unary_operation->expression->range,
                         addressed_value.pointer_register
                     );
                 }
 
-                auto result_register = append_boolean_inversion(context, instructions, unary_operation->expression->range, register_index);
+                auto result_register = append_boolean_inversion(context, unary_operation->expression->range, register_index);
 
                 return ok(TypedRuntimeValue(
                     AnyType::create_boolean(),
@@ -4288,7 +4178,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         register_index = append_load(
                             context,
-                            instructions,
                             unary_operation->expression->range,
                             addressed_value.pointer_register
                         );
@@ -4298,7 +4187,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto zero_register = append_literal(
                         context,
-                        instructions,
                         unary_operation->range,
                         ir_type,
                         IRConstantValue::create_integer(0)
@@ -4306,7 +4194,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto result_register = append_integer_arithmetic_operation(
                         context,
-                        instructions,
                         unary_operation->range,
                         IntegerArithmeticOperation::Operation::Subtract,
                         zero_register,
@@ -4345,7 +4232,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         register_index = append_load(
                             context,
-                            instructions,
                             unary_operation->expression->range,
                             addressed_value.pointer_register
                         );
@@ -4355,7 +4241,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto zero_register = append_literal(
                         context,
-                        instructions,
                         unary_operation->range,
                         ir_type,
                         IRConstantValue::create_float(0.0)
@@ -4363,7 +4248,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto result_register = append_float_arithmetic_operation(
                         context,
-                        instructions,
                         unary_operation->range,
                         FloatArithmeticOperation::Operation::Subtract,
                         zero_register,
@@ -4397,9 +4281,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     } else if(expression->kind == ExpressionKind::Cast) {
         auto cast = (Cast*)expression;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, cast->expression));
+        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, cast->expression));
 
-        expect_delayed(target_type, evaluate_type_expression(info, jobs, scope, context, instructions, cast->type));
+        expect_delayed(target_type, evaluate_type_expression(info, jobs, scope, context, cast->type));
 
         if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
             auto constant_cast_result = evaluate_constant_cast(
@@ -4425,7 +4309,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             info,
             scope,
             context,
-            instructions,
             cast->range,
             expression_value.type,
             expression_value.value,
@@ -4454,7 +4337,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     value_register = append_load(
                         context,
-                        instructions,
                         cast->expression->range,
                         addressed_value.pointer_register
                     );
@@ -4467,7 +4349,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 if(target_integer.size > integer.size) {
                     register_index = append_integer_extension(
                         context,
-                        instructions,
                         cast->range,
                         integer.is_signed,
                         target_integer.size,
@@ -4476,7 +4357,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 } else if(target_integer.size < integer.size) {
                     register_index = append_integer_truncation(
                         context,
-                        instructions,
                         cast->range,
                         target_integer.size,
                         value_register
@@ -4496,7 +4376,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     value_register = append_load(
                         context,
-                        instructions,
                         cast->expression->range,
                         addressed_value.pointer_register
                     );
@@ -4507,7 +4386,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 has_cast = true;
                 register_index = append_integer_from_float(
                     context,
-                    instructions,
                     cast->range,
                     target_integer.is_signed,
                     target_integer.size,
@@ -4528,7 +4406,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         value_register = append_load(
                             context,
-                            instructions,
                             cast->expression->range,
                             addressed_value.pointer_register
                         );
@@ -4538,7 +4415,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     register_index = append_integer_from_pointer(
                         context,
-                        instructions,
                         cast->range,
                         target_integer.size,
                         value_register
@@ -4561,7 +4437,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     value_register = append_load(
                         context,
-                        instructions,
                         cast->expression->range,
                         addressed_value.pointer_register
                     );
@@ -4572,7 +4447,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 has_cast = true;
                 register_index = append_float_from_integer(
                     context,
-                    instructions,
                     cast->range,
                     integer.is_signed,
                     target_float_type.size,
@@ -4590,7 +4464,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     value_register = append_load(
                         context,
-                        instructions,
                         cast->expression->range,
                         addressed_value.pointer_register
                     );
@@ -4601,7 +4474,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 has_cast = true;
                 register_index = append_float_conversion(
                     context,
-                    instructions,
                     cast->range,
                     target_float_type.size,
                     value_register
@@ -4628,7 +4500,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         value_register = append_load(
                             context,
-                            instructions,
                             cast->expression->range,
                             addressed_value.pointer_register
                         );
@@ -4638,7 +4509,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     register_index = append_pointer_from_integer(
                         context,
-                        instructions,
                         cast->range,
                         pointed_to_ir_type,
                         value_register
@@ -4658,7 +4528,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     value_register = append_load(
                         context,
-                        instructions,
                         cast->expression->range,
                         addressed_value.pointer_register
                     );
@@ -4668,7 +4537,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 register_index = append_pointer_conversion(
                     context,
-                    instructions,
                     cast->range,
                     pointed_to_ir_type,
                     value_register
@@ -4689,7 +4557,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     value_register = append_load(
                         context,
-                        instructions,
                         cast->expression->range,
                         addressed_value.pointer_register
                     );
@@ -4702,7 +4569,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 if(target_enum.backing_type->size > integer.size) {
                     register_index = append_integer_extension(
                         context,
-                        instructions,
                         cast->range,
                         integer.is_signed,
                         target_enum.backing_type->size,
@@ -4711,7 +4577,6 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 } else if(target_enum.backing_type->size < integer.size) {
                     register_index = append_integer_truncation(
                         context,
-                        instructions,
                         cast->range,
                         target_enum.backing_type->size,
                         value_register
@@ -4741,13 +4606,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto function_call = bake->function_call;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, instructions, function_call->expression));
+        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, function_call->expression));
 
         auto call_parameter_count = function_call->parameters.length;
 
         auto call_parameters = allocate<TypedRuntimeValue>(call_parameter_count);
         for(size_t i = 0; i < call_parameter_count; i += 1) {
-            expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, instructions, function_call->parameters[i]));
+            expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[i]));
 
             call_parameters[i] = parameter_value;
         }
@@ -4898,7 +4763,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     } else if(expression->kind == ExpressionKind::ArrayType) {
         auto array_type = (ArrayType*)expression;
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, context, instructions, array_type->expression));
+        expect_delayed(type, evaluate_type_expression(info, jobs, scope, context, array_type->expression));
 
         if(!type.is_runtime_type()) {
             error(scope, array_type->expression->range, "Cannot have arrays of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
@@ -4960,7 +4825,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return err();
             }
 
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, context, instructions, parameter.type));
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, context, parameter.type));
 
             if(!type.is_runtime_type()) {
                 error(scope, function_type->parameters[i].type->range, "Function parameters cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
@@ -4978,7 +4843,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         for(size_t i = 0; i < return_type_count; i += 1) {
             auto expression = function_type->return_types[i];
 
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, expression));
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, (Statement*)nullptr, expression));
 
             if(!type.is_runtime_type()) {
                 error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
@@ -5044,6 +4909,49 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     }
 }
 
+static void enter_new_block(GenerationContext* context, FileRange range) {
+    if(context->instructions.length == 0) {
+        // New block is not required
+        return;
+    }
+
+    auto new_block = new Block;
+
+    auto last_instruction = context->instructions[context->instructions.length - 1];
+
+    if(
+        last_instruction->kind != InstructionKind::ReturnInstruction &&
+        last_instruction->kind != InstructionKind::Branch &&
+        last_instruction->kind != InstructionKind::Jump
+    ) {
+        append_jump(context, range, new_block);
+    }
+
+    context->current_block->instructions = context->instructions;
+    context->blocks.append(context->current_block);
+
+    context->current_block = new_block;
+    context->instructions = {};
+}
+
+static void change_block(GenerationContext* context, FileRange range, Block* block) {
+    assert(context->instructions.length != 0);
+
+    auto last_instruction = context->instructions[context->instructions.length - 1];
+
+    assert(
+        last_instruction->kind == InstructionKind::ReturnInstruction ||
+        last_instruction->kind == InstructionKind::Branch ||
+        last_instruction->kind == InstructionKind::Jump
+    );
+
+    context->current_block->instructions = context->instructions;
+    context->blocks.append(context->current_block);
+
+    context->current_block = block;
+    context->instructions = {};
+}
+
 static bool is_runtime_statement(Statement* statement) {
     return !(
         statement->kind == StatementKind::FunctionDeclaration ||
@@ -5060,14 +4968,12 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
     List<AnyJob>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
-    List<Instruction*>* instructions,
     Array<Statement*> statements
 ), (
     info,
     jobs,
     scope,
     context,
-    instructions,
     statements
 )) {
     auto unreachable = false;
@@ -5082,7 +4988,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
             if(statement->kind == StatementKind::ExpressionStatement) {
                 auto expression_statement = (ExpressionStatement*)statement;
 
-                expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, expression_statement->expression));
+                expect_delayed(value, generate_expression(info, jobs, scope, context, expression_statement->expression));
             } else if(statement->kind == StatementKind::VariableDeclaration) {
                 auto variable_declaration = (VariableDeclaration*)statement;
 
@@ -5111,7 +5017,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 AnyType type;
                 AddressedValue addressed_value;
                 if(variable_declaration->type != nullptr) {
-                    expect_delayed(type_value, evaluate_type_expression(info, jobs, scope, context, instructions, variable_declaration->type));
+                    expect_delayed(type_value, evaluate_type_expression(info, jobs, scope, context, variable_declaration->type));
 
                     if(!type_value.is_runtime_type()) {
                         error(scope, variable_declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type_value.get_description()));
@@ -5121,13 +5027,12 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     type = type_value;
 
-                    expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->initializer));
+                    expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, variable_declaration->initializer));
 
                     auto ir_type = get_runtime_ir_type(info.architecture_sizes, type);
 
                     auto pointer_register = append_allocate_local(
                         context,
-                        instructions,
                         variable_declaration->range,
                         ir_type,
                         variable_declaration->name.text,
@@ -5138,7 +5043,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                         info,
                         scope,
                         context,
-                        instructions,
                         variable_declaration->range,
                         initializer_value.type,
                         initializer_value.value,
@@ -5148,7 +5052,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     append_store(
                         context,
-                        instructions,
                         variable_declaration->range,
                         register_value.register_index,
                         pointer_register
@@ -5156,7 +5059,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     addressed_value = AddressedValue(ir_type, pointer_register);
                 } else {
-                    expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, instructions, variable_declaration->initializer));
+                    expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, variable_declaration->initializer));
 
                     expect(actual_type, coerce_to_default_type(info, scope, variable_declaration->initializer->range, initializer_value.type));
                     
@@ -5172,7 +5075,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     auto pointer_register = append_allocate_local(
                         context,
-                        instructions,
                         variable_declaration->range,
                         ir_type,
                         variable_declaration->name.text,
@@ -5183,7 +5085,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                         info,
                         scope,
                         context,
-                        instructions,
                         variable_declaration->range,
                         initializer_value.type,
                         initializer_value.value,
@@ -5193,7 +5094,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     append_store(
                         context,
-                        instructions,
                         variable_declaration->range,
                         register_value.register_index,
                         pointer_register
@@ -5217,7 +5117,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 assert(variable_declaration->names.length > 1);
 
-                expect_delayed(initializer, generate_expression(info, jobs, scope, context, instructions, variable_declaration->initializer));
+                expect_delayed(initializer, generate_expression(info, jobs, scope, context, variable_declaration->initializer));
 
                 if(initializer.type.kind != TypeKind::MultiReturn) {
                     error(scope, variable_declaration->initializer->range, "Expected multiple return values, got '%.*s'", STRING_PRINTF_ARGUMENTS(initializer.type.get_description()));
@@ -5250,7 +5150,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 for(size_t i = 0; i < return_types.length; i += 1) {
                     auto return_struct_register = append_read_struct_member(
                         context,
-                        instructions,
                         variable_declaration->names[i].range,
                         i,
                         register_value.register_index
@@ -5258,7 +5157,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     auto pointer_register = append_allocate_local(
                         context,
-                        instructions,
                         variable_declaration->names[i].range,
                         return_struct_member_ir_types[i],
                         variable_declaration->names[i].text,
@@ -5267,7 +5165,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     append_store(
                         context,
-                        instructions,
                         variable_declaration->names[i].range,
                         return_struct_register,
                         pointer_register
@@ -5287,7 +5184,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
             } else if(statement->kind == StatementKind::Assignment) {
                 auto assignment = (Assignment*)statement;
 
-                expect_delayed(target, generate_expression(info, jobs, scope, context, instructions, assignment->target));
+                expect_delayed(target, generate_expression(info, jobs, scope, context, assignment->target));
 
                 size_t pointer_register;
                 if(target.value.kind == RuntimeValueKind::AddressedValue){
@@ -5300,13 +5197,12 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     return err();
                 }
 
-                expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, assignment->value));
+                expect_delayed(value, generate_expression(info, jobs, scope, context, assignment->value));
 
                 expect(register_value, coerce_to_type_register(
                     info,
                     scope,
                     context,
-                    instructions,
                     assignment->range,
                     value.type,
                     value.value,
@@ -5316,7 +5212,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 append_store(
                     context,
-                    instructions,
                     assignment->range,
                     register_value.register_index,
                     pointer_register
@@ -5326,7 +5221,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 assert(assignment->targets.length > 1);
 
-                expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, assignment->value));
+                expect_delayed(value, generate_expression(info, jobs, scope, context, assignment->value));
 
                 if(value.type.kind != TypeKind::MultiReturn) {
                     error(scope, assignment->value->range, "Expected multiple return values, got '%.*s'", STRING_PRINTF_ARGUMENTS(value.type.get_description()));
@@ -5357,7 +5252,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 }
 
                 for(size_t i = 0; i < return_types.length; i += 1) {
-                    expect_delayed(target, generate_expression(info, jobs, scope, context, instructions, assignment->targets[i]));
+                    expect_delayed(target, generate_expression(info, jobs, scope, context, assignment->targets[i]));
 
                     size_t pointer_register;
                     if(target.value.kind == RuntimeValueKind::AddressedValue){
@@ -5372,7 +5267,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     auto return_struct_register = append_read_struct_member(
                         context,
-                        instructions,
                         assignment->targets[i]->range,
                         i,
                         register_value.register_index
@@ -5382,7 +5276,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                         info,
                         scope,
                         context,
-                        instructions,
                         assignment->range,
                         return_types[i],
                         AnyRuntimeValue(RegisterValue(return_struct_member_ir_types[i], return_struct_register)),
@@ -5392,7 +5285,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     append_store(
                         context,
-                        instructions,
                         assignment->range,
                         return_struct_register,
                         pointer_register
@@ -5401,7 +5293,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
             } else if(statement->kind == StatementKind::BinaryOperationAssignment) {
                 auto binary_operation_assignment = (BinaryOperationAssignment*)statement;
 
-                expect_delayed(target, generate_expression(info, jobs, scope, context, instructions, binary_operation_assignment->target));
+                expect_delayed(target, generate_expression(info, jobs, scope, context, binary_operation_assignment->target));
 
                 size_t pointer_register;
                 if(target.value.kind == RuntimeValueKind::AddressedValue){
@@ -5419,7 +5311,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     jobs,
                     scope,
                     context,
-                    instructions,
                     binary_operation_assignment->range,
                     binary_operation_assignment->target,
                     binary_operation_assignment->value,
@@ -5430,7 +5321,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     info,
                     scope,
                     context,
-                    instructions,
                     binary_operation_assignment->range,
                     value.type,
                     value.value,
@@ -5440,7 +5330,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 append_store(
                     context,
-                    instructions,
                     binary_operation_assignment->range,
                     register_value.register_index,
                     pointer_register
@@ -5448,9 +5337,18 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
             } else if(statement->kind == StatementKind::IfStatement) {
                 auto if_statement = (IfStatement*)statement;
 
-                List<Jump*> end_jumps {};
+                auto end_block = new Block;
 
-                expect_delayed(condition, generate_expression(info, jobs, scope, context, instructions, if_statement->condition));
+                Block* next_block;
+                if(if_statement->else_ifs.length == 0 && if_statement->else_statements.length == 0) {
+                    next_block = end_block;
+                } else {
+                    next_block = new Block;
+                }
+
+                auto body_block = new Block;
+
+                expect_delayed(condition, generate_expression(info, jobs, scope, context, if_statement->condition));
 
                 if(condition.type.kind != TypeKind::Boolean) {
                     error(scope, if_statement->condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
@@ -5460,18 +5358,20 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 auto condition_register = generate_in_register_value(
                     context,
-                    instructions,
                     if_statement->condition->range,
                     IRType::create_boolean(),
                     condition.value
                 );
 
-                append_branch(context, instructions, if_statement->condition->range, condition_register, instructions->length + 2);
+                append_branch(
+                    context,
+                    if_statement->condition->range,
+                    condition_register,
+                    body_block,
+                    next_block
+                );
 
-                auto first_jump = new Jump;
-                first_jump->range = if_statement->range;
-
-                instructions->append(first_jump);
+                change_block(context, if_statement->range, body_block);
 
                 auto if_scope = context->child_scopes[context->next_child_scope_index];
                 context->next_child_scope_index += 1;
@@ -5482,27 +5382,24 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 context->variable_scope_stack.append(if_variable_scope);
 
-                expect_delayed_void(generate_runtime_statements(info, jobs, if_scope, context, instructions, if_statement->statements));
+                expect_delayed_void(generate_runtime_statements(info, jobs, if_scope, context, if_statement->statements));
 
                 context->variable_scope_stack.length -= 1;
 
-                auto last_instruction = (*instructions)[instructions->length - 1];
-                if(
-                    last_instruction->kind != InstructionKind::ReturnInstruction &&
-                    last_instruction->kind != InstructionKind::Jump
-                ) {
-                    auto first_end_jump = new Jump;
-                    first_end_jump->range = if_statement->range;
-
-                    instructions->append(first_end_jump);
-
-                    end_jumps.append(first_end_jump);
-                }
-
-                first_jump->destination_instruction = instructions->length;
+                append_jump(context, if_statement->range, end_block);
 
                 for(size_t i = 0; i < if_statement->else_ifs.length; i += 1) {
-                    expect_delayed(condition, generate_expression(info, jobs, scope, context, instructions, if_statement->else_ifs[i].condition));
+                    change_block(context, if_statement->range, next_block);
+
+                    if(i == if_statement->else_ifs.length - 1 && if_statement->else_statements.length == 0) {
+                        next_block = end_block;
+                    } else {
+                        next_block = new Block;
+                    }
+
+                    auto body_block = new Block;
+
+                    expect_delayed(condition, generate_expression(info, jobs, scope, context, if_statement->else_ifs[i].condition));
 
                     if(condition.type.kind != TypeKind::Boolean) {
                         error(scope, if_statement->else_ifs[i].condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
@@ -5512,7 +5409,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     auto condition_register = generate_in_register_value(
                         context,
-                        instructions,
                         if_statement->else_ifs[i].condition->range,
                         IRType::create_boolean(),
                         condition.value
@@ -5520,16 +5416,11 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     append_branch(
                         context,
-                        instructions,
                         if_statement->else_ifs[i].condition->range,
                         condition_register,
-                        instructions->length + 2
+                        body_block,
+                        next_block
                     );
-
-                    auto jump = new Jump;
-                    jump->range = if_statement->else_ifs[i].condition->range;
-
-                    instructions->append(jump);
 
                     auto else_if_scope = context->child_scopes[context->next_child_scope_index];
                     context->next_child_scope_index += 1;
@@ -5540,27 +5431,16 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     context->variable_scope_stack.append(else_if_variable_scope);
 
-                    expect_delayed_void(generate_runtime_statements(info, jobs, if_scope, context, instructions, if_statement->else_ifs[i].statements));
+                    expect_delayed_void(generate_runtime_statements(info, jobs, if_scope, context, if_statement->else_ifs[i].statements));
 
                     context->variable_scope_stack.length -= 1;
 
-                    auto last_instruction = (*instructions)[instructions->length - 1];
-                    if(
-                        last_instruction->kind != InstructionKind::ReturnInstruction &&
-                        last_instruction->kind != InstructionKind::Jump
-                    ) {
-                        auto end_jump = new Jump;
-                        end_jump->range = if_statement->range;
-
-                        instructions->append(end_jump);
-
-                        end_jumps.append(end_jump);
-                    }
-
-                    jump->destination_instruction = instructions->length;
+                    append_jump(context, if_statement->range, end_block);
                 }
 
                 if(if_statement->else_statements.length != 0) {
+                    change_block(context, if_statement->range, next_block);
+
                     auto else_scope = context->child_scopes[context->next_child_scope_index];
                     context->next_child_scope_index += 1;
                     assert(context->next_child_scope_index <= context->child_scopes.length);
@@ -5570,20 +5450,26 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     context->variable_scope_stack.append(else_variable_scope);
 
-                    expect_delayed_void(generate_runtime_statements(info, jobs, else_scope, context, instructions, if_statement->else_statements));
+                    expect_delayed_void(generate_runtime_statements(info, jobs, else_scope, context, if_statement->else_statements));
 
                     context->variable_scope_stack.length -= 1;
+
+                    append_jump(context, if_statement->range, end_block);
                 }
 
-                for(auto end_jump : end_jumps) {
-                    end_jump->destination_instruction = instructions->length;
-                }
+                change_block(context, if_statement->range, end_block);
             } else if(statement->kind == StatementKind::WhileLoop) {
                 auto while_loop = (WhileLoop*)statement;
 
-                auto condition_index = instructions->length;
+                auto end_block = new Block;
 
-                expect_delayed(condition, generate_expression(info, jobs, scope, context, instructions, while_loop->condition));
+                auto body_block = new Block;
+
+                enter_new_block(context, while_loop->condition->range);
+
+                auto condition_block = context->current_block;
+
+                expect_delayed(condition, generate_expression(info, jobs, scope, context, while_loop->condition));
 
                 if(condition.type.kind != TypeKind::Boolean) {
                     error(scope, while_loop->condition->range, "Non-boolean while loop condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
@@ -5593,7 +5479,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 auto condition_register = generate_in_register_value(
                     context,
-                    instructions,
                     while_loop->condition->range,
                     IRType::create_boolean(),
                     condition.value
@@ -5601,16 +5486,13 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 append_branch(
                     context,
-                    instructions,
                     while_loop->condition->range,
                     condition_register,
-                    instructions->length + 2
+                    body_block,
+                    end_block
                 );
 
-                auto jump_out = new Jump;
-                jump_out->range = while_loop->condition->range;
-
-                instructions->append(jump_out);
+                change_block(context, while_loop->range, body_block);
 
                 auto while_scope = context->child_scopes[context->next_child_scope_index];
                 context->next_child_scope_index += 1;
@@ -5622,38 +5504,21 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 context->variable_scope_stack.append(while_variable_scope);
 
                 auto old_in_breakable_scope = context->in_breakable_scope;
-                auto old_break_jumps = context->break_jumps;
+                auto old_break_end_block = context->break_end_block;
 
                 context->in_breakable_scope = true;
-                context->break_jumps = {};
+                context->break_end_block = end_block;
 
-                expect_delayed_void(generate_runtime_statements(info, jobs, while_scope, context, instructions, while_loop->statements));
-
-                auto break_jumps = context->break_jumps;
+                expect_delayed_void(generate_runtime_statements(info, jobs, while_scope, context, while_loop->statements));
 
                 context->in_breakable_scope = old_in_breakable_scope;
-                context->break_jumps = old_break_jumps;
+                context->break_end_block = old_break_end_block;
 
                 context->variable_scope_stack.length -= 1;
 
-                auto last_instruction = (*instructions)[instructions->length - 1];
-                if(
-                    last_instruction->kind != InstructionKind::ReturnInstruction &&
-                    last_instruction->kind != InstructionKind::Jump
-                ) {
-                    append_jump(
-                        context,
-                        instructions,
-                        while_loop->range,
-                        condition_index
-                    );
-                }
+                append_jump(context, while_loop->range, condition_block);
 
-                jump_out->destination_instruction = instructions->length;
-
-                for(auto jump : break_jumps) {
-                    jump->destination_instruction = instructions->length;
-                }
+                change_block(context, while_loop->range, end_block);
             } else if(statement->kind == StatementKind::ForLoop) {
                 auto for_loop = (ForLoop*)statement;
 
@@ -5665,9 +5530,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     index_name.range = for_loop->range;
                 }
 
-                expect_delayed(from_value, generate_expression(info, jobs, scope, context, instructions, for_loop->from));
+                expect_delayed(from_value, generate_expression(info, jobs, scope, context, for_loop->from));
 
-                expect_delayed(to_value, generate_expression(info, jobs, scope, context, instructions, for_loop->to));
+                expect_delayed(to_value, generate_expression(info, jobs, scope, context, for_loop->to));
 
                 Integer determined_index_type;
                 if(from_value.type.kind == TypeKind::UndeterminedInteger && to_value.type.kind == TypeKind::UndeterminedInteger) {
@@ -5688,7 +5553,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 expect(from_register_value, coerce_to_integer_register_value(
                     scope,
                     context,
-                    instructions,
                     for_loop->from->range,
                     from_value.type,
                     from_value.value,
@@ -5699,7 +5563,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 expect(to_register_value, coerce_to_integer_register_value(
                     scope,
                     context,
-                    instructions,
                     for_loop->from->range,
                     to_value.type,
                     to_value.value,
@@ -5711,7 +5574,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 auto index_pointer_register = append_allocate_local(
                     context,
-                    instructions,
                     for_loop->range,
                     determined_index_ir_type,
                     index_name.text,
@@ -5720,17 +5582,21 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 append_store(
                     context,
-                    instructions,
                     for_loop->range,
                     from_register_value.register_index,
                     index_pointer_register
                 );
 
-                auto condition_index = instructions->length;
+                auto end_block = new Block;
+
+                auto body_block = new Block;
+
+                enter_new_block(context, for_loop->range);
+
+                auto condition_block = context->current_block;
 
                 auto current_index_register = append_load(
                     context,
-                    instructions,
                     for_loop->range,
                     index_pointer_register
                 );
@@ -5744,18 +5610,21 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 auto condition_register = append_integer_comparison_operation(
                     context,
-                    instructions,
                     for_loop->range,
                     operation,
                     current_index_register,
                     to_register_value.register_index
                 );
 
-                auto branch = new Branch;
-                branch->range = for_loop->range;
-                branch->condition_register = condition_register;
+                append_branch(
+                    context,
+                    for_loop->range,
+                    condition_register,
+                    body_block,
+                    end_block
+                );
 
-                instructions->append(branch);
+                change_block(context, for_loop->range, body_block);
 
                 auto for_scope = context->child_scopes[context->next_child_scope_index];
                 context->next_child_scope_index += 1;
@@ -5767,10 +5636,10 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 context->variable_scope_stack.append(for_variable_scope);
 
                 auto old_in_breakable_scope = context->in_breakable_scope;
-                auto old_break_jumps = context->break_jumps;
+                auto old_break_end_block = context->break_end_block;
 
                 context->in_breakable_scope = true;
-                context->break_jumps = {};
+                context->break_end_block = end_block;
 
                 expect_void(add_new_variable(
                     context,
@@ -5779,18 +5648,15 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     AddressedValue(determined_index_ir_type, index_pointer_register)
                 ));
 
-                { expect_delayed_void(generate_runtime_statements(info, jobs, for_scope, context, instructions, for_loop->statements)); }
-
-                auto break_jumps = context->break_jumps;
+                expect_delayed_void(generate_runtime_statements(info, jobs, for_scope, context, for_loop->statements));
 
                 context->in_breakable_scope = old_in_breakable_scope;
-                context->break_jumps = old_break_jumps;
+                context->break_end_block = old_break_end_block;
 
                 context->variable_scope_stack.length -= 1;
 
                 auto one_register = append_literal(
                     context,
-                    instructions,
                     for_loop->range,
                     determined_index_ir_type,
                     IRConstantValue::create_integer(1)
@@ -5798,22 +5664,17 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 auto next_index_register = append_integer_arithmetic_operation(
                     context,
-                    instructions,
                     for_loop->range,
                     IntegerArithmeticOperation::Operation::Add,
                     current_index_register,
                     one_register
                 );
 
-                append_store(context, instructions, for_loop->range, next_index_register, index_pointer_register);
+                append_store(context, for_loop->range, next_index_register, index_pointer_register);
 
-                append_jump(context, instructions, for_loop->range, condition_index);
+                append_jump(context, for_loop->range, condition_block);
 
-                for(auto jump : break_jumps) {
-                    jump->destination_instruction = instructions->length;
-                }
-
-                branch->destination_instruction = instructions->length;
+                change_block(context, for_loop->range, end_block);
             } else if(statement->kind == StatementKind::ReturnStatement) {
                 auto return_statement = (ReturnStatement*)statement;
 
@@ -5837,13 +5698,12 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 auto return_type_count = context->return_types.length;
 
                 if(return_type_count == 1) {
-                    expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, return_statement->values[0]));
+                    expect_delayed(value, generate_expression(info, jobs, scope, context, return_statement->values[0]));
 
                     expect(register_value, coerce_to_type_register(
                         info,
                         scope,
                         context,
-                        instructions,
                         return_statement->values[0]->range,
                         value.type,
                         value.value,
@@ -5856,13 +5716,12 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     auto return_struct_members = allocate<size_t>(return_type_count);
 
                     for(size_t i = 0; i < return_type_count; i += 1) {
-                        expect_delayed(value, generate_expression(info, jobs, scope, context, instructions, return_statement->values[i]));
+                        expect_delayed(value, generate_expression(info, jobs, scope, context, return_statement->values[i]));
 
                         expect(register_value, coerce_to_type_register(
                             info,
                             scope,
                             context,
-                            instructions,
                             return_statement->values[i]->range,
                             value.type,
                             value.value,
@@ -5875,13 +5734,12 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     return_instruction->value_register = append_assemble_struct(
                         context,
-                        instructions,
                         return_statement->range,
                         Array(return_type_count, return_struct_members)
                     );
                 }
 
-                instructions->append(return_instruction);
+                context->instructions.append(return_instruction);
             } else if(statement->kind == StatementKind::BreakStatement) {
                 auto break_statement = (BreakStatement*)statement;
 
@@ -5893,12 +5751,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     return err();
                 }
 
-                auto jump = new Jump;
-                jump->range = break_statement->range;
-
-                instructions->append(jump);
-
-                context->break_jumps.append(jump);
+                append_jump(context, break_statement->range, context->break_end_block);
             } else if(statement->kind == StatementKind::InlineAssembly) {
                 auto inline_assembly = (InlineAssembly*)statement;
 
@@ -5918,7 +5771,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                         jobs,
                         scope,
                         context,
-                        instructions,
                         binding.value
                     ));
 
@@ -5965,7 +5817,6 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                             info,
                             scope,
                             context,
-                            instructions,
                             binding.value->range,
                             value.type,
                             value.value,
@@ -5986,7 +5837,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 assembly_instruction->assembly = inline_assembly->assembly;
                 assembly_instruction->bindings = Array(inline_assembly->bindings.length, bindings);
 
-                instructions->append(assembly_instruction);
+                context->instructions.append(assembly_instruction);
             } else {
                 abort();
             }
@@ -6078,7 +5929,9 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
         context.child_scopes = value.child_scopes;
 
-        List<Instruction*> instructions {};
+        context.current_block = new Block;
+
+        List<Instruction*> first_block_instructions {};
 
         size_t runtime_parameter_index = 0;
         for(size_t i = 0; i < declaration->parameters.length; i += 1) {
@@ -6087,7 +5940,6 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
                 auto pointer_register = append_allocate_local(
                     &context,
-                    &instructions,
                     declaration->parameters[i].name.range,
                     ir_parameters[runtime_parameter_index],
                     declaration->parameters[i].name.text,
@@ -6096,7 +5948,6 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
                 append_store(
                     &context,
-                    &instructions,
                     declaration->parameters[i].name.range,
                     runtime_parameter_index,
                     pointer_register
@@ -6115,7 +5966,13 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
         assert(runtime_parameter_index == runtime_parameter_count);
 
-        expect_delayed_void(generate_runtime_statements(info, jobs, value.body_scope, &context, &instructions, declaration->statements));
+        expect_delayed_void(generate_runtime_statements(
+            info,
+            jobs,
+            value.body_scope,
+            &context,
+            declaration->statements
+        ));
 
         assert(context.next_child_scope_index == value.child_scopes.length);
 
@@ -6137,11 +5994,14 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
                 auto return_instruction = new ReturnInstruction;
                 return_instruction->range = declaration->range;
 
-                instructions.append(return_instruction);
+                context.instructions.append(return_instruction);
             }
         }
 
-        function->instructions = instructions;
+        context.current_block->instructions = context.instructions;
+        context.blocks.append(context.current_block);
+
+        function->blocks = context.blocks;
 
         return ok((Array<StaticConstant*>)context.static_constants);
     }
@@ -6257,7 +6117,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             return err();
         }
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, declaration->type));
+        expect_delayed(type, evaluate_type_expression(info, jobs, scope, (Statement*)nullptr, declaration->type));
 
         if(!type.is_runtime_type()) {
             error(scope, declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
@@ -6288,7 +6148,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
         }
 
         if(declaration->type != nullptr) {
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, declaration->type));
+            expect_delayed(type, evaluate_type_expression(info, jobs, scope, (Statement*)nullptr, declaration->type));
 
             if(!type.is_runtime_type()) {
                 error(scope, declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));

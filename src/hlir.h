@@ -225,6 +225,8 @@ struct IRConstantValue {
     void print();
 };
 
+struct Block;
+
 enum struct InstructionKind {
     IntegerArithmeticOperation,
     IntegerComparisonOperation,
@@ -265,7 +267,7 @@ struct Instruction {
 
     FileRange range;
 
-    void print(bool has_return);
+    void print(Array<Block*> blocks, bool has_return);
 };
 
 struct IntegerArithmeticOperation : Instruction {
@@ -518,7 +520,7 @@ struct Literal : Instruction {
 };
 
 struct Jump : Instruction {
-    size_t destination_instruction;
+    Block* destination_block;
 
     inline Jump() : Instruction { InstructionKind::Jump } {}
 };
@@ -526,7 +528,8 @@ struct Jump : Instruction {
 struct Branch : Instruction {
     size_t condition_register;
 
-    size_t destination_instruction;
+    Block* true_destination_block;
+    Block* false_destination_block;
 
     inline Branch() : Instruction { InstructionKind::Branch } {}
 };
@@ -628,6 +631,10 @@ struct ReferenceStatic : Instruction {
     inline ReferenceStatic() : Instruction { InstructionKind::ReferenceStatic } {}
 };
 
+struct Block {
+    Array<Instruction*> instructions;
+};
+
 enum struct RuntimeStaticKind {
     Function,
     StaticConstant,
@@ -655,7 +662,7 @@ struct Function : RuntimeStatic {
 
     bool is_external;
 
-    Array<Instruction*> instructions;
+    Array<Block*> blocks;
 
     Array<String> libraries;
 
