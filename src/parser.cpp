@@ -1576,12 +1576,62 @@ namespace {
 
                         expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
+                        auto executable_path = get_executable_path();
+                        auto executable_directory = path_get_directory_component(executable_path);
+
                         auto source_file_directory = path_get_directory_component(path);
 
-                        StringBuffer import_file_path {};
+                        auto found_import_file = false;
+                        String import_file_path;
+                        {
+                            StringBuffer buffer {};
+                            buffer.append(source_file_directory);
+                            buffer.append(string);
 
-                        import_file_path.append(source_file_directory);
-                        import_file_path.append(string);
+                            auto file_test = fopen(buffer.to_c_string(), "rb");
+
+                            if(file_test != nullptr) {
+                                fclose(file_test);
+
+                                found_import_file = true;
+                                import_file_path = buffer;
+                            }
+                        }
+                        if(!found_import_file) {
+                            StringBuffer buffer {};
+                            buffer.append(executable_directory);
+                            buffer.append(string);
+
+                            auto file_test = fopen(buffer.to_c_string(), "rb");
+
+                            if(file_test != nullptr) {
+                                fclose(file_test);
+
+                                found_import_file = true;
+                                import_file_path = buffer;
+                            }
+                        }
+                        if(!found_import_file) {
+                            StringBuffer buffer {};
+                            buffer.append(executable_directory);
+                            buffer.append("../share/simple-compiler/runtime_"_S);
+                            buffer.append(string);
+
+                            auto file_test = fopen(buffer.to_c_string(), "rb");
+
+                            if(file_test != nullptr) {
+                                fclose(file_test);
+
+                                found_import_file = true;
+                                import_file_path = buffer;
+                            }
+                        }
+
+                        if(!found_import_file) {
+                            ::error(path, first_range, "Unable to locate import file '%.*s'", STRING_PRINTF_ARGUMENTS(string));
+
+                            return err();
+                        }
 
                         expect(import_file_path_absolute, path_relative_to_absolute(import_file_path));
 
