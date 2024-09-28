@@ -18,4 +18,5 @@ SDL_CreateRenderer :: (window: *SDL_Window, index: i32, flags: u32) -> *SDL_Rend
 SDL_RenderPresent :: (renderer: *SDL_Renderer) #extern(LIBS);
 SDL_SetRenderDrawColor :: (renderer: *SDL_Renderer, r: u8, g: u8, b: u8, a: u8) -> i32 #extern(LIBS);
 SDL_RenderClear :: (renderer: *SDL_Renderer) -> i32 #extern(LIBS);
+SDL_RenderDrawRect :: (renderer: *SDL_Renderer, rect: *SDL_Rect) -> i32 #extern(LIBS);
 SDL_RenderFillRect :: (renderer: *SDL_Renderer, rect: *SDL_Rect) -> i32 #extern(LIBS);
