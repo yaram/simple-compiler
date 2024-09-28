@@ -555,6 +555,7 @@ struct Store : Instruction {
 };
 
 struct StructMemberPointer : Instruction {
+    Array<IRType> members;
     size_t member_index;
 
     size_t pointer_register;

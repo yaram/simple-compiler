@@ -644,6 +644,7 @@ static void append_store(
 static size_t append_struct_member_pointer(
     GenerationContext* context,
     FileRange range,
+    Array<IRType> members,
     size_t member_index,
     size_t pointer_register
 ) {
@@ -651,6 +652,7 @@ static size_t append_struct_member_pointer(
 
     auto struct_member_pointer = new StructMemberPointer;
     struct_member_pointer->range = range;
+    struct_member_pointer->members = members;
     struct_member_pointer->member_index = member_index;
     struct_member_pointer->pointer_register = pointer_register;
     struct_member_pointer->destination_register = destination_register;
@@ -2493,6 +2495,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 auto member_pointer = append_struct_member_pointer(
                     context,
                     index_reference->expression->range,
+                    ir_type.struct_.members,
                     1,
                     addressed_value.pointer_register
                 );
@@ -2599,6 +2602,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         if(actual_type.kind == TypeKind::ArrayTypeType) {
             auto array_type = actual_type.array;
 
+            auto array_ir_type = get_array_ir_type(info.architecture_sizes, array_type);
+
             if(member_reference->name.text == "length"_S) {
                 AnyRuntimeValue value;
                 if(actual_value.kind == RuntimeValueKind::ConstantValue) {
@@ -2637,6 +2642,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     auto pointer_register = append_struct_member_pointer(
                         context,
                         member_reference->range,
+                        array_ir_type.struct_.members,
                         0,
                         addressed_value.pointer_register
                     );
@@ -2690,6 +2696,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     auto pointer_register = append_struct_member_pointer(
                         context,
                         member_reference->range,
+                        array_ir_type.struct_.members,
                         1,
                         addressed_value.pointer_register
                     );
@@ -2757,6 +2764,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         } else if(actual_type.kind == TypeKind::StructType) {
             auto struct_type = actual_type.struct_;
 
+            auto struct_ir_type = get_struct_ir_type(info.architecture_sizes, struct_type);
+
             for(size_t i = 0; i < struct_type.members.length; i += 1) {
                 if(struct_type.members[i].name == member_reference->name.text) {
                     auto member_type = struct_type.members[i].type;
@@ -2797,6 +2806,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         auto pointer_register = append_struct_member_pointer(
                             context,
                             member_reference->range,
+                            struct_ir_type.struct_.members,
                             i,
                             addressed_value.pointer_register
                         );
