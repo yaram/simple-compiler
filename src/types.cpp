@@ -391,7 +391,7 @@ uint64_t AnyType::get_size(ArchitectureSizes architecture_sizes) {
     } else if(kind == TypeKind::ArrayTypeType) {
         return 2 * register_size_to_byte_size(architecture_sizes.address_size);
     } else if(kind == TypeKind::StaticArray) {
-        return static_array.length * static_array.element_type->get_alignment(architecture_sizes);
+        return static_array.length * static_array.element_type->get_size(architecture_sizes);
     } else if(kind == TypeKind::StructType) {
         return struct_.get_size(architecture_sizes);
     } else if(kind == TypeKind::UnionType) {
