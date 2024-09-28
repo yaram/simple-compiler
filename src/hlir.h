@@ -227,6 +227,7 @@ enum struct InstructionKind {
     Jump,
     Branch,
     FunctionCallInstruction,
+    IntrinsicCallInstruction,
     ReturnInstruction,
     AllocateLocal,
     Load,
@@ -517,6 +518,28 @@ struct FunctionCallInstruction : Instruction {
     CallingConvention calling_convention;
 
     inline FunctionCallInstruction() : Instruction { InstructionKind::FunctionCallInstruction } {}
+};
+
+struct IntrinsicCallInstruction : Instruction {
+    struct Parameter {
+        IRType type;
+
+        size_t register_index;
+    };
+
+    enum struct Intrinsic {
+        Sqrt
+    };
+
+    Intrinsic intrinsic;
+
+    Array<Parameter> parameters;
+
+    bool has_return;
+    IRType return_type;
+    size_t return_register;
+
+    inline IntrinsicCallInstruction() : Instruction { InstructionKind::IntrinsicCallInstruction } {}
 };
 
 struct ReturnInstruction : Instruction {

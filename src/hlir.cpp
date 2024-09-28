@@ -564,6 +564,38 @@ void Instruction::print(Array<Block*> blocks, bool has_return) {
 
             default: abort();
         }
+    } else if(kind == InstructionKind::IntrinsicCallInstruction) {
+        auto intrinsic_call = (IntrinsicCallInstruction*)this;
+
+        printf("INTRIN ");
+
+        if(intrinsic_call->intrinsic == IntrinsicCallInstruction::Intrinsic::Sqrt) {
+            printf("sqrt");
+        } else {
+            abort();
+        }
+
+        printf(" (");
+
+        for(size_t i = 0; i < intrinsic_call->parameters.length; i += 1) {
+            intrinsic_call->parameters[i].type.print();
+
+            printf(" r%zu", intrinsic_call->parameters[i].register_index);
+
+            if(i != intrinsic_call->parameters.length - 1) {
+                printf(", ");
+            }
+        }
+
+        if(intrinsic_call->has_return) {
+            printf(") -> ");
+
+            intrinsic_call->return_type.print();
+
+            printf(" r%zu", intrinsic_call->return_register);
+        } else {
+            printf(")");
+        }
     } else if(kind == InstructionKind::ReturnInstruction) {
         auto return_instruction = (ReturnInstruction*)this;
 
