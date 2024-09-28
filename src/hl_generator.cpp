@@ -721,11 +721,12 @@ static IRType get_pointable_ir_type(ArchitectureSizes architecture_sizes, AnyTyp
             parameters[i] = get_runtime_ir_type(architecture_sizes, type.function.parameters[i]);
         }
 
-        IRType return_type;
+        bool has_return;
+        IRType* return_type;
         if(type.function.return_types.length == 0) {
-            return_type = IRType::create_void();
+            return_type = nullptr;
         } else if(type.function.return_types.length == 1) {
-            return_type = get_runtime_ir_type(architecture_sizes, type.function.return_types[0]);
+            return_type = heapify(get_runtime_ir_type(architecture_sizes, type.function.return_types[0]));
         } else {
             auto return_struct_members = allocate<IRType>(type.function.return_types.length);
 
@@ -733,12 +734,10 @@ static IRType get_pointable_ir_type(ArchitectureSizes architecture_sizes, AnyTyp
                 return_struct_members[i] = get_runtime_ir_type(architecture_sizes, type.function.return_types[i]);
             }
 
-            return_type = IRType::create_struct(Array(type.function.return_types.length, return_struct_members));
+            return_type = heapify(IRType::create_struct(Array(type.function.return_types.length, return_struct_members)));
         }
 
-        return IRType::create_function(Array(type.function.parameters.length, parameters), heapify(return_type), type.function.calling_convention);
-    } else if(type.kind == TypeKind::Void) {
-        return IRType::create_void();
+        return IRType::create_function(Array(type.function.parameters.length, parameters), return_type, type.function.calling_convention);
     } else {
         return get_runtime_ir_type(architecture_sizes, type);
     }
@@ -785,7 +784,14 @@ static IRType get_runtime_ir_type(ArchitectureSizes architecture_sizes, AnyType 
     } else if(type.kind == TypeKind::FloatType) {
         return IRType::create_float(type.float_.size);
     } else if(type.kind == TypeKind::Pointer) {
-        return IRType::create_pointer(heapify(get_pointable_ir_type(architecture_sizes, *type.pointer.pointed_to_type)));
+        IRType* pointed_to_type;
+        if(type.pointer.pointed_to_type->kind == TypeKind::Void) {
+            pointed_to_type = nullptr;
+        } else {
+            pointed_to_type = heapify(get_pointable_ir_type(architecture_sizes, *type.pointer.pointed_to_type));
+        }
+
+        return IRType::create_pointer(pointed_to_type);
     } else if(type.kind == TypeKind::ArrayTypeType) {
         return get_array_ir_type(architecture_sizes, type.array);
     } else if(type.kind == TypeKind::StaticArray) {
@@ -3474,12 +3480,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             assert(runtime_parameter_index == function_type.parameters.length);
 
             AnyType return_type;
+            bool has_ir_return;
             IRType return_ir_type;
             if(function_type.return_types.length == 0) {
                 return_type = AnyType::create_void();
-                return_ir_type = IRType::create_void();
+                has_ir_return = false;
             } else if(function_type.return_types.length == 1) {
                 return_type = function_type.return_types[0];
+                has_ir_return = true;
                 return_ir_type = get_runtime_ir_type(info.architecture_sizes, return_type);
             } else {
                 return_type = AnyType(MultiReturn(function_type.return_types));
@@ -3490,6 +3498,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     member_ir_types[i] = get_runtime_ir_type(info.architecture_sizes, function_type.return_types[i]);
                 }
 
+                has_ir_return = true;
                 return_ir_type = IRType::create_struct(Array(function_type.return_types.length, member_ir_types));
             }
 
@@ -3499,6 +3508,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             function_call_instruction->range = function_call->range;
             function_call_instruction->pointer_register = pointer_register;
             function_call_instruction->parameters = Array(function_type.parameters.length, instruction_parameters);
+            function_call_instruction->has_return = has_ir_return;
             function_call_instruction->return_type = return_ir_type;
             function_call_instruction->calling_convention = function_type.calling_convention;
 
@@ -3751,12 +3761,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             }
 
             AnyType return_type;
+            bool has_ir_return;
             IRType return_ir_type;
             if(function_type.return_types.length == 0) {
                 return_type = AnyType::create_void();
-                return_ir_type = IRType::create_void();
+                has_ir_return = false;
             } else if(function_type.return_types.length == 1) {
                 return_type = function_type.return_types[0];
+                has_ir_return = true;
                 return_ir_type = get_runtime_ir_type(info.architecture_sizes, return_type);
             } else {
                 return_type = AnyType(MultiReturn(function_type.return_types));
@@ -3767,6 +3779,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     member_ir_types[i] = get_runtime_ir_type(info.architecture_sizes, function_type.return_types[i]);
                 }
 
+                has_ir_return = true;
                 return_ir_type = IRType::create_struct(Array(function_type.return_types.length, member_ir_types));
             }
 
@@ -3774,6 +3787,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             function_call_instruction->range = function_call->range;
             function_call_instruction->pointer_register = pointer_register;
             function_call_instruction->parameters = Array(parameter_count, instruction_parameters);
+            function_call_instruction->has_return = has_ir_return;
             function_call_instruction->return_type = return_ir_type;
             function_call_instruction->calling_convention = function_type.calling_convention;
 
@@ -5899,10 +5913,12 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
     assert(runtime_parameter_index == runtime_parameter_count);
 
+    bool has_ir_return;
     IRType return_ir_type;
     if(type.return_types.length == 0) {
-        return_ir_type = IRType::create_void();
+        has_ir_return = false;
     } else if(type.return_types.length == 1) {
+        has_ir_return = true;
         return_ir_type = get_runtime_ir_type(info.architecture_sizes, type.return_types[0]);
     } else {
         auto return_struct_members = allocate<IRType>(type.return_types.length);
@@ -5911,6 +5927,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
             return_struct_members[i] = get_runtime_ir_type(info.architecture_sizes, type.return_types[i]);
         }
 
+        has_ir_return = true;
         return_ir_type = IRType::create_struct(Array(type.return_types.length, return_struct_members));
     }
 
@@ -5918,6 +5935,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     function->range = declaration->range;
     function->path = get_scope_file_path(*value.body_scope);
     function->parameters = Array(runtime_parameter_count, ir_parameters);
+    function->has_return = has_ir_return;
     function->return_type = return_ir_type;
     function->calling_convention = type.calling_convention;
     function->debug_type = AnyType(type);
