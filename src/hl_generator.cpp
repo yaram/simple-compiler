@@ -5743,6 +5743,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                         AssemblyInstruction::Binding instruction_binding {};
                         instruction_binding.constraint = binding.constraint;
+                        instruction_binding.pointed_to_type = value.value.addressed.pointed_to_type;
                         instruction_binding.register_index = pointer_register;
 
                         bindings[i] = instruction_binding;

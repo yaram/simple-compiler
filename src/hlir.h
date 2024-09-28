@@ -580,6 +580,7 @@ struct AssemblyInstruction : Instruction {
     struct Binding {
         String constraint;
 
+        IRType pointed_to_type; // Only used if output binding
         size_t register_index;
     };
 
