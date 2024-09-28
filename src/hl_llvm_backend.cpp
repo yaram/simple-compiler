@@ -1927,7 +1927,12 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 parameter_values[i] = get_register_value(*function, function_value, registers, parameter.register_index).value;
                             }
 
-                            auto return_llvm_type = get_llvm_type(architecture_sizes, function_call->return_type);
+                            LLVMTypeRef return_llvm_type;
+                            if(function_call->has_return) {
+                                return_llvm_type = get_llvm_type(architecture_sizes, function_call->return_type);
+                            } else {
+                                return_llvm_type = LLVMVoidType();
+                            }
 
                             auto function_llvm_type = LLVMFunctionType(return_llvm_type, parameter_types, (unsigned int)parameter_count, false);
 
@@ -1978,7 +1983,12 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 parameter_values[i] = get_register_value(*function, function_value, registers, parameter.register_index).value;
                             }
 
-                            auto return_llvm_type = get_llvm_type(architecture_sizes, intrinsic_call->return_type);
+                            LLVMTypeRef return_llvm_type;
+                            if(intrinsic_call->has_return) {
+                                return_llvm_type = get_llvm_type(architecture_sizes, intrinsic_call->return_type);
+                            } else {
+                                return_llvm_type = LLVMVoidType();
+                            }
 
                             auto function_llvm_type = LLVMFunctionType(return_llvm_type, parameter_types, (unsigned int)parameter_count, false);
 
