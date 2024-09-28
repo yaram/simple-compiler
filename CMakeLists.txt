@@ -34,6 +34,11 @@ add_custom_target(
     COMMAND cmake -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/src/runtimes" "${ACTUAL_OUTPUT_DIRECTORY}"
 )
 
+add_custom_target(
+    copy_stdlib
+    COMMAND cmake -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/stdlib" "${ACTUAL_OUTPUT_DIRECTORY}/stdlib"
+)
+
 set(sources
     src/array.h
     src/list.h
@@ -104,7 +109,7 @@ if(PROFILING)
     target_compile_definitions(compiler PRIVATE PROFILING)
 endif()
 target_link_libraries(compiler PRIVATE LLVMCore LLVMAnalysis LLVMX86CodeGen LLVMX86AsmParser LLVMRISCVCodeGen LLVMRISCVAsmParser LLVMWebAssemblyCodeGen LLVMWebAssemblyAsmParser)
-add_dependencies(compiler copy_runtimes)
+add_dependencies(compiler copy_runtimes copy_stdlib)
 
 if(VENDORED_LLVM)
     target_include_directories(compiler PRIVATE thirdparty/llvm-project/llvm/include "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/llvm-project/llvm/include")
@@ -113,6 +118,7 @@ endif()
 install(TARGETS compiler DESTINATION bin)
 
 install(DIRECTORY src/runtimes/ DESTINATION share/simple-compiler)
+install(DIRECTORY stdlib DESTINATION share/simple-compiler)
 
 add_executable(test_driver
     src/test_driver.cpp
