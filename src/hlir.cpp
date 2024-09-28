@@ -749,6 +749,10 @@ void RuntimeStatic::print() {
                         printf("\n");
                     }
                 }
+
+                if(k != function->blocks.length - 1) {
+                    printf("\n");
+                }
             }
         }
     } else if(kind == RuntimeStaticKind::StaticConstant) {
