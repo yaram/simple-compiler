@@ -16,8 +16,7 @@ enum struct IRTypeKind {
     Float,
     Pointer,
     StaticArray,
-    Struct,
-    Void
+    Struct
 };
 
 struct IRType {
@@ -112,13 +111,6 @@ struct IRType {
         IRType result {};
         result.kind = IRTypeKind::Struct;
         result.struct_.members = members;
-
-        return result;
-    }
-
-    static inline IRType create_void() {
-        IRType result {};
-        result.kind = IRTypeKind::Void;
 
         return result;
     }
@@ -545,6 +537,7 @@ struct FunctionCallInstruction : Instruction {
 
     Array<Parameter> parameters;
 
+    bool has_return;
     IRType return_type;
     size_t return_register;
 
@@ -658,6 +651,7 @@ struct RuntimeStatic {
 struct Function : RuntimeStatic {
     Array<IRType> parameters;
 
+    bool has_return;
     IRType return_type;
 
     bool is_external;

@@ -42,7 +42,13 @@ bool IRType::operator==(IRType other) {
     } else if(kind == IRTypeKind::Float) {
         return float_.size == other.float_.size;
     } else if(kind == IRTypeKind::Pointer) {
-        return *pointer == *other.pointer;
+        if(pointer == nullptr && other.pointer == nullptr) {
+            return true;
+        } else if(pointer != nullptr && other.pointer != nullptr) {
+            return *pointer == *other.pointer;
+        } else {
+            return false;
+        }
     } else if(kind == IRTypeKind::StaticArray) {
         return
             static_array.length == other.static_array.length &&
@@ -59,8 +65,6 @@ bool IRType::operator==(IRType other) {
             }
         }
 
-        return true;
-    } else if(kind == IRTypeKind::Void) {
         return true;
     } else {
         abort();
@@ -125,7 +129,11 @@ void IRType::print() {
     } else if(kind == IRTypeKind::Pointer) {
         printf("*");
 
-        pointer->print();
+        if(pointer == nullptr) {
+            pointer->print();
+        } else {
+            printf("void");
+        }
     } else if(kind == IRTypeKind::StaticArray) {
         printf("[%" PRIu64 "]", static_array.length);
 
@@ -142,8 +150,6 @@ void IRType::print() {
         }
 
         printf(" }");
-    } else if(kind == IRTypeKind::Void) {
-        printf("void");
     } else {
         abort();
     }
@@ -606,12 +612,14 @@ void Instruction::print(Array<Block*> blocks, bool has_return) {
             }
         }
 
-        printf(") -> ");
+        if(function_call->has_return) {
+            printf(") -> ");
 
-        function_call->return_type.print();
+            function_call->return_type.print();
 
-        if(function_call->return_type.kind != IRTypeKind::Void) {
             printf(" r%zu", function_call->return_register);
+        } else {
+            printf(")");
         }
 
         switch(function_call->calling_convention) {
@@ -716,9 +724,13 @@ void RuntimeStatic::print() {
             }
         }
 
-        printf(") -> ");
+        if(function->has_return) {
+            printf(") -> ");
 
-        function->return_type.print();
+            function->return_type.print();
+        } else {
+            printf(")");
+        }
 
         if(function->is_external) {
             printf(" extern");
@@ -743,7 +755,7 @@ void RuntimeStatic::print() {
 
                     printf(" : ");
 
-                    block->instructions[i]->print(function->blocks, function->return_type.kind != IRTypeKind::Void);
+                    block->instructions[i]->print(function->blocks, function->has_return);
 
                     if(i != block->instructions.length - 1) {
                         printf("\n");
