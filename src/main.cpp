@@ -337,6 +337,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     append_builtin(&global_constants, "globalify"_S);
     append_builtin(&global_constants, "stackify"_S);
 
+    append_builtin(&global_constants, "sqrt"_S);
+
     append_global_constant(
         &global_constants,
         "X86"_S,

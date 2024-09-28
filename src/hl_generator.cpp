@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdarg.h>
 #include <string.h>
+#include <math.h>
 #include "hlir.h"
 #include "profiler.h"
 #include "list.h"
@@ -3617,6 +3618,107 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     determined_type,
                     AnyRuntimeValue(AddressedValue(ir_type, pointer_register))
                 ));
+            } else if(builtin_function_value.name == "sqrt"_S) {
+                if(function_call->parameters.length != 1) {
+                    error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.length);
+
+                    return err();
+                }
+
+                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[0]));
+
+                if(parameter_value.value.kind == RuntimeValueKind::ConstantValue) {
+                    auto constant_value = parameter_value.value.unwrap_constant_value();
+
+                    RegisterSize result_size;
+                    double value;
+                    if(parameter_value.type.kind == TypeKind::UndeterminedInteger) {
+                        if(constant_value.kind == ConstantValueKind::UndefConstant) {
+                            error(scope, function_call->parameters[0]->range, "Value is undefined");
+
+                            return err();
+                        }
+
+                        auto integer_value = constant_value.unwrap_integer();
+
+                        result_size = info.architecture_sizes.default_float_size;
+                        value = (double)integer_value;
+                    } else if(parameter_value.type.kind == TypeKind::UndeterminedFloat) {
+                        if(constant_value.kind == ConstantValueKind::UndefConstant) {
+                            error(scope, function_call->parameters[0]->range, "Value is undefined");
+
+                            return err();
+                        }
+
+                        result_size = info.architecture_sizes.default_float_size;
+                        value = constant_value.unwrap_float();
+                    } else if(parameter_value.type.kind == TypeKind::FloatType) {
+                        if(constant_value.kind == ConstantValueKind::UndefConstant) {
+                            error(scope, function_call->parameters[0]->range, "Value is undefined");
+
+                            return err();
+                        }
+
+                        result_size = parameter_value.type.float_.size;
+                        value = constant_value.unwrap_float();
+                    } else {
+                        error(scope, function_call->parameters[0]->range, "Expected a float type, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description()));
+
+                        return err();
+                    }
+
+                    auto result = sqrt(value);
+
+                    return ok(TypedRuntimeValue(
+                        AnyType(FloatType(result_size)),
+                        AnyRuntimeValue(AnyConstantValue(result))
+                    ));
+                } else {
+                    if(parameter_value.type.kind != TypeKind::FloatType) {
+                        error(scope, function_call->parameters[0]->range, "Expected a float type, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description()));
+
+                        return err();
+                    }
+
+                    auto ir_type = IRType::create_float(parameter_value.type.float_.size);
+
+                    size_t register_index;
+                    if(parameter_value.value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = parameter_value.value.register_;
+
+                        register_index = register_value.register_index;
+                    } else {
+                        auto addressed_value = parameter_value.value.unwrap_addressed_value();
+
+                        register_index = append_load(
+                            context,
+                            function_call->parameters[0]->range,
+                            addressed_value.pointer_register,
+                            ir_type
+                        );
+                    }
+
+                    auto return_register = allocate_register(context);
+
+                    IntrinsicCallInstruction::Parameter ir_parameter;
+                    ir_parameter.type = ir_type;
+                    ir_parameter.register_index = register_index;
+
+                    auto intrinsic_call_instruction = new IntrinsicCallInstruction;
+                    intrinsic_call_instruction->range = function_call->range;
+                    intrinsic_call_instruction->intrinsic = IntrinsicCallInstruction::Intrinsic::Sqrt;
+                    intrinsic_call_instruction->parameters = Array(1, heapify(ir_parameter));
+                    intrinsic_call_instruction->has_return = true;
+                    intrinsic_call_instruction->return_type = ir_type;
+                    intrinsic_call_instruction->return_register = return_register;
+
+                    context->instructions.append(intrinsic_call_instruction);
+
+                    return ok(TypedRuntimeValue(
+                        parameter_value.type,
+                        AnyRuntimeValue(RegisterValue(ir_type, return_register))
+                    ));
+                }
             } else {
                 abort();
             }
