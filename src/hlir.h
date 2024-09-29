@@ -651,7 +651,10 @@ struct RuntimeStatic {
 };
 
 struct DebugScope {
+    bool has_parent;
     size_t parent_scope_index;
+
+    FileRange range;
 };
 
 struct Function : RuntimeStatic {

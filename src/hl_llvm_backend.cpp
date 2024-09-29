@@ -1155,9 +1155,48 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     false
                 );
 
-                function_debug_scope = function_debug_scope;
-
                 LLVMSetSubprogram(function_value, function_debug_scope);
+
+                auto debug_variable_scopes = allocate<LLVMMetadataRef>(function->debug_scopes.length);
+
+                for(size_t i = 0; i < function->debug_scopes.length; i += 1) {
+                    debug_variable_scopes[i] = nullptr;
+                }
+
+                while(true) {
+                    auto work_done = false;
+                    for(size_t i = 0; i < function->debug_scopes.length; i += 1) {
+                        if(debug_variable_scopes[i] == nullptr) {
+                            auto debug_scope = function->debug_scopes[i];
+
+                            if(!debug_scope.has_parent) {
+                                debug_variable_scopes[i] = LLVMDIBuilderCreateLexicalBlock(
+                                    debug_builder,
+                                    function_debug_scope,
+                                    file_debug_scope,
+                                    debug_scope.range.first_line,
+                                    debug_scope.range.first_column
+                                );
+
+                                work_done = true;
+                            } else if(debug_variable_scopes[debug_scope.parent_scope_index] != nullptr) {
+                                debug_variable_scopes[i] = LLVMDIBuilderCreateLexicalBlock(
+                                    debug_builder,
+                                    debug_variable_scopes[debug_scope.parent_scope_index],
+                                    file_debug_scope,
+                                    debug_scope.range.first_line,
+                                    debug_scope.range.first_column
+                                );
+
+                                work_done = true;
+                            }
+                        }
+                    }
+
+                    if(!work_done) {
+                        break;
+                    }
+                }
 
                 LLVMPositionBuilderAtEnd(builder, entry_llvm_block);
 
@@ -1166,11 +1205,13 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         if(instruction->kind == InstructionKind::AllocateLocal) {
                             auto allocate_local = (AllocateLocal*)instruction;
 
+                            auto debug_variable_scope = debug_variable_scopes[instruction->debug_scope_index];
+
                             auto debug_location = LLVMDIBuilderCreateDebugLocation(
                                 LLVMGetGlobalContext(),
                                 allocate_local->range.first_line,
                                 allocate_local->range.first_column,
-                                function_debug_scope,
+                                debug_variable_scope,
                                 nullptr
                             );
 
@@ -1190,7 +1231,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                                 auto debug_variable = LLVMDIBuilderCreateAutoVariable(
                                     debug_builder,
-                                    function_debug_scope,
+                                    debug_variable_scope,
                                     (char*)allocate_local->debug_name.elements,
                                     allocate_local->debug_name.length,
                                     file_debug_scope,
@@ -1232,11 +1273,13 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     LLVMPositionBuilderAtEnd(builder, llvm_blocks[i]);
 
                     for(auto instruction : block->instructions) {
+                        auto debug_variable_scope = debug_variable_scopes[instruction->debug_scope_index];
+
                         auto debug_location = LLVMDIBuilderCreateDebugLocation(
                             LLVMGetGlobalContext(),
                             instruction->range.first_line,
                             instruction->range.first_column,
-                            function_debug_scope,
+                            debug_variable_scope,
                             nullptr
                         );
 

@@ -5549,7 +5549,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
                 DebugScope debug_scope {};
+                debug_scope.has_parent = true;
                 debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+                debug_scope.range = if_statement->range;
 
                 auto debug_scope_index = context->debug_scopes.append(debug_scope);
 
@@ -5608,7 +5610,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     assert(context->next_child_scope_index <= context->child_scopes.length);
 
                     DebugScope debug_scope {};
+                    debug_scope.has_parent = true;
                     debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+                    debug_scope.range = if_statement->range;
 
                     auto debug_scope_index = context->debug_scopes.append(debug_scope);
 
@@ -5635,7 +5639,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     assert(context->next_child_scope_index <= context->child_scopes.length);
 
                     DebugScope debug_scope {};
+                    debug_scope.has_parent = true;
                     debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+                    debug_scope.range = if_statement->range;
 
                     auto debug_scope_index = context->debug_scopes.append(debug_scope);
 
@@ -5699,7 +5705,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
                 DebugScope debug_scope {};
+                debug_scope.has_parent = true;
                 debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+                debug_scope.range = while_loop->range;
 
                 auto debug_scope_index = context->debug_scopes.append(debug_scope);
 
@@ -5843,7 +5851,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
                 DebugScope debug_scope {};
+                debug_scope.has_parent = true;
                 debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+                debug_scope.range = for_loop->range;
 
                 auto debug_scope_index = context->debug_scopes.append(debug_scope);
 
@@ -6156,6 +6166,8 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         context.next_register = runtime_parameter_count;
 
         DebugScope debug_scope {};
+        debug_scope.range = declaration->range;
+
         auto debug_scope_index = context.debug_scopes.append(debug_scope);
 
         VariableScope body_variable_scope {};
