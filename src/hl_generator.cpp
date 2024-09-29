@@ -101,6 +101,8 @@ struct VariableScope {
     ConstantScope* constant_scope;
 
     List<Variable> variables;
+
+    size_t debug_scope_index;
 };
 
 struct GenerationContext {
@@ -114,6 +116,8 @@ struct GenerationContext {
 
     List<VariableScope> variable_scope_stack;
 
+    List<DebugScope> debug_scopes;
+
     List<Block*> blocks;
     Block* current_block;
     List<Instruction*> instructions;
@@ -124,6 +128,7 @@ struct GenerationContext {
 };
 
 static Result<void> add_new_variable(GenerationContext* context, Identifier name, AnyType type, AddressedValue value) {
+    assert(context->variable_scope_stack.length != 0);
     auto variable_scope = &(context->variable_scope_stack[context->variable_scope_stack.length - 1]);
 
     for(auto variable : variable_scope->variables) {
@@ -171,8 +176,12 @@ static size_t append_integer_arithmetic_operation(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto integer_arithmetic_operation = new IntegerArithmeticOperation;
     integer_arithmetic_operation->range = range;
+    integer_arithmetic_operation->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_arithmetic_operation->operation = operation;
     integer_arithmetic_operation->source_register_a = source_register_a;
     integer_arithmetic_operation->source_register_b = source_register_b;
@@ -192,8 +201,12 @@ static size_t append_integer_comparison_operation(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto integer_comparison_operation = new IntegerComparisonOperation;
     integer_comparison_operation->range = range;
+    integer_comparison_operation->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_comparison_operation->operation = operation;
     integer_comparison_operation->source_register_a = source_register_a;
     integer_comparison_operation->source_register_b = source_register_b;
@@ -213,8 +226,12 @@ static size_t append_integer_extension(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto integer_extension = new IntegerExtension;
     integer_extension->range = range;
+    integer_extension->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_extension->is_signed = is_signed;
     integer_extension->source_register = source_register;
     integer_extension->destination_size = destination_size;
@@ -233,8 +250,12 @@ static size_t append_integer_truncation(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto integer_truncation = new IntegerTruncation;
     integer_truncation->range = range;
+    integer_truncation->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_truncation->source_register = source_register;
     integer_truncation->destination_size = destination_size;
     integer_truncation->destination_register = destination_register;
@@ -253,8 +274,12 @@ static size_t append_float_arithmetic_operation(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto float_arithmetic_operation = new FloatArithmeticOperation;
     float_arithmetic_operation->range = range;
+    float_arithmetic_operation->debug_scope_index = current_variable_scope.debug_scope_index;
     float_arithmetic_operation->operation = operation;
     float_arithmetic_operation->source_register_a = source_register_a;
     float_arithmetic_operation->source_register_b = source_register_b;
@@ -274,8 +299,12 @@ static size_t append_float_comparison_operation(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto float_comparison_operation = new FloatComparisonOperation;
     float_comparison_operation->range = range;
+    float_comparison_operation->debug_scope_index = current_variable_scope.debug_scope_index;
     float_comparison_operation->operation = operation;
     float_comparison_operation->source_register_a = source_register_a;
     float_comparison_operation->source_register_b = source_register_b;
@@ -294,8 +323,12 @@ static size_t append_float_conversion(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto float_conversion = new FloatConversion;
     float_conversion->range = range;
+    float_conversion->debug_scope_index = current_variable_scope.debug_scope_index;
     float_conversion->source_register = source_register;
     float_conversion->destination_size = destination_size;
     float_conversion->destination_register = destination_register;
@@ -314,8 +347,12 @@ static size_t append_float_from_integer(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto float_from_integer = new FloatFromInteger;
     float_from_integer->range = range;
+    float_from_integer->debug_scope_index = current_variable_scope.debug_scope_index;
     float_from_integer->is_signed = is_signed;
     float_from_integer->source_register = source_register;
     float_from_integer->destination_size = destination_size;
@@ -335,8 +372,12 @@ static size_t append_integer_from_float(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto integer_from_float = new IntegerFromFloat;
     integer_from_float->range = range;
+    integer_from_float->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_from_float->is_signed = is_signed;
     integer_from_float->source_register = source_register;
     integer_from_float->destination_size = destination_size;
@@ -355,8 +396,12 @@ static size_t append_pointer_equality(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto pointer_equality = new PointerEquality;
     pointer_equality->range = range;
+    pointer_equality->debug_scope_index = current_variable_scope.debug_scope_index;
     pointer_equality->source_register_a = source_register_a;
     pointer_equality->source_register_b = source_register_b;
     pointer_equality->destination_register = destination_register;
@@ -373,8 +418,12 @@ static size_t append_pointer_from_integer(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto pointer_from_integer = new PointerFromInteger;
     pointer_from_integer->range = range;
+    pointer_from_integer->debug_scope_index = current_variable_scope.debug_scope_index;
     pointer_from_integer->source_register = source_register;
     pointer_from_integer->destination_register = destination_register;
 
@@ -391,8 +440,12 @@ static size_t append_integer_from_pointer(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto integer_from_pointer = new IntegerFromPointer;
     integer_from_pointer->range = range;
+    integer_from_pointer->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_from_pointer->source_register = source_register;
     integer_from_pointer->destination_size = destination_size;
     integer_from_pointer->destination_register = destination_register;
@@ -411,8 +464,12 @@ static size_t append_boolean_arithmetic_operation(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto boolean_arithmetic_operation = new BooleanArithmeticOperation;
     boolean_arithmetic_operation->range = range;
+    boolean_arithmetic_operation->debug_scope_index = current_variable_scope.debug_scope_index;
     boolean_arithmetic_operation->operation = operation;
     boolean_arithmetic_operation->source_register_a = source_register_a;
     boolean_arithmetic_operation->source_register_b = source_register_b;
@@ -431,8 +488,12 @@ static size_t append_boolean_equality(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto boolean_equality = new BooleanEquality;
     boolean_equality->range = range;
+    boolean_equality->debug_scope_index = current_variable_scope.debug_scope_index;
     boolean_equality->source_register_a = source_register_a;
     boolean_equality->source_register_b = source_register_b;
     boolean_equality->destination_register = destination_register;
@@ -449,8 +510,12 @@ static size_t append_boolean_inversion(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto boolean_inversion = new BooleanInversion;
     boolean_inversion->range = range;
+    boolean_inversion->debug_scope_index = current_variable_scope.debug_scope_index;
     boolean_inversion->source_register = source_register;
     boolean_inversion->destination_register = destination_register;
 
@@ -466,8 +531,12 @@ static size_t append_assemble_static_array(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto assembly_static_array = new AssembleStaticArray;
     assembly_static_array->range = range;
+    assembly_static_array->debug_scope_index = current_variable_scope.debug_scope_index;
     assembly_static_array->element_registers = element_registers;
     assembly_static_array->destination_register = destination_register;
 
@@ -484,8 +553,12 @@ static size_t append_read_static_array_element(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto read_static_array_element = new ReadStaticArrayElement;
     read_static_array_element->range = range;
+    read_static_array_element->debug_scope_index = current_variable_scope.debug_scope_index;
     read_static_array_element->element_index = element_index;
     read_static_array_element->source_register = source_register;
     read_static_array_element->destination_register = destination_register;
@@ -502,8 +575,12 @@ static size_t append_assemble_struct(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto assemble_struct = new AssembleStruct;
     assemble_struct->range = range;
+    assemble_struct->debug_scope_index = current_variable_scope.debug_scope_index;
     assemble_struct->member_registers = member_registers;
     assemble_struct->destination_register = destination_register;
 
@@ -520,8 +597,12 @@ static size_t append_read_struct_member(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto read_read_struct_member = new ReadStructMember;
     read_read_struct_member->range = range;
+    read_read_struct_member->debug_scope_index = current_variable_scope.debug_scope_index;
     read_read_struct_member->member_index = member_index;
     read_read_struct_member->source_register = source_register;
     read_read_struct_member->destination_register = destination_register;
@@ -534,8 +615,12 @@ static size_t append_read_struct_member(
 static size_t append_literal(GenerationContext* context, FileRange range, IRType type, IRConstantValue value) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto literal = new Literal;
     literal->range = range;
+    literal->debug_scope_index = current_variable_scope.debug_scope_index;
     literal->destination_register = destination_register;
     literal->type = type;
     literal->value = value;
@@ -546,8 +631,12 @@ static size_t append_literal(GenerationContext* context, FileRange range, IRType
 }
 
 static void append_jump(GenerationContext* context, FileRange range, Block* destination_block) {
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto jump = new Jump;
     jump->range = range;
+    jump->debug_scope_index = current_variable_scope.debug_scope_index;
     jump->destination_block = destination_block;
 
     context->instructions.append(jump);
@@ -560,8 +649,12 @@ static void append_branch(
     Block* true_destination_block,
     Block* false_destination_block
 ) {
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto branch = new Branch;
     branch->range = range;
+    branch->debug_scope_index = current_variable_scope.debug_scope_index;
     branch->condition_register = condition_register;
     branch->true_destination_block = true_destination_block;
     branch->false_destination_block = false_destination_block;
@@ -576,8 +669,12 @@ static size_t append_allocate_local(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto allocate_local = new AllocateLocal;
     allocate_local->range = range;
+    allocate_local->debug_scope_index = current_variable_scope.debug_scope_index;
     allocate_local->type = type;
     allocate_local->destination_register = destination_register;
     allocate_local->has_debug_info = false;
@@ -596,8 +693,12 @@ static size_t append_allocate_local(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto allocate_local = new AllocateLocal;
     allocate_local->range = range;
+    allocate_local->debug_scope_index = current_variable_scope.debug_scope_index;
     allocate_local->type = type;
     allocate_local->destination_register = destination_register;
     allocate_local->has_debug_info = true;
@@ -617,8 +718,12 @@ static size_t append_load(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto load = new Load;
     load->range = range;
+    load->debug_scope_index = current_variable_scope.debug_scope_index;
     load->pointer_register = pointer_register;
     load->destination_type = destination_type;
     load->destination_register = destination_register;
@@ -634,8 +739,12 @@ static void append_store(
     size_t source_register,
     size_t pointer_register
 ) {
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto store = new Store;
     store->range = range;
+    store->debug_scope_index = current_variable_scope.debug_scope_index;
     store->source_register = source_register;
     store->pointer_register = pointer_register;
 
@@ -651,8 +760,12 @@ static size_t append_struct_member_pointer(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto struct_member_pointer = new StructMemberPointer;
     struct_member_pointer->range = range;
+    struct_member_pointer->debug_scope_index = current_variable_scope.debug_scope_index;
     struct_member_pointer->members = members;
     struct_member_pointer->member_index = member_index;
     struct_member_pointer->pointer_register = pointer_register;
@@ -672,8 +785,12 @@ static size_t append_pointer_index(
 ) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto pointer_index = new PointerIndex;
     pointer_index->range = range;
+    pointer_index->debug_scope_index = current_variable_scope.debug_scope_index;
     pointer_index->index_register = index_register;
     pointer_index->pointed_to_type = pointed_to_type;
     pointer_index->pointer_register = pointer_register;
@@ -687,8 +804,12 @@ static size_t append_pointer_index(
 static size_t append_reference_static(GenerationContext* context, FileRange range, RuntimeStatic* runtime_static) {
     auto destination_register = allocate_register(context);
 
+    assert(context->variable_scope_stack.length != 0);
+    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
     auto reference_static = new ReferenceStatic;
     reference_static->range = range;
+    reference_static->debug_scope_index = current_variable_scope.debug_scope_index;
     reference_static->runtime_static = runtime_static;
     reference_static->destination_register = destination_register;
 
@@ -3425,8 +3546,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             auto pointer_register = append_reference_static(context, function_call->range, runtime_function);
 
+            assert(context->variable_scope_stack.length != 0);
+            auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
             auto function_call_instruction = new FunctionCallInstruction;
             function_call_instruction->range = function_call->range;
+            function_call_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
             function_call_instruction->pointer_register = pointer_register;
             function_call_instruction->parameters = Array(function_type.parameters.length, instruction_parameters);
             function_call_instruction->has_return = has_ir_return;
@@ -3704,8 +3829,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     ir_parameter.type = ir_type;
                     ir_parameter.register_index = register_index;
 
+                    assert(context->variable_scope_stack.length != 0);
+                    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
                     auto intrinsic_call_instruction = new IntrinsicCallInstruction;
                     intrinsic_call_instruction->range = function_call->range;
+                    intrinsic_call_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
                     intrinsic_call_instruction->intrinsic = IntrinsicCallInstruction::Intrinsic::Sqrt;
                     intrinsic_call_instruction->parameters = Array(1, heapify(ir_parameter));
                     intrinsic_call_instruction->has_return = true;
@@ -3801,8 +3930,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return_ir_type = IRType::create_struct(Array(function_type.return_types.length, member_ir_types));
             }
 
+            assert(context->variable_scope_stack.length != 0);
+            auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
             auto function_call_instruction = new FunctionCallInstruction;
             function_call_instruction->range = function_call->range;
+            function_call_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
             function_call_instruction->pointer_register = pointer_register;
             function_call_instruction->parameters = Array(parameter_count, instruction_parameters);
             function_call_instruction->has_return = has_ir_return;
@@ -5412,8 +5545,17 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 context->next_child_scope_index += 1;
                 assert(context->next_child_scope_index <= context->child_scopes.length);
 
+                assert(context->variable_scope_stack.length != 0);
+                auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
+                DebugScope debug_scope {};
+                debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+
+                auto debug_scope_index = context->debug_scopes.append(debug_scope);
+
                 VariableScope if_variable_scope {};
                 if_variable_scope.constant_scope = if_scope;
+                if_variable_scope.debug_scope_index = debug_scope_index;
 
                 context->variable_scope_stack.append(if_variable_scope);
 
@@ -5465,8 +5607,14 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     context->next_child_scope_index += 1;
                     assert(context->next_child_scope_index <= context->child_scopes.length);
 
+                    DebugScope debug_scope {};
+                    debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+
+                    auto debug_scope_index = context->debug_scopes.append(debug_scope);
+
                     VariableScope else_if_variable_scope {};
                     else_if_variable_scope.constant_scope = else_if_scope;
+                    else_if_variable_scope.debug_scope_index = debug_scope_index;
 
                     context->variable_scope_stack.append(else_if_variable_scope);
 
@@ -5486,8 +5634,14 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     context->next_child_scope_index += 1;
                     assert(context->next_child_scope_index <= context->child_scopes.length);
 
+                    DebugScope debug_scope {};
+                    debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+
+                    auto debug_scope_index = context->debug_scopes.append(debug_scope);
+
                     VariableScope else_variable_scope {};
                     else_variable_scope.constant_scope = else_scope;
+                    else_variable_scope.debug_scope_index = debug_scope_index;
 
                     context->variable_scope_stack.append(else_variable_scope);
 
@@ -5541,8 +5695,17 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 context->next_child_scope_index += 1;
                 assert(context->next_child_scope_index <= context->child_scopes.length);
 
+                assert(context->variable_scope_stack.length != 0);
+                auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
+                DebugScope debug_scope {};
+                debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+
+                auto debug_scope_index = context->debug_scopes.append(debug_scope);
+
                 VariableScope while_variable_scope {};
                 while_variable_scope.constant_scope = while_scope;
+                while_variable_scope.debug_scope_index = debug_scope_index;
 
                 context->variable_scope_stack.append(while_variable_scope);
 
@@ -5676,8 +5839,17 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 context->next_child_scope_index += 1;
                 assert(context->next_child_scope_index <= context->child_scopes.length);
 
+                assert(context->variable_scope_stack.length != 0);
+                auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
+                DebugScope debug_scope {};
+                debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+
+                auto debug_scope_index = context->debug_scopes.append(debug_scope);
+
                 VariableScope for_variable_scope {};
                 for_variable_scope.constant_scope = for_scope;
+                for_variable_scope.debug_scope_index = debug_scope_index;
 
                 context->variable_scope_stack.append(for_variable_scope);
 
@@ -5728,8 +5900,12 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 unreachable = true;
 
+                assert(context->variable_scope_stack.length != 0);
+                auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
                 auto return_instruction = new ReturnInstruction;
                 return_instruction->range = return_statement->range;
+                return_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
 
                 if(return_statement->values.length != context->return_types.length) {
                     error(
@@ -5881,8 +6057,12 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     }
                 }
 
+                assert(context->variable_scope_stack.length != 0);
+                auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
                 auto assembly_instruction = new AssemblyInstruction;
                 assembly_instruction->range = inline_assembly->range;
+                assembly_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
                 assembly_instruction->assembly = inline_assembly->assembly;
                 assembly_instruction->bindings = Array(inline_assembly->bindings.length, bindings);
 
@@ -5975,8 +6155,12 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
         context.next_register = runtime_parameter_count;
 
+        DebugScope debug_scope {};
+        auto debug_scope_index = context.debug_scopes.append(debug_scope);
+
         VariableScope body_variable_scope {};
         body_variable_scope.constant_scope = value.body_scope;
+        body_variable_scope.debug_scope_index = debug_scope_index;
 
         context.variable_scope_stack.append(body_variable_scope);
 
@@ -6046,10 +6230,13 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
             } else {
                 auto return_instruction = new ReturnInstruction;
                 return_instruction->range = declaration->range;
+                return_instruction->debug_scope_index = debug_scope_index;
 
                 context.instructions.append(return_instruction);
             }
         }
+
+        function->debug_scopes = context.debug_scopes;
 
         context.current_block->instructions = context.instructions;
         context.blocks.append(context.current_block);
