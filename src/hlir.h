@@ -243,6 +243,8 @@ struct Instruction {
 
     FileRange range;
 
+    size_t debug_scope_index;
+
     void print(Array<Block*> blocks, bool has_return);
 };
 
@@ -648,6 +650,10 @@ struct RuntimeStatic {
     void print();
 };
 
+struct DebugScope {
+    size_t parent_scope_index;
+};
+
 struct Function : RuntimeStatic {
     Array<IRType> parameters;
 
@@ -661,6 +667,8 @@ struct Function : RuntimeStatic {
     Array<String> libraries;
 
     CallingConvention calling_convention;
+
+    Array<DebugScope> debug_scopes;
 
     inline Function() : RuntimeStatic { RuntimeStaticKind::Function } {}
 };
