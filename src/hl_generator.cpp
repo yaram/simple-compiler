@@ -819,7 +819,7 @@ static StaticConstant* register_static_constant(
     auto ir_value = get_runtime_ir_constant_value(value);
 
     auto constant = new StaticConstant;
-    constant->name = "static_constant"_S;
+    constant->name = u8"static_constant"_S;
     constant->is_no_mangle = false;
     constant->path = get_scope_file_path(*scope);
     constant->range = range;
@@ -1123,8 +1123,8 @@ static Result<RegisterValue> coerce_to_type_register(
 
             if(
                 undetermined_struct.members.length == 2 &&
-                undetermined_struct.members[0].name == "length"_S &&
-                undetermined_struct.members[1].name == "pointer"_S
+                undetermined_struct.members[0].name == u8"length"_S &&
+                undetermined_struct.members[1].name == u8"pointer"_S
             ) {
                 if(value.kind == RuntimeValueKind::ConstantValue) {
                     auto constant_value = value.constant;
@@ -2605,7 +2605,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             auto array_ir_type = get_array_ir_type(info.architecture_sizes, array_type);
 
-            if(member_reference->name.text == "length"_S) {
+            if(member_reference->name.text == u8"length"_S) {
                 AnyRuntimeValue value;
                 if(actual_value.kind == RuntimeValueKind::ConstantValue) {
                     if(expression_value.value.constant.kind == ConstantValueKind::ArrayConstant) {
@@ -2663,7 +2663,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     )),
                     value
                 ));
-            } else if(member_reference->name.text == "pointer"_S) {
+            } else if(member_reference->name.text == u8"pointer"_S) {
                 auto element_ir_type = get_ir_type(info.architecture_sizes, *array_type.element_type);
 
                 AnyRuntimeValue value;
@@ -2724,7 +2724,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             auto element_ir_type = get_ir_type(info.architecture_sizes, *static_array.element_type);
 
-            if(member_reference->name.text == "length"_S) {
+            if(member_reference->name.text == u8"length"_S) {
                 return ok(TypedRuntimeValue(
                     AnyType(Integer(
                         info.architecture_sizes.address_size,
@@ -2732,7 +2732,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     )),
                     AnyRuntimeValue(AnyConstantValue(static_array.length))
                 ));
-            } else if(member_reference->name.text == "pointer"_S) {
+            } else if(member_reference->name.text == u8"pointer"_S) {
                 size_t pointer_register;
                 if(actual_value.kind == RuntimeValueKind::ConstantValue) {
                     error(scope, member_reference->range, "Cannot take pointer to contents of constant static array");
@@ -3455,7 +3455,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             auto builtin_function_value = constant_value.unwrap_builtin_function();
 
-            if(builtin_function_value.name == "size_of"_S) {
+            if(builtin_function_value.name == u8"size_of"_S) {
                 if(function_call->parameters.length != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.length);
 
@@ -3488,7 +3488,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     )),
                     AnyRuntimeValue(AnyConstantValue(size))
                 ));
-            } else if(builtin_function_value.name == "type_of"_S) {
+            } else if(builtin_function_value.name == u8"type_of"_S) {
                 if(function_call->parameters.length != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.length);
 
@@ -3501,7 +3501,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     AnyType::AnyType::create_type_type(),
                     AnyRuntimeValue(AnyConstantValue(parameter_value.type))
                 ));
-            } else if(builtin_function_value.name == "globalify"_S) {
+            } else if(builtin_function_value.name == u8"globalify"_S) {
                 if(function_call->parameters.length != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1, got %zu", function_call->parameters.length);
 
@@ -3555,7 +3555,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     determined_type,
                     AnyRuntimeValue(AddressedValue(static_constant->type, pointer_register))
                 ));
-            } else if(builtin_function_value.name == "stackify"_S) {
+            } else if(builtin_function_value.name == u8"stackify"_S) {
                 if(function_call->parameters.length != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1, got %zu", function_call->parameters.length);
 
@@ -3618,7 +3618,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     determined_type,
                     AnyRuntimeValue(AddressedValue(ir_type, pointer_register))
                 ));
-            } else if(builtin_function_value.name == "sqrt"_S) {
+            } else if(builtin_function_value.name == u8"sqrt"_S) {
                 if(function_call->parameters.length != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.length);
 
@@ -4888,15 +4888,15 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         auto is_calling_convention_specified = false;
         auto calling_convention = CallingConvention::Default;
         for(auto tag : function_type->tags) {
-            if(tag.name.text == "extern"_S) {
+            if(tag.name.text == u8"extern"_S) {
                 error(scope, tag.range, "Function types cannot be external");
 
                 return err();
-            } else if(tag.name.text == "no_mangle"_S) {
+            } else if(tag.name.text == u8"no_mangle"_S) {
                 error(scope, tag.range, "Function types cannot be no_mangle");
 
                 return err();
-            } else if(tag.name.text == "call_conv"_S) {
+            } else if(tag.name.text == u8"call_conv"_S) {
                 if(is_calling_convention_specified) {
                     error(scope, tag.range, "Duplicate 'call_conv' tag");
 
@@ -4913,9 +4913,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 expect(calling_convention_name, array_to_string(scope, tag.parameters[0]->range, parameter.type, parameter.value));
 
-                if(calling_convention_name == "default"_S) {
+                if(calling_convention_name == u8"default"_S) {
                     calling_convention = CallingConvention::Default;
-                } else if(calling_convention_name == "stdcall"_S) {
+                } else if(calling_convention_name == u8"stdcall"_S) {
                     calling_convention = CallingConvention::StdCall;
                 }
 
@@ -5028,11 +5028,11 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 auto variable_declaration = (VariableDeclaration*)statement;
 
                 for(auto tag : variable_declaration->tags) {
-                    if(tag.name.text == "extern"_S) {
+                    if(tag.name.text == u8"extern"_S) {
                         error(scope, variable_declaration->range, "Local variables cannot be external");
 
                         return err();
-                    } else if(tag.name.text == "no_mangle"_S) {
+                    } else if(tag.name.text == u8"no_mangle"_S) {
                         error(scope, variable_declaration->range, "Local variables cannot be no_mangle");
 
                         return err();
@@ -5571,7 +5571,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 if(for_loop->has_index_name) {
                     index_name = for_loop->index_name;
                 } else {
-                    index_name.text = "it"_S;
+                    index_name.text = u8"it"_S;
                     index_name.range = for_loop->range;
                 }
 
@@ -6075,7 +6075,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
     Array<String> external_libraries;
     auto is_no_mangle = false;
     for(auto tag : declaration->tags) {
-        if(tag.name.text == "extern"_S) {
+        if(tag.name.text == u8"extern"_S) {
             if(is_external) {
                 error(scope, tag.range, "Duplicate 'extern' tag");
 
@@ -6142,7 +6142,7 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
 
             is_external = true;
             external_libraries = libraries;
-        } else if(tag.name.text == "no_mangle"_S) {
+        } else if(tag.name.text == u8"no_mangle"_S) {
             if(is_no_mangle) {
                 error(scope, tag.range, "Duplicate 'no_mangle' tag");
 

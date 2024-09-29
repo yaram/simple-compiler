@@ -32,7 +32,7 @@ String AnyConstantValue::get_description() {
 
         String string {};
         string.length = (size_t)length;
-        string.elements = buffer;
+        string.elements = (char8_t*)buffer;
 
         return string;
     } else if(kind == ConstantValueKind::FloatConstant) {
@@ -41,75 +41,75 @@ String AnyConstantValue::get_description() {
 
         String string {};
         string.length = (size_t)length;
-        string.elements = buffer;
+        string.elements = (char8_t*)buffer;
 
         return string;
     } else if(kind == ConstantValueKind::BooleanConstant) {
         if(boolean) {
-            return "true"_S;
+            return u8"true"_S;
         } else {
-            return "false"_S;
+            return u8"false"_S;
         }
     } else if(kind == ConstantValueKind::VoidConstant) {
-        return ""_S;
+        return u8""_S;
     } else if(kind == ConstantValueKind::ArrayConstant) {
         StringBuffer buffer {};
 
-        buffer.append("{ length = "_S);
+        buffer.append(u8"{ length = u8"_S);
         buffer.append(array.length->get_description());
-        buffer.append(", pointer = "_S);
+        buffer.append(u8", pointer = u8"_S);
         buffer.append(array.pointer->get_description());
-        buffer.append(" }"_S);
+        buffer.append(u8" }"_S);
 
         return buffer;
     } else if(kind == ConstantValueKind::StaticArrayConstant) {
         if(static_array.elements.length == 0) {
-            return "{}"_S;
+            return u8"{}"_S;
         }
 
         StringBuffer buffer {};
 
-        buffer.append("{ "_S);
+        buffer.append(u8"{ u8"_S);
 
         for(size_t i = 0; i < static_array.elements.length; i += 1) {
             buffer.append(static_array.elements[i].get_description());
 
             if(i != static_array.elements.length - 1) {
-                buffer.append(", "_S);
+                buffer.append(u8", u8"_S);
             }
         }
 
-        buffer.append(" }"_S);
+        buffer.append(u8" }"_S);
 
         return buffer;
     } else if(kind == ConstantValueKind::StructConstant) {
         if(struct_.members.length == 0) {
-            return "{}"_S;
+            return u8"{}"_S;
         }
 
         StringBuffer buffer {};
 
-        buffer.append("{ "_S);
+        buffer.append(u8"{ u8"_S);
 
         for(size_t i = 0; i < struct_.members.length; i += 1) {
-            buffer.append("? = "_S);
+            buffer.append(u8"? = u8"_S);
 
             buffer.append(struct_.members[i].get_description());
 
             if(i != struct_.members.length - 1) {
-                buffer.append(", "_S);
+                buffer.append(u8", u8"_S);
             }
         }
 
-        buffer.append(" }"_S);
+        buffer.append(u8" }"_S);
 
         return buffer;
     } else if(kind == ConstantValueKind::FileModuleConstant) {
-        return ""_S;
+        return u8""_S;
     } else if(kind == ConstantValueKind::TypeConstant) {
         return type.get_description();
     } else if(kind == ConstantValueKind::UndefConstant) {
-        return "undef"_S;
+        return u8"undef"_S;
     } else {
         abort();
     }
@@ -401,8 +401,8 @@ Result<AnyConstantValue> coerce_constant_to_type(
 
             if(
                 undetermined_struct.members.length == 2 &&
-                undetermined_struct.members[0].name == "length"_S &&
-                undetermined_struct.members[1].name == "pointer"_S
+                undetermined_struct.members[0].name == u8"length"_S &&
+                undetermined_struct.members[1].name == u8"pointer"_S
             ) {
                 auto undetermined_struct_value = (value.unwrap_struct());
 
@@ -2300,7 +2300,7 @@ Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType ty
         return err();
     }
 
-    auto data = allocate<char>(static_array_value.elements.length);
+    auto data = allocate<uint8_t>(static_array_value.elements.length);
     for(size_t i = 0; i < static_array_value.elements.length; i += 1) {
         auto element_value = static_array_value.elements[i];
 
@@ -2310,12 +2310,18 @@ Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType ty
             return err();
         }
 
-        data[i] = (char)element_value.unwrap_integer();
+        data[i] = (uint8_t)element_value.unwrap_integer();
+    }
+
+    if(!validate_utf8_string(data, static_array_value.elements.length).status) {
+        error(scope, range, "String value is not valid UTF-8");
+
+        return err();
     }
 
     String string {};
     string.length = static_array_value.elements.length;
-    string.elements = data;
+    string.elements = (char8_t*)data;
 
     return ok(string);
 }
@@ -2395,7 +2401,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             if(expression_value.value.kind == ConstantValueKind::ArrayConstant) {
                 auto array_value = (expression_value.value.unwrap_array());
 
-                if(member_reference->name.text == "length"_S) {
+                if(member_reference->name.text == u8"length"_S) {
                     return ok(TypedConstantValue(
                         AnyType(Integer(
                             info.architecture_sizes.address_size,
@@ -2403,7 +2409,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                         )),
                         AnyConstantValue(array_value.length)
                     ));
-                } else if(member_reference->name.text == "pointer"_S) {
+                } else if(member_reference->name.text == u8"pointer"_S) {
                     return ok(TypedConstantValue(
                         AnyType(Pointer(
                             array_type.element_type
@@ -2418,7 +2424,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             } else {
                 auto static_array_value = (expression_value.value.unwrap_static_array());
 
-                if(member_reference->name.text == "length"_S) {
+                if(member_reference->name.text == u8"length"_S) {
                     return ok(TypedConstantValue(
                         AnyType(Integer(
                             info.architecture_sizes.address_size,
@@ -2426,7 +2432,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                         )),
                         AnyConstantValue(static_array_value.elements.length)
                     ));
-                } else if(member_reference->name.text == "pointer"_S) {
+                } else if(member_reference->name.text == u8"pointer"_S) {
                     error(scope, member_reference->name.range, "Cannot take pointer to array with constant elements in constant context", member_reference->name.text);
 
                     return err();
@@ -2439,7 +2445,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         } else if(expression_value.type.kind == TypeKind::StaticArray) {
             auto static_array = expression_value.type.static_array;
 
-            if(member_reference->name.text == "length"_S) {
+            if(member_reference->name.text == u8"length"_S) {
                 return ok(TypedConstantValue(
                     AnyType(Integer(
                         info.architecture_sizes.address_size,
@@ -2447,7 +2453,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     )),
                     AnyConstantValue(static_array.length)
                 ));
-            } else if(member_reference->name.text == "pointer"_S) {
+            } else if(member_reference->name.text == u8"pointer"_S) {
                 error(scope, member_reference->name.range, "Cannot take pointer to static array in constant context", member_reference->name.text);
 
                 return err();
@@ -2714,7 +2720,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         } else if(expression_value.type.kind == TypeKind::BuiltinFunction) {
             auto builtin_function_value = expression_value.value.unwrap_builtin_function();
 
-            if(builtin_function_value.name == "size_of"_S) {
+            if(builtin_function_value.name == u8"size_of"_S) {
                 if(function_call->parameters.length != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.length);
 
@@ -2745,7 +2751,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     )),
                     AnyConstantValue(size)
                 ));
-            } else if(builtin_function_value.name == "type_of"_S) {
+            } else if(builtin_function_value.name == u8"type_of"_S) {
                 if(function_call->parameters.length != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.length);
 
@@ -2758,19 +2764,19 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     AnyType::create_type_type(),
                     AnyConstantValue(parameter_value.type)
                 ));
-            } else if(builtin_function_value.name == "memcpy"_S) {
+            } else if(builtin_function_value.name == u8"memcpy"_S) {
                 error(scope, function_call->range, "'memcpy' cannot be called in a constant context");
 
                 return err();
-            } else if(builtin_function_value.name == "globalify"_S) {
+            } else if(builtin_function_value.name == u8"globalify"_S) {
                 error(scope, function_call->range, "'globalify' cannot be called in a constant context");
 
                 return err();
-            } else if(builtin_function_value.name == "stackify"_S) {
+            } else if(builtin_function_value.name == u8"stackify"_S) {
                 error(scope, function_call->range, "'stackify' cannot be called in a constant context");
 
                 return err();
-            } else if(builtin_function_value.name == "sqrt"_S) {
+            } else if(builtin_function_value.name == u8"sqrt"_S) {
                 if(function_call->parameters.length != 1) {
                     error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.length);
 
@@ -3333,15 +3339,15 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         auto is_calling_convention_specified = false;
         auto calling_convention = CallingConvention::Default;
         for(auto tag : function_type->tags) {
-            if(tag.name.text == "extern"_S) {
+            if(tag.name.text == u8"extern"_S) {
                 error(scope, tag.range, "Function types cannot be external");
 
                 return err();
-            } else if(tag.name.text == "no_mangle"_S) {
+            } else if(tag.name.text == u8"no_mangle"_S) {
                 error(scope, tag.range, "Function types cannot be no_mangle");
 
                 return err();
-            } else if(tag.name.text == "call_conv"_S) {
+            } else if(tag.name.text == u8"call_conv"_S) {
                 if(is_calling_convention_specified) {
                     error(scope, tag.range, "Duplicate 'call_conv' tag");
 
@@ -3358,9 +3364,9 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
                 expect(calling_convention_name, array_to_string(scope, tag.parameters[0]->range, parameter.type, parameter.value));
 
-                if(calling_convention_name == "default"_S) {
+                if(calling_convention_name == u8"default"_S) {
                     calling_convention = CallingConvention::Default;
-                } else if(calling_convention_name == "stdcall"_S) {
+                } else if(calling_convention_name == u8"stdcall"_S) {
                     calling_convention = CallingConvention::StdCall;
                 }
 
@@ -3493,7 +3499,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
     auto is_calling_convention_specified = false;
     auto calling_convention = CallingConvention::Default;
     for(auto tag : declaration->tags) {
-        if(tag.name.text == "extern"_S) {
+        if(tag.name.text == u8"extern"_S) {
             if(is_external) {
                 error(scope, tag.range, "Duplicate 'extern' tag");
 
@@ -3566,7 +3572,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
 
             is_external = true;
             external_libraries = libraries;
-        } else if(tag.name.text == "no_mangle"_S) {
+        } else if(tag.name.text == u8"no_mangle"_S) {
             if(is_no_mangle) {
                 error(scope, tag.range, "Duplicate 'no_mangle' tag");
 
@@ -3574,7 +3580,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
             }
 
             is_no_mangle = true;
-        } else if(tag.name.text == "call_conv"_S) {
+        } else if(tag.name.text == u8"call_conv"_S) {
             if(is_calling_convention_specified) {
                 error(scope, tag.range, "Duplicate 'call_conv' tag");
 
@@ -3591,9 +3597,9 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
 
             expect(calling_convention_name, array_to_string(scope, tag.parameters[0]->range, parameter.type, parameter.value));
 
-            if(calling_convention_name == "default"_S) {
+            if(calling_convention_name == u8"default"_S) {
                 calling_convention = CallingConvention::Default;
-            } else if(calling_convention_name == "stdcall"_S) {
+            } else if(calling_convention_name == u8"stdcall"_S) {
                 calling_convention = CallingConvention::StdCall;
             }
 
@@ -3829,15 +3835,15 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
     }
 
     for(auto tag : declaration->tags) {
-        if(tag.name.text == "extern"_S) {
+        if(tag.name.text == u8"extern"_S) {
             error(scope, tag.range, "Polymorphic functions cannot be external");
 
             return err();
-        } else if(tag.name.text == "no_mangle"_S) {
+        } else if(tag.name.text == u8"no_mangle"_S) {
             error(scope, tag.range, "Polymorphic functions cannot be no_mangle");
 
             return err();
-        } else if(tag.name.text == "call_conv"_S) {
+        } else if(tag.name.text == u8"call_conv"_S) {
             error(scope, tag.range, "Polymorphic functions cannot have their calling convention specified");
 
             return err();

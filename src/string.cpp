@@ -3,11 +3,126 @@
 #include "util.h"
 #include "profiler.h"
 
-const String String::from_c_string(const char* c_string) {
+Result<void> validate_utf8_string(uint8_t* bytes, size_t length) {
+    size_t index = 0;
+    while(index < length) {
+        auto first_byte = bytes[index];
+        index += 1;
+
+        if(first_byte >> 7 == 0) {
+            // Definitely single-byte
+
+            continue;
+        }
+
+        // Definitely at least 2 bytes
+
+        if(first_byte >> 6 != 0b11) {
+            return err();
+        }
+
+        if(index == length) {
+            return err();
+        }
+
+        auto second_byte = bytes[index];
+        index += 1;
+
+        if(second_byte >> 6 != 0b10) {
+            return err();
+        }
+
+        if(first_byte >> 5 == 0b110) {
+            // Definitely 2 byte
+
+            auto codepoint = (((uint32_t)first_byte & 0b11111) << 6) | ((uint32_t)second_byte & 0b111111);
+
+            if(codepoint < 0x0080) {
+                return err();
+            }
+
+            continue;
+        }
+
+        // Definitely at least 3 bytes
+
+        if(index == length) {
+            return err();
+        }
+
+        auto third_byte = bytes[index];
+        index += 1;
+
+        if(third_byte >> 6 != 0b10) {
+            return err();
+        }
+
+        if(first_byte >> 4 == 0b1110) {
+            // Definitely 3 byte
+
+            auto codepoint =
+                (((uint32_t)first_byte & 0b1111) << 12) |
+                (((uint32_t)second_byte & 0b111111) << 6) |
+                ((uint32_t)third_byte & 0b111111)
+            ;
+
+            if(codepoint < 0x0800) {
+                return err();
+            }
+
+            continue;
+        }
+
+        // Definitely 4 byte
+
+        if(first_byte >> 3 != 0b11110) {
+            return err();
+        }
+
+        if(index == length) {
+            return err();
+        }
+
+        auto fourth_byte = bytes[index];
+        index += 1;
+
+        if(fourth_byte >> 6 != 0b10) {
+            return err();
+        }
+
+        auto codepoint =
+            (((uint32_t)first_byte & 0b111) << 18) |
+            (((uint32_t)second_byte & 0b111111) << 12) |
+            (((uint32_t)third_byte & 0b111111) << 6) |
+            ((uint32_t)fourth_byte & 0b111111)
+        ;
+
+        if(codepoint < 0x010000) {
+            return err();
+        }
+    }
+
+    return ok();
+}
+
+Result<size_t> validate_c_string(const char* c_string) {
+    auto length = strlen(c_string);
+
+    expect_void(validate_utf8_string((uint8_t*)c_string, length));
+
+    return ok(length);
+}
+
+const Result<String> String::from_c_string(const char* c_string) {
+    expect(length, validate_c_string(c_string));
+
+    auto elements = allocate<char8_t>(length);
+    memcpy(elements, c_string, length);
+
     String string {};
-    string.length = strlen(c_string);
-    string.elements = (char*)c_string;
-    return string;
+    string.length = length;
+    string.elements = elements;
+    return ok(string);
 }
 
 char* String::to_c_string() {
@@ -37,14 +152,14 @@ profiled_function_void(StringBuffer::append, (String string), (string)) {
     if(capacity == 0) {
         capacity = string.length + minimum_allocation;
 
-        elements = (char*)malloc(capacity);
+        elements = (char8_t*)malloc(capacity);
     } else {
         auto new_length = length + string.length;
 
         if(new_length > capacity) {
             auto new_capacity = new_length + minimum_allocation;
 
-            auto new_elements = (char*)realloc(elements, new_capacity);
+            auto new_elements = (char8_t*)realloc(elements, new_capacity);
 
             capacity = new_capacity;
             elements = new_elements;
@@ -56,21 +171,23 @@ profiled_function_void(StringBuffer::append, (String string), (string)) {
     length += string.length;
 }
 
-/*profiled_function_void(StringBuffer::append, (const char* c_string), (c_string)) {
+Result<void> StringBuffer::append_c_string(const char* c_string) {
+    expect(length, validate_c_string(c_string));
+
     String string {};
-    string.elements = (char*)c_string;
-    string.length = strlen(c_string);
+    string.length = length;
+    string.elements = (char8_t*)c_string;
 
     append(string);
-}*/
 
-static void int_to_string_buffer(char buffer[32], size_t* length, size_t value, size_t radix) {
+    return ok();
+}
+
+static size_t int_to_chars(char8_t buffer[32], size_t value, size_t radix) {
     if(value == 0) {
         buffer[0] = '0';
 
-        *length = 1;
-
-        return;
+        return 1;
     }
 
     size_t index = 0;
@@ -79,31 +196,32 @@ static void int_to_string_buffer(char buffer[32], size_t* length, size_t value, 
         auto digit_value = value % radix;
 
         if(digit_value < 10){
-            buffer[index] = (char)('0' + digit_value);
+            buffer[index] = (char8_t)('0' + digit_value);
         } else {
-            buffer[index] = (char)('A' + (digit_value - 10));
+            buffer[index] = (char8_t)('A' + (digit_value - 10));
         }
 
         value = value / radix;
         index += 1;
     }
 
-    *length = index;
+    auto length = index;
 
-    auto half_length = (*length - 1) / 2 + 1;
+    auto half_length = (length - 1) / 2 + 1;
 
     for(size_t i = 0; i < half_length; i += 1) {
         auto temp = buffer[i];
 
-        buffer[i] = buffer[*length - 1 - i];
-        buffer[*length - 1 - i] = temp;
+        buffer[i] = buffer[length - 1 - i];
+        buffer[length - 1 - i] = temp;
     }
+
+    return length;
 }
 
 void StringBuffer::append_integer(size_t number) {
-    char buffer[32];
-    size_t length;
-    int_to_string_buffer(buffer, &length, number, 10);
+    char8_t buffer[32];
+    auto length = int_to_chars(buffer, number, 10);
 
     String string {};
     string.length = length;
@@ -112,10 +230,37 @@ void StringBuffer::append_integer(size_t number) {
     append(string);
 }
 
-void StringBuffer::append_character(char character) {
+void StringBuffer::append_character(char32_t character) {
+    char8_t buffer[4];
+
+    auto codepoint = (uint32_t)character;
+
     String string {};
-    string.length = 1;
-    string.elements = &character;
+    string.elements = buffer;
+
+    if(codepoint >> 7 == 0) {
+        buffer[0] = (char8_t)codepoint;
+
+        string.length = 1;
+    } else if(codepoint >> 11 == 0) {
+        buffer[0] = (char8_t)(0b11000000 | (uint8_t)(codepoint >> 6));
+        buffer[1] = (char8_t)(0b10000000 | (uint8_t)(codepoint & 0b00111111));
+
+        string.length = 2;
+    } else if(codepoint >> 16 == 0) {
+        buffer[0] = (char8_t)(0b11100000 | (uint8_t)(codepoint >> 12));
+        buffer[1] = (char8_t)(0b10000000 | (uint8_t)((codepoint >> 6) & 0b00111111));
+        buffer[2] = (char8_t)(0b10000000 | (uint8_t)(codepoint & 0b00111111));
+
+        string.length = 3;
+    } else {
+        buffer[0] = (char8_t)(0b11110000 | (uint8_t)((codepoint >> 18) & 0b111));
+        buffer[1] = (char8_t)(0b10000000 | (uint8_t)((codepoint >> 12) & 0b00111111));
+        buffer[2] = (char8_t)(0b10000000 | (uint8_t)((codepoint >> 6) & 0b00111111));
+        buffer[3] = (char8_t)(0b10000000 | (uint8_t)(codepoint & 0b00111111));
+
+        string.length = 4;
+    }
 
     append(string);
 }

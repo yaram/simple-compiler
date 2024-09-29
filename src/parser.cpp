@@ -219,7 +219,7 @@ namespace {
 
                     expect(identifier, expect_identifier());
 
-                    if(identifier.text == "bake"_S) {
+                    if(identifier.text == u8"bake"_S) {
                         expect(expression, parse_expression(OperatorPrecedence::PrefixUnary));
 
                         if(expression->kind != ExpressionKind::FunctionCall) {
@@ -1301,7 +1301,7 @@ namespace {
                     } break;
 
                     case TokenKind::Identifier: {
-                        if(token.identifier == "as"_S) {
+                        if(token.identifier == u8"as"_S) {
                             if(OperatorPrecedence::Cast <= minimum_precedence) {
                                 done = true;
 
@@ -1571,15 +1571,15 @@ namespace {
 
                     consume_token();
 
-                    if(token.identifier == "import"_S) {
+                    if(token.identifier == u8"import"_S) {
                         expect(string, expect_string());
 
                         expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                        auto executable_path = get_executable_path();
-                        auto executable_directory = path_get_directory_component(executable_path);
+                        expect(executable_path, get_executable_path());
+                        expect(executable_directory, path_get_directory_component(executable_path));
 
-                        auto source_file_directory = path_get_directory_component(path);
+                        expect(source_file_directory, path_get_directory_component(path));
 
                         auto found_import_file = false;
                         String import_file_path;
@@ -1614,7 +1614,7 @@ namespace {
                         if(!found_import_file) {
                             StringBuffer buffer {};
                             buffer.append(executable_directory);
-                            buffer.append("../share/simple-compiler/runtime_"_S);
+                            buffer.append(u8"../share/simple-compiler/runtime_"_S);
                             buffer.append(string);
 
                             auto file_test = fopen(buffer.to_c_string(), "rb");
@@ -1635,7 +1635,7 @@ namespace {
 
                         expect(import_file_path_absolute, path_relative_to_absolute(import_file_path));
 
-                        auto name = path_get_file_component(string);
+                        expect(name, path_get_file_component(string));
 
                         for(size_t i = 0; i < name.length; i += 1) {
                             if(name[i] == '.') {
@@ -1649,7 +1649,7 @@ namespace {
                             import_file_path_absolute,
                             name
                         ));
-                    } else if(token.identifier == "if"_S) {
+                    } else if(token.identifier == u8"if"_S) {
                         expect(expression, parse_expression(OperatorPrecedence::None));
 
                         expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
@@ -1678,7 +1678,7 @@ namespace {
                             expression,
                             statements
                         ));
-                    } else if(token.identifier == "bake"_S) {
+                    } else if(token.identifier == u8"bake"_S) {
                         expect(expression, parse_expression(OperatorPrecedence::PrefixUnary));
 
                         if(expression->kind != ExpressionKind::FunctionCall) {
@@ -1710,7 +1710,7 @@ namespace {
                 case TokenKind::Identifier: {
                     consume_token();
 
-                    if(token.identifier == "if"_S) {
+                    if(token.identifier == u8"if"_S) {
                         expect(expression, parse_expression(OperatorPrecedence::None));
 
                         expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
@@ -1741,7 +1741,7 @@ namespace {
                         while(true) {
                             expect(token, peek_token());
 
-                            if(token.kind == TokenKind::Identifier && token.identifier == "else"_S) {
+                            if(token.kind == TokenKind::Identifier && token.identifier == u8"else"_S) {
                                 consume_token();
 
                                 expect(token, peek_token());
@@ -1770,7 +1770,7 @@ namespace {
                                     } break;
 
                                     case TokenKind::Identifier: {
-                                        if(token.identifier != "if"_S) {
+                                        if(token.identifier != u8"if"_S) {
                                             error("Expected '{' or 'if', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
 
                                             return err();
@@ -1829,7 +1829,7 @@ namespace {
                             else_ifs,
                             else_statements
                         ));
-                    } else if(token.identifier == "while"_S) {
+                    } else if(token.identifier == u8"while"_S) {
                         expect(expression, parse_expression(OperatorPrecedence::None));
 
                         expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
@@ -1858,7 +1858,7 @@ namespace {
                             expression,
                             statements
                         ));
-                    } else if(token.identifier == "for"_S) {
+                    } else if(token.identifier == u8"for"_S) {
                         expect(token, peek_token());
 
                         bool has_index_name;
@@ -1938,7 +1938,7 @@ namespace {
                                 statements
                             ));
                         }
-                    } else if(token.identifier == "return"_S) {
+                    } else if(token.identifier == u8"return"_S) {
                         expect(token, peek_token());
 
                         List<Expression*> values {};
@@ -1973,13 +1973,13 @@ namespace {
                             span_range(first_range, last_range),
                             values
                         ));
-                    } else if(token.identifier == "break"_S) {
+                    } else if(token.identifier == u8"break"_S) {
                         expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
                         return ok((Statement*)new BreakStatement(
                             span_range(first_range, last_range)
                         ));
-                    } else if(token.identifier == "asm"_S) {
+                    } else if(token.identifier == u8"asm"_S) {
                         expect(assembly, expect_string());
 
                         expect(token, peek_token());
@@ -2018,11 +2018,11 @@ namespace {
                             assembly,
                             bindings
                         ));
-                    } else if(token.identifier == "using"_S) {
+                    } else if(token.identifier == u8"using"_S) {
                         expect(maybe_export_token, peek_token());
 
                         auto export_ = false;
-                        if(maybe_export_token.kind == TokenKind::Identifier && maybe_export_token.identifier == "export"_S) {
+                        if(maybe_export_token.kind == TokenKind::Identifier && maybe_export_token.identifier == u8"export"_S) {
                             consume_token();
 
                             export_ = true;
@@ -2275,7 +2275,7 @@ namespace {
                                         case TokenKind::Identifier: {
                                             consume_token();
 
-                                            if(token.identifier == "struct"_S) {
+                                            if(token.identifier == u8"struct"_S) {
                                                 expect(maybe_parameter_token, peek_token());
 
                                                 List<StructDefinition::Parameter> parameters {};
@@ -2387,7 +2387,7 @@ namespace {
                                                     parameters,
                                                     members
                                                 ));
-                                            } else if(token.identifier == "union"_S) {
+                                            } else if(token.identifier == u8"union"_S) {
                                                 expect(maybe_parameter_token, peek_token());
 
                                                 List<UnionDefinition::Parameter> parameters {};
@@ -2499,7 +2499,7 @@ namespace {
                                                     parameters,
                                                     members
                                                 ));
-                                            } else if(token.identifier == "enum"_S) {
+                                            } else if(token.identifier == u8"enum"_S) {
                                                 expect(maybe_type_token, peek_token());
 
                                                 Expression* backing_type;

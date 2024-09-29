@@ -45,19 +45,19 @@ bool IRType::operator!=(IRType other) {
 inline String register_size_name(RegisterSize size){
     switch(size) {
         case RegisterSize::Size8: {
-            return "8"_S;
+            return u8"8"_S;
         } break;
 
         case RegisterSize::Size16: {
-            return "16"_S;
+            return u8"16"_S;
         } break;
 
         case RegisterSize::Size32: {
-            return "32"_S;
+            return u8"32"_S;
         } break;
 
         case RegisterSize::Size64: {
-            return "64"_S;
+            return u8"64"_S;
         } break;
 
         default: {

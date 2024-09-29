@@ -99,7 +99,7 @@ struct FileDebugScope {
     LLVMMetadataRef scope;
 };
 
-static LLVMMetadataRef get_file_debug_scope(LLVMDIBuilderRef debug_builder, List<FileDebugScope>* file_debug_scopes, String path) {
+static Result<LLVMMetadataRef> get_file_debug_scope(LLVMDIBuilderRef debug_builder, List<FileDebugScope>* file_debug_scopes, String path) {
     auto found = false;
     LLVMMetadataRef result;
     for(auto entry : *file_debug_scopes) {
@@ -112,13 +112,13 @@ static LLVMMetadataRef get_file_debug_scope(LLVMDIBuilderRef debug_builder, List
     }
 
     if(!found) {
-        auto directory = path_get_directory_component(path);
+        expect(directory, path_get_directory_component(path));
 
         result = LLVMDIBuilderCreateFile(
             debug_builder,
-            path.elements,
+            (char*)path.elements,
             path.length,
-            directory.elements,
+            (char*)directory.elements,
             directory.length
         );
 
@@ -129,7 +129,7 @@ static LLVMMetadataRef get_file_debug_scope(LLVMDIBuilderRef debug_builder, List
         file_debug_scopes->append(entry);
     }
 
-    return result;
+    return ok(result);
 }
 
 const LLVMDWARFTypeEncoding DW_ATE_address = 0x01;
@@ -151,7 +151,7 @@ const LLVMDWARFTypeEncoding DW_ATE_UTF = 0x10;
 const LLVMDWARFTypeEncoding DW_ATE_lo_user = 0x80;
 const LLVMDWARFTypeEncoding DW_ATE_hi_user = 0xFF;
 
-static LLVMMetadataRef get_llvm_debug_type(
+static Result<LLVMMetadataRef> get_llvm_debug_type(
     LLVMDIBuilderRef debug_builder,
     List<FileDebugScope>* file_debug_scopes,
     LLVMMetadataRef file_scope,
@@ -164,21 +164,25 @@ static LLVMMetadataRef get_llvm_debug_type(
         auto parameters = allocate<LLVMMetadataRef>(function.parameters.length);
 
         for(size_t i = 0; i < function.parameters.length; i += 1) {
-            parameters[i] = get_llvm_debug_type(debug_builder, file_debug_scopes, file_scope, architecture_sizes, function.parameters[i]);
+            expect(debug_type, get_llvm_debug_type(debug_builder, file_debug_scopes, file_scope, architecture_sizes, function.parameters[i]));
+
+            parameters[i] = debug_type;
         }
 
         LLVMMetadataRef return_llvm_debug_type;
         if(function.return_types.length == 0) {
-            auto name = "void"_S;
-            return_llvm_debug_type = LLVMDIBuilderCreateUnspecifiedType(debug_builder, name.elements, name.length);
+            auto name = u8"void"_S;
+            return_llvm_debug_type = LLVMDIBuilderCreateUnspecifiedType(debug_builder, (char*)name.elements, name.length);
         } else if(function.return_types.length == 1) {
-            return_llvm_debug_type = get_llvm_debug_type(
+            expect(debug_type, get_llvm_debug_type(
                 debug_builder,
                 file_debug_scopes,
                 file_scope,
                 architecture_sizes,
                 function.return_types[0]
-            );
+            ));
+
+            return_llvm_debug_type = debug_type;
         } else {
             auto elements = allocate<LLVMMetadataRef>(function.return_types.length);
 
@@ -186,13 +190,13 @@ static LLVMMetadataRef get_llvm_debug_type(
             size_t alignment = 0;
             size_t current_offset = 0;
             for(size_t i = 0; i < function.return_types.length; i += 1) {
-                auto return_debug_type = get_llvm_debug_type(
+                expect(return_debug_type, get_llvm_debug_type(
                     debug_builder,
                     file_debug_scopes,
                     file_scope,
                     architecture_sizes,
                     function.return_types[i]
-                );
+                ));
 
                 auto member_size = function.return_types[i].get_size(architecture_sizes);
                 auto member_alignment = function.return_types[i].get_alignment(architecture_sizes);
@@ -251,16 +255,16 @@ static LLVMMetadataRef get_llvm_debug_type(
             );
         }
 
-        return LLVMDIBuilderCreateSubroutineType(
+        return ok(LLVMDIBuilderCreateSubroutineType(
             debug_builder,
             file_scope,
             parameters,
             function.parameters.length,
             LLVMDIFlagZero
-        );
+        ));
     } else if(type.kind == TypeKind::Boolean) {
-        auto name = "bool"_S;
-        return LLVMDIBuilderCreateBasicType(debug_builder, name.elements, name.length, 8, DW_ATE_boolean, LLVMDIFlagZero);
+        auto name = u8"bool"_S;
+        return ok(LLVMDIBuilderCreateBasicType(debug_builder, (char*)name.elements, name.length, 8, DW_ATE_boolean, LLVMDIFlagZero));
     } else if(type.kind == TypeKind::Integer) {
         auto name = type.get_description();
 
@@ -273,35 +277,35 @@ static LLVMMetadataRef get_llvm_debug_type(
 
         auto size = register_size_to_byte_size(type.integer.size);
 
-        return LLVMDIBuilderCreateBasicType(debug_builder, name.elements, name.length, size * 8, encoding, LLVMDIFlagZero);
+        return ok(LLVMDIBuilderCreateBasicType(debug_builder, (char*)name.elements, name.length, size * 8, encoding, LLVMDIFlagZero));
     } else if(type.kind == TypeKind::FloatType) {
         auto name = type.get_description();
 
         auto size = register_size_to_byte_size(type.float_.size);
 
-        return LLVMDIBuilderCreateBasicType(debug_builder, name.elements, name.length, size * 8, DW_ATE_float, LLVMDIFlagZero);
+        return ok(LLVMDIBuilderCreateBasicType(debug_builder, (char*)name.elements, name.length, size * 8, DW_ATE_float, LLVMDIFlagZero));
     } else if(type.kind == TypeKind::Pointer) {
         auto name = type.get_description();
 
-        auto pointed_to_llvm_debug_type = get_llvm_debug_type(
+        expect(pointed_to_llvm_debug_type, get_llvm_debug_type(
             debug_builder,
             file_debug_scopes,
             file_scope,
             architecture_sizes,
             *type.pointer.pointed_to_type
-        );
+        ));
 
         auto size = register_size_to_byte_size(architecture_sizes.address_size);
 
-        return LLVMDIBuilderCreatePointerType(
+        return ok(LLVMDIBuilderCreatePointerType(
             debug_builder,
             pointed_to_llvm_debug_type,
             size * 8,
             0,
             0,
-            name.elements,
+            (char*)name.elements,
             name.length
-        );
+        ));
     } else if(type.kind == TypeKind::ArrayTypeType) {
         auto array = type.array;
 
@@ -309,31 +313,31 @@ static LLVMMetadataRef get_llvm_debug_type(
         auto size = type.get_size(architecture_sizes);
         auto alignment = type.get_alignment(architecture_sizes);
 
-        auto length_debug_type = get_llvm_debug_type(
+        expect(length_debug_type, get_llvm_debug_type(
             debug_builder,
             file_debug_scopes,
             file_scope,
             architecture_sizes,
             AnyType(Integer(architecture_sizes.address_size, false))
-        );
+        ));
 
-        auto pointer_debug_type = get_llvm_debug_type(
+        expect(pointer_debug_type, get_llvm_debug_type(
             debug_builder,
             file_debug_scopes,
             file_scope,
             architecture_sizes,
             AnyType(Pointer(array.element_type))
-        );
+        ));
 
         auto address_size_bits = register_size_to_byte_size(architecture_sizes.address_size) * 8;
 
         LLVMMetadataRef elements[2] {};
 
-        auto length_name = "length"_S;
+        auto length_name = u8"length"_S;
         elements[0] = LLVMDIBuilderCreateMemberType(
             debug_builder,
             file_scope,
-            length_name.elements,
+            (char*)length_name.elements,
             length_name.length,
             file_scope,
             0,
@@ -344,11 +348,11 @@ static LLVMMetadataRef get_llvm_debug_type(
             length_debug_type
         );
 
-        auto pointer_name = "length"_S;
+        auto pointer_name = u8"length"_S;
         elements[1] = LLVMDIBuilderCreateMemberType(
             debug_builder,
             file_scope,
-            pointer_name.elements,
+            (char*)pointer_name.elements,
             pointer_name.length,
             file_scope,
             0,
@@ -359,10 +363,10 @@ static LLVMMetadataRef get_llvm_debug_type(
             pointer_debug_type
         );
 
-        return LLVMDIBuilderCreateStructType(
+        return ok(LLVMDIBuilderCreateStructType(
             debug_builder,
             file_scope,
-            name.elements,
+            (char*)name.elements,
             name.length,
             file_scope,
             0,
@@ -376,38 +380,38 @@ static LLVMMetadataRef get_llvm_debug_type(
             nullptr,
             nullptr,
             0
-        );
+        ));
     } else if(type.kind == TypeKind::StaticArray) {
         auto static_array = type.static_array;
 
-        auto element_llvm_debug_type = get_llvm_debug_type(
+        expect(element_llvm_debug_type, get_llvm_debug_type(
             debug_builder,
             file_debug_scopes,
             file_scope,
             architecture_sizes,
             *static_array.element_type
-        );
+        ));
         auto element_type_size = static_array.element_type->get_size(architecture_sizes);
         auto element_type_align = static_array.element_type->get_alignment(architecture_sizes);
 
         auto subscript = LLVMDIBuilderGetOrCreateSubrange(debug_builder, 0, static_array.length);
 
-        return LLVMDIBuilderCreateArrayType(
+        return ok(LLVMDIBuilderCreateArrayType(
             debug_builder,
             element_type_size * static_array.length * 8,
             element_type_align * 8,
             element_llvm_debug_type,
             &subscript,
             1
-        );
+        ));
     } else if(type.kind == TypeKind::StructType) {
         auto struct_ = type.struct_;
 
-        auto struct_file_scope = get_file_debug_scope(
+        expect(struct_file_scope, get_file_debug_scope(
             debug_builder,
             file_debug_scopes,
             struct_.definition_file_path
-        );
+        ));
 
         auto size = struct_.get_size(architecture_sizes);
         auto alignment = struct_.get_alignment(architecture_sizes);
@@ -415,13 +419,13 @@ static LLVMMetadataRef get_llvm_debug_type(
         auto elements = allocate<LLVMMetadataRef>(struct_.members.length);
 
         for(size_t i = 0; i < struct_.members.length; i += 1) {
-            auto member_debug_type = get_llvm_debug_type(
+            expect(member_debug_type, get_llvm_debug_type(
                 debug_builder,
                 file_debug_scopes,
                 file_scope,
                 architecture_sizes,
                 struct_.members[i].type
-            );
+            ));
 
             auto member_size = struct_.members[i].type.get_size(architecture_sizes);
             auto member_alignment = struct_.members[i].type.get_alignment(architecture_sizes);
@@ -430,7 +434,7 @@ static LLVMMetadataRef get_llvm_debug_type(
             elements[i] = LLVMDIBuilderCreateMemberType(
                 debug_builder,
                 struct_file_scope,
-                struct_.members[i].name.elements,
+                (char*)struct_.members[i].name.elements,
                 struct_.members[i].name.length,
                 struct_file_scope,
                 struct_.definition->range.first_line,
@@ -442,10 +446,10 @@ static LLVMMetadataRef get_llvm_debug_type(
             );
         }
 
-        return LLVMDIBuilderCreateStructType(
+        return ok(LLVMDIBuilderCreateStructType(
             debug_builder,
             struct_file_scope,
-            struct_.definition->name.text.elements,
+            (char*)struct_.definition->name.text.elements,
             struct_.definition->name.text.length,
             struct_file_scope,
             struct_.definition->range.first_line,
@@ -459,15 +463,15 @@ static LLVMMetadataRef get_llvm_debug_type(
             nullptr,
             nullptr,
             0
-        );
+        ));
     } else if(type.kind == TypeKind::UnionType) {
         auto union_ = type.union_;
 
-        auto union_file_scope = get_file_debug_scope(
+        expect(union_file_scope, get_file_debug_scope(
             debug_builder,
             file_debug_scopes,
             union_.definition_file_path
-        );
+        ));
 
         auto size = union_.get_size(architecture_sizes);
         auto alignment = union_.get_alignment(architecture_sizes);
@@ -475,13 +479,13 @@ static LLVMMetadataRef get_llvm_debug_type(
         auto elements = allocate<LLVMMetadataRef>(union_.members.length);
 
         for(size_t i = 0; i < union_.members.length; i += 1) {
-            auto member_debug_type = get_llvm_debug_type(
+            expect(member_debug_type, get_llvm_debug_type(
                 debug_builder,
                 file_debug_scopes,
                 union_file_scope,
                 architecture_sizes,
                 union_.members[i].type
-            );
+            ));
 
             auto member_size = union_.members[i].type.get_size(architecture_sizes);
             auto member_alignment = union_.members[i].type.get_alignment(architecture_sizes);
@@ -489,7 +493,7 @@ static LLVMMetadataRef get_llvm_debug_type(
             elements[i] = LLVMDIBuilderCreateMemberType(
                 debug_builder,
                 union_file_scope,
-                union_.members[i].name.elements,
+                (char*)union_.members[i].name.elements,
                 union_.members[i].name.length,
                 union_file_scope,
                 union_.definition->range.first_line,
@@ -501,10 +505,10 @@ static LLVMMetadataRef get_llvm_debug_type(
             );
         }
 
-        return LLVMDIBuilderCreateUnionType(
+        return ok(LLVMDIBuilderCreateUnionType(
             debug_builder,
             union_file_scope,
-            union_.definition->name.text.elements,
+            (char*)union_.definition->name.text.elements,
             union_.definition->name.text.length,
             union_file_scope,
             union_.definition->range.first_line,
@@ -516,15 +520,15 @@ static LLVMMetadataRef get_llvm_debug_type(
             0,
             nullptr,
             0
-        );
+        ));
     } else if(type.kind == TypeKind::Enum) {
         auto enum_ = type.enum_;
 
-        auto enum_file_scope = get_file_debug_scope(
+        expect(enum_file_scope, get_file_debug_scope(
             debug_builder,
             file_debug_scopes,
             enum_.definition_file_path
-        );
+        ));
 
         auto size = register_size_to_byte_size(enum_.backing_type->size);
 
@@ -533,17 +537,17 @@ static LLVMMetadataRef get_llvm_debug_type(
         for(size_t i = 0; i < enum_.variant_values.length; i += 1) {
             elements[i] = LLVMDIBuilderCreateEnumerator(
                 debug_builder,
-                enum_.definition->variants[i].name.text.elements,
+                (char*)enum_.definition->variants[i].name.text.elements,
                 enum_.definition->variants[i].name.text.length,
                 (int64_t)enum_.variant_values[i],
                 !enum_.backing_type->is_signed
             );
         }
 
-        return LLVMDIBuilderCreateEnumerationType(
+        return ok(LLVMDIBuilderCreateEnumerationType(
             debug_builder,
             enum_file_scope,
-            enum_.definition->name.text.elements,
+            (char*)enum_.definition->name.text.elements,
             enum_.definition->name.text.length,
             enum_file_scope,
             enum_.definition->range.first_line,
@@ -552,10 +556,10 @@ static LLVMMetadataRef get_llvm_debug_type(
             elements,
             enum_.variant_values.length,
             nullptr
-        );
+        ));
     } else if(type.kind == TypeKind::Void) {
-        auto name = "void"_S;
-        return LLVMDIBuilderCreateUnspecifiedType(debug_builder, name.elements, name.length);
+        auto name = u8"void"_S;
+        return ok(LLVMDIBuilderCreateUnspecifiedType(debug_builder, (char*)name.elements, name.length));
     } else {
         abort();
     }
@@ -685,12 +689,12 @@ static Result<LLVMCallConv> get_llvm_calling_convention(
     String architecture,
     CallingConvention calling_convention
 ) {
-    if(architecture == "x86"_S) {
-        if(os == "linux"_S) {
+    if(architecture == u8"x86"_S) {
+        if(os == u8"linux"_S) {
             if(calling_convention == CallingConvention::Default) {
                 return ok(LLVMCallConv::LLVMCCallConv);
             }
-        } else if(os == "windows"_S) {
+        } else if(os == u8"windows"_S) {
             switch(calling_convention) {
                 case CallingConvention::Default: {
                     return ok(LLVMCallConv::LLVMCCallConv);
@@ -705,25 +709,25 @@ static Result<LLVMCallConv> get_llvm_calling_convention(
         } else {
             abort();
         }
-    } else if(architecture == "x64"_S) {
+    } else if(architecture == u8"x64"_S) {
         if(calling_convention == CallingConvention::Default) {
-            if(os == "linux"_S) {
+            if(os == u8"linux"_S) {
                 return ok(LLVMCallConv::LLVMX8664SysVCallConv);
-            } else if(os == "windows"_S) {
+            } else if(os == u8"windows"_S) {
                 return ok(LLVMCallConv::LLVMWin64CallConv);
             } else {
                 abort();
             }
         }
-    } else if(architecture == "riscv32"_S) {
+    } else if(architecture == u8"riscv32"_S) {
         if(calling_convention == CallingConvention::Default) {
             return ok(LLVMCallConv::LLVMCCallConv);
         }
-    } else if(architecture == "riscv64"_S) {
+    } else if(architecture == u8"riscv64"_S) {
         if(calling_convention == CallingConvention::Default) {
             return ok(LLVMCallConv::LLVMCCallConv);
         }
-    } else if(architecture == "wasm32"_S) {
+    } else if(architecture == u8"wasm32"_S) {
         if(calling_convention == CallingConvention::Default) {
             return ok(LLVMCallConv::LLVMCCallConv);
         }
@@ -838,7 +842,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             while(true) {
                 name_buffer.append(runtime_static->name);
                 if(number != 0) {
-                    name_buffer.append("_"_S);
+                    name_buffer.append(u8"_"_S);
                     name_buffer.append_integer(number);
                 }
 
@@ -886,12 +890,13 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
     List<FileDebugScope> file_debug_scopes {};
 
-    auto top_level_source_file_directory = path_get_directory_component(top_level_source_file_path);
+    expect(top_level_source_file_directory, path_get_directory_component(top_level_source_file_path));
+
     auto top_level_file_debug_scope = LLVMDIBuilderCreateFile(
         debug_builder,
-        top_level_source_file_path.elements,
+        (char*)top_level_source_file_path.elements,
         top_level_source_file_path.length,
-        top_level_source_file_directory.elements,
+        (char*)top_level_source_file_directory.elements,
         top_level_source_file_directory.length
     );
 
@@ -904,9 +909,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     }
 
     bool should_generate_debug_types;
-    if(config == "debug"_S) {
+    if(config == u8"debug"_S) {
         should_generate_debug_types = true;
-    } else if(config == "release"_S) {
+    } else if(config == u8"release"_S) {
         should_generate_debug_types = false;
     } else {
         abort();
@@ -919,12 +924,12 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         emission_kind = LLVMDWARFEmissionLineTablesOnly;
     }
 
-    auto producer_name = "simple-compiler"_S;
+    auto producer_name = u8"simple-compiler"_S;
     auto debug_compile_unit = LLVMDIBuilderCreateCompileUnit(
         debug_builder,
         LLVMDWARFSourceLanguageC_plus_plus,
         top_level_file_debug_scope,
-        producer_name.elements,
+        (char*)producer_name.elements,
         producer_name.length,
         false,
         nullptr,
@@ -959,7 +964,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         }
         assert(found);
 
-        auto file_debug_scope = get_file_debug_scope(debug_builder, &file_debug_scopes, runtime_static->path);
+        expect(file_debug_scope, get_file_debug_scope(debug_builder, &file_debug_scopes, runtime_static->path));
 
         LLVMValueRef global_value;
         if(runtime_static->kind == RuntimeStaticKind::Function) {
@@ -1002,22 +1007,22 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             auto constant_value_llvm = get_llvm_constant(architecture_sizes, constant->type, constant->value).value;
             LLVMSetInitializer(global_value, constant_value_llvm);
 
-            auto debug_type = get_llvm_debug_type(
+            expect(debug_type, get_llvm_debug_type(
                 debug_builder,
                 &file_debug_scopes,
                 file_debug_scope,
                 architecture_sizes,
                 constant->debug_type
-            );
+            ));
 
             auto debug_expression = LLVMDIBuilderCreateExpression(debug_builder, nullptr, 0);
 
             auto debug_variable_expression = LLVMDIBuilderCreateGlobalVariableExpression(
                 debug_builder,
                 file_debug_scope,
-                constant->name.elements,
+                (char*)constant->name.elements,
                 constant->name.length,
-                name.elements,
+                (char*)name.elements,
                 name.length,
                 file_debug_scope,
                 constant->range.first_line,
@@ -1044,22 +1049,22 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                 LLVMSetInitializer(global_value, initial_value_llvm);
             }
 
-            auto debug_type = get_llvm_debug_type(
+            expect(debug_type, get_llvm_debug_type(
                 debug_builder,
                 &file_debug_scopes,
                 file_debug_scope,
                 architecture_sizes,
                 variable->debug_type
-            );
+            ));
 
             auto debug_expression = LLVMDIBuilderCreateExpression(debug_builder, nullptr, 0);
 
             auto debug_variable_expression = LLVMDIBuilderCreateGlobalVariableExpression(
                 debug_builder,
                 file_debug_scope,
-                variable->name.elements,
+                (char*)variable->name.elements,
                 variable->name.length,
-                name.elements,
+                (char*)name.elements,
                 name.length,
                 file_debug_scope,
                 variable->range.first_line,
@@ -1107,7 +1112,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     auto block = function->blocks[i];
 
                     StringBuffer block_name {};
-                    block_name.append("block_"_S);
+                    block_name.append(u8"block_"_S);
                     block_name.append_integer(i);
 
                     llvm_blocks[i] = LLVMAppendBasicBlock(function_value, block_name.to_c_string());
@@ -1123,22 +1128,22 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                 List<Local> locals {};
 
-                auto file_debug_scope = get_file_debug_scope(debug_builder, &file_debug_scopes, function->path);
+                expect(file_debug_scope, get_file_debug_scope(debug_builder, &file_debug_scopes, function->path));
 
-                auto function_debug_type = get_llvm_debug_type(
+                expect(function_debug_type, get_llvm_debug_type(
                     debug_builder,
                     &file_debug_scopes,
                     file_debug_scope,
                     architecture_sizes,
                     function->debug_type
-                );
+                ));
 
                 auto function_debug_scope = LLVMDIBuilderCreateFunction(
                     debug_builder,
                     file_debug_scope,
-                    function->name.elements,
+                    (char*)function->name.elements,
                     function->name.length,
-                    link_name.elements,
+                    (char*)link_name.elements,
                     link_name.length,
                     file_debug_scope,
                     function->range.first_line,
@@ -1175,18 +1180,18 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                             if(!allocate_local->has_debug_info) {
                                 LLVMInstructionSetDebugLoc(pointer_value, debug_location);
                             } else if(should_generate_debug_types) {
-                                auto debug_type = get_llvm_debug_type(
+                                expect(debug_type, get_llvm_debug_type(
                                     debug_builder,
                                     &file_debug_scopes,
                                     file_debug_scope,
                                     architecture_sizes,
                                     allocate_local->debug_type
-                                );
+                                ));
 
                                 auto debug_variable = LLVMDIBuilderCreateAutoVariable(
                                     debug_builder,
                                     function_debug_scope,
-                                    allocate_local->debug_name.elements,
+                                    (char*)allocate_local->debug_name.elements,
                                     allocate_local->debug_name.length,
                                     file_debug_scope,
                                     allocate_local->range.first_line,
@@ -2156,7 +2161,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                                 constraints_buffer.append(binding.constraint);
                                 if(i != assembly_instruction->bindings.length - 1) {
-                                    constraints_buffer.append(","_S);
+                                    constraints_buffer.append(u8","_S);
                                 }
 
                                 auto value = get_register_value(*function, function_value, registers, binding.register_index);
@@ -2197,9 +2202,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             auto inline_assembly_value = LLVMGetInlineAsm(
                                 llvm_function_type,
-                                assembly_instruction->assembly.elements,
+                                (char*)assembly_instruction->assembly.elements,
                                 assembly_instruction->assembly.length,
-                                constraints_buffer.elements,
+                                (char*)constraints_buffer.elements,
                                 constraints_buffer.length,
                                 false,
                                 false,
@@ -2281,19 +2286,19 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     auto triple = get_llvm_triple(architecture, os, toolchain);
 
     LLVMTargetRef target;
-    if(architecture == "x86"_S || architecture == "x64"_S) {
+    if(architecture == u8"x86"_S || architecture == u8"x64"_S) {
         LLVMInitializeX86TargetInfo();
         LLVMInitializeX86Target();
         LLVMInitializeX86TargetMC();
         LLVMInitializeX86AsmParser();
         LLVMInitializeX86AsmPrinter();
-    } else if(architecture == "riscv32"_S || architecture == "riscv64"_S) {
+    } else if(architecture == u8"riscv32"_S || architecture == u8"riscv64"_S) {
         LLVMInitializeRISCVTargetInfo();
         LLVMInitializeRISCVTarget();
         LLVMInitializeRISCVTargetMC();
         LLVMInitializeRISCVAsmParser();
         LLVMInitializeRISCVAsmPrinter();
-    } else if(architecture == "wasm32"_S) {
+    } else if(architecture == u8"wasm32"_S) {
         LLVMInitializeWebAssemblyTargetInfo();
         LLVMInitializeWebAssemblyTarget();
         LLVMInitializeWebAssemblyTargetMC();
@@ -2309,9 +2314,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     auto features = get_llvm_features(architecture);
 
     LLVMCodeGenOptLevel optimization_level;
-    if(config == "debug"_S) {
+    if(config == u8"debug"_S) {
         optimization_level = LLVMCodeGenOptLevel::LLVMCodeGenLevelNone;
-    } else if(config == "release"_S) {
+    } else if(config == u8"release"_S) {
         optimization_level = LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault;
     } else {
         abort();

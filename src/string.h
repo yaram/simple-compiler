@@ -1,17 +1,22 @@
 #pragma once
 
+#include <stdint.h>
 #include "array.h"
+#include "result.h"
 
-// Must contain valid ASCII
-struct String : Array<char> {
-    static const String from_c_string(const char* c_string);
+Result<void> validate_utf8_string(uint8_t* bytes, size_t length);
+Result<size_t> validate_c_string(const char* c_string);
+
+// Must contain valid UTF-8
+struct String : Array<char8_t> {
+    static const Result<String> from_c_string(const char* c_string);
     char* to_c_string();
 
     inline String slice(size_t index, size_t length) {
         assert(index + length <= this->length);
 
         String result {};
-        result.elements = (char*)((size_t)elements + index);
+        result.elements = (char8_t*)((size_t)elements + index);
         result.length = length;
 
         return result;
@@ -27,20 +32,20 @@ struct String : Array<char> {
     bool operator!=(String other);
 };
 
-inline const String operator "" _S(const char* data, size_t length) {
+inline const String operator "" _S(const char8_t* data, size_t length) {
     String string {};
     string.length = length;
-    string.elements = (char*)data;
+    string.elements = (char8_t*)data;
     return string;
 }
 
-#define STRING_PRINTF_ARGUMENTS(string) (int)(string).length, (string).elements
+#define STRING_PRINTF_ARGUMENTS(string) (int)(string).length, (char*)(string).elements
 
 struct StringBuffer : String {
     size_t capacity;
 
     void append(String string);
-    //void append(String c_string);
+    Result<void> append_c_string(const char* c_string);
     void append_integer(size_t number);
-    void append_character(char character);
+    void append_character(char32_t character);
 };

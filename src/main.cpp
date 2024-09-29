@@ -17,16 +17,16 @@
 
 inline String get_default_output_file(String os, bool no_link) {
     if(no_link) {
-        return "out.o"_S;
+        return u8"out.o"_S;
     } else {
-        if(os == "windows"_S) {
-            return "out.exe"_S;
-        } else if(os == "emscripten"_S) {
-            return "out.js"_S;
-        } else if(os == "wasi"_S) {
-            return "out.wasm"_S;
+        if(os == u8"windows"_S) {
+            return u8"out.exe"_S;
+        } else if(os == u8"emscripten"_S) {
+            return u8"out.js"_S;
+        } else if(os == u8"wasi"_S) {
+            return u8"out.wasm"_S;
         } else {
-            return "out"_S;
+            return u8"out"_S;
         }
     }
 }
@@ -99,7 +99,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     auto has_toolchain = false;
     String toolchain;
 
-    auto config = "debug"_S;
+    auto config = u8"debug"_S;
 
     auto no_link = false;
     auto print_ast = false;
@@ -112,7 +112,15 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
         if(argument_index == arguments.length - 1 && argument[0] != '-') {
             has_source_file_path = true;
-            source_file_path = String::from_c_string(argument);
+
+            auto result = String::from_c_string(argument);
+            if(!result.status) {
+                fprintf(stderr, "Error: Invalid source file path '%s'\n", argument);
+
+                return err();
+            }
+
+            source_file_path = result.value;
         } else if(strcmp(argument, "-output") == 0) {
             argument_index += 1;
 
@@ -124,7 +132,15 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             }
 
             has_output_file_path = true;
-            output_file_path = String::from_c_string(arguments[argument_index]);
+
+            auto result = String::from_c_string(arguments[argument_index]);
+            if(!result.status) {
+                fprintf(stderr, "Error: Invalid output file path '%s'\n", arguments[argument_index]);
+
+                return err();
+            }
+
+            output_file_path = result.value;
         } else if(strcmp(argument, "-arch") == 0) {
             argument_index += 1;
 
@@ -135,7 +151,15 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 return err();
             }
 
-            architecture = String::from_c_string(arguments[argument_index]);
+            auto result = String::from_c_string(arguments[argument_index]);
+            if(!result.status) {
+                fprintf(stderr, "Error: '%s' is not a valid '-arch' option value\n\n", arguments[argument_index]);
+                print_help_message(stderr);
+
+                return err();
+            }
+
+            architecture = result.value;
         } else if(strcmp(argument, "-os") == 0) {
             argument_index += 1;
 
@@ -146,7 +170,15 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 return err();
             }
 
-            os = String::from_c_string(arguments[argument_index]);
+            auto result = String::from_c_string(arguments[argument_index]);
+            if(!result.status) {
+                fprintf(stderr, "Error: '%s' is not a valid '-os' option value\n\n", arguments[argument_index]);
+                print_help_message(stderr);
+
+                return err();
+            }
+
+            os = result.value;
         } else if(strcmp(argument, "-toolchain") == 0) {
             has_toolchain = true;
 
@@ -159,7 +191,15 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 return err();
             }
 
-            toolchain = String::from_c_string(arguments[argument_index]);
+            auto result = String::from_c_string(arguments[argument_index]);
+            if(!result.status) {
+                fprintf(stderr, "Error: '%s' is not a valid '-toolchain' option value\n\n", arguments[argument_index]);
+                print_help_message(stderr);
+
+                return err();
+            }
+
+            toolchain = result.value;
         } else if(strcmp(argument, "-config") == 0) {
             argument_index += 1;
 
@@ -170,7 +210,15 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 return err();
             }
 
-            config = String::from_c_string(arguments[argument_index]);
+            auto result = String::from_c_string(arguments[argument_index]);
+            if(!result.status) {
+                fprintf(stderr, "Error: '%s' is not a valid '-config' option value\n\n", arguments[argument_index]);
+                print_help_message(stderr);
+
+                return err();
+            }
+
+            config = result.value;
         } else if(strcmp(argument, "-no-link") == 0) {
             no_link = true;
         } else if(strcmp(argument, "-print-ast") == 0) {
@@ -194,8 +242,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     }
 
     if(
-        config == "debug"_S &&
-        config == "release"_S
+        config == u8"debug"_S &&
+        config == u8"release"_S
     ) {
         fprintf(stderr, "Error: Unknown config '%.*s'\n\n", STRING_PRINTF_ARGUMENTS(config));
         print_help_message(stderr);
@@ -258,176 +306,176 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
     List<GlobalConstant> global_constants {};
 
-    append_base_integer_type(&global_constants, "u8"_S, RegisterSize::Size8, false);
-    append_base_integer_type(&global_constants, "u16"_S, RegisterSize::Size16, false);
-    append_base_integer_type(&global_constants, "u32"_S, RegisterSize::Size32, false);
-    append_base_integer_type(&global_constants, "u64"_S, RegisterSize::Size64, false);
+    append_base_integer_type(&global_constants, u8"u8"_S, RegisterSize::Size8, false);
+    append_base_integer_type(&global_constants, u8"u16"_S, RegisterSize::Size16, false);
+    append_base_integer_type(&global_constants, u8"u32"_S, RegisterSize::Size32, false);
+    append_base_integer_type(&global_constants, u8"u64"_S, RegisterSize::Size64, false);
 
-    append_base_integer_type(&global_constants, "i8"_S, RegisterSize::Size8, true);
-    append_base_integer_type(&global_constants, "i16"_S, RegisterSize::Size16, true);
-    append_base_integer_type(&global_constants, "i32"_S, RegisterSize::Size32, true);
-    append_base_integer_type(&global_constants, "i64"_S, RegisterSize::Size64, true);
+    append_base_integer_type(&global_constants, u8"i8"_S, RegisterSize::Size8, true);
+    append_base_integer_type(&global_constants, u8"i16"_S, RegisterSize::Size16, true);
+    append_base_integer_type(&global_constants, u8"i32"_S, RegisterSize::Size32, true);
+    append_base_integer_type(&global_constants, u8"i64"_S, RegisterSize::Size64, true);
 
-    append_base_integer_type(&global_constants, "usize"_S, architecture_sizes.address_size, false);
-    append_base_integer_type(&global_constants, "isize"_S, architecture_sizes.address_size, true);
+    append_base_integer_type(&global_constants, u8"usize"_S, architecture_sizes.address_size, false);
+    append_base_integer_type(&global_constants, u8"isize"_S, architecture_sizes.address_size, true);
 
-    append_base_integer_type(&global_constants, "uint"_S, architecture_sizes.default_integer_size, false);
-    append_base_integer_type(&global_constants, "int"_S, architecture_sizes.default_integer_size, true);
+    append_base_integer_type(&global_constants, u8"uint"_S, architecture_sizes.default_integer_size, false);
+    append_base_integer_type(&global_constants, u8"int"_S, architecture_sizes.default_integer_size, true);
 
     append_global_type(
         &global_constants,
-        "bool"_S,
+        u8"bool"_S,
         AnyType::create_boolean()
     );
 
     append_global_type(
         &global_constants,
-        "void"_S,
+        u8"void"_S,
         AnyType::create_void()
     );
 
     append_global_type(
         &global_constants,
-        "f32"_S,
+        u8"f32"_S,
         AnyType(FloatType(RegisterSize::Size32))
     );
 
     append_global_type(
         &global_constants,
-        "f64"_S,
+        u8"f64"_S,
         AnyType(FloatType(RegisterSize::Size64))
     );
 
     append_global_type(
         &global_constants,
-        "float"_S,
+        u8"float"_S,
         AnyType(FloatType(architecture_sizes.default_float_size))
     );
 
     append_global_constant(
         &global_constants,
-        "true"_S,
+        u8"true"_S,
         AnyType::create_boolean(),
         AnyConstantValue(true)
     );
 
     append_global_constant(
         &global_constants,
-        "false"_S,
+        u8"false"_S,
         AnyType::create_boolean(),
         AnyConstantValue(false)
     );
 
     append_global_type(
         &global_constants,
-        "type"_S,
+        u8"type"_S,
         AnyType::create_type_type()
     );
 
     append_global_constant(
         &global_constants,
-        "undef"_S,
+        u8"undef"_S,
         AnyType::create_undef(),
         AnyConstantValue::create_undef()
     );
 
-    append_builtin(&global_constants, "size_of"_S);
-    append_builtin(&global_constants, "type_of"_S);
+    append_builtin(&global_constants, u8"size_of"_S);
+    append_builtin(&global_constants, u8"type_of"_S);
 
-    append_builtin(&global_constants, "globalify"_S);
-    append_builtin(&global_constants, "stackify"_S);
+    append_builtin(&global_constants, u8"globalify"_S);
+    append_builtin(&global_constants, u8"stackify"_S);
 
-    append_builtin(&global_constants, "sqrt"_S);
+    append_builtin(&global_constants, u8"sqrt"_S);
 
     append_global_constant(
         &global_constants,
-        "X86"_S,
+        u8"X86"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(architecture == "x86"_S)
+        AnyConstantValue(architecture == u8"x86"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "X64"_S,
+        u8"X64"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(architecture == "x64"_S)
+        AnyConstantValue(architecture == u8"x64"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "RISCV32"_S,
+        u8"RISCV32"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(architecture == "riscv32"_S)
+        AnyConstantValue(architecture == u8"riscv32"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "RISCV64"_S,
+        u8"RISCV64"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(architecture == "riscv64"_S)
+        AnyConstantValue(architecture == u8"riscv64"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "WASM32"_S,
+        u8"WASM32"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(config == "wasm32"_S)
+        AnyConstantValue(config == u8"wasm32"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "WINDOWS"_S,
+        u8"WINDOWS"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(os == "windows"_S)
+        AnyConstantValue(os == u8"windows"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "LINUX"_S,
+        u8"LINUX"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(os == "linux"_S)
+        AnyConstantValue(os == u8"linux"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "EMSCRIPTEN"_S,
+        u8"EMSCRIPTEN"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(os == "emscripten"_S)
+        AnyConstantValue(os == u8"emscripten"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "WASI"_S,
+        u8"WASI"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(os == "wasi"_S)
+        AnyConstantValue(os == u8"wasi"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "GNU"_S,
+        u8"GNU"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(toolchain == "gnu"_S)
+        AnyConstantValue(toolchain == u8"gnu"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "MSVC"_S,
+        u8"MSVC"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(toolchain == "msvc"_S)
+        AnyConstantValue(toolchain == u8"msvc"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "DEBUG"_S,
+        u8"DEBUG"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(config == "debug"_S)
+        AnyConstantValue(config == u8"debug"_S)
     );
 
     append_global_constant(
         &global_constants,
-        "RELEASE"_S,
+        u8"RELEASE"_S,
         AnyType::create_boolean(),
-        AnyConstantValue(config == "release"_S)
+        AnyConstantValue(config == u8"release"_S)
     );
 
     GlobalInfo info {
@@ -450,8 +498,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     List<RuntimeStatic*> runtime_statics {};
     List<String> libraries {};
 
-    if(os == "windows"_S || os == "mingw"_S) {
-        libraries.append("kernel32"_S);
+    if(os == u8"windows"_S || os == u8"mingw"_S) {
+        libraries.append(u8"kernel32"_S);
     }
 
     auto main_function_state = JobState::Waiting;
@@ -967,8 +1015,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 auto result = search_for_name(
                     info,
                     &jobs,
-                    "main"_S,
-                    calculate_string_hash("main"_S),
+                    u8"main"_S,
+                    calculate_string_hash(u8"main"_S),
                     scope,
                     scope->statements,
                     scope->declarations,
@@ -1161,13 +1209,13 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         return err();
     }
 
-    auto output_file_directory = path_get_directory_component(output_file_path);
+    expect(output_file_directory, path_get_directory_component(output_file_path));
 
     String object_file_path;
     if(no_link) {
         object_file_path = output_file_path;
     } else {
-        auto full_name = path_get_file_component(output_file_path);
+        expect(full_name, path_get_file_component(output_file_path));
 
         auto found_dot = false;
         size_t dot_index;
@@ -1186,7 +1234,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             auto length = dot_index;
 
             if(length == 0) {
-                output_file_name = "out"_S;
+                output_file_name = u8"out"_S;
             } else {
                 output_file_name = {};
                 output_file_name.elements = full_name.elements;
@@ -1198,7 +1246,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
         buffer.append(output_file_directory);
         buffer.append(output_file_name);
-        buffer.append(".o"_S);
+        buffer.append(u8".o"_S);
 
         object_file_path = buffer;
     }
@@ -1208,17 +1256,17 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     {
         List<String> reserved_names {};
 
-        if(os == "emscripten"_S) {
-            reserved_names.append("main"_S);
-        } else if(os == "wasi"_S) {
-            reserved_names.append("_start"_S);
+        if(os == u8"emscripten"_S) {
+            reserved_names.append(u8"main"_S);
+        } else if(os == u8"wasi"_S) {
+            reserved_names.append(u8"_start"_S);
         } else {
-            reserved_names.append("entry"_S);
+            reserved_names.append(u8"entry"_S);
         }
 
-        if(os == "windows"_S) {
-            reserved_names.append("_fltused"_S);
-            reserved_names.append("__chkstk"_S);
+        if(os == u8"windows"_S) {
+            reserved_names.append(u8"_fltused"_S);
+            reserved_names.append(u8"__chkstk"_S);
         }
 
         auto start_time = get_timer_counts();
@@ -1258,33 +1306,33 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         StringBuffer command_buffer {};
 
         String frontend;
-        if(os == "emscripten"_S) {
-            frontend = "emcc"_S;
+        if(os == u8"emscripten"_S) {
+            frontend = u8"emcc"_S;
         } else {
-            frontend = "clang"_S;
+            frontend = u8"clang"_S;
         }
 
         String linker_options;
-        if(os == "windows"_S) {
-            if(toolchain == "msvc"_S) {
-                if(config == "debug"_S) {
-                    linker_options = "/entry:entry,/DEBUG,/SUBSYSTEM:CONSOLE"_S;
-                } else if(config == "release"_S) {
-                    linker_options = "/entry:entry,/SUBSYSTEM:CONSOLE"_S;
+        if(os == u8"windows"_S) {
+            if(toolchain == u8"msvc"_S) {
+                if(config == u8"debug"_S) {
+                    linker_options = u8"/entry:entry,/DEBUG,/SUBSYSTEM:CONSOLE"_S;
+                } else if(config == u8"release"_S) {
+                    linker_options = u8"/entry:entry,/SUBSYSTEM:CONSOLE"_S;
                 } else {
                     abort();
                 }
-            } else if(toolchain == "gnu"_S) {
-                linker_options = "--entry=entry,--subsystem=console"_S;
+            } else if(toolchain == u8"gnu"_S) {
+                linker_options = u8"--entry=entry,--subsystem=console"_S;
             } else {
                 abort();
             }
-        } else if(os == "emscripten"_S) {
-            linker_options = ""_S;
-        } else if(os == "wasi"_S) {
-            linker_options = ""_S;
+        } else if(os == u8"emscripten"_S) {
+            linker_options = u8""_S;
+        } else if(os == u8"wasi"_S) {
+            linker_options = u8""_S;
         } else {
-            linker_options = "--entry=entry"_S;
+            linker_options = u8"--entry=entry"_S;
         }
 
         auto triple = get_llvm_triple(architecture, os, toolchain);
@@ -1292,51 +1340,51 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
         command_buffer.append(frontend);
 
-        if(os == "linux"_S) {
-            command_buffer.append(" -pie"_S);
+        if(os == u8"linux"_S) {
+            command_buffer.append(u8" -pie"_S);
         }
 
-        command_buffer.append(" -nostdlib -fuse-ld=lld --target="_S);
+        command_buffer.append(u8" -nostdlib -fuse-ld=lld --target="_S);
 
         command_buffer.append(triple);
 
-        command_buffer.append(" -march="_S);
+        command_buffer.append(u8" -march="_S);
 
         command_buffer.append(features);
 
         if(linker_options.length != 0) {
-            command_buffer.append(" -Wl,"_S); 
+            command_buffer.append(u8" -Wl,"_S); 
             command_buffer.append(linker_options);
         }
 
-        command_buffer.append(" -o"_S);
+        command_buffer.append(u8" -o"_S);
         command_buffer.append(output_file_path);
         
         for(auto library : libraries) {
-            command_buffer.append(" -l"_S);
+            command_buffer.append(u8" -l"_S);
             command_buffer.append(library);
         }
 
-        if(os == "emscripten"_S) {
-            command_buffer.append(" -lcompiler_rt"_S);
+        if(os == u8"emscripten"_S) {
+            command_buffer.append(u8" -lcompiler_rt"_S);
         }
 
-        command_buffer.append(" "_S);
+        command_buffer.append(u8" "_S);
         command_buffer.append(object_file_path);
 
-        auto executable_path = get_executable_path();
-        auto executable_directory = path_get_directory_component(executable_path);
+        expect(executable_path, get_executable_path());
+        expect(executable_directory, path_get_directory_component(executable_path));
 
         auto found_runtime_source = false;
         String runtime_source_path;
         {
             StringBuffer buffer {};
             buffer.append(executable_directory);
-            buffer.append("runtime_"_S);
+            buffer.append(u8"runtime_"_S);
             buffer.append(os);
-            buffer.append("_"_S);
+            buffer.append(u8"_"_S);
             buffer.append(architecture);
-            buffer.append(".c"_S);
+            buffer.append(u8".c"_S);
 
             auto file_test = fopen(buffer.to_c_string(), "rb");
 
@@ -1350,11 +1398,11 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         if(!found_runtime_source) {
             StringBuffer buffer {};
             buffer.append(executable_directory);
-            buffer.append("../share/simple-compiler/runtime_"_S);
+            buffer.append(u8"../share/simple-compiler/runtime_"_S);
             buffer.append(os);
-            buffer.append("_"_S);
+            buffer.append(u8"_"_S);
             buffer.append(architecture);
-            buffer.append(".c"_S);
+            buffer.append(u8".c"_S);
 
             auto file_test = fopen(buffer.to_c_string(), "rb");
 
@@ -1372,20 +1420,20 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
         StringBuffer runtime_command_buffer {};
 
-        runtime_command_buffer.append("clang -std=gnu99 -ffreestanding -nostdinc -c -target "_S);
+        runtime_command_buffer.append(u8"clang -std=gnu99 -ffreestanding -nostdinc -c -target "_S);
 
         runtime_command_buffer.append(triple);
 
-        command_buffer.append(" -march="_S);
+        command_buffer.append(u8" -march="_S);
 
         command_buffer.append(features);
 
-        runtime_command_buffer.append(" -DMAIN="_S);
+        runtime_command_buffer.append(u8" -DMAIN="_S);
         runtime_command_buffer.append(main_function_name);
         
-        runtime_command_buffer.append(" -o "_S);
+        runtime_command_buffer.append(u8" -o "_S);
         runtime_command_buffer.append(output_file_directory);
-        runtime_command_buffer.append("runtime.o "_S);
+        runtime_command_buffer.append(u8"runtime.o "_S);
 
         runtime_command_buffer.append(runtime_source_path);
 
@@ -1397,9 +1445,9 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         }
         leave_region();
 
-        command_buffer.append(" "_S);
+        command_buffer.append(u8" "_S);
         command_buffer.append(output_file_directory);
-        command_buffer.append("runtime.o"_S);
+        command_buffer.append(u8"runtime.o"_S);
 
         enter_region("linker");
 

@@ -19,78 +19,88 @@ Result<String> path_relative_to_absolute(String path) {
         return err();
     }
 
-    auto output_buffer_size = strlen(absolute_path);
-    auto output_buffer = allocate<char>(output_buffer_size);
-    memcpy(output_buffer, absolute_path, output_buffer_size);
+    auto result = String::from_c_string(absolute_path);
 
-    String string {};
-    string.length = output_buffer_size;
-    string.elements = output_buffer;
+    if(!result.status) {
+        fprintf(stderr, "Invalid path %.*s\n", STRING_PRINTF_ARGUMENTS(path));
 
-    return ok(string);
+        return err();
+    }
+
+    return ok(result.value);
 }
 
-String path_get_file_component(String path) {
-    char input_buffer[PATH_MAX];
+Result<String> path_get_file_component(String path) {
     if(path.length >= PATH_MAX - 1) {
-        memcpy(input_buffer, path.elements, PATH_MAX - 1);
-        input_buffer[PATH_MAX - 1] = '\0';
-    } else {
-        memcpy(input_buffer, path.elements, path.length);
-        input_buffer[path.length] = '\0';
+        fprintf(stderr, "Invalid path %.*s\n", STRING_PRINTF_ARGUMENTS(path));
+
+        return err();
     }
+
+    char input_buffer[PATH_MAX];
+
+    memcpy(input_buffer, path.elements, path.length);
+    input_buffer[path.length] = '\0';
 
     auto path_file = basename(input_buffer);
 
-    auto output_buffer_size = strlen(path_file);
-    auto output_buffer = allocate<char>(output_buffer_size);
-    memcpy(output_buffer, path_file, output_buffer_size);
+    auto result = String::from_c_string(path_file);
 
-    String string {};
-    string.length = output_buffer_size;
-    string.elements = output_buffer;
+    if(!result.status) {
+        fprintf(stderr, "Invalid path %.*s\n", STRING_PRINTF_ARGUMENTS(path));
 
-    return string;
+        return err();
+    }
+
+    return ok(result.value);
 }
 
-String path_get_directory_component(String path) {
-    char input_buffer[PATH_MAX];
+Result<String> path_get_directory_component(String path) {
     if(path.length >= PATH_MAX - 1) {
-        memcpy(input_buffer, path.elements, PATH_MAX - 1);
-        input_buffer[PATH_MAX - 1] = '\0';
-    } else {
-        memcpy(input_buffer, path.elements, path.length);
-        input_buffer[path.length] = '\0';
+        fprintf(stderr, "Invalid path %.*s\n", STRING_PRINTF_ARGUMENTS(path));
+
+        return err();
     }
+
+    char input_buffer[PATH_MAX];
+
+    memcpy(input_buffer, path.elements, path.length);
+    input_buffer[path.length] = '\0';
 
     auto path_directory = dirname(input_buffer);
 
-    auto output_buffer_size = strlen(path_directory) + 1;
-    auto output_buffer = allocate<char>(output_buffer_size);
-    memcpy(output_buffer, path_directory, output_buffer_size);
-    output_buffer[output_buffer_size - 1] = '/';
+    StringBuffer buffer {};
 
-    String string {};
-    string.length = output_buffer_size;
-    string.elements = output_buffer;
+    buffer.append_c_string(path_directory);
+    buffer.append_character('/');
 
-    return string;
+    return ok((String)buffer);
 }
 
 #if defined(OS_LINUX)
 #include <unistd.h>
 
-String get_executable_path() {
-    const auto buffer_size = 1024;
-    auto buffer = allocate<char>(buffer_size);
-    auto result = readlink("/proc/self/exe", buffer, buffer_size);
-    assert(result != -1);
+Result<String> get_executable_path() {
+    auto buffer = allocate<char>(PATH_MAX);
+    auto result = readlink("/proc/self/exe", buffer, PATH_MAX);
+    if(result == -1) {
+        fprintf(stderr, "Cannot get executable path\n");
+
+        return err();
+    }
+
+    auto utf8_result = validate_utf8_string((uint8_t*)buffer, (size_t)result);
+    if(!utf8_result.status) {
+        fprintf(stderr, "Cannot get executable path\n");
+
+        return err();
+    }
 
     String string {};
     string.length = (size_t)result;
-    string.elements = buffer;
+    string.elements = (char8_t*)buffer;
 
-    return string;
+    return ok(string);
 }
 #endif
 

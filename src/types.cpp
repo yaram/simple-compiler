@@ -148,44 +148,44 @@ String AnyType::get_description() {
     if(kind == TypeKind::FunctionTypeType) {
         StringBuffer buffer {};
 
-        buffer.append("("_S);
+        buffer.append(u8"("_S);
 
         for(size_t i = 0; i < function.parameters.length; i += 1) {
             buffer.append(function.parameters[i].get_description());
 
             if(i != function.parameters.length - 1) {
-                buffer.append(","_S);
+                buffer.append(u8","_S);
             }
         }
 
-        buffer.append(")"_S);
+        buffer.append(u8")"_S);
 
         if(function.return_types.length != 0) {
-            buffer.append(" -> "_S);
+            buffer.append(u8" -> "_S);
 
             if(function.return_types.length == 1) {
                 buffer.append(function.return_types[0].get_description());
             } else {
-                buffer.append("("_S);
+                buffer.append(u8"("_S);
 
                 for(size_t i = 0; i < function.return_types.length; i += 1) {
                     buffer.append(function.return_types[i].get_description());
 
                     if(i != function.return_types.length - 1) {
-                        buffer.append(","_S);
+                        buffer.append(u8","_S);
                     }
                 }
 
-                buffer.append(")"_S);
+                buffer.append(u8")"_S);
             }
         }
 
         if(function.calling_convention != CallingConvention::Default) {
-            buffer.append(" #call_conv(\""_S);
+            buffer.append(u8" #call_conv(\""_S);
 
             switch(function.calling_convention) {
                 case CallingConvention::StdCall: {
-                    buffer.append("stdcall"_S);
+                    buffer.append(u8"stdcall"_S);
                 } break;
 
                 default: {
@@ -193,31 +193,31 @@ String AnyType::get_description() {
                 }
             }
 
-            buffer.append("\")"_S);
+            buffer.append(u8"\")"_S);
         }
 
         return buffer;
     } else if(kind == TypeKind::PolymorphicFunction) {
-        return "{function}"_S;
+        return u8"{function}"_S;
     } else if(kind == TypeKind::BuiltinFunction) {
-        return "{builtin}"_S;
+        return u8"{builtin}"_S;
     } else if(kind == TypeKind::Integer) {
         if(integer.is_signed) {
             switch(integer.size) {
                 case RegisterSize::Size8: {
-                    return "i8"_S;
+                    return u8"i8"_S;
                 } break;
 
                 case RegisterSize::Size16: {
-                    return "i16"_S;
+                    return u8"i16"_S;
                 } break;
 
                 case RegisterSize::Size32: {
-                    return "i32"_S;
+                    return u8"i32"_S;
                 } break;
 
                 case RegisterSize::Size64: {
-                    return "i64"_S;
+                    return u8"i64"_S;
                 } break;
 
                 default: {
@@ -227,19 +227,19 @@ String AnyType::get_description() {
         } else {
             switch(integer.size) {
                 case RegisterSize::Size8: {
-                    return "u8"_S;
+                    return u8"u8"_S;
                 } break;
 
                 case RegisterSize::Size16: {
-                    return "u16"_S;
+                    return u8"u16"_S;
                 } break;
 
                 case RegisterSize::Size32: {
-                    return "u32"_S;
+                    return u8"u32"_S;
                 } break;
 
                 case RegisterSize::Size64: {
-                    return "u64"_S;
+                    return u8"u64"_S;
                 } break;
 
                 default: {
@@ -248,17 +248,17 @@ String AnyType::get_description() {
             }
         }
     } else if(kind == TypeKind::UndeterminedInteger) {
-        return "{integer}"_S;
+        return u8"{integer}"_S;
     } else if(kind == TypeKind::Boolean) {
-        return "bool"_S;
+        return u8"bool"_S;
     } else if(kind == TypeKind::FloatType) {
         switch(float_.size) {
             case RegisterSize::Size32: {
-                return "f32"_S;
+                return u8"f32"_S;
             } break;
 
             case RegisterSize::Size64: {
-                return "f64"_S;
+                return u8"f64"_S;
             } break;
 
             default: {
@@ -266,31 +266,31 @@ String AnyType::get_description() {
             } break;
         }
     } else if(kind == TypeKind::UndeterminedFloat) {
-        return "{float}"_S;
+        return u8"{float}"_S;
     } else if(kind == TypeKind::Type) {
-        return "{type}"_S;
+        return u8"{type}"_S;
     } else if(kind == TypeKind::Void) {
-        return "void"_S;
+        return u8"void"_S;
     } else if(kind == TypeKind::Pointer) {
         StringBuffer buffer {};
 
-        buffer.append("*"_S);
+        buffer.append(u8"*"_S);
         buffer.append(pointer.pointed_to_type->get_description());
 
         return buffer;
     } else if(kind == TypeKind::ArrayTypeType) {
         StringBuffer buffer {};
 
-        buffer.append("[]"_S);
+        buffer.append(u8"[]"_S);
         buffer.append(array.element_type->get_description());
 
         return buffer;
     } else if(kind == TypeKind::StaticArray) {
         StringBuffer buffer {};
 
-        buffer.append("["_S);
+        buffer.append(u8"["_S);
         buffer.append_integer(static_array.length);
-        buffer.append("]"_S);
+        buffer.append(u8"]"_S);
         buffer.append(static_array.element_type->get_description());
 
         return buffer;
@@ -303,15 +303,15 @@ String AnyType::get_description() {
     } else if(kind == TypeKind::PolymorphicUnion) {
         return polymorphic_union.definition->name.text;
     } else if(kind == TypeKind::UndeterminedStruct) {
-        return "{struct}"_S;
+        return u8"{struct}"_S;
     } else if(kind == TypeKind::Enum) {
         return enum_.definition->name.text;
     } else if(kind == TypeKind::FileModule) {
-        return "{module}"_S;
+        return u8"{module}"_S;
     } else if(kind == TypeKind::Undef) {
-        return "{undefined value}"_S;
+        return u8"{undefined value}"_S;
     } else if(kind == TypeKind::MultiReturn) {
-        return "{multiple returns}"_S;
+        return u8"{multiple returns}"_S;
     } else {
         abort();
     }

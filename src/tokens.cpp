@@ -177,151 +177,151 @@ void Token::print() {
 String Token::get_text() {
     switch(kind) {
         case TokenKind::Dot: {
-            return "."_S;
+            return u8"."_S;
         } break;
 
         case TokenKind::DoubleDot: {
-            return ".."_S;
+            return u8".."_S;
         } break;
 
         case TokenKind::Comma: {
-            return ","_S;
+            return u8","_S;
         } break;
 
         case TokenKind::Colon: {
-            return ":"_S;
+            return u8":"_S;
         } break;
 
         case TokenKind::Semicolon: {
-            return ";"_S;
+            return u8";"_S;
         } break;
 
         case TokenKind::Plus: {
-            return "+"_S;
+            return u8"+"_S;
         } break;
 
         case TokenKind::Dash: {
-            return "-"_S;
+            return u8"-"_S;
         } break;
 
         case TokenKind::Asterisk: {
-            return "*"_S;
+            return u8"*"_S;
         } break;
 
         case TokenKind::ForwardSlash: {
-            return "/"_S;
+            return u8"/"_S;
         } break;
 
         case TokenKind::Percent: {
-            return "%"_S;
+            return u8"%"_S;
         } break;
 
         case TokenKind::Equals: {
-            return "="_S;
+            return u8"="_S;
         } break;
 
         case TokenKind::DoubleEquals: {
-            return "=="_S;
+            return u8"=="_S;
         } break;
 
         case TokenKind::BangEquals: {
-            return "!="_S;
+            return u8"!="_S;
         } break;
 
         case TokenKind::PlusEquals: {
-            return "+="_S;
+            return u8"+="_S;
         } break;
 
         case TokenKind::DashEquals: {
-            return "-="_S;
+            return u8"-="_S;
         } break;
 
         case TokenKind::AsteriskEquals: {
-            return "*="_S;
+            return u8"*="_S;
         } break;
 
         case TokenKind::ForwardSlashEquals: {
-            return "/="_S;
+            return u8"/="_S;
         } break;
 
         case TokenKind::PercentEquals: {
-            return "%="_S;
+            return u8"%="_S;
         } break;
 
         case TokenKind::LeftArrow: {
-            return "<"_S;
+            return u8"<"_S;
         } break;
 
         case TokenKind::DoubleLeftArrow: {
-            return "<<"_S;
+            return u8"<<"_S;
         } break;
 
         case TokenKind::RightArrow: {
-            return ">"_S;
+            return u8">"_S;
         } break;
 
         case TokenKind::DoubleRightArrow: {
-            return ">>"_S;
+            return u8">>"_S;
         } break;
 
         case TokenKind::Ampersand: {
-            return "&"_S;
+            return u8"&"_S;
         } break;
 
         case TokenKind::DoubleAmpersand: {
-            return "&&"_S;
+            return u8"&&"_S;
         } break;
 
         case TokenKind::At: {
-            return "@"_S;
+            return u8"@"_S;
         } break;
 
         case TokenKind::Pipe: {
-            return "|"_S;
+            return u8"|"_S;
         } break;
 
         case TokenKind::DoublePipe: {
-            return "||"_S;
+            return u8"||"_S;
         } break;
 
         case TokenKind::Hash: {
-            return "#"_S;
+            return u8"#"_S;
         } break;
 
         case TokenKind::Bang: {
-            return "!"_S;
+            return u8"!"_S;
         } break;
 
         case TokenKind::Arrow: {
-            return "->"_S;
+            return u8"->"_S;
         } break;
 
         case TokenKind::Dollar: {
-            return "$"_S;
+            return u8"$"_S;
         } break;
 
         case TokenKind::OpenRoundBracket: {
-            return "("_S;
+            return u8"("_S;
         } break;
 
         case TokenKind::CloseRoundBracket: {
-            return ")"_S;
+            return u8")"_S;
         } break;
 
         case TokenKind::OpenCurlyBracket: {
-            return "{"_S;
+            return u8"{"_S;
         } break;
 
         case TokenKind::CloseCurlyBracket: {
-            return "}"_S;
+            return u8"}"_S;
         } break;
 
         case TokenKind::OpenSquareBracket: {
-            return "["_S;
+            return u8"["_S;
         } break;
 
         case TokenKind::CloseSquareBracket: {
-            return "]"_S;
+            return u8"]"_S;
         } break;
 
         case TokenKind::Identifier: {
@@ -329,7 +329,7 @@ String Token::get_text() {
         } break;
 
         case TokenKind::String: {
-            auto buffer = allocate<char>(string.length + 2);
+            auto buffer = allocate<char8_t>(string.length + 2);
 
             buffer[0] = '"';
             memcpy(&buffer[1], string.elements, string.length);
@@ -350,7 +350,7 @@ String Token::get_text() {
 
             String string {};
             string.length = (size_t)length;
-            string.elements = buffer;
+            string.elements = (char8_t*)buffer;
 
             return string;
         } break;
@@ -363,7 +363,7 @@ String Token::get_text() {
 
             String string {};
             string.length = (size_t)length;
-            string.elements = buffer;
+            string.elements = (char8_t*)buffer;
 
             return string;
         } break;

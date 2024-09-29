@@ -125,29 +125,143 @@ namespace {
         String path;
 
         size_t length;
-        char* source;
+        uint8_t* source;
 
         size_t index;
 
         unsigned int line;
         unsigned int column;
 
-        inline Result<char> get_current_character() {
+        inline Result<char32_t> get_current_character() {
             assert(index < length);
 
-            auto character = source[index];
+            auto temp_index = index;
 
-            if(character > 0x7F) {
-                error(path, line, column, "Non-ASCII character");
+            auto first_byte = source[temp_index];
+            temp_index += 1;
 
+            if(first_byte >> 7 == 0) {
+                // Definitely single-byte
+
+                return ok((char32_t)first_byte);
+            }
+
+            // Definitely at least 2 bytes
+
+            if(first_byte >> 6 != 0b11) {
+                error(path, line, column, "Invalid UTF-8 byte sequence");
                 return err();
             }
 
-            return ok(character);
+            if(temp_index == length) {
+                error(path, line, column, "Invalid UTF-8 byte sequence");
+                return err();
+            }
+
+            auto second_byte = source[temp_index];
+            temp_index += 1;
+
+            if(second_byte >> 6 != 0b10) {
+                error(path, line, column, "Invalid UTF-8 byte sequence");
+                return err();
+            }
+
+            if(first_byte >> 5 == 0b110) {
+                // Definitely 2 byte
+
+                auto codepoint = (((uint32_t)first_byte & 0b11111) << 6) | ((uint32_t)second_byte & 0b111111);
+
+                if(codepoint < 0x0080) {
+                    error(path, line, column, "Invalid UTF-8 byte sequence");
+                    return err();
+                }
+
+                return ok((char32_t)codepoint);
+            }
+
+            // Definitely at least 3 bytes
+
+            if(temp_index == length) {
+                error(path, line, column, "Invalid UTF-8 byte sequence");
+                return err();
+            }
+
+            auto third_byte = source[temp_index];
+            temp_index += 1;
+
+            if(third_byte >> 6 != 0b10) {
+                error(path, line, column, "Invalid UTF-8 byte sequence");
+                return err();
+            }
+
+            if(first_byte >> 4 == 0b1110) {
+                // Definitely 3 byte
+
+                auto codepoint =
+                    (((uint32_t)first_byte & 0b1111) << 12) |
+                    (((uint32_t)second_byte & 0b111111) << 6) |
+                    ((uint32_t)third_byte & 0b111111)
+                ;
+
+                if(codepoint < 0x0800) {
+                    error(path, line, column, "Invalid UTF-8 byte sequence");
+                    return err();
+                }
+
+                return ok((char32_t)codepoint);
+            }
+
+            // Definitely 4 byte
+
+            if(first_byte >> 3 != 0b11110) {
+                error(path, line, column, "Invalid UTF-8 byte sequence");
+                return err();
+            }
+
+            if(temp_index == length) {
+                error(path, line, column, "Invalid UTF-8 byte sequence");
+                return err();
+            }
+
+            auto fourth_byte = source[temp_index];
+            temp_index += 1;
+
+            if(fourth_byte >> 6 != 0b10) {
+                error(path, line, column, "Invalid UTF-8 byte sequence");
+                return err();
+            }
+
+            auto codepoint =
+                (((uint32_t)first_byte & 0b111) << 18) |
+                (((uint32_t)second_byte & 0b111111) << 12) |
+                (((uint32_t)third_byte & 0b111111) << 6) |
+                ((uint32_t)fourth_byte & 0b111111)
+            ;
+
+            if(codepoint < 0x010000) {
+                error(path, line, column, "Invalid UTF-8 byte sequence");
+                return err();
+            }
+
+            return ok((char32_t)codepoint);
         }
 
         inline void consume_current_character() {
-            index += 1;
+            auto first_byte = source[index];
+
+            if(first_byte >> 7 == 0) {
+                index += 1;
+                column += 1;
+            } else if(first_byte >> 5 == 0b110) {
+                index += 2;
+                column += 2;
+            } else if(first_byte >> 4 == 0b1110) {
+                index += 3;
+                column += 3;
+            } else {
+                index += 4;
+                column += 4;
+            }
         }
 
         Result<Array<Token>> tokenize() {
@@ -158,8 +272,6 @@ namespace {
 
                 if(character == ' ') {
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == '\r') {
                     consume_current_character();
 
@@ -184,8 +296,6 @@ namespace {
                     consume_current_character();
 
                     expect(character, get_current_character());
-
-                    column += 1;
 
                     if(index == length) {
                         append_single_character_token(line, first_column, &tokens, TokenKind::ForwardSlash);
@@ -220,8 +330,6 @@ namespace {
                     } else if(character == '*') {
                         consume_current_character();
 
-                        column += 1;
-
                         unsigned int level = 1;
 
                         while(level > 0) {
@@ -252,15 +360,11 @@ namespace {
                             } else if(character == '/') {
                                 consume_current_character();
 
-                                column += 1;
-
                                 if(index < length) {
                                     expect(character, get_current_character());
 
                                     if(character == '*') {
                                         consume_current_character();
-
-                                        column += 1;
 
                                         level += 1;
                                     }
@@ -268,31 +372,23 @@ namespace {
                             } else if(character == '*') {
                                 consume_current_character();
 
-                                column += 1;
-
                                 if(index < length) {
                                     expect(character, get_current_character());
 
                                     if(character == '/') {
                                         consume_current_character();
 
-                                        column += 1;
-
                                         level -= 1;
                                     }
                                 }
                             } else {
                                 consume_current_character();
-
-                                column += 1;
                             }
                         }
                     } else if(character == '=') {
                         append_double_character_token(line, first_column, &tokens, TokenKind::ForwardSlashEquals);
 
                         consume_current_character();
-
-                        column += 1;
                     } else {
                         append_single_character_token(line, first_column, &tokens, TokenKind::ForwardSlash);
                     }
@@ -301,8 +397,6 @@ namespace {
 
                     consume_current_character();
 
-                    column += 1;
-
                     if(index != length) {
                         expect(character, get_current_character());
 
@@ -310,8 +404,6 @@ namespace {
                             append_double_character_token(line, first_column, &tokens, TokenKind::DoubleDot);
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             append_single_character_token(line, first_column, &tokens, TokenKind::Dot);
                         }
@@ -322,26 +414,18 @@ namespace {
                     append_single_character_token(line, column, &tokens, TokenKind::Comma);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == ':') {
                     append_single_character_token(line, column, &tokens, TokenKind::Colon);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == ';') {
                     append_single_character_token(line, column, &tokens, TokenKind::Semicolon);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == '+') {
                     auto first_column = column;
 
                     consume_current_character();
-
-                    column += 1;
 
                     if(index != length) {
                         expect(character, get_current_character());
@@ -350,8 +434,6 @@ namespace {
                             append_double_character_token(line, first_column, &tokens, TokenKind::PlusEquals);
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             append_single_character_token(line, first_column, &tokens, TokenKind::Plus);
                         }
@@ -363,8 +445,6 @@ namespace {
 
                     consume_current_character();
 
-                    column += 1;
-
                     if(index != length) {
                         expect(character, get_current_character());
 
@@ -373,16 +453,12 @@ namespace {
                                 append_double_character_token(line, first_column, &tokens, TokenKind::Arrow);
 
                                 consume_current_character();
-
-                                column += 1;
                             } break;
 
                             case '=': {
                                 append_double_character_token(line, first_column, &tokens, TokenKind::DashEquals);
 
                                 consume_current_character();
-
-                                column += 1;
                             } break;
 
                             default: {
@@ -397,8 +473,6 @@ namespace {
 
                     consume_current_character();
 
-                    column += 1;
-
                     if(index != length) {
                         expect(character, get_current_character());
 
@@ -406,8 +480,6 @@ namespace {
                             append_double_character_token(line, first_column, &tokens, TokenKind::AsteriskEquals);
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             append_single_character_token(line, first_column, &tokens, TokenKind::Asterisk);
                         }
@@ -419,8 +491,6 @@ namespace {
 
                     consume_current_character();
 
-                    column += 1;
-
                     if(index != length) {
                         expect(character, get_current_character());
 
@@ -428,8 +498,6 @@ namespace {
                             append_double_character_token(line, first_column, &tokens, TokenKind::PercentEquals);
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             append_single_character_token(line, first_column, &tokens, TokenKind::Percent);
                         }
@@ -441,8 +509,6 @@ namespace {
 
                     consume_current_character();
 
-                    column += 1;
-
                     if(index != length) {
                         expect(character, get_current_character());
 
@@ -450,8 +516,6 @@ namespace {
                             append_double_character_token(line, first_column, &tokens, TokenKind::DoubleEquals);
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             append_single_character_token(line, first_column, &tokens, TokenKind::Equals);
                         }
@@ -463,8 +527,6 @@ namespace {
 
                     consume_current_character();
 
-                    column += 1;
-
                     if(index != length) {
                         expect(character, get_current_character());
 
@@ -472,8 +534,6 @@ namespace {
                             append_double_character_token(line, first_column, &tokens, TokenKind::DoubleLeftArrow);
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             append_single_character_token(line, column, &tokens, TokenKind::LeftArrow);
                         }
@@ -485,8 +545,6 @@ namespace {
 
                     consume_current_character();
 
-                    column += 1;
-
                     if(index != length) {
                         expect(character, get_current_character());
 
@@ -494,8 +552,6 @@ namespace {
                             append_double_character_token(line, first_column, &tokens, TokenKind::DoubleRightArrow);
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             append_single_character_token(line, column, &tokens, TokenKind::RightArrow);
                         }
@@ -507,8 +563,6 @@ namespace {
 
                     consume_current_character();
 
-                    column += 1;
-
                     if(index != length) {
                         expect(character, get_current_character());
 
@@ -516,8 +570,6 @@ namespace {
                             append_double_character_token(line, first_column, &tokens, TokenKind::DoubleAmpersand);
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             append_single_character_token(line, first_column, &tokens, TokenKind::Ampersand);
                         }
@@ -528,14 +580,10 @@ namespace {
                     append_single_character_token(line, column, &tokens, TokenKind::At);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == '|') {
                     auto first_column = column;
 
                     consume_current_character();
-
-                    column += 1;
 
                     if(index != length) {
                         expect(character, get_current_character());
@@ -544,8 +592,6 @@ namespace {
                             append_double_character_token(line, first_column, &tokens, TokenKind::DoublePipe);
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             append_single_character_token(line, first_column, &tokens, TokenKind::Pipe);
                         }
@@ -556,14 +602,10 @@ namespace {
                     append_single_character_token(line, column, &tokens, TokenKind::Hash);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == '!') {
                     auto first_column = column;
 
                     consume_current_character();
-
-                    column += 1;
 
                     if(index != length) {
                         expect(character, get_current_character());
@@ -572,8 +614,6 @@ namespace {
                             append_double_character_token(line, first_column, &tokens, TokenKind::BangEquals);
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             append_single_character_token(line, first_column, &tokens, TokenKind::Bang);
                         }
@@ -584,48 +624,32 @@ namespace {
                     append_single_character_token(line, column, &tokens, TokenKind::Dollar);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == '(') {
                     append_single_character_token(line, column, &tokens, TokenKind::OpenRoundBracket);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == ')') {
                     append_single_character_token(line, column, &tokens, TokenKind::CloseRoundBracket);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == '{') {
                     append_single_character_token(line, column, &tokens, TokenKind::OpenCurlyBracket);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == '}') {
                     append_single_character_token(line, column, &tokens, TokenKind::CloseCurlyBracket);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == '[') {
                     append_single_character_token(line, column, &tokens, TokenKind::OpenSquareBracket);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == ']') {
                     append_single_character_token(line, column, &tokens, TokenKind::CloseSquareBracket);
 
                     consume_current_character();
-
-                    column += 1;
                 } else if(character == '"') {
                     consume_current_character();
-
-                    column += 1;
 
                     auto first_column = column;
 
@@ -647,13 +671,9 @@ namespace {
                         } else if(character == '"') {
                             consume_current_character();
 
-                            column += 1;
-
                             break;
                         } else if(character == '\\') {
                             consume_current_character();
-
-                            column += 1;
 
                             if(index == length) {
                                 error(path, line, column, "Unexpected end of file");
@@ -678,20 +698,19 @@ namespace {
 
                                 return err();
                             } else {
-                                error(path, line, column, "Unknown escape code '\\%c'", character);
+                                StringBuffer buffer {};
+                                buffer.append_character(character);
+
+                                error(path, line, column, "Unknown escape code '\\%.*s'", STRING_PRINTF_ARGUMENTS(buffer));
 
                                 return err();
                             }
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             buffer.append_character(character);
 
                             consume_current_character();
-
-                            column += 1;
                         }
                     }
 
@@ -716,8 +735,6 @@ namespace {
 
                     consume_current_character();
 
-                    column += 1;
-
                     while(index < length) {
                         expect(character, get_current_character());
 
@@ -730,8 +747,6 @@ namespace {
                             buffer.append_character(character);
 
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             break;
                         }
@@ -760,8 +775,6 @@ namespace {
                     } else if(character == '0' && index < length) {
                         consume_current_character();
 
-                        column += 1;
-
                         expect(character, get_current_character());
 
                         if(character == 'b' || character == 'B') {
@@ -769,23 +782,17 @@ namespace {
 
                             consume_current_character();
 
-                            column += 1;
-
                             radix = 2;
                         } else if(character == 'o' || character == 'O') {
                             definitely_integer = true;
 
                             consume_current_character();
 
-                            column += 1;
-
                             radix = 8;
                         } else if(character == 'x' || character == 'X') {
                             definitely_integer = true;
 
                             consume_current_character();
-
-                            column += 1;
 
                             radix = 16;
                         }
@@ -815,24 +822,16 @@ namespace {
 
                             definitely_float = true;
                             seen_dot = true;
-
-                            column += 1;
                         } else if(character >= '0' && character <= '7') {
                             consume_current_character();
-
-                            column += 1;
                         } else if(character >= '8' && character <= '9' && radix >= 10) {
                             consume_current_character();
-
-                            column += 1;
                         } else if((character == 'e' || character == 'E') && (!definitely_integer && !seen_e)) {
                             definitely_float = true;
 
                             seen_e = true;
 
                             consume_current_character();
-
-                            column += 1;
                         } else if(
                             (
                                 (character >= 'a' && character <= 'f' && radix == 16) ||
@@ -841,8 +840,6 @@ namespace {
                             definitely_integer
                         ) {
                             consume_current_character();
-
-                            column += 1;
                         } else {
                             break;
                         }
@@ -890,7 +887,10 @@ namespace {
                         tokens.append(token);
                     }
                 } else {
-                    error(path, line, column, "Unexpected character '%c'", character);
+                    StringBuffer buffer {};
+                    buffer.append_character(character);
+
+                    error(path, line, column, "Unexpected character '%.*s'", STRING_PRINTF_ARGUMENTS(buffer));
 
                     return err();
                 }
@@ -933,7 +933,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (String path), (path)) 
 
     fseek(file, 0, SEEK_SET);
 
-    lexer.source = allocate<char>(lexer.length);
+    lexer.source = allocate<uint8_t>(lexer.length);
 
     if(fread(lexer.source, lexer.length, 1, file) != 1) {
         fprintf(stderr, "Error: Unable to read source file at '%.*s'\n", STRING_PRINTF_ARGUMENTS(path));
