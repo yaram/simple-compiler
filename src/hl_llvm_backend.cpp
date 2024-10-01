@@ -1494,6 +1494,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                     value = LLVMBuildFDiv(builder, value_a, value_b, "divide");
                                 } break;
 
+                                case FloatArithmeticOperation::Operation::Modulus: {
+                                    value = LLVMBuildFRem(builder, value_a, value_b, "modulus");
+                                } break;
+
                                 default: {
                                     abort();
                                 } break;

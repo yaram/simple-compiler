@@ -1026,6 +1026,13 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
                 ));
             } break;
 
+            case BinaryOperation::Operator::Modulo: {
+                return ok(TypedConstantValue(
+                    type,
+                    AnyConstantValue(fmod(left, right))
+                ));
+            } break;
+
             case BinaryOperation::Operator::Equal: {
                 return ok(TypedConstantValue(
                     AnyType::create_boolean(),

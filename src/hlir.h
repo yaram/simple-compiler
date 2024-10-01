@@ -322,7 +322,8 @@ struct FloatArithmeticOperation : Instruction {
         Add,
         Subtract,
         Multiply,
-        Divide
+        Divide,
+        Modulus
     };
 
     Operation operation;

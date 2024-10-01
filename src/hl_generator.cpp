@@ -2029,6 +2029,10 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 arithmetic_operation = FloatArithmeticOperation::Operation::Divide;
             } break;
 
+            case BinaryOperation::Operator::Modulo: {
+                arithmetic_operation = FloatArithmeticOperation::Operation::Modulus;
+            } break;
+
             default: {
                 is_arithmetic = false;
             } break;

@@ -283,6 +283,10 @@ void Instruction::print(Array<Block*> blocks, bool has_return) {
                 printf("FDIV ");
             } break;
 
+            case FloatArithmeticOperation::Operation::Modulus: {
+                printf("FMOD ");
+            } break;
+
             default: {
                 abort();
             } break;
