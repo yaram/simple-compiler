@@ -832,6 +832,16 @@ namespace {
                             seen_e = true;
 
                             consume_current_character();
+
+                            expect(next_character, get_current_character());
+
+                            if(next_character == '-') {
+                                buffer.append_character(character);
+
+                                consume_current_character();
+
+                                character = next_character;
+                            }
                         } else if(
                             (
                                 (character >= 'a' && character <= 'f' && radix == 16) ||
