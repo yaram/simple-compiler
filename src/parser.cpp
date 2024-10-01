@@ -1614,7 +1614,7 @@ namespace {
                         if(!found_import_file) {
                             StringBuffer buffer {};
                             buffer.append(executable_directory);
-                            buffer.append(u8"../share/simple-compiler/runtime_"_S);
+                            buffer.append(u8"../share/simple-compiler/"_S);
                             buffer.append(string);
 
                             auto file_test = fopen(buffer.to_c_string(), "rb");
