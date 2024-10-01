@@ -38,12 +38,21 @@ Point :: struct {
 
 Node :: struct {
     children: [2][2]*void,
-    mass: f32
+    mass: f32,
+    centre_of_mass_x: f32,
+    centre_of_mass_y: f32
+}
+
+create_node :: () -> Node {
+    return {
+        children = { { 0 as *void, 0 }, { 0 as *void, 0 } },
+        mass = 0,
+        centre_of_mass_x = 0,
+        centre_of_mass_y = 0
+    };
 }
 
 build_tree :: (arena: *ExpandingArena, point: Point, node: *Node, x: f32, y: f32, width: f32, height: f32) {
-    node.mass += point.mass;
-
     quadrant_width := width / 2;
     quadrant_height := height / 2;
 
@@ -65,10 +74,7 @@ build_tree :: (arena: *ExpandingArena, point: Point, node: *Node, x: f32, y: f32
 
                 if quadrant_node == 0 {
                     new_quadrant_node := allocate(arena, size_of(Node)) as *Node;
-                    @new_quadrant_node = {
-                        children = { { 0 as *void, 0 }, { 0 as *void, 0 } },
-                        mass = point.mass
-                    };
+                    @new_quadrant_node = create_node();
 
                     node.children[quadrant_index_y][quadrant_index_x] = new_quadrant_node as *void;
                 } else {
@@ -76,6 +82,59 @@ build_tree :: (arena: *ExpandingArena, point: Point, node: *Node, x: f32, y: f32
                 }
 
                 return;
+            }
+        }
+    }
+}
+
+fill_tree :: (arena: *ExpandingArena, point: Point, node: *Node, x: f32, y: f32, width: f32, height: f32) {
+    node.mass += point.mass;
+    node.centre_of_mass_x += point.x * point.mass;
+    node.centre_of_mass_y += point.y * point.mass;
+
+    quadrant_width := width / 2;
+    quadrant_height := height / 2;
+
+    for 0..1 as usize {
+        quadrant_index_y := it;
+
+        quadrant_y := y + quadrant_index_y as f32 * quadrant_height;
+
+        for 0..1 as usize {
+            quadrant_index_x := it;
+
+            quadrant_x := x + quadrant_index_x as f32 * quadrant_width;
+
+            if
+                (point.x > quadrant_x || point.x == quadrant_x) && point.x < quadrant_x + quadrant_width &&
+                (point.y > quadrant_y || point.y == quadrant_y) && point.y < quadrant_y + quadrant_height
+            {
+                quadrant_node := node.children[quadrant_index_y][quadrant_index_x] as *Node;
+
+                if quadrant_node != 0 {
+                    fill_tree(arena, point, quadrant_node, quadrant_x, quadrant_y, quadrant_width, quadrant_height);
+                }
+
+                return;
+            }
+        }
+    }
+}
+
+finalise_tree :: (node: *Node) {
+    node.centre_of_mass_x /= node.mass;
+    node.centre_of_mass_y /= node.mass;
+
+    for 0..1 as usize {
+        quadrant_index_y := it;
+
+        for 0..1 as usize {
+            quadrant_index_x := it;
+
+            quadrant_node := node.children[quadrant_index_y][quadrant_index_x] as *Node;
+
+            if quadrant_node != 0 {
+                finalise_tree(quadrant_node);
             }
         }
     }
@@ -89,6 +148,7 @@ calculate_force :: (point: Point, node: *Node, x: f32, y: f32, width: f32, heigh
 
     force_x: f32 = 0;
     force_y: f32 = 0;
+    is_leaf := true;
     for 0..1 as usize {
         quadrant_index_y := it;
 
@@ -102,45 +162,57 @@ calculate_force :: (point: Point, node: *Node, x: f32, y: f32, width: f32, heigh
             quadrant_node := node.children[quadrant_index_y][quadrant_index_x] as *Node;
 
             if quadrant_node != 0 {
-                quadrant_centre_x := quadrant_x + quadrant_width / 2;
-                quadrant_centre_y := quadrant_y + quadrant_height / 2;
+                is_leaf = false;
 
-                difference_x := quadrant_centre_x - point.x;
-                difference_y := quadrant_centre_y - point.y;
+                difference_x := quadrant_node.centre_of_mass_x - point.x;
+                difference_y := quadrant_node.centre_of_mass_y - point.y;
 
                 distance := sqrt(difference_x * difference_x + difference_y * difference_y);
 
-                if distance < 0.0001 {
-                    distance = 0.0001;
-                }
+                if distance > 0.0001 {
+                    metric := average_size / distance;
 
-                metric := average_size / distance;
+                    theta :: 1.0;
 
-                theta :: 1.0;
+                    if metric < theta {
+                        force := point.mass * quadrant_node.mass / distance;
 
-                if metric < theta {
-                    force := point.mass * quadrant_node.mass / distance;
+                        direction_x := difference_x / distance;
+                        direction_y := difference_y / distance;
 
-                    direction_x := difference_x / distance;
-                    direction_y := difference_y / distance;
+                        force_x += force * direction_x;
+                        force_y += force * direction_y;
+                    } else {
+                        quadrant_force_x, quadrant_force_y := calculate_force(
+                            point,
+                            quadrant_node,
+                            quadrant_x,
+                            quadrant_y,
+                            quadrant_width,
+                            quadrant_height
+                        );
 
-                    force_x += force * direction_x;
-                    force_y += force * direction_y;
-                } else {
-                    quadrant_force_x, quadrant_force_y := calculate_force(
-                        point,
-                        quadrant_node,
-                        quadrant_x,
-                        quadrant_y,
-                        quadrant_width,
-                        quadrant_height
-                    );
-
-                    force_x += quadrant_force_x;
-                    force_y += quadrant_force_y;
+                        force_x += quadrant_force_x;
+                        force_y += quadrant_force_y;
+                    }
                 }
             }
         }
+    }
+
+    if is_leaf {
+        difference_x := node.centre_of_mass_x - point.x;
+        difference_y := node.centre_of_mass_y - point.y;
+
+        distance := sqrt(difference_x * difference_x + difference_y * difference_y);
+
+        force := point.mass * node.mass / distance;
+
+        direction_x := difference_x / distance;
+        direction_y := difference_y / distance;
+
+        force_x += force * direction_x;
+        force_y += force * direction_y;
     }
 
     return force_x, force_y;
@@ -156,13 +228,25 @@ draw_graph :: (
     width: f32,
     height: f32
 ) {
-    rect: SDL_Rect = {
+    SDL_SetRenderDrawColor(renderer, 0x80, 0, 0, 0xFF);
+
+    rect1: SDL_Rect = {
         x = (x * window_width as f32) as i32,
         y = (y * window_height as f32) as i32,
         w = (width * window_width as f32) as i32,
         h = (height * window_height as f32) as i32
     };
-    SDL_RenderDrawRect(renderer, *rect);
+    SDL_RenderDrawRect(renderer, *rect1);
+
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0xFF, 0xFF);
+
+    rect2: SDL_Rect = {
+        x = (node.centre_of_mass_x * window_width as f32) as i32,
+        y = (node.centre_of_mass_y * window_height as f32) as i32,
+        w = 1,
+        h = 1
+    };
+    SDL_RenderFillRect(renderer, *rect2);
 
     quadrant_width := width / 2;
     quadrant_height := height / 2;
@@ -250,24 +334,28 @@ main :: () -> i32 {
             }
         }
 
-        // Build Barnes-Hut-like graph
+        // Build Barnes-Hut graph
 
-        root_node: Node = {
-            children = { { 0 as *void, 0 }, { 0 as *void, 0 } },
-            mass = 0
-        };
+        root_node := create_node();
 
         for 0..points.length - 1 {
             build_tree(*arena, points[it], *root_node, 0, 0, 1, 1);
         }
 
+        for 0..points.length - 1 {
+            fill_tree(*arena, points[it], *root_node, 0, 0, 1, 1);
+        }
+
+        finalise_tree(*root_node);
+
         timestep :: 0.0001;
 
         for 0..points.length - 1 {
             point := *points[it];
-            next_point := *next_points[it];
 
             force_x, force_y := calculate_force(points[it], *root_node, 0, 0, 1, 1);
+
+            next_point := *next_points[it];
 
             next_point.velocity_x = point.velocity_x + timestep * force_x / point.mass;
             next_point.velocity_y = point.velocity_y + timestep * force_y / point.mass;
@@ -307,6 +395,8 @@ main :: () -> i32 {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0xFF);
         SDL_RenderClear(renderer);
 
+        draw_graph(renderer, window_width, window_height, *root_node, 0, 0, 1, 1);
+
         SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
 
         for 0..points.length - 1 {
@@ -318,10 +408,6 @@ main :: () -> i32 {
             };
             SDL_RenderFillRect(renderer, *rect);
         }
-
-        SDL_SetRenderDrawColor(renderer, 0x80, 0, 0, 0xFF);
-
-        draw_graph(renderer, window_width, window_height, *root_node, 0, 0, 1, 1);
 
         SDL_RenderPresent(renderer);
     }
