@@ -39,7 +39,7 @@ add_custom_target(
     COMMAND cmake -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/stdlib" "${ACTUAL_OUTPUT_DIRECTORY}/stdlib"
 )
 
-set(sources
+set(compiler_sources
     src/array.h
     src/list.h
     src/result.h
@@ -95,14 +95,14 @@ set(sources
     src/hl_llvm_backend.h
     src/hl_llvm_backend.cpp
 
-    src/main.cpp
+    src/compiler.cpp
 )
 
 if(PROFILING)
-    set(sources ${sources} src/profiler.cpp)
+    set(compiler_sources ${compiler_sources} src/profiler.cpp)
 endif()
 
-add_executable(compiler ${sources})
+add_executable(compiler ${compiler_sources})
 
 target_compile_features(compiler PRIVATE cxx_std_20)
 if(PROFILING)
@@ -115,7 +115,70 @@ if(VENDORED_LLVM)
     target_include_directories(compiler PRIVATE thirdparty/llvm-project/llvm/include "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/llvm-project/llvm/include")
 endif()
 
+add_executable(compiler-server
+    thirdparty/cJSON/cJSON.c
+
+    src/array.h
+    src/list.h
+    src/result.h
+    src/jobs.h
+
+    src/profiler.h
+
+    src/string.h
+    src/string.cpp
+
+    src/platform.h
+    src/platform.cpp
+
+    src/path.h
+    src/path.cpp
+
+    src/timing.h
+    src/timing.cpp
+
+    src/util.h
+    src/util.cpp
+
+    src/tokens.h
+    src/tokens.cpp
+
+    src/lexer.h
+    src/lexer.cpp
+
+    src/calling_convention.h
+    src/calling_convention.cpp
+
+    src/ast.h
+    src/ast.cpp
+
+    src/parser.h
+    src/parser.cpp
+
+    src/hlir.h
+    src/hlir.cpp
+
+    src/register_size.h
+    src/register_size.cpp
+
+    src/types.h
+    src/types.cpp
+
+    src/constant.h
+    src/constant.cpp
+
+    src/hl_generator.h
+    src/hl_generator.cpp
+
+    src/server.cpp
+)
+
+target_compile_features(compiler-server PRIVATE cxx_std_20)
+add_dependencies(compiler-server copy_stdlib)
+target_include_directories(compiler-server PRIVATE thirdparty/cJSON)
+
 install(TARGETS compiler DESTINATION bin)
+install(TARGETS compiler-server DESTINATION bin)
 
 install(DIRECTORY src/runtimes/ DESTINATION share/simple-compiler)
 install(DIRECTORY stdlib DESTINATION share/simple-compiler)
