@@ -1,5 +1,5 @@
 #include "platform.h"
-#include "util.h"
+#include <stdlib.h>
 
 bool does_os_exist(String os) {
     return
@@ -124,8 +124,8 @@ String get_default_toolchain(String os) {
     }
 }
 
-String get_llvm_triple(String architecture, String os, String toolchain) {
-    StringBuffer buffer {};
+String get_llvm_triple(Arena* arena, String architecture, String os, String toolchain) {
+    StringBuffer buffer(arena);
 
     String triple_architecture;
     if(architecture == u8"x86"_S) {

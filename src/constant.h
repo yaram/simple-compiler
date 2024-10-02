@@ -210,7 +210,7 @@ struct AnyConstantValue {
         return type;
     }
 
-    String get_description();
+    String get_description(Arena* arena);
 };
 
 const size_t DECLARATION_HASH_TABLE_SIZE = 32;
@@ -220,7 +220,7 @@ struct DeclarationHashTable {
 };
 
 uint32_t calculate_string_hash(String string);
-DeclarationHashTable create_declaration_hash_table(Array<Statement*> statements);
+DeclarationHashTable create_declaration_hash_table(Arena* arena, Array<Statement*> statements);
 Statement* search_in_declaration_hash_table(DeclarationHashTable declaration_hash_table, String name);
 Statement* search_in_declaration_hash_table(DeclarationHashTable declaration_hash_table, uint32_t hash, String name);
 
@@ -344,10 +344,18 @@ inline DelayedResultWaitHelper wait(size_t job) {
 
 void error(ConstantScope* scope, FileRange range, const char* format, ...);
 
-Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType type, AnyConstantValue value);
+Result<String> array_to_string(Arena* arena, ConstantScope* scope, FileRange range, AnyType type, AnyConstantValue value);
 
-Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, uint64_t value, bool probing);
+Result<void> check_undetermined_integer_to_integer_coercion(
+    Arena* arena,
+    ConstantScope* scope,
+    FileRange range,
+    Integer target_type,
+    uint64_t value,
+    bool probing
+);
 Result<AnyConstantValue> coerce_constant_to_integer_type(
+    Arena* arena,
     ConstantScope* scope,
     FileRange range,
     AnyType type,
@@ -356,6 +364,7 @@ Result<AnyConstantValue> coerce_constant_to_integer_type(
     bool probing
 );
 Result<AnyConstantValue> coerce_constant_to_type(
+    Arena* arena,
     GlobalInfo info,
     ConstantScope* scope,
     FileRange range,
@@ -365,6 +374,7 @@ Result<AnyConstantValue> coerce_constant_to_type(
     bool probing
 );
 Result<TypedConstantValue> evaluate_constant_index(
+    Arena* arena,
     GlobalInfo info,
     ConstantScope* scope,
     AnyType type,
@@ -374,8 +384,9 @@ Result<TypedConstantValue> evaluate_constant_index(
     AnyConstantValue index_value,
     FileRange index_range
 );
-Result<AnyType> determine_binary_operation_type(ConstantScope* scope, FileRange range, AnyType left, AnyType right);
+Result<AnyType> determine_binary_operation_type(Arena* arena, ConstantScope* scope, FileRange range, AnyType left, AnyType right);
 Result<TypedConstantValue> evaluate_constant_binary_operation(
+    Arena* arena,
     GlobalInfo info,
     ConstantScope* scope,
     FileRange range,
@@ -388,6 +399,7 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
     AnyConstantValue right_value
 );
 Result<AnyConstantValue> evaluate_constant_cast(
+    Arena* arena,
     GlobalInfo info,
     ConstantScope* scope,
     AnyType type,
@@ -398,6 +410,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
     bool probing
 );
 DelayedResult<AnyType> evaluate_type_expression(
+    Arena* arena,
     GlobalInfo info,
     List<AnyJob>* jobs,
     ConstantScope* scope,
@@ -424,6 +437,7 @@ struct NameSearchResult {
 };
 
 DelayedResult<NameSearchResult> search_for_name(
+    Arena* arena,
     GlobalInfo info,
     List<AnyJob>* jobs,
     String name,
@@ -436,6 +450,7 @@ DelayedResult<NameSearchResult> search_for_name(
 );
 
 DelayedResult<TypedConstantValue> evaluate_constant_expression(
+    Arena* arena,
     GlobalInfo info,
     List<AnyJob>* jobs,
     ConstantScope* scope,
@@ -449,11 +464,20 @@ struct StaticIfResolutionResult {
     DeclarationHashTable declarations;
 };
 
-DelayedResult<StaticIfResolutionResult> do_resolve_static_if(GlobalInfo info, List<AnyJob>* jobs, StaticIf* static_if, ConstantScope* scope);
+DelayedResult<StaticIfResolutionResult> do_resolve_static_if(
+    GlobalInfo info,
+    List<AnyJob>* jobs,
+    Arena* global_arena,
+    Arena* arena,
+    StaticIf* static_if,
+    ConstantScope* scope
+);
 
 DelayedResult<TypedConstantValue> do_resolve_function_declaration(
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* global_arena,
+    Arena* arena,
     FunctionDeclaration* declaration,
     ConstantScope* scope
 );
@@ -467,6 +491,8 @@ struct FunctionResolutionResult {
 DelayedResult<FunctionResolutionResult> do_resolve_polymorphic_function(
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* global_arena,
+    Arena* arena,
     FunctionDeclaration* declaration,
     TypedConstantValue* parameters,
     ConstantScope* scope,
@@ -477,6 +503,7 @@ DelayedResult<FunctionResolutionResult> do_resolve_polymorphic_function(
 DelayedResult<AnyType> do_resolve_struct_definition(
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     StructDefinition* struct_definition,
     ConstantScope* scope
 );
@@ -484,6 +511,7 @@ DelayedResult<AnyType> do_resolve_struct_definition(
 DelayedResult<AnyType> do_resolve_polymorphic_struct(
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     StructDefinition* struct_definition,
     AnyConstantValue* parameters,
     ConstantScope* scope
@@ -492,6 +520,7 @@ DelayedResult<AnyType> do_resolve_polymorphic_struct(
 DelayedResult<AnyType> do_resolve_union_definition(
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     UnionDefinition* union_definition,
     ConstantScope* scope
 );
@@ -499,6 +528,7 @@ DelayedResult<AnyType> do_resolve_union_definition(
 DelayedResult<AnyType> do_resolve_polymorphic_union(
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     UnionDefinition* union_definition,
     AnyConstantValue* parameters,
     ConstantScope* scope
@@ -507,8 +537,16 @@ DelayedResult<AnyType> do_resolve_polymorphic_union(
 DelayedResult<Enum> do_resolve_enum_definition(
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     EnumDefinition* enum_definition,
     ConstantScope* scope
 );
 
-Result<void> process_scope(List<AnyJob>* jobs, ConstantScope* scope, Array<Statement*> statements, List<ConstantScope*>* child_scopes, bool is_top_level);
+Result<void> process_scope(
+    Arena* global_arena,
+    List<AnyJob>* jobs,
+    ConstantScope* scope,
+    Array<Statement*> statements,
+    List<ConstantScope*>* child_scopes,
+    bool is_top_level
+);

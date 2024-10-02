@@ -19,7 +19,7 @@ void error(ConstantScope* scope, FileRange range, const char* format, ...) {
     va_end(arguments);
 }
 
-String AnyConstantValue::get_description() {
+String AnyConstantValue::get_description(Arena* arena) {
     if(kind == ConstantValueKind::FunctionConstant) {
         return function.declaration->name.text;
     } else if(kind == ConstantValueKind::BuiltinFunctionConstant) {
@@ -53,12 +53,12 @@ String AnyConstantValue::get_description() {
     } else if(kind == ConstantValueKind::VoidConstant) {
         return u8""_S;
     } else if(kind == ConstantValueKind::ArrayConstant) {
-        StringBuffer buffer {};
+        StringBuffer buffer(arena);
 
         buffer.append(u8"{ length = u8"_S);
-        buffer.append(array.length->get_description());
+        buffer.append(array.length->get_description(arena));
         buffer.append(u8", pointer = u8"_S);
-        buffer.append(array.pointer->get_description());
+        buffer.append(array.pointer->get_description(arena));
         buffer.append(u8" }"_S);
 
         return buffer;
@@ -67,12 +67,12 @@ String AnyConstantValue::get_description() {
             return u8"{}"_S;
         }
 
-        StringBuffer buffer {};
+        StringBuffer buffer(arena);
 
         buffer.append(u8"{ u8"_S);
 
         for(size_t i = 0; i < static_array.elements.length; i += 1) {
-            buffer.append(static_array.elements[i].get_description());
+            buffer.append(static_array.elements[i].get_description(arena));
 
             if(i != static_array.elements.length - 1) {
                 buffer.append(u8", u8"_S);
@@ -87,14 +87,14 @@ String AnyConstantValue::get_description() {
             return u8"{}"_S;
         }
 
-        StringBuffer buffer {};
+        StringBuffer buffer(arena);
 
         buffer.append(u8"{ u8"_S);
 
         for(size_t i = 0; i < struct_.members.length; i += 1) {
             buffer.append(u8"? = u8"_S);
 
-            buffer.append(struct_.members[i].get_description());
+            buffer.append(struct_.members[i].get_description(arena));
 
             if(i != struct_.members.length - 1) {
                 buffer.append(u8", u8"_S);
@@ -107,7 +107,7 @@ String AnyConstantValue::get_description() {
     } else if(kind == ConstantValueKind::FileModuleConstant) {
         return u8""_S;
     } else if(kind == ConstantValueKind::TypeConstant) {
-        return type.get_description();
+        return type.get_description(arena);
     } else if(kind == ConstantValueKind::UndefConstant) {
         return u8"undef"_S;
     } else {
@@ -125,7 +125,14 @@ String get_scope_file_path(ConstantScope scope) {
     return current.file_path;
 }
 
-Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope, FileRange range, Integer target_type, uint64_t value, bool probing) {
+Result<void> check_undetermined_integer_to_integer_coercion(
+    Arena* arena,
+    ConstantScope* scope,
+    FileRange range,
+    Integer target_type,
+    uint64_t value,
+    bool probing
+) {
     bool in_range;
     if(target_type.is_signed) {
         int64_t min;
@@ -190,7 +197,13 @@ Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope
 
     if(!in_range) {
         if(!probing) {
-            error(scope, range, "Constant '%zd' cannot fit in '%.*s'. You must cast explicitly", value, STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
+            error(
+                scope,
+                range,
+                "Constant '%zd' cannot fit in '%.*s'. You must cast explicitly",
+                value,
+                STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description(arena))
+            );
         }
 
         return err();
@@ -200,6 +213,7 @@ Result<void> check_undetermined_integer_to_integer_coercion(ConstantScope* scope
 }
 
 Result<AnyConstantValue> coerce_constant_to_integer_type(
+    Arena* arena,
     ConstantScope* scope,
     FileRange range,
     AnyType type,
@@ -214,7 +228,14 @@ Result<AnyConstantValue> coerce_constant_to_integer_type(
             return ok(value);
         }
     } else if(type.kind == TypeKind::UndeterminedInteger) {
-        expect_void(check_undetermined_integer_to_integer_coercion(scope, range, target_type, value.unwrap_integer(), probing));
+        expect_void(check_undetermined_integer_to_integer_coercion(
+            arena,
+            scope,
+            range,
+            target_type,
+            value.unwrap_integer(),
+            probing
+        ));
 
         return ok(value);
     } else if(type.kind == TypeKind::Enum) {
@@ -228,13 +249,14 @@ Result<AnyConstantValue> coerce_constant_to_integer_type(
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
+        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)), STRING_PRINTF_ARGUMENTS(value.get_description(arena)), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description(arena)));
     }
 
     return err();
 }
 
 static Result<uint64_t> coerce_constant_to_undetermined_integer(
+    Arena* arena,
     ConstantScope* scope,
     FileRange range,
     AnyType type,
@@ -278,13 +300,14 @@ static Result<uint64_t> coerce_constant_to_undetermined_integer(
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '{integer}'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.get_description()));
+        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '{integer}'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)), STRING_PRINTF_ARGUMENTS(value.get_description(arena)));
     }
 
     return err();
 }
 
 static Result<AnyConstantValue> coerce_constant_to_pointer_type(
+    Arena* arena,
     ConstantScope* scope,
     FileRange range,
     AnyType type,
@@ -305,13 +328,14 @@ static Result<AnyConstantValue> coerce_constant_to_pointer_type(
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
+        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)), STRING_PRINTF_ARGUMENTS(value.get_description(arena)), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description(arena)));
     }
 
     return err();
 }
 
 Result<AnyConstantValue> coerce_constant_to_type(
+    Arena* arena,
     GlobalInfo info,
     ConstantScope* scope,
     FileRange range,
@@ -323,11 +347,11 @@ Result<AnyConstantValue> coerce_constant_to_type(
     if(target_type.kind == TypeKind::Integer) {
         auto integer = target_type.integer;
 
-        expect(integer_value, coerce_constant_to_integer_type(scope, range, type, value, integer, probing));
+        expect(integer_value, coerce_constant_to_integer_type(arena, scope, range, type, value, integer, probing));
 
         return ok(AnyConstantValue(integer_value));
     } else if(target_type.kind == TypeKind::UndeterminedInteger) {
-        expect(integer_value, coerce_constant_to_undetermined_integer(scope, range, type, value, probing));
+        expect(integer_value, coerce_constant_to_undetermined_integer(arena, scope, range, type, value, probing));
 
         return ok(AnyConstantValue(integer_value));
     } else if(target_type.kind == TypeKind::FloatType) {
@@ -376,7 +400,7 @@ Result<AnyConstantValue> coerce_constant_to_type(
     } else if(target_type.kind == TypeKind::Pointer) {
         auto target_pointer = target_type.pointer;
 
-        expect(pointer_value, coerce_constant_to_pointer_type(scope, range, type, value, target_pointer, probing));
+        expect(pointer_value, coerce_constant_to_pointer_type(arena, scope, range, type, value, target_pointer, probing));
 
         return ok(AnyConstantValue(pointer_value));
     } else if(target_type.kind == TypeKind::ArrayTypeType) {
@@ -407,6 +431,7 @@ Result<AnyConstantValue> coerce_constant_to_type(
                 auto undetermined_struct_value = (value.unwrap_struct());
 
                 auto pointer_result = coerce_constant_to_pointer_type(
+                    arena,
                     scope,
                     range,
                     undetermined_struct.members[1].type,
@@ -417,6 +442,7 @@ Result<AnyConstantValue> coerce_constant_to_type(
 
                 if(pointer_result.status) {
                     auto length_result = coerce_constant_to_integer_type(
+                        arena,
                         scope,
                         range,
                         undetermined_struct.members[0].type,
@@ -430,8 +456,8 @@ Result<AnyConstantValue> coerce_constant_to_type(
 
                     if(length_result.status) {
                         ArrayConstant array_constant {};
-                        array_constant.length = heapify(length_result.value);
-                        array_constant.pointer = heapify(pointer_result.value);
+                        array_constant.length = arena->heapify(length_result.value);
+                        array_constant.pointer = arena->heapify(pointer_result.value);
 
                         return ok(value);
                     }
@@ -461,11 +487,12 @@ Result<AnyConstantValue> coerce_constant_to_type(
                 }
 
                 if(same_members) {
-                    auto members = allocate<AnyConstantValue>(target_struct_type.members.length);
+                    auto members = arena->allocate<AnyConstantValue>(target_struct_type.members.length);
 
                     auto success = true;
                     for(size_t i = 0; i < target_struct_type.members.length; i += 1) {
                         auto result = coerce_constant_to_type(
+                            arena,
                             info,
                             scope,
                             range,
@@ -503,7 +530,7 @@ Result<AnyConstantValue> coerce_constant_to_type(
                 }
             }
         } else if(type.kind == TypeKind::UndeterminedInteger) {
-            expect(integer_value, coerce_constant_to_integer_type(scope, range, type, value, *target_enum.backing_type, probing));
+            expect(integer_value, coerce_constant_to_integer_type(arena, scope, range, type, value, *target_enum.backing_type, probing));
 
             return ok(AnyConstantValue(integer_value));
         } else if(type.kind == TypeKind::Enum) {
@@ -524,13 +551,14 @@ Result<AnyConstantValue> coerce_constant_to_type(
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+        error(scope, range, "Cannot implicitly convert '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)), STRING_PRINTF_ARGUMENTS(value.get_description(arena)), STRING_PRINTF_ARGUMENTS(target_type.get_description(arena)));
     }
 
     return err();
 }
 
 Result<TypedConstantValue> evaluate_constant_index(
+    Arena* arena,
     GlobalInfo info,
     ConstantScope* scope,
     AnyType type,
@@ -541,6 +569,7 @@ Result<TypedConstantValue> evaluate_constant_index(
     FileRange index_range
 ) {
     expect(index, coerce_constant_to_integer_type(
+        arena,
         scope,
         index_range,
         index_type,
@@ -605,13 +634,13 @@ Result<TypedConstantValue> evaluate_constant_index(
             return err();
         }
     } else {
-        error(scope, range, "Cannot index %.*s", STRING_PRINTF_ARGUMENTS(type.get_description()));
+        error(scope, range, "Cannot index %.*s", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
         return err();
     }
 }
 
-Result<AnyType> determine_binary_operation_type(ConstantScope* scope, FileRange range, AnyType left, AnyType right) {
+Result<AnyType> determine_binary_operation_type(Arena* arena, ConstantScope* scope, FileRange range, AnyType left, AnyType right) {
     if(left.kind == TypeKind::Boolean || right.kind == TypeKind::Boolean) {
         return ok(left);
     } else if(left.kind == TypeKind::Pointer) {
@@ -666,13 +695,14 @@ Result<AnyType> determine_binary_operation_type(ConstantScope* scope, FileRange 
     } else if(right.kind == TypeKind::Enum) {
         return ok(right);
     } else {
-        error(scope, range, "Mismatched types '%.*s' and '%.*s'", STRING_PRINTF_ARGUMENTS(left.get_description()), STRING_PRINTF_ARGUMENTS(right.get_description()));
+        error(scope, range, "Mismatched types '%.*s' and '%.*s'", STRING_PRINTF_ARGUMENTS(left.get_description(arena)), STRING_PRINTF_ARGUMENTS(right.get_description(arena)));
 
         return err();
     }
 }
 
 Result<TypedConstantValue> evaluate_constant_binary_operation(
+    Arena* arena,
     GlobalInfo info,
     ConstantScope* scope,
     FileRange range,
@@ -684,9 +714,9 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
     AnyType right_type,
     AnyConstantValue right_value
 ) {
-    expect(type, determine_binary_operation_type(scope, range, left_type, right_type));
+    expect(type, determine_binary_operation_type(arena, scope, range, left_type, right_type));
 
-    expect(coerced_left_value, coerce_constant_to_type(info, scope, left_range, left_type, left_value, type, false));
+    expect(coerced_left_value, coerce_constant_to_type(arena, info, scope, left_range, left_type, left_value, type, false));
 
     if(coerced_left_value.kind == ConstantValueKind::UndefConstant) {
         error(scope, left_range, "Value is undefined");
@@ -694,7 +724,7 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
         return err();
     }
 
-    expect(coerced_right_value, coerce_constant_to_type(info, scope, right_range, right_type, right_value, type, false));
+    expect(coerced_right_value, coerce_constant_to_type(arena, info, scope, right_range, right_type, right_value, type, false));
 
     if(coerced_right_value.kind == ConstantValueKind::UndefConstant) {
         error(scope, right_range, "Value is undefined");
@@ -1111,6 +1141,7 @@ Result<TypedConstantValue> evaluate_constant_binary_operation(
 }
 
 Result<AnyConstantValue> evaluate_constant_cast(
+    Arena* arena,
     GlobalInfo info,
     ConstantScope* scope,
     AnyType type,
@@ -1121,6 +1152,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
     bool probing
 ) {
     auto coerce_result = coerce_constant_to_type(
+        arena,
         info,
         scope,
         value_range,
@@ -1592,7 +1624,7 @@ Result<AnyConstantValue> evaluate_constant_cast(
     }
 
     if(!probing) {
-        error(scope, value_range, "Cannot cast from '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+        error(scope, value_range, "Cannot cast from '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)), STRING_PRINTF_ARGUMENTS(value.get_description(arena)), STRING_PRINTF_ARGUMENTS(target_type.get_description(arena)));
     }
 
     return err();
@@ -2015,8 +2047,12 @@ uint32_t calculate_string_hash(String string) {
     return hash;
 }
 
-DeclarationHashTable create_declaration_hash_table(Array<Statement*> statements) {
+DeclarationHashTable create_declaration_hash_table(Arena* arena, Array<Statement*> statements) {
     DeclarationHashTable hash_table {};
+
+    for(size_t i = 0; i < DECLARATION_HASH_TABLE_SIZE; i += 1) {
+        hash_table.buckets[i].arena = arena;
+    }
 
     for(auto statement : statements) {
         auto result = get_declaration_name(statement);
@@ -2052,6 +2088,7 @@ Statement* search_in_declaration_hash_table(DeclarationHashTable declaration_has
 }
 
 static DelayedResult<NameSearchResult> search_for_name_internal(
+    Arena* arena,
     GlobalInfo info,
     List<AnyJob>* jobs,
     String name,
@@ -2097,12 +2134,13 @@ static DelayedResult<NameSearchResult> search_for_name_internal(
             auto using_statement = (UsingStatement*)statement;
 
             if(!external || using_statement->export_) {
-                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, using_statement, using_statement->value));
+                expect_delayed(expression_value, evaluate_constant_expression(arena, info, jobs, scope, using_statement, using_statement->value));
 
                 if(expression_value.type.kind == TypeKind::FileModule) {
                     auto file_module = expression_value.value.unwrap_file_module();
 
                     expect_delayed(search_value, search_for_name(
+                        arena,
                         info,
                         jobs,
                         name,
@@ -2139,12 +2177,12 @@ static DelayedResult<NameSearchResult> search_for_name_internal(
                             }
                         }
                     } else {
-                        error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                        error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
                         return err();
                     }
                 } else {
-                    error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+                    error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(arena)));
 
                     return err();
                 }
@@ -2168,6 +2206,7 @@ static DelayedResult<NameSearchResult> search_for_name_internal(
                         if(job.state == JobState::Done) {
                             if(resolve_static_if.condition) {
                                 expect_delayed(search_value, search_for_name_internal(
+                                    arena,
                                     info,
                                     jobs,
                                     name,
@@ -2231,6 +2270,7 @@ static DelayedResult<NameSearchResult> search_for_name_internal(
 }
 
 profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
+    Arena *arena,
     GlobalInfo info,
     List<AnyJob>* jobs,
     String name,
@@ -2254,6 +2294,7 @@ profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
     auto has_reached_ignore_in_scope = false;
 
     return search_for_name_internal(
+        arena,
         info,
         jobs,
         name,
@@ -2267,7 +2308,7 @@ profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
     );
 }
 
-Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType type, AnyConstantValue value) {
+Result<String> array_to_string(Arena* arena, ConstantScope* scope, FileRange range, AnyType type, AnyConstantValue value) {
     AnyType element_type;
     StaticArrayConstant static_array_value;
     if(type.kind == TypeKind::StaticArray) {
@@ -2293,7 +2334,7 @@ Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType ty
             return err();
         }
     } else {
-        error(scope, range, "Expected a string ([]u8), got '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+        error(scope, range, "Expected a string ([]u8), got '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
         return err();
     }
@@ -2302,12 +2343,12 @@ Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType ty
         element_type.kind != TypeKind::Integer ||
         element_type.integer.size != RegisterSize::Size8
     ) {
-        error(scope, range, "Expected a string ([]u8), got '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+        error(scope, range, "Expected a string ([]u8), got '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
         return err();
     }
 
-    auto data = allocate<uint8_t>(static_array_value.elements.length);
+    auto data = arena->allocate<uint8_t>(static_array_value.elements.length);
     for(size_t i = 0; i < static_array_value.elements.length; i += 1) {
         auto element_value = static_array_value.elements[i];
 
@@ -2334,6 +2375,7 @@ Result<String> array_to_string(ConstantScope* scope, FileRange range, AnyType ty
 }
 
 profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expression, (
+    Arena* arena,
     GlobalInfo info,
     List<AnyJob>* jobs,
     ConstantScope* scope,
@@ -2354,6 +2396,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         auto current_scope = scope;
         while(true) {
             expect_delayed(search_value, search_for_name(
+                arena,
                 info,
                 jobs,
                 named_reference->name.text,
@@ -2394,7 +2437,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     } else if(expression->kind == ExpressionKind::MemberReference) {
         auto member_reference = (MemberReference*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, member_reference->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, member_reference->expression));
 
         if(expression_value.value.kind == ConstantValueKind::UndefConstant) {
             error(scope, member_reference->expression->range, "Cannot access members of an undefined value");
@@ -2507,6 +2550,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             auto file_module_value = expression_value.value.unwrap_file_module();
 
             expect_delayed(search_value, search_for_name(
+                arena,
                 info,
                 jobs,
                 member_reference->name.text,
@@ -2557,24 +2601,25 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     scope,
                     member_reference->expression->range,
                     "Type '%.*s' has no members",
-                    STRING_PRINTF_ARGUMENTS(type.get_description())
+                    STRING_PRINTF_ARGUMENTS(type.get_description(arena))
                 );
 
                 return err();
             }
         } else {
-            error(scope, member_reference->expression->range, "Type '%.*s' has no members", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+            error(scope, member_reference->expression->range, "Type '%.*s' has no members", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(arena)));
 
             return err();
         }
     } else if(expression->kind == ExpressionKind::IndexReference) {
         auto index_reference = (IndexReference*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, index_reference->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, index_reference->expression));
 
-        expect_delayed(index, evaluate_constant_expression(info, jobs, scope, ignore_statement, index_reference->index));
+        expect_delayed(index, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, index_reference->index));
 
         expect(value, evaluate_constant_index(
+            arena,
             info,
             scope,
             expression_value.type,
@@ -2605,7 +2650,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
         auto character_count = string_literal->characters.length;
 
-        auto characters = allocate<AnyConstantValue>(character_count);
+        auto characters = arena->allocate<AnyConstantValue>(character_count);
 
         for(size_t i = 0; i < character_count; i += 1) {
             characters[i] = AnyConstantValue((uint64_t)string_literal->characters[i]);
@@ -2614,7 +2659,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         return ok(TypedConstantValue(
             AnyType(StaticArray(
                 character_count,
-                heapify(AnyType(Integer(
+                arena->heapify(AnyType(Integer(
                     RegisterSize::Size8,
                     false
                 )))
@@ -2634,23 +2679,24 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             return err();
         }
 
-        expect_delayed(first_element, evaluate_constant_expression(info, jobs, scope, ignore_statement, array_literal->elements[0]));
+        expect_delayed(first_element, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, array_literal->elements[0]));
 
         expect(determined_element_type, coerce_to_default_type(info, scope, array_literal->elements[0]->range, first_element.type));
 
         if(!determined_element_type.is_runtime_type()) {
-            error(scope, array_literal->range, "Arrays cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(determined_element_type.get_description()));
+            error(scope, array_literal->range, "Arrays cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(determined_element_type.get_description(arena)));
 
             return err();
         }
 
-        auto elements = allocate<AnyConstantValue>(element_count);
+        auto elements = arena->allocate<AnyConstantValue>(element_count);
         elements[0] = first_element.value;
 
         for(size_t i = 1; i < element_count; i += 1) {
-            expect_delayed(element, evaluate_constant_expression(info, jobs, scope, ignore_statement, array_literal->elements[i]));
+            expect_delayed(element, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, array_literal->elements[i]));
 
             expect(element_value, coerce_constant_to_type(
+                arena,
                 info,
                 scope,
                 array_literal->elements[i]->range,
@@ -2666,7 +2712,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
         return ok(TypedConstantValue(
             AnyType(StaticArray(
                 element_count,
-                heapify(determined_element_type)
+                arena->heapify(determined_element_type)
             )),
             AnyConstantValue(StaticArrayConstant(
                 Array(element_count, elements)
@@ -2683,8 +2729,8 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
             return err();
         }
 
-        auto members = allocate<StructTypeMember>(member_count);
-        auto member_values = allocate<AnyConstantValue>(member_count);
+        auto members = arena->allocate<StructTypeMember>(member_count);
+        auto member_values = arena->allocate<AnyConstantValue>(member_count);
 
         for(size_t i = 0; i < member_count; i += 1) {
             auto member_name = struct_literal->members[i].name;
@@ -2697,7 +2743,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 }
             }
 
-            expect_delayed(member, evaluate_constant_expression(info, jobs, scope, ignore_statement, struct_literal->members[i].value));
+            expect_delayed(member, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, struct_literal->members[i].value));
 
             members[i] = {
                 member_name.text,
@@ -2718,7 +2764,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     } else if(expression->kind == ExpressionKind::FunctionCall) {
         auto function_call = (FunctionCall*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, function_call->expression));
 
         if(expression_value.type.kind == TypeKind::FunctionTypeType) {
             error(scope, function_call->range, "Function calls not allowed in global context");
@@ -2734,7 +2780,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     return err();
                 }
 
-                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[0]));
+                expect_delayed(parameter_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, function_call->parameters[0]));
 
                 AnyType type;
                 if(parameter_value.type.kind == TypeKind::Type) {
@@ -2744,7 +2790,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 }
 
                 if(!type.is_runtime_type()) {
-                    error(scope, function_call->parameters[0]->range, "'%.*s'' has no size", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description()));
+                    error(scope, function_call->parameters[0]->range, "'%.*s'' has no size", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description(arena)));
 
                     return err();
                 }
@@ -2765,7 +2811,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     return err();
                 }
 
-                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[0]));
+                expect_delayed(parameter_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, function_call->parameters[0]));
 
                 return ok(TypedConstantValue(
                     AnyType::create_type_type(),
@@ -2790,7 +2836,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     return err();
                 }
 
-                expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[0]));
+                expect_delayed(parameter_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, function_call->parameters[0]));
 
                 RegisterSize result_size;
                 double value;
@@ -2824,7 +2870,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     result_size = parameter_value.type.float_.size;
                     value = parameter_value.value.unwrap_float();
                 } else {
-                    error(scope, function_call->parameters[0]->range, "Expected a float type, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description()));
+                    error(scope, function_call->parameters[0]->range, "Expected a float type, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description(arena)));
 
                     return err();
                 }
@@ -2854,12 +2900,13 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     return err();
                 }
 
-                auto parameters = allocate<AnyConstantValue>(parameter_count);
+                auto parameters = arena->allocate<AnyConstantValue>(parameter_count);
 
                 for(size_t i = 0; i < parameter_count; i += 1) {
-                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[i]));
+                    expect_delayed(parameter, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, function_call->parameters[i]));
 
                     expect(parameter_value, coerce_constant_to_type(
+                        arena,
                         info,
                         scope,
                         function_call->parameters[i]->range,
@@ -2901,7 +2948,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     }
                 }
 
-                AnyJob job;
+                AnyJob job {};
                 job.kind = JobKind::ResolvePolymorphicStruct;
                 job.state = JobState::Working;
                 job.resolve_polymorphic_struct.definition = definition;
@@ -2924,12 +2971,13 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     return err();
                 }
 
-                auto parameters = allocate<AnyConstantValue>(parameter_count);
+                auto parameters = arena->allocate<AnyConstantValue>(parameter_count);
 
                 for(size_t i = 0; i < parameter_count; i += 1) {
-                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[i]));
+                    expect_delayed(parameter, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, function_call->parameters[i]));
 
                     expect(parameter_value, coerce_constant_to_type(
+                        arena,
                         info,
                         scope,
                         function_call->parameters[i]->range,
@@ -2971,7 +3019,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     }
                 }
 
-                AnyJob job;
+                AnyJob job {};
                 job.kind = JobKind::ResolvePolymorphicUnion;
                 job.state = JobState::Working;
                 job.resolve_polymorphic_union.definition = definition;
@@ -2982,23 +3030,24 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
                 return wait(job_index);
             } else {
-                error(scope, function_call->expression->range, "Type '%.*s' is not polymorphic", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                error(scope, function_call->expression->range, "Type '%.*s' is not polymorphic", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
                 return err();
             }
         } else {
-            error(scope, function_call->expression->range, "Cannot call non-function '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+            error(scope, function_call->expression->range, "Cannot call non-function '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(arena)));
 
             return err();
         }
     } else if(expression->kind == ExpressionKind::BinaryOperation) {
         auto binary_operation = (BinaryOperation*)expression;
 
-        expect_delayed(left, evaluate_constant_expression(info, jobs, scope, ignore_statement, binary_operation->left));
+        expect_delayed(left, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, binary_operation->left));
 
-        expect_delayed(right, evaluate_constant_expression(info, jobs, scope, ignore_statement, binary_operation->right));
+        expect_delayed(right, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, binary_operation->right));
 
         expect(value, evaluate_constant_binary_operation(
+            arena,
             info,
             scope,
             binary_operation->range,
@@ -3015,7 +3064,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     } else if(expression->kind == ExpressionKind::UnaryOperation) {
         auto unary_operation = (UnaryOperation*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, unary_operation->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, unary_operation->expression));
 
         if(expression_value.value.kind == ConstantValueKind::UndefConstant) {
             error(scope, unary_operation->expression->range, "Value is undefined");
@@ -3029,7 +3078,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     auto type = (expression_value.value.unwrap_type());
 
                     if(!type.is_pointable_type()) {
-                        error(scope, unary_operation->expression->range, "Cannot create pointers to type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                        error(scope, unary_operation->expression->range, "Cannot create pointers to type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
                         return err();
                     }
@@ -3038,7 +3087,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                         AnyType::create_type_type(),
                         AnyConstantValue(
                             AnyType(Pointer(
-                                heapify(type)
+                                arena->heapify(type)
                             ))
                         )
                     ));
@@ -3064,7 +3113,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                         AnyConstantValue(!boolean_value)
                     ));
                 } else {
-                    error(scope, unary_operation->expression->range, "Expected a boolean, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+                    error(scope, unary_operation->expression->range, "Expected a boolean, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(arena)));
 
                     return err();
                 }
@@ -3086,7 +3135,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                         AnyConstantValue(-float_value)
                     ));
                 } else {
-                    error(scope, unary_operation->expression->range, "Cannot negate '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+                    error(scope, unary_operation->expression->range, "Cannot negate '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(arena)));
 
                     return err();
                 }
@@ -3099,11 +3148,12 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
     } else if(expression->kind == ExpressionKind::Cast) {
         auto cast = (Cast*)expression;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, cast->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, cast->expression));
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, ignore_statement, cast->type));
+        expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, ignore_statement, cast->type));
 
         expect(value, evaluate_constant_cast(
+            arena,
             info,
             scope,
             expression_value.type,
@@ -3123,13 +3173,13 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
         auto function_call = bake->function_call;
 
-        expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->expression));
+        expect_delayed(expression_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, function_call->expression));
 
         auto call_parameter_count = function_call->parameters.length;
 
-        auto parameters = allocate<TypedConstantValue>(call_parameter_count);
+        auto parameters = arena->allocate<TypedConstantValue>(call_parameter_count);
         for(size_t i = 0; i < call_parameter_count; i += 1) {
-            expect_delayed(parameter_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, function_call->parameters[i]));
+            expect_delayed(parameter_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, function_call->parameters[i]));
 
             parameters[i] = parameter_value;
         }
@@ -3201,13 +3251,13 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 }
             }
 
-            auto call_parameter_ranges = allocate<FileRange>(declaration_parameter_count);
+            auto call_parameter_ranges = arena->allocate<FileRange>(declaration_parameter_count);
 
             for(size_t i = 0; i < declaration_parameter_count; i += 1) {
                 call_parameter_ranges[i] = function_call->parameters[i]->range;
             }
 
-            AnyJob job;
+            AnyJob job {};
             job.kind = JobKind::ResolvePolymorphicFunction;
             job.state = JobState::Working;
             job.resolve_polymorphic_function.declaration = polymorphic_function_value.declaration;
@@ -3241,25 +3291,26 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 AnyConstantValue(function_value)
             ));
         } else {
-            error(scope, function_call->expression->range, "Expected a function, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+            error(scope, function_call->expression->range, "Expected a function, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(arena)));
 
             return err();
         }
     } else if(expression->kind == ExpressionKind::ArrayType) {
         auto array_type = (ArrayType*)expression;
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, ignore_statement, array_type->expression));
+        expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, ignore_statement, array_type->expression));
 
         if(!type.is_runtime_type()) {
-            error(scope, array_type->expression->range, "Cannot have arrays of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+            error(scope, array_type->expression->range, "Cannot have arrays of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
             return err();
         }
 
         if(array_type->length != nullptr) {
-            expect_delayed(length_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, array_type->length));
+            expect_delayed(length_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, array_type->length));
 
             expect(length, coerce_constant_to_integer_type(
+                arena,
                 scope,
                 array_type->length->range,
                 length_value.type,
@@ -3284,7 +3335,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 AnyConstantValue(
                     AnyType(StaticArray(
                         length_integer,
-                        heapify(type)
+                        arena->heapify(type)
                     ))
                 )
             ));
@@ -3293,7 +3344,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 AnyType::create_type_type(),
                 AnyConstantValue(
                     AnyType(ArrayTypeType(
-                        heapify(type)
+                        arena->heapify(type)
                     ))
                 )
             ));
@@ -3303,7 +3354,7 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
         auto parameter_count = function_type->parameters.length;
 
-        auto parameters = allocate<AnyType>(parameter_count);
+        auto parameters = arena->allocate<AnyType>(parameter_count);
 
         for(size_t i = 0; i < parameter_count; i += 1) {
             auto parameter = function_type->parameters[i];
@@ -3314,10 +3365,10 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                 return err();
             }
 
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, ignore_statement, parameter.type));
+            expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, ignore_statement, parameter.type));
 
             if(!type.is_runtime_type()) {
-                error(scope, parameter.type->range, "Function parameters cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                error(scope, parameter.type->range, "Function parameters cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
                 return err();
             }
@@ -3327,15 +3378,15 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 
         auto return_type_count = function_type->return_types.length;
 
-        auto return_types = allocate<AnyType>(return_type_count);
+        auto return_types = arena->allocate<AnyType>(return_type_count);
 
         for(size_t i = 0; i < return_type_count; i += 1) {
             auto expression = function_type->return_types[i];
 
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, ignore_statement, expression));
+            expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, ignore_statement, expression));
 
             if(!type.is_runtime_type()) {
-                error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
                 return err();
             }
@@ -3367,9 +3418,9 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
                     return err();
                 }
 
-                expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, tag.parameters[0]));
+                expect_delayed(parameter, evaluate_constant_expression(arena, info, jobs, scope, nullptr, tag.parameters[0]));
 
-                expect(calling_convention_name, array_to_string(scope, tag.parameters[0]->range, parameter.type, parameter.value));
+                expect(calling_convention_name, array_to_string(arena, scope, tag.parameters[0]->range, parameter.type, parameter.value));
 
                 if(calling_convention_name == u8"default"_S) {
                     calling_convention = CallingConvention::Default;
@@ -3401,28 +3452,36 @@ profiled_function(DelayedResult<TypedConstantValue>, evaluate_constant_expressio
 }
 
 DelayedResult<AnyType> evaluate_type_expression(
+    Arena* arena,
     GlobalInfo info,
     List<AnyJob>* jobs,
     ConstantScope* scope,
     Statement* ignore_statement,
     Expression* expression
 ) {
-    expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, ignore_statement, expression));
+    expect_delayed(expression_value, evaluate_constant_expression(arena, info, jobs, scope, ignore_statement, expression));
 
     if(expression_value.type.kind == TypeKind::Type) {
         return ok((expression_value.value.unwrap_type()));
     } else {
-        error(scope, expression->range, "Expected a type, got %.*s", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+        error(scope, expression->range, "Expected a type, got %.*s", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(arena)));
 
         return err();
     }
 }
 
-DelayedResult<StaticIfResolutionResult> do_resolve_static_if(GlobalInfo info, List<AnyJob>* jobs, StaticIf* static_if, ConstantScope* scope) {
-    expect_delayed(condition, evaluate_constant_expression(info, jobs, scope, static_if, static_if->condition));
+DelayedResult<StaticIfResolutionResult> do_resolve_static_if(
+    GlobalInfo info,
+    List<AnyJob>* jobs,
+    Arena* global_arena,
+    Arena* arena,
+    StaticIf* static_if,
+    ConstantScope* scope
+) {
+    expect_delayed(condition, evaluate_constant_expression(arena, info, jobs, scope, static_if, static_if->condition));
 
     if(condition.type.kind != TypeKind::Boolean) {
-        error(scope, static_if->condition->range, "Expected a boolean, got '%.*s'", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
+        error(scope, static_if->condition->range, "Expected a boolean, got '%.*s'", STRING_PRINTF_ARGUMENTS(condition.type.get_description(arena)));
 
         return err();
     }
@@ -3436,9 +3495,9 @@ DelayedResult<StaticIfResolutionResult> do_resolve_static_if(GlobalInfo info, Li
     auto condition_value = (condition.value.unwrap_boolean());
 
     if(condition_value) {
-        expect_void(process_scope(jobs, scope, static_if->statements, nullptr, true));
+        expect_void(process_scope(global_arena, jobs, scope, static_if->statements, nullptr, true));
 
-        auto declarations = create_declaration_hash_table(static_if->statements);
+        auto declarations = create_declaration_hash_table(global_arena, static_if->statements);
 
         StaticIfResolutionResult result {};
         result.condition = true;
@@ -3456,25 +3515,29 @@ DelayedResult<StaticIfResolutionResult> do_resolve_static_if(GlobalInfo info, Li
 profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declaration, (
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* global_arena,
+    Arena* arena,
     FunctionDeclaration* declaration,
     ConstantScope* scope
 ), (
     info,
     jobs,
+    global_arena,
+    arena,
     declaration,
     scope
 )) {
     auto parameter_count = declaration->parameters.length;
 
-    auto parameter_types = allocate<AnyType>(parameter_count);
+    auto parameter_types = arena->allocate<AnyType>(parameter_count);
     for(size_t i = 0; i < parameter_count; i += 1) {
         assert(!declaration->parameters[i].is_constant);
         assert(!declaration->parameters[i].is_polymorphic_determiner);
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, declaration->parameters[i].type));
+        expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, nullptr, declaration->parameters[i].type));
 
         if(!type.is_runtime_type()) {
-            error(scope, declaration->parameters[i].type->range, "Function parameters cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+            error(scope, declaration->parameters[i].type->range, "Function parameters cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
             return err();
         }
@@ -3484,15 +3547,15 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
 
     auto return_type_count = declaration->return_types.length;
 
-    auto return_types = allocate<AnyType>(return_type_count);
+    auto return_types = arena->allocate<AnyType>(return_type_count);
 
     for(size_t i = 0; i < return_type_count; i += 1) {
         auto expression = declaration->return_types[i];
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, expression));
+        expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, nullptr, expression));
 
         if(!type.is_runtime_type()) {
-            error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+            error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
             return err();
         }
@@ -3513,10 +3576,10 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
                 return err();
             }
 
-            List<String> libraries {};
+            List<String> libraries(arena);
 
             for(size_t i = 0; i < tag.parameters.length; i += 1) {
-                expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, tag.parameters[i]));
+                expect_delayed(parameter, evaluate_constant_expression(arena, info, jobs, scope, nullptr, tag.parameters[i]));
 
                 if(parameter.type.kind == TypeKind::ArrayTypeType) {
                     auto array = parameter.type.array;
@@ -3529,7 +3592,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
                             auto static_array_value = (parameter.value.unwrap_static_array());
 
                             for(auto element : static_array_value.elements) {
-                                expect(library_path, array_to_string(scope, tag.parameters[i]->range, *array.element_type, element));
+                                expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, *array.element_type, element));
 
                                 libraries.append(library_path);
                             }
@@ -3539,7 +3602,7 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
                             return err();
                         }
                     } else {
-                        expect(library_path, array_to_string(scope, tag.parameters[i]->range, parameter.type, parameter.value));
+                        expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, parameter.type, parameter.value));
 
                         libraries.append(library_path);
                     }
@@ -3561,17 +3624,17 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
                         assert(static_array.length == static_array_value.elements.length);
 
                         for(auto element : static_array_value.elements) {
-                            expect(library_path, array_to_string(scope, tag.parameters[i]->range, *static_array.element_type, element));
+                            expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, *static_array.element_type, element));
 
                             libraries.append(library_path);
                         }
                     } else {
-                        expect(library_path, array_to_string(scope, tag.parameters[i]->range, parameter.type, parameter.value));
+                        expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, parameter.type, parameter.value));
 
                         libraries.append(library_path);
                     }
                 } else {
-                    error(scope, tag.parameters[i]->range, "Expected a string or array of strings, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter.type.get_description()));
+                    error(scope, tag.parameters[i]->range, "Expected a string or array of strings, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter.type.get_description(arena)));
 
                     return err();
                 }
@@ -3600,9 +3663,9 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
                 return err();
             }
 
-            expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, tag.parameters[0]));
+            expect_delayed(parameter, evaluate_constant_expression(arena, info, jobs, scope, nullptr, tag.parameters[0]));
 
-            expect(calling_convention_name, array_to_string(scope, tag.parameters[0]->range, parameter.type, parameter.value));
+            expect(calling_convention_name, array_to_string(arena, scope, tag.parameters[0]->range, parameter.type, parameter.value));
 
             if(calling_convention_name == u8"default"_S) {
                 calling_convention = CallingConvention::Default;
@@ -3642,12 +3705,12 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
             )
         ));
     } else {
-        auto body_scope = new ConstantScope;
+        auto body_scope = global_arena->allocate_and_construct<ConstantScope>();
         body_scope->scope_constants = {};
         body_scope->is_top_level = false;
         body_scope->parent = scope;
 
-        List<ConstantScope*> child_scopes {};
+        List<ConstantScope*> child_scopes(global_arena);
         if(is_external) {
             if(declaration->has_body) {
                 error(scope, declaration->range, "External functions cannot have a body");
@@ -3659,9 +3722,9 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
             body_scope->declarations = {};
         } else {
             body_scope->statements = declaration->statements;
-            body_scope->declarations = create_declaration_hash_table(declaration->statements);
+            body_scope->declarations = create_declaration_hash_table(global_arena, declaration->statements);
 
-            expect_void(process_scope(jobs, body_scope, body_scope->statements, &child_scopes, false));
+            expect_void(process_scope(global_arena, jobs, body_scope, body_scope->statements, &child_scopes, false));
         }
 
         FunctionConstant function_constant;
@@ -3693,6 +3756,8 @@ profiled_function(DelayedResult<TypedConstantValue>, do_resolve_function_declara
 profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphic_function, (
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* global_arena,
+    Arena* arena,
     FunctionDeclaration* declaration,
     TypedConstantValue* parameters,
     ConstantScope* scope,
@@ -3701,6 +3766,8 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
 ), (
     info,
     jobs,
+    global_arena,
+    arena,
     declaration,
     parameters,
     scope,
@@ -3709,9 +3776,9 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
 )) {
     auto original_parameter_count = declaration->parameters.length;
 
-    auto parameter_types = allocate<AnyType>(original_parameter_count);
+    auto parameter_types = arena->allocate<AnyType>(original_parameter_count);
 
-    List<ScopeConstant> polymorphic_determiners {};
+    List<ScopeConstant> polymorphic_determiners(arena);
 
     size_t polymorphic_determiner_index = 0;
     size_t runtime_parameter_count = 0;
@@ -3752,7 +3819,7 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
     signature_scope.is_top_level = false;
     signature_scope.parent = scope;
 
-    List<ScopeConstant> scope_constants {};
+    List<ScopeConstant> scope_constants(arena);
 
     for(auto polymorphic_determiner : polymorphic_determiners) {
         scope_constants.append(polymorphic_determiner);
@@ -3764,12 +3831,13 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
 
         if(declaration_parameter.is_constant) {
             if(!declaration_parameter.is_polymorphic_determiner) {
-                expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &signature_scope, nullptr, declaration_parameter.type));
+                expect_delayed(parameter_type, evaluate_type_expression(arena, info, jobs, &signature_scope, nullptr, declaration_parameter.type));
 
                 parameter_types[i] = parameter_type;
             }
 
             expect(coerced_constant_value, coerce_constant_to_type(
+                arena,
                 info,
                 call_scope,
                 call_parameter_ranges[i],
@@ -3790,7 +3858,7 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
 
     signature_scope.scope_constants = scope_constants;
 
-    auto runtime_parameter_types = allocate<AnyType>(runtime_parameter_count);
+    auto runtime_parameter_types = arena->allocate<AnyType>(runtime_parameter_count);
 
     size_t runtime_parameter_index = 0;
     for(size_t i = 0; i < original_parameter_count; i += 1) {
@@ -3798,13 +3866,13 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
 
         if(!declaration_parameter.is_constant) {
             if(!declaration_parameter.is_polymorphic_determiner) {
-                expect_delayed(parameter_type, evaluate_type_expression(info, jobs, &signature_scope, nullptr, declaration_parameter.type));
+                expect_delayed(parameter_type, evaluate_type_expression(arena, info, jobs, &signature_scope, nullptr, declaration_parameter.type));
 
                 if(!parameter_type.is_runtime_type()) {
                     error(scope,
                         declaration_parameter.type->range,
                         "Non-constant function parameters cannot be of type '%.*s'",
-                        STRING_PRINTF_ARGUMENTS(parameter_type.get_description())
+                        STRING_PRINTF_ARGUMENTS(parameter_type.get_description(arena))
                     );
 
                     error(call_scope, call_parameter_ranges[i], "Polymorphic function paremter here");
@@ -3825,15 +3893,15 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
 
     auto return_type_count = declaration->return_types.length;
 
-    auto return_types = allocate<AnyType>(return_type_count);
+    auto return_types = arena->allocate<AnyType>(return_type_count);
 
     for(size_t i = 0; i < return_type_count; i += 1) {
         auto expression = declaration->return_types[i];
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, &signature_scope, nullptr, expression));
+        expect_delayed(type, evaluate_type_expression(arena, info, jobs, &signature_scope, nullptr, expression));
 
         if(!type.is_runtime_type()) {
-            error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+            error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
             return err();
         }
@@ -3867,15 +3935,15 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
         return err();
     }
 
-    auto body_scope = new ConstantScope;
+    auto body_scope = global_arena->allocate_and_construct<ConstantScope>();
     body_scope->statements = declaration->statements;
-    body_scope->declarations = create_declaration_hash_table(declaration->statements);
+    body_scope->declarations = create_declaration_hash_table(global_arena, declaration->statements);
     body_scope->scope_constants = scope_constants;
     body_scope->is_top_level = false;
     body_scope->parent = scope;
 
-    List<ConstantScope*> child_scopes {};
-    expect_void(process_scope(jobs, body_scope, body_scope->statements, &child_scopes, false));
+    List<ConstantScope*> child_scopes(global_arena);
+    expect_void(process_scope(global_arena, jobs, body_scope, body_scope->statements, &child_scopes, false));
 
     FunctionConstant function_constant;
     function_constant.declaration = declaration;
@@ -3897,21 +3965,23 @@ profiled_function(DelayedResult<FunctionResolutionResult>, do_resolve_polymorphi
 profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     StructDefinition* struct_definition,
     ConstantScope* scope
 ), (
     info,
     jobs,
+    arena,
     struct_definition,
     scope
 )) {
     auto parameter_count = struct_definition->parameters.length;
 
     if(struct_definition->parameters.length > 0) {
-        auto parameter_types = allocate<AnyType>(parameter_count);
+        auto parameter_types = arena->allocate<AnyType>(parameter_count);
 
         for(size_t i = 0; i < parameter_count; i += 1) {
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, struct_definition->parameters[i].type));
+            expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, nullptr, struct_definition->parameters[i].type));
 
             parameter_types[i] = type;
         }
@@ -3933,10 +4003,11 @@ profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
 
     auto member_count = struct_definition->members.length;
 
-    auto members = allocate<StructTypeMember>(member_count);
+    auto members = arena->allocate<StructTypeMember>(member_count);
 
     for(size_t i = 0; i < member_count; i += 1) {
         expect_delayed(member_type, evaluate_type_expression(
+            arena,
             info,
             jobs,
             &member_scope,
@@ -3947,7 +4018,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
         expect(actual_member_type, coerce_to_default_type(info, &member_scope, struct_definition->members[i].type->range, member_type));
 
         if(!actual_member_type.is_runtime_type()) {
-            error(&member_scope, struct_definition->members[i].type->range, "Struct members cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_member_type.get_description()));
+            error(&member_scope, struct_definition->members[i].type->range, "Struct members cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_member_type.get_description(arena)));
 
             return err();
         }
@@ -3968,12 +4039,14 @@ profiled_function(DelayedResult<AnyType>, do_resolve_struct_definition, (
 profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     StructDefinition* struct_definition,
     AnyConstantValue* parameters,
     ConstantScope* scope
 ), (
     info,
     jobs,
+    arena,
     struct_definition,
     parameters,
     scope
@@ -3981,10 +4054,10 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
     auto parameter_count = struct_definition->parameters.length;
     assert(parameter_count > 0);
 
-    auto constant_parameters = allocate<ScopeConstant>(parameter_count);
+    auto constant_parameters = arena->allocate<ScopeConstant>(parameter_count);
 
     for(size_t i = 0; i < parameter_count; i += 1) {
-        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, scope, nullptr, struct_definition->parameters[i].type));
+        expect_delayed(parameter_type, evaluate_type_expression(arena, info, jobs, scope, nullptr, struct_definition->parameters[i].type));
 
         constant_parameters[i] = {
             struct_definition->parameters[i].name.text,
@@ -4002,10 +4075,11 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
 
     auto member_count = struct_definition->members.length;
 
-    auto members = allocate<StructTypeMember>(member_count);
+    auto members = arena->allocate<StructTypeMember>(member_count);
 
     for(size_t i = 0; i < member_count; i += 1) {
         expect_delayed(member_type, evaluate_type_expression(
+            arena,
             info,
             jobs,
             &member_scope,
@@ -4016,7 +4090,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
         expect(actual_member_type, coerce_to_default_type(info, &member_scope, struct_definition->members[i].type->range, member_type));
 
         if(!actual_member_type.is_runtime_type()) {
-            error(&member_scope, struct_definition->members[i].type->range, "Struct members cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_member_type.get_description()));
+            error(&member_scope, struct_definition->members[i].type->range, "Struct members cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_member_type.get_description(arena)));
 
             return err();
         }
@@ -4037,21 +4111,23 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_struct, (
 profiled_function(DelayedResult<AnyType>, do_resolve_union_definition, (
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     UnionDefinition* union_definition,
     ConstantScope* scope
 ), (
     info,
     jobs,
+    arena,
     union_definition,
     scope
 )) {
     auto parameter_count = union_definition->parameters.length;
 
     if(union_definition->parameters.length > 0) {
-        auto parameter_types = allocate<AnyType>(parameter_count);
+        auto parameter_types = arena->allocate<AnyType>(parameter_count);
 
         for(size_t i = 0; i < parameter_count; i += 1) {
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, nullptr, union_definition->parameters[i].type));
+            expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, nullptr, union_definition->parameters[i].type));
 
             parameter_types[i] = type;
         }
@@ -4073,10 +4149,11 @@ profiled_function(DelayedResult<AnyType>, do_resolve_union_definition, (
 
     auto member_count = union_definition->members.length;
 
-    auto members = allocate<StructTypeMember>(member_count);
+    auto members = arena->allocate<StructTypeMember>(member_count);
 
     for(size_t i = 0; i < member_count; i += 1) {
         expect_delayed(member_type, evaluate_type_expression(
+            arena,
             info,
             jobs,
             &member_scope,
@@ -4087,7 +4164,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_union_definition, (
         expect(actual_member_type, coerce_to_default_type(info, &member_scope, union_definition->members[i].type->range, member_type));
 
         if(!actual_member_type.is_runtime_type()) {
-            error(&member_scope, union_definition->members[i].type->range, "Union members cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_member_type.get_description()));
+            error(&member_scope, union_definition->members[i].type->range, "Union members cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_member_type.get_description(arena)));
 
             return err();
         }
@@ -4108,12 +4185,14 @@ profiled_function(DelayedResult<AnyType>, do_resolve_union_definition, (
 profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_union, (
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     UnionDefinition* union_definition,
     AnyConstantValue* parameters,
     ConstantScope* scope
 ), (
     info,
     jobs,
+    arena,
     union_definition,
     parameters,
     scope
@@ -4121,10 +4200,10 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_union, (
     auto parameter_count = union_definition->parameters.length;
     assert(parameter_count > 0);
 
-    auto constant_parameters = allocate<ScopeConstant>(parameter_count);
+    auto constant_parameters = arena->allocate<ScopeConstant>(parameter_count);
 
     for(size_t i = 0; i < parameter_count; i += 1) {
-        expect_delayed(parameter_type, evaluate_type_expression(info, jobs, scope, nullptr, union_definition->parameters[i].type));
+        expect_delayed(parameter_type, evaluate_type_expression(arena, info, jobs, scope, nullptr, union_definition->parameters[i].type));
 
         constant_parameters[i] = {
             union_definition->parameters[i].name.text,
@@ -4142,10 +4221,11 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_union, (
 
     auto member_count = union_definition->members.length;
 
-    auto members = allocate<StructTypeMember>(member_count);
+    auto members = arena->allocate<StructTypeMember>(member_count);
 
     for(size_t i = 0; i < member_count; i += 1) {
         expect_delayed(member_type, evaluate_type_expression(
+            arena,
             info,
             jobs,
             &member_scope,
@@ -4156,7 +4236,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_union, (
         expect(actual_member_type, coerce_to_default_type(info, &member_scope, union_definition->members[i].type->range, member_type));
 
         if(!actual_member_type.is_runtime_type()) {
-            error(&member_scope, union_definition->members[i].type->range, "Union members cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_member_type.get_description()));
+            error(&member_scope, union_definition->members[i].type->range, "Union members cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_member_type.get_description(arena)));
 
             return err();
         }
@@ -4175,6 +4255,7 @@ profiled_function(DelayedResult<AnyType>, do_resolve_polymorphic_union, (
 }
 
 profiled_function(Result<void>, process_scope, (
+    Arena* global_arena,
     List<AnyJob>* jobs,
     ConstantScope* scope,
     Array<Statement*> statements,
@@ -4201,7 +4282,7 @@ profiled_function(Result<void>, process_scope, (
                 }
 
                 if(!is_polymorphic) {
-                    AnyJob job;
+                    AnyJob job {};
                     job.kind = JobKind::ResolveFunctionDeclaration;
                     job.state = JobState::Working;
                     job.resolve_function_declaration.declaration = function_declaration;
@@ -4214,7 +4295,7 @@ profiled_function(Result<void>, process_scope, (
             case StatementKind::ConstantDefinition: {
                 auto constant_definition = (ConstantDefinition*)statement;
 
-                AnyJob job;
+                AnyJob job {};
                 job.kind = JobKind::ResolveConstantDefinition;
                 job.state = JobState::Working;
                 job.resolve_constant_definition.definition = constant_definition;
@@ -4226,7 +4307,7 @@ profiled_function(Result<void>, process_scope, (
             case StatementKind::StructDefinition: {
                 auto struct_definition = (StructDefinition*)statement;
 
-                AnyJob job;
+                AnyJob job {};
                 job.kind = JobKind::ResolveStructDefinition;
                 job.state = JobState::Working;
                 job.resolve_struct_definition.definition = struct_definition;
@@ -4238,7 +4319,7 @@ profiled_function(Result<void>, process_scope, (
             case StatementKind::UnionDefinition: {
                 auto union_definition = (UnionDefinition*)statement;
 
-                AnyJob job;
+                AnyJob job {};
                 job.kind = JobKind::ResolveUnionDefinition;
                 job.state = JobState::Working;
                 job.resolve_union_definition.definition = union_definition;
@@ -4250,7 +4331,7 @@ profiled_function(Result<void>, process_scope, (
             case StatementKind::EnumDefinition: {
                 auto enum_definition = (EnumDefinition*)statement;
 
-                AnyJob job;
+                AnyJob job {};
                 job.kind = JobKind::ResolveEnumDefinition;
                 job.state = JobState::Working;
                 job.resolve_enum_definition.definition = enum_definition;
@@ -4263,7 +4344,7 @@ profiled_function(Result<void>, process_scope, (
                 if(is_top_level) {
                     auto variable_declaration = (VariableDeclaration*)statement;
 
-                    AnyJob job;
+                    AnyJob job {};
                     job.kind = JobKind::GenerateStaticVariable;
                     job.state = JobState::Working;
                     job.generate_static_variable.declaration = variable_declaration;
@@ -4282,41 +4363,41 @@ profiled_function(Result<void>, process_scope, (
 
                 auto if_statement = (IfStatement*)statement;
 
-                auto if_scope = new ConstantScope;
+                auto if_scope = global_arena->allocate_and_construct<ConstantScope>();
                 if_scope->statements = if_statement->statements;
-                if_scope->declarations = create_declaration_hash_table(if_statement->statements);
+                if_scope->declarations = create_declaration_hash_table(global_arena, if_statement->statements);
                 if_scope->scope_constants = {};
                 if_scope->is_top_level = false;
                 if_scope->parent = scope;
 
                 child_scopes->append(if_scope);
 
-                expect_void(process_scope(jobs, if_scope, if_statement->statements, child_scopes, false));
+                expect_void(process_scope(global_arena, jobs, if_scope, if_statement->statements, child_scopes, false));
 
                 for(auto else_if : if_statement->else_ifs) {
-                    auto else_if_scope = new ConstantScope;
+                    auto else_if_scope = global_arena->allocate_and_construct<ConstantScope>();
                     else_if_scope->statements = else_if.statements;
-                    else_if_scope->declarations = create_declaration_hash_table(else_if.statements);
+                    else_if_scope->declarations = create_declaration_hash_table(global_arena, else_if.statements);
                     else_if_scope->scope_constants = {};
                     else_if_scope->is_top_level = false;
                     else_if_scope->parent = scope;
 
                     child_scopes->append(else_if_scope);
 
-                    expect_void(process_scope(jobs, else_if_scope, else_if.statements, child_scopes, false));
+                    expect_void(process_scope(global_arena, jobs, else_if_scope, else_if.statements, child_scopes, false));
                 }
 
                 if(if_statement->else_statements.length != 0) {
-                    auto else_scope = new ConstantScope;
+                    auto else_scope = global_arena->allocate_and_construct<ConstantScope>();
                     else_scope->statements = if_statement->else_statements;
-                    else_scope->declarations = create_declaration_hash_table(if_statement->else_statements);
+                    else_scope->declarations = create_declaration_hash_table(global_arena, if_statement->else_statements);
                     else_scope->scope_constants = {};
                     else_scope->is_top_level = false;
                     else_scope->parent = scope;
 
                     child_scopes->append(else_scope);
 
-                    expect_void(process_scope(jobs, else_scope, if_statement->else_statements, child_scopes, false));
+                    expect_void(process_scope(global_arena, jobs, else_scope, if_statement->else_statements, child_scopes, false));
                 }
             } break;
 
@@ -4329,16 +4410,16 @@ profiled_function(Result<void>, process_scope, (
 
                 auto while_loop = (WhileLoop*)statement;
 
-                auto while_scope = new ConstantScope;
+                auto while_scope = global_arena->allocate_and_construct<ConstantScope>();
                 while_scope->statements = while_loop->statements;
-                while_scope->declarations = create_declaration_hash_table(while_loop->statements);
+                while_scope->declarations = create_declaration_hash_table(global_arena, while_loop->statements);
                 while_scope->scope_constants = {};
                 while_scope->is_top_level = false;
                 while_scope->parent = scope;
 
                 child_scopes->append(while_scope);
 
-                expect_void(process_scope(jobs, while_scope, while_loop->statements, child_scopes, false));
+                expect_void(process_scope(global_arena, jobs, while_scope, while_loop->statements, child_scopes, false));
             } break;
 
             case StatementKind::ForLoop: {
@@ -4350,16 +4431,16 @@ profiled_function(Result<void>, process_scope, (
 
                 auto for_loop = (ForLoop*)statement;
 
-                auto for_scope = new ConstantScope;
+                auto for_scope = global_arena->allocate_and_construct<ConstantScope>();
                 for_scope->statements = for_loop->statements;
-                for_scope->declarations = create_declaration_hash_table(for_loop->statements);
+                for_scope->declarations = create_declaration_hash_table(global_arena, for_loop->statements);
                 for_scope->scope_constants = {};
                 for_scope->is_top_level = false;
                 for_scope->parent = scope;
 
                 child_scopes->append(for_scope);
 
-                expect_void(process_scope(jobs, for_scope, for_loop->statements, child_scopes, false));
+                expect_void(process_scope(global_arena, jobs, for_scope, for_loop->statements, child_scopes, false));
             } break;
 
             case StatementKind::Import: {
@@ -4380,7 +4461,7 @@ profiled_function(Result<void>, process_scope, (
                 }
 
                 if(!job_already_added) {
-                    AnyJob job;
+                    AnyJob job {};
                     job.kind = JobKind::ParseFile;
                     job.state = JobState::Working;
                     job.parse_file.path = import->absolute_path;
@@ -4394,7 +4475,7 @@ profiled_function(Result<void>, process_scope, (
             case StatementKind::StaticIf: {
                 auto static_if = (StaticIf*)statement;
 
-                AnyJob job;
+                AnyJob job {};
                 job.kind = JobKind::ResolveStaticIf;
                 job.state = JobState::Working;
                 job.resolve_static_if.static_if = static_if;
@@ -4419,17 +4500,20 @@ profiled_function(Result<void>, process_scope, (
 profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     EnumDefinition* enum_definition,
     ConstantScope* scope
 ), (
     info,
     jobs,
+    arena,
     enum_definition,
     scope
 )) {
     Integer backing_type;
     if(enum_definition->backing_type != nullptr) {
         expect(type, evaluate_type_expression(
+            arena,
             info,
             jobs,
             scope,
@@ -4442,7 +4526,7 @@ profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
                 scope,
                 enum_definition->backing_type->range,
                 "Expected an integer type, got '%.*s'",
-                STRING_PRINTF_ARGUMENTS(type.get_description())
+                STRING_PRINTF_ARGUMENTS(type.get_description(arena))
             );
 
             return err();
@@ -4463,13 +4547,14 @@ profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
 
     auto variant_count = enum_definition->variants.length;
 
-    auto variant_values = allocate<uint64_t>(variant_count);
+    auto variant_values = arena->allocate<uint64_t>(variant_count);
 
     uint64_t next_value = 0;
     for(size_t i = 0; i < variant_count; i += 1) {
         uint64_t value;
         if(enum_definition->variants[i].value != nullptr) {
             expect_delayed(variant_value, evaluate_constant_expression(
+                arena,
                 info,
                 jobs,
                 &member_scope,
@@ -4478,6 +4563,7 @@ profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
             ));
 
             expect(coerced_variant_value, coerce_constant_to_integer_type(
+                arena,
                 &member_scope,
                 enum_definition->variants[i].value->range,
                 variant_value.type,
@@ -4495,6 +4581,7 @@ profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
             value = coerced_variant_value.unwrap_integer();
         } else {
             expect_void(check_undetermined_integer_to_integer_coercion(
+                arena,
                 scope,
                 enum_definition->variants[i].name.range,
                 backing_type,
@@ -4512,7 +4599,7 @@ profiled_function(DelayedResult<Enum>, do_resolve_enum_definition, (
     return ok(Enum(
         scope->file_path,
         enum_definition,
-        heapify(backing_type),
+        arena->heapify(backing_type),
         Array(variant_count, variant_values)
     ));
 }

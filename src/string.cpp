@@ -113,10 +113,10 @@ Result<size_t> validate_c_string(const char* c_string) {
     return ok(length);
 }
 
-const Result<String> String::from_c_string(const char* c_string) {
+const Result<String> String::from_c_string(Arena* arena, const char* c_string) {
     expect(length, validate_c_string(c_string));
 
-    auto elements = allocate<char8_t>(length);
+    auto elements = arena->allocate<char8_t>(length);
     memcpy(elements, c_string, length);
 
     String string {};
@@ -125,8 +125,8 @@ const Result<String> String::from_c_string(const char* c_string) {
     return ok(string);
 }
 
-char* String::to_c_string() {
-    auto c_string = allocate<char>(length + 1);
+char* String::to_c_string(Arena* arena) {
+    auto c_string = arena->allocate<char>(length + 1);
 
     memcpy(c_string, elements, length);
     c_string[length] = '\0';
@@ -152,14 +152,15 @@ profiled_function_void(StringBuffer::append, (String string), (string)) {
     if(capacity == 0) {
         capacity = string.length + minimum_allocation;
 
-        elements = (char8_t*)malloc(capacity);
+        elements = arena->allocate<char8_t>(capacity);
     } else {
         auto new_length = length + string.length;
 
         if(new_length > capacity) {
             auto new_capacity = new_length + minimum_allocation;
 
-            auto new_elements = (char8_t*)realloc(elements, new_capacity);
+            auto new_elements = arena->allocate<char8_t>(new_capacity);
+            memcpy(new_elements, this->elements, capacity);
 
             capacity = new_capacity;
             elements = new_elements;

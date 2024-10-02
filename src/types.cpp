@@ -1,6 +1,6 @@
 #include "types.h"
 #include <string.h>
-#include "util.h"
+#include <stdlib.h>
 
 bool AnyType::operator==(AnyType other) {
     if(kind != other.kind) {
@@ -144,14 +144,14 @@ bool AnyType::operator!=(AnyType other) {
     return !(*this == other);
 }
 
-String AnyType::get_description() {
+String AnyType::get_description(Arena* arena) {
     if(kind == TypeKind::FunctionTypeType) {
-        StringBuffer buffer {};
+        StringBuffer buffer(arena);
 
         buffer.append(u8"("_S);
 
         for(size_t i = 0; i < function.parameters.length; i += 1) {
-            buffer.append(function.parameters[i].get_description());
+            buffer.append(function.parameters[i].get_description(arena));
 
             if(i != function.parameters.length - 1) {
                 buffer.append(u8","_S);
@@ -164,12 +164,12 @@ String AnyType::get_description() {
             buffer.append(u8" -> "_S);
 
             if(function.return_types.length == 1) {
-                buffer.append(function.return_types[0].get_description());
+                buffer.append(function.return_types[0].get_description(arena));
             } else {
                 buffer.append(u8"("_S);
 
                 for(size_t i = 0; i < function.return_types.length; i += 1) {
-                    buffer.append(function.return_types[i].get_description());
+                    buffer.append(function.return_types[i].get_description(arena));
 
                     if(i != function.return_types.length - 1) {
                         buffer.append(u8","_S);
@@ -272,26 +272,26 @@ String AnyType::get_description() {
     } else if(kind == TypeKind::Void) {
         return u8"void"_S;
     } else if(kind == TypeKind::Pointer) {
-        StringBuffer buffer {};
+        StringBuffer buffer(arena);
 
         buffer.append(u8"*"_S);
-        buffer.append(pointer.pointed_to_type->get_description());
+        buffer.append(pointer.pointed_to_type->get_description(arena));
 
         return buffer;
     } else if(kind == TypeKind::ArrayTypeType) {
-        StringBuffer buffer {};
+        StringBuffer buffer(arena);
 
         buffer.append(u8"[]"_S);
-        buffer.append(array.element_type->get_description());
+        buffer.append(array.element_type->get_description(arena));
 
         return buffer;
     } else if(kind == TypeKind::StaticArray) {
-        StringBuffer buffer {};
+        StringBuffer buffer(arena);
 
         buffer.append(u8"["_S);
         buffer.append_integer(static_array.length);
         buffer.append(u8"]"_S);
-        buffer.append(static_array.element_type->get_description());
+        buffer.append(static_array.element_type->get_description(arena));
 
         return buffer;
     } else if(kind == TypeKind::StructType) {

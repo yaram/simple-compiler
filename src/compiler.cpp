@@ -87,6 +87,8 @@ inline void append_builtin(List<GlobalConstant>* global_constants, String name) 
 static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments), (arguments)) {
     auto start_time = get_timer_counts();
 
+    Arena global_arena {};
+
     bool has_source_file_path = false;
     String source_file_path;
     bool has_output_file_path = false;
@@ -113,7 +115,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         if(argument_index == arguments.length - 1 && argument[0] != '-') {
             has_source_file_path = true;
 
-            auto result = String::from_c_string(argument);
+            auto result = String::from_c_string(&global_arena, argument);
             if(!result.status) {
                 fprintf(stderr, "Error: Invalid source file path '%s'\n", argument);
 
@@ -133,7 +135,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
             has_output_file_path = true;
 
-            auto result = String::from_c_string(arguments[argument_index]);
+            auto result = String::from_c_string(&global_arena, arguments[argument_index]);
             if(!result.status) {
                 fprintf(stderr, "Error: Invalid output file path '%s'\n", arguments[argument_index]);
 
@@ -151,7 +153,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 return err();
             }
 
-            auto result = String::from_c_string(arguments[argument_index]);
+            auto result = String::from_c_string(&global_arena, arguments[argument_index]);
             if(!result.status) {
                 fprintf(stderr, "Error: '%s' is not a valid '-arch' option value\n\n", arguments[argument_index]);
                 print_help_message(stderr);
@@ -170,7 +172,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 return err();
             }
 
-            auto result = String::from_c_string(arguments[argument_index]);
+            auto result = String::from_c_string(&global_arena, arguments[argument_index]);
             if(!result.status) {
                 fprintf(stderr, "Error: '%s' is not a valid '-os' option value\n\n", arguments[argument_index]);
                 print_help_message(stderr);
@@ -191,7 +193,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 return err();
             }
 
-            auto result = String::from_c_string(arguments[argument_index]);
+            auto result = String::from_c_string(&global_arena, arguments[argument_index]);
             if(!result.status) {
                 fprintf(stderr, "Error: '%s' is not a valid '-toolchain' option value\n\n", arguments[argument_index]);
                 print_help_message(stderr);
@@ -210,7 +212,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 return err();
             }
 
-            auto result = String::from_c_string(arguments[argument_index]);
+            auto result = String::from_c_string(&global_arena, arguments[argument_index]);
             if(!result.status) {
                 fprintf(stderr, "Error: '%s' is not a valid '-config' option value\n\n", arguments[argument_index]);
                 print_help_message(stderr);
@@ -296,7 +298,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         return err();
     }
 
-    expect(absolute_source_file_path, path_relative_to_absolute(source_file_path));
+    expect(absolute_source_file_path, path_relative_to_absolute(&global_arena, source_file_path));
 
     if(!has_output_file_path) {
         output_file_path = get_default_output_file(os, no_link);
@@ -304,7 +306,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
     auto architecture_sizes = get_architecture_sizes(architecture);
 
-    List<GlobalConstant> global_constants {};
+    List<GlobalConstant> global_constants(&global_arena);
 
     append_base_integer_type(&global_constants, u8"u8"_S, RegisterSize::Size8, false);
     append_base_integer_type(&global_constants, u8"u16"_S, RegisterSize::Size16, false);
@@ -483,11 +485,11 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         architecture_sizes
     };
 
-    List<AnyJob> jobs {};
+    List<AnyJob> jobs(&global_arena);
 
     size_t main_file_parse_job_index;
     {
-        AnyJob job;
+        AnyJob job {};
         job.kind = JobKind::ParseFile;
         job.state = JobState::Working;
         job.parse_file.path = absolute_source_file_path;
@@ -495,8 +497,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         main_file_parse_job_index = jobs.append(job);
     }
 
-    List<RuntimeStatic*> runtime_statics {};
-    List<String> libraries {};
+    List<RuntimeStatic*> runtime_statics(&global_arena);
+    List<String> libraries(&global_arena);
 
     if(os == u8"windows"_S || os == u8"mingw"_S) {
         libraries.append(u8"kernel32"_S);
@@ -504,6 +506,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
     auto main_function_state = JobState::Waiting;
     auto main_function_waiting_for = main_file_parse_job_index;
+    Arena main_function_arena {};
     Function* main_function;
 
     uint64_t total_parser_time = 0;
@@ -529,13 +532,13 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
                         auto start_time = get_timer_counts();
 
-                        expect(tokens, tokenize_source(parse_file->path));
+                        expect(tokens, tokenize_source(&job->arena, parse_file->path));
 
-                        expect(statements, parse_tokens(parse_file->path, tokens));
+                        expect(statements, parse_tokens(&job->arena, parse_file->path, tokens));
 
-                        auto scope = new ConstantScope;
+                        auto scope = global_arena.allocate_and_construct<ConstantScope>();
                         scope->statements = statements;
-                        scope->declarations = create_declaration_hash_table(statements);
+                        scope->declarations = create_declaration_hash_table(&global_arena, statements);
                         scope->scope_constants = {};
                         scope->is_top_level = true;
                         scope->file_path = parse_file->path;
@@ -543,7 +546,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         parse_file->scope = scope;
                         job->state = JobState::Done;
 
-                        expect_void(process_scope(&jobs, scope, statements, nullptr, true));
+                        expect_void(process_scope(&global_arena, &jobs, scope, statements, nullptr, true));
 
                         auto end_time = get_timer_counts();
 
@@ -566,7 +569,14 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
                         auto start_time = get_timer_counts();
 
-                        auto result = do_resolve_static_if(info, &jobs, resolve_static_if.static_if, resolve_static_if.scope);
+                        auto result = do_resolve_static_if(
+                            info,
+                            &jobs,
+                            &global_arena,
+                            &job->arena,
+                            resolve_static_if.static_if,
+                            resolve_static_if.scope
+                        );
 
                         auto job_after = &jobs[job_index];
 
@@ -581,6 +591,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         } else {
                             job_after->state = JobState::Waiting;
                             job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
                         }
 
                         auto end_time = get_timer_counts();
@@ -596,6 +607,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         auto result = do_resolve_function_declaration(
                             info,
                             &jobs,
+                            &global_arena,
+                            &job->arena,
                             resolve_function_declaration.declaration,
                             resolve_function_declaration.scope
                         );
@@ -632,12 +645,12 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                                 }
 
                                 if(!found) {
-                                    AnyJob job;
+                                    AnyJob job {};
                                     job.kind = JobKind::GenerateFunction;
                                     job.state = JobState::Working;
                                     job.generate_function.type = function_type;
                                     job.generate_function.value = function_value;
-                                    job.generate_function.function = new Function;
+                                    job.generate_function.function = global_arena.allocate_and_construct<Function>();
 
                                     jobs.append(job);
                                 }
@@ -645,6 +658,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         } else {
                             job_after->state = JobState::Waiting;
                             job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
                         }
 
                         auto end_time = get_timer_counts();
@@ -660,6 +674,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         auto result = do_resolve_polymorphic_function(
                             info,
                             &jobs,
+                            &global_arena,
+                            &job->arena,
                             resolve_polymorphic_function.declaration,
                             resolve_polymorphic_function.parameters,
                             resolve_polymorphic_function.scope,
@@ -680,6 +696,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         } else {
                             job_after->state = JobState::Waiting;
                             job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
                         }
 
                         auto end_time = get_timer_counts();
@@ -693,6 +710,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         auto start_time = get_timer_counts();
 
                         auto result = evaluate_constant_expression(
+                            &job->arena,
                             info,
                             &jobs,
                             resolve_constant_definition.scope,
@@ -713,6 +731,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         } else {
                             job_after->state = JobState::Waiting;
                             job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
                         }
 
                         auto end_time = get_timer_counts();
@@ -728,6 +747,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         auto result = do_resolve_struct_definition(
                             info,
                             &jobs,
+                            &job->arena,
                             resolve_struct_definition.definition,
                             resolve_struct_definition.scope
                         );
@@ -744,6 +764,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         } else {
                             job_after->state = JobState::Waiting;
                             job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
                         }
 
                         auto end_time = get_timer_counts();
@@ -759,6 +780,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         auto result = do_resolve_polymorphic_struct(
                             info,
                             &jobs,
+                            &job->arena,
                             resolve_polymorphic_struct.definition,
                             resolve_polymorphic_struct.parameters,
                             resolve_polymorphic_struct.scope
@@ -776,6 +798,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         } else {
                             job_after->state = JobState::Waiting;
                             job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
                         }
 
                         auto end_time = get_timer_counts();
@@ -791,6 +814,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         auto result = do_resolve_union_definition(
                             info,
                             &jobs,
+                            &job->arena,
                             resolve_union_definition.definition,
                             resolve_union_definition.scope
                         );
@@ -807,6 +831,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         } else {
                             job_after->state = JobState::Waiting;
                             job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
                         }
 
                         auto end_time = get_timer_counts();
@@ -822,6 +847,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         auto result = do_resolve_polymorphic_union(
                             info,
                             &jobs,
+                            &job->arena,
                             resolve_polymorphic_union.definition,
                             resolve_polymorphic_union.parameters,
                             resolve_polymorphic_union.scope
@@ -839,6 +865,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         } else {
                             job_after->state = JobState::Waiting;
                             job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
                         }
 
                         auto end_time = get_timer_counts();
@@ -854,6 +881,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         auto result = do_resolve_enum_definition(
                             info,
                             &jobs,
+                            &job->arena,
                             resolve_enum_definition.definition,
                             resolve_enum_definition.scope
                         );
@@ -870,6 +898,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         } else {
                             job_after->state = JobState::Waiting;
                             job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
                         }
 
                         auto end_time = get_timer_counts();
@@ -885,6 +914,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         auto result = do_generate_function(
                             info,
                             &jobs,
+                            &job->arena,
                             generate_function.type,
                             generate_function.value,
                             generate_function.function
@@ -923,6 +953,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         } else {
                             job_after->state = JobState::Waiting;
                             job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
                         }
 
                         auto end_time = get_timer_counts();
@@ -944,6 +975,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         auto result = do_generate_static_variable(
                             info,
                             &jobs,
+                            &job->arena,
                             generate_static_variable.declaration,
                             generate_static_variable.scope
                         );
@@ -979,6 +1011,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         } else {
                             job_after->state = JobState::Waiting;
                             job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
                         }
 
                         auto end_time = get_timer_counts();
@@ -1013,6 +1046,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 did_work = true;
 
                 auto result = search_for_name(
+                    &main_function_arena,
                     info,
                     &jobs,
                     u8"main"_S,
@@ -1027,6 +1061,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                 if(!result.has_value) {
                     main_function_state = JobState::Waiting;
                     main_function_waiting_for = result.waiting_for;
+                    main_function_arena.reset();
                 } else {
                     if(!result.status) {
                         return err();
@@ -1041,7 +1076,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                     }
 
                     if(result.value.type.kind != TypeKind::FunctionTypeType) {
-                        fprintf(stderr, "Error: 'main' must be a function. Got '%.*s'\n", STRING_PRINTF_ARGUMENTS(result.value.type.get_description()));
+                        fprintf(stderr, "Error: 'main' must be a function. Got '%.*s'\n", STRING_PRINTF_ARGUMENTS(result.value.type.get_description(&main_function_arena)));
 
                         return err();
                     }
@@ -1074,8 +1109,8 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                             scope,
                             function_value.declaration->range,
                             "Incorrect 'main' return type. Expected '%.*s', got '%.*s'",
-                            STRING_PRINTF_ARGUMENTS(expected_main_return_integer.get_description()),
-                            STRING_PRINTF_ARGUMENTS(function_type.return_types[0].get_description())
+                            STRING_PRINTF_ARGUMENTS(expected_main_return_integer.get_description(&main_function_arena)),
+                            STRING_PRINTF_ARGUMENTS(function_type.return_types[0].get_description(&main_function_arena))
                         );
 
                         return err();
@@ -1209,13 +1244,13 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         return err();
     }
 
-    expect(output_file_directory, path_get_directory_component(output_file_path));
+    expect(output_file_directory, path_get_directory_component(&global_arena, output_file_path));
 
     String object_file_path;
     if(no_link) {
         object_file_path = output_file_path;
     } else {
-        expect(full_name, path_get_file_component(output_file_path));
+        expect(full_name, path_get_file_component(&global_arena, output_file_path));
 
         auto found_dot = false;
         size_t dot_index;
@@ -1242,7 +1277,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             }
         }
 
-        StringBuffer buffer {};
+        StringBuffer buffer(&global_arena);
 
         buffer.append(output_file_directory);
         buffer.append(output_file_name);
@@ -1254,7 +1289,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     uint64_t backend_time;
     String main_function_name;
     {
-        List<String> reserved_names {};
+        List<String> reserved_names(&global_arena);
 
         if(os == u8"emscripten"_S) {
             reserved_names.append(u8"main"_S);
@@ -1272,6 +1307,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         auto start_time = get_timer_counts();
 
         expect(name_mappings, generate_llvm_object(
+            &global_arena,
             source_file_path,
             runtime_statics,
             architecture,
@@ -1303,7 +1339,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     if(!no_link) {
         auto start_time = get_timer_counts();
 
-        StringBuffer command_buffer {};
+        StringBuffer command_buffer(&global_arena);
 
         String frontend;
         if(os == u8"emscripten"_S) {
@@ -1335,7 +1371,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             linker_options = u8"--entry=entry"_S;
         }
 
-        auto triple = get_llvm_triple(architecture, os, toolchain);
+        auto triple = get_llvm_triple(&global_arena, architecture, os, toolchain);
         auto features = get_llvm_features(architecture);
 
         command_buffer.append(frontend);
@@ -1372,13 +1408,13 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         command_buffer.append(u8" "_S);
         command_buffer.append(object_file_path);
 
-        expect(executable_path, get_executable_path());
-        expect(executable_directory, path_get_directory_component(executable_path));
+        expect(executable_path, get_executable_path(&global_arena));
+        expect(executable_directory, path_get_directory_component(&global_arena, executable_path));
 
         auto found_runtime_source = false;
         String runtime_source_path;
         {
-            StringBuffer buffer {};
+            StringBuffer buffer(&global_arena);
             buffer.append(executable_directory);
             buffer.append(u8"runtime_"_S);
             buffer.append(os);
@@ -1386,7 +1422,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             buffer.append(architecture);
             buffer.append(u8".c"_S);
 
-            auto file_test = fopen(buffer.to_c_string(), "rb");
+            auto file_test = fopen(buffer.to_c_string(&global_arena), "rb");
 
             if(file_test != nullptr) {
                 fclose(file_test);
@@ -1396,7 +1432,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             }
         }
         if(!found_runtime_source) {
-            StringBuffer buffer {};
+            StringBuffer buffer(&global_arena);
             buffer.append(executable_directory);
             buffer.append(u8"../share/simple-compiler/runtime_"_S);
             buffer.append(os);
@@ -1404,7 +1440,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             buffer.append(architecture);
             buffer.append(u8".c"_S);
 
-            auto file_test = fopen(buffer.to_c_string(), "rb");
+            auto file_test = fopen(buffer.to_c_string(&global_arena), "rb");
 
             if(file_test != nullptr) {
                 fclose(file_test);
@@ -1418,7 +1454,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             fprintf(stderr, "Error: Unable to locate runtime source file\n");
         }
 
-        StringBuffer runtime_command_buffer {};
+        StringBuffer runtime_command_buffer(&global_arena);
 
         runtime_command_buffer.append(u8"clang -std=gnu99 -ffreestanding -nostdinc -c -target "_S);
 
@@ -1438,7 +1474,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         runtime_command_buffer.append(runtime_source_path);
 
         enter_region("clang");
-        if(system(runtime_command_buffer.to_c_string()) != 0) {
+        if(system(runtime_command_buffer.to_c_string(&global_arena)) != 0) {
             fprintf(stderr, "Error: 'clang' returned non-zero while compiling runtime\n");
 
             return err();
@@ -1451,7 +1487,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
         enter_region("linker");
 
-        if(system(command_buffer.to_c_string()) != 0) {
+        if(system(command_buffer.to_c_string(&global_arena)) != 0) {
             fprintf(stderr, "Error: '%.*s' returned non-zero while linking\n", STRING_PRINTF_ARGUMENTS(frontend));
 
             return err();

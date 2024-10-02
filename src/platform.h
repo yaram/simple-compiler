@@ -43,7 +43,7 @@ ArchitectureSizes get_architecture_sizes(String architecture);
 
 String get_default_toolchain(String os);
 
-String get_llvm_triple(String architecture, String os, String toolchain);
+String get_llvm_triple(Arena* arena, String architecture, String os, String toolchain);
 String get_llvm_features(String architecture);
 
 String get_host_architecture();

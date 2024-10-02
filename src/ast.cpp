@@ -1,6 +1,7 @@
 #include "ast.h"
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 inline void indent(unsigned int level) {
     for(unsigned int i = 0; i < level; i += 1) {

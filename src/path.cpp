@@ -11,15 +11,15 @@
 #include <limits.h>
 #include <libgen.h>
 
-Result<String> path_relative_to_absolute(String path) {
+Result<String> path_relative_to_absolute(Arena* arena, String path) {
     char absolute_path[PATH_MAX];
-    if(realpath(path.to_c_string(), absolute_path) == nullptr) {
+    if(realpath(path.to_c_string(arena), absolute_path) == nullptr) {
         fprintf(stderr, "Invalid path %.*s\n", STRING_PRINTF_ARGUMENTS(path));
 
         return err();
     }
 
-    auto result = String::from_c_string(absolute_path);
+    auto result = String::from_c_string(arena, absolute_path);
 
     if(!result.status) {
         fprintf(stderr, "Invalid path %.*s\n", STRING_PRINTF_ARGUMENTS(path));
@@ -30,7 +30,7 @@ Result<String> path_relative_to_absolute(String path) {
     return ok(result.value);
 }
 
-Result<String> path_get_file_component(String path) {
+Result<String> path_get_file_component(Arena* arena, String path) {
     if(path.length >= PATH_MAX - 1) {
         fprintf(stderr, "Invalid path %.*s\n", STRING_PRINTF_ARGUMENTS(path));
 
@@ -44,7 +44,7 @@ Result<String> path_get_file_component(String path) {
 
     auto path_file = basename(input_buffer);
 
-    auto result = String::from_c_string(path_file);
+    auto result = String::from_c_string(arena, path_file);
 
     if(!result.status) {
         fprintf(stderr, "Invalid path %.*s\n", STRING_PRINTF_ARGUMENTS(path));
@@ -55,7 +55,7 @@ Result<String> path_get_file_component(String path) {
     return ok(result.value);
 }
 
-Result<String> path_get_directory_component(String path) {
+Result<String> path_get_directory_component(Arena* arena, String path) {
     if(path.length >= PATH_MAX - 1) {
         fprintf(stderr, "Invalid path %.*s\n", STRING_PRINTF_ARGUMENTS(path));
 
@@ -69,7 +69,7 @@ Result<String> path_get_directory_component(String path) {
 
     auto path_directory = dirname(input_buffer);
 
-    StringBuffer buffer {};
+    StringBuffer buffer(arena);
 
     buffer.append_c_string(path_directory);
     buffer.append_character('/');
@@ -80,8 +80,8 @@ Result<String> path_get_directory_component(String path) {
 #if defined(OS_LINUX)
 #include <unistd.h>
 
-Result<String> get_executable_path() {
-    auto buffer = allocate<char>(PATH_MAX);
+Result<String> get_executable_path(Arena* arena) {
+    auto buffer = arena->allocate<char>(PATH_MAX);
     auto result = readlink("/proc/self/exe", buffer, PATH_MAX);
     if(result == -1) {
         fprintf(stderr, "Cannot get executable path\n");

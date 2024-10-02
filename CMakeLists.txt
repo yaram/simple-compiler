@@ -62,6 +62,9 @@ set(compiler_sources
     src/util.h
     src/util.cpp
 
+    src/arena.h
+    src/arena.cpp
+
     src/tokens.h
     src/tokens.cpp
 
@@ -139,6 +142,9 @@ add_executable(compiler-server
 
     src/util.h
     src/util.cpp
+
+    src/arena.h
+    src/arena.cpp
 
     src/tokens.h
     src/tokens.cpp

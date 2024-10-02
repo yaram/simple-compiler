@@ -2,7 +2,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
-#include "util.h"
+#include <stdlib.h>
 
 void Token::print() {
     printf("(%d, %d-%d): ", line, first_column, last_column);
@@ -174,7 +174,7 @@ void Token::print() {
     }
 }
 
-String Token::get_text() {
+String Token::get_text(Arena* arena) {
     switch(kind) {
         case TokenKind::Dot: {
             return u8"."_S;
@@ -329,7 +329,7 @@ String Token::get_text() {
         } break;
 
         case TokenKind::String: {
-            auto buffer = allocate<char8_t>(string.length + 2);
+            auto buffer = arena->allocate<char8_t>(string.length + 2);
 
             buffer[0] = '"';
             memcpy(&buffer[1], string.elements, string.length);
@@ -345,7 +345,7 @@ String Token::get_text() {
         case TokenKind::Integer: {
             const size_t buffer_size = 32;
 
-            auto buffer = allocate<char>(buffer_size);
+            auto buffer = arena->allocate<char>(buffer_size);
             auto length = snprintf(buffer, buffer_size, "%" PRIu64, integer);
 
             String string {};
@@ -358,7 +358,7 @@ String Token::get_text() {
         case TokenKind::FloatingPoint: {
             const size_t buffer_size = 32;
 
-            auto buffer = allocate<char>(buffer_size);
+            auto buffer = arena->allocate<char>(buffer_size);
             auto length = snprintf(buffer, buffer_size, "%f", floating_point);
 
             String string {};

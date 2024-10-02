@@ -29,13 +29,6 @@ inline FileRange span_range(FileRange first, FileRange last) {
     return range;
 }
 
-inline Expression* named_reference_from_identifier(Identifier identifier) {
-    return new NamedReference(
-        identifier.range,
-        identifier
-    );
-}
-
 enum struct OperatorPrecedence {
     None,
     BooleanOr,
@@ -53,11 +46,20 @@ enum struct OperatorPrecedence {
 
 namespace {
     struct Parser {
+        Arena* arena;
+
         String path;
 
         Array<Token> tokens;
 
         size_t next_token_index;
+
+        inline Expression* named_reference_from_identifier(Identifier identifier) {
+            return arena->allocate_and_construct<NamedReference>(
+                identifier.range,
+                identifier
+            );
+        }
 
         void error(const char* format, ...) {
             va_list arguments;
@@ -91,7 +93,7 @@ namespace {
                 Token expected_token;
                 expected_token.kind = type;
 
-                error("Expected '%.*s', got '%.*s'", STRING_PRINTF_ARGUMENTS(expected_token.get_text()), STRING_PRINTF_ARGUMENTS(token.get_text()));
+                error("Expected '%.*s', got '%.*s'", STRING_PRINTF_ARGUMENTS(expected_token.get_text(arena)), STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                 return err();
             }
@@ -108,7 +110,7 @@ namespace {
                 Token expected_token;
                 expected_token.kind = type;
 
-                error("Expected '%.*s', got '%.*s'", STRING_PRINTF_ARGUMENTS(expected_token.get_text()), STRING_PRINTF_ARGUMENTS(token.get_text()));
+                error("Expected '%.*s', got '%.*s'", STRING_PRINTF_ARGUMENTS(expected_token.get_text(arena)), STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                 return err();
             }
@@ -124,7 +126,7 @@ namespace {
             expect(token, peek_token());
 
             if(token.kind != TokenKind::String) {
-                error("Expected a string, got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                error("Expected a string, got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                 return err();
             }
@@ -146,7 +148,7 @@ namespace {
             expect(token, peek_token());
 
             if(token.kind != TokenKind::Identifier) {
-                error("Expected an identifier, got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                error("Expected an identifier, got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                 return err();
             }
@@ -175,7 +177,7 @@ namespace {
                 case TokenKind::Integer: {
                     consume_token();
 
-                    left_expression = new IntegerLiteral(
+                    left_expression = arena->allocate_and_construct<IntegerLiteral>(
                         token_range(token),
                         token.integer
                     );
@@ -184,7 +186,7 @@ namespace {
                 case TokenKind::FloatingPoint: {
                     consume_token();
 
-                    left_expression = new FloatLiteral(
+                    left_expression = arena->allocate_and_construct<FloatLiteral>(
                         token_range(token),
                         token.floating_point
                     );
@@ -195,7 +197,7 @@ namespace {
 
                     expect(expression, parse_expression(OperatorPrecedence::PrefixUnary));
 
-                    left_expression = new UnaryOperation(
+                    left_expression = arena->allocate_and_construct<UnaryOperation>(
                         span_range(token_range(token), expression->range),
                         UnaryOperation::Operator::Pointer,
                         expression
@@ -207,7 +209,7 @@ namespace {
 
                     expect(expression, parse_expression(OperatorPrecedence::PrefixUnary));
 
-                    left_expression = new UnaryOperation(
+                    left_expression = arena->allocate_and_construct<UnaryOperation>(
                         span_range(token_range(token), expression->range),
                         UnaryOperation::Operator::PointerDereference,
                         expression
@@ -230,7 +232,7 @@ namespace {
 
                         auto function_call = (FunctionCall*)expression;
 
-                        left_expression = new Bake(
+                        left_expression = arena->allocate_and_construct<Bake>(
                             span_range(token_range(token), function_call->range),
                             function_call
                         );
@@ -246,7 +248,7 @@ namespace {
 
                     expect(expression, parse_expression(OperatorPrecedence::PrefixUnary));
 
-                    left_expression = new UnaryOperation(
+                    left_expression = arena->allocate_and_construct<UnaryOperation>(
                         span_range(token_range(token), expression->range),
                         UnaryOperation::Operator::BooleanInvert,
                         expression
@@ -258,7 +260,7 @@ namespace {
 
                     expect(expression, parse_expression(OperatorPrecedence::PrefixUnary));
 
-                    left_expression = new UnaryOperation(
+                    left_expression = arena->allocate_and_construct<UnaryOperation>(
                         span_range(token_range(token), expression->range),
                         UnaryOperation::Operator::Negation,
                         expression
@@ -268,7 +270,7 @@ namespace {
                 case TokenKind::String: {
                     consume_token();
 
-                    left_expression = new StringLiteral(
+                    left_expression = arena->allocate_and_construct<StringLiteral>(
                         token_range(token),
                         token.string
                     );
@@ -285,7 +287,7 @@ namespace {
                         case TokenKind::Dollar: {
                             consume_token();
 
-                            List<FunctionParameter> parameters {};
+                            List<FunctionParameter> parameters(arena);
 
                             expect(name, expect_identifier());
 
@@ -333,7 +335,7 @@ namespace {
                                             } break;
 
                                             default: {
-                                                error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                 return err();
                                             } break;
@@ -354,7 +356,7 @@ namespace {
                                 } break;
 
                                 default: {
-                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                     return err();
                                 } break;
@@ -362,7 +364,7 @@ namespace {
 
                             expect(post_token, peek_token());
 
-                            List<Expression*> return_types {};
+                            List<Expression*> return_types(arena);
                             if(post_token.kind == TokenKind::Arrow) {
                                 consume_token();
 
@@ -387,7 +389,7 @@ namespace {
 
                                             break;
                                         } else {
-                                            error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                            error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
                                         }
                                     }
                                 } else {
@@ -400,7 +402,7 @@ namespace {
 
                             expect(tags, parse_tags());
 
-                            left_expression = new FunctionType(
+                            left_expression = arena->allocate_and_construct<FunctionType>(
                                 span_range(first_range, last_range),
                                 parameters,
                                 return_types,
@@ -415,7 +417,7 @@ namespace {
 
                             expect(token, peek_token());
 
-                            List<Expression*> return_types {};
+                            List<Expression*> return_types(arena);
                             if(token.kind == TokenKind::Arrow) {
                                 consume_token();
 
@@ -438,7 +440,7 @@ namespace {
 
                                             break;
                                         } else {
-                                            error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                            error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
                                         }
                                     }
                                 } else {
@@ -451,7 +453,7 @@ namespace {
 
                             expect(tags, parse_tags());
 
-                            left_expression = new FunctionType(
+                            left_expression = arena->allocate_and_construct<FunctionType>(
                                 span_range(first_range, last_range),
                                 Array<FunctionParameter>::empty(),
                                 return_types,
@@ -467,7 +469,7 @@ namespace {
                             expect(token, peek_token());
 
                             if(token.kind == TokenKind::Colon) {
-                                List<FunctionParameter> parameters {};
+                                List<FunctionParameter> parameters(arena);
 
                                 expect(parameter, parse_function_parameter_second_half(identifier, false));
 
@@ -513,7 +515,7 @@ namespace {
                                                 } break;
 
                                                 default: {
-                                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                     return err();
                                                 } break;
@@ -534,7 +536,7 @@ namespace {
                                     } break;
 
                                     default: {
-                                        error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                        error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                         return err();
                                     } break;
@@ -542,7 +544,7 @@ namespace {
 
                                 expect(post_token, peek_token());
 
-                                List<Expression*> return_types {};
+                                List<Expression*> return_types(arena);
                                 if(post_token.kind == TokenKind::Arrow) {
                                     consume_token();
 
@@ -567,7 +569,7 @@ namespace {
 
                                                 break;
                                             } else {
-                                                error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
                                             }
                                         }
                                     } else {
@@ -580,7 +582,7 @@ namespace {
 
                                 expect(tags, parse_tags());
 
-                                left_expression = new FunctionType(
+                                left_expression = arena->allocate_and_construct<FunctionType>(
                                     span_range(first_range, last_range),
                                     parameters,
                                     return_types,
@@ -618,9 +620,9 @@ namespace {
                         case TokenKind::CloseCurlyBracket: {
                             consume_token();
 
-                            left_expression = new ArrayLiteral(
+                            left_expression = arena->allocate_and_construct<ArrayLiteral>(
                                 span_range(first_range, token_range(token)),
-                                {}
+                                Array<Expression*>::empty()
                             );
                         } break;
 
@@ -637,7 +639,7 @@ namespace {
 
                                     expect(first_expression, parse_expression(OperatorPrecedence::None));
 
-                                    List<StructLiteral::Member> members {};
+                                    List<StructLiteral::Member> members(arena);
 
                                     StructLiteral::Member first_member {};
                                     first_member.name = identifier;
@@ -680,7 +682,7 @@ namespace {
                                                     } break;
 
                                                     default: {
-                                                        error("Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                        error("Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                         return err();
                                                     } break;
@@ -701,13 +703,13 @@ namespace {
                                         } break;
 
                                         default: {
-                                            error("Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                            error("Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                             return err();
                                         } break;
                                     }
 
-                                    left_expression = new StructLiteral(
+                                    left_expression = arena->allocate_and_construct<StructLiteral>(
                                         span_range(first_range, last_range),
                                         members
                                     );
@@ -718,9 +720,9 @@ namespace {
 
                                     auto first_element = named_reference_from_identifier(identifier);
 
-                                    left_expression = new ArrayLiteral(
+                                    left_expression = arena->allocate_and_construct<ArrayLiteral>(
                                         span_range(first_range, token_range(token)),
-                                        Array(1, heapify(first_element))
+                                        Array(1, arena->heapify(first_element))
                                     );
                                 } break;
 
@@ -729,7 +731,7 @@ namespace {
 
                                     expect(right_expression, parse_expression_continuation(OperatorPrecedence::None, sub_expression));
 
-                                    List<Expression*> elements {};
+                                    List<Expression*> elements(arena);
 
                                     elements.append(right_expression);
 
@@ -760,7 +762,7 @@ namespace {
                                                     } break;
 
                                                     default: {
-                                                        error("Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                        error("Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                         return err();
                                                     } break;
@@ -781,13 +783,13 @@ namespace {
                                         } break;
 
                                         default: {
-                                            error("Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                            error("Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                             return err();
                                         }
                                     }
 
-                                    left_expression = new ArrayLiteral(
+                                    left_expression = arena->allocate_and_construct<ArrayLiteral>(
                                         span_range(first_range, last_range),
                                         elements
                                     );
@@ -798,7 +800,7 @@ namespace {
                         default: {
                             expect(first_expression, parse_expression(OperatorPrecedence::None));
 
-                            List<Expression*> elements {};
+                            List<Expression*> elements(arena);
 
                             elements.append(first_expression);
 
@@ -829,7 +831,7 @@ namespace {
                                             } break;
 
                                             default: {
-                                                error("Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                error("Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                 return err();
                                             } break;
@@ -850,7 +852,7 @@ namespace {
                                 } break;
                             }
 
-                            left_expression = new ArrayLiteral(
+                            left_expression = arena->allocate_and_construct<ArrayLiteral>(
                                 span_range(first_range, last_range),
                                 elements
                             );
@@ -881,7 +883,7 @@ namespace {
 
                     expect(expression, parse_expression(OperatorPrecedence::PrefixUnary));
 
-                    left_expression = new ArrayType(
+                    left_expression = arena->allocate_and_construct<ArrayType>(
                         span_range(token_range(token), expression->range),
                         expression,
                         index
@@ -889,7 +891,7 @@ namespace {
                 } break;
 
                 default: {
-                    error("Expected an expression. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                    error("Expected an expression. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                     return err();
                 } break;
@@ -926,7 +928,7 @@ namespace {
 
                         expect(identifier, expect_identifier());
 
-                        current_expression = new MemberReference(
+                        current_expression = arena->allocate_and_construct<MemberReference>(
                             span_range(current_expression->range, identifier.range),
                             current_expression,
                             identifier
@@ -944,7 +946,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::Additive));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::Addition,
                             current_expression,
@@ -963,7 +965,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::Additive));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::Subtraction,
                             current_expression,
@@ -982,7 +984,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::Multiplicitive));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::Multiplication,
                             current_expression,
@@ -1001,7 +1003,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::Multiplicitive));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::Division,
                             current_expression,
@@ -1020,7 +1022,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::Multiplicitive));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::Modulo,
                             current_expression,
@@ -1039,7 +1041,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::BitwiseAnd));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::BitwiseAnd,
                             current_expression,
@@ -1058,7 +1060,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::BooleanAnd));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::BooleanAnd,
                             current_expression,
@@ -1077,7 +1079,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::BitwiseOr));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::BitwiseOr,
                             current_expression,
@@ -1096,7 +1098,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::BooleanOr));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::BooleanOr,
                             current_expression,
@@ -1115,7 +1117,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::Comparison));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::Equal,
                             current_expression,
@@ -1134,7 +1136,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::Comparison));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::NotEqual,
                             current_expression,
@@ -1153,7 +1155,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::Comparison));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::LessThan,
                             current_expression,
@@ -1172,7 +1174,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::BitwiseShift));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::LeftShift,
                             current_expression,
@@ -1191,7 +1193,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::Comparison));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::GreaterThan,
                             current_expression,
@@ -1210,7 +1212,7 @@ namespace {
 
                         expect(expression, parse_expression(OperatorPrecedence::BitwiseShift));
 
-                        current_expression = new BinaryOperation(
+                        current_expression = arena->allocate_and_construct<BinaryOperation>(
                             span_range(current_expression->range, expression->range),
                             BinaryOperation::Operator::RightShift,
                             current_expression,
@@ -1227,7 +1229,7 @@ namespace {
 
                         consume_token();
 
-                        List<Expression*> parameters {};
+                        List<Expression*> parameters(arena);
 
                         expect(token, peek_token());
 
@@ -1257,7 +1259,7 @@ namespace {
                                     } break;
 
                                     default: {
-                                        error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                        error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                         return err();
                                     } break;
@@ -1271,7 +1273,7 @@ namespace {
                             }
                         }
 
-                        current_expression = new FunctionCall(
+                        current_expression = arena->allocate_and_construct<FunctionCall>(
                             span_range(current_expression->range, last_range),
                             current_expression,
                             parameters
@@ -1293,7 +1295,7 @@ namespace {
 
                         expect(last_range, expect_basic_token_with_range(TokenKind::CloseSquareBracket));
 
-                        current_expression = new IndexReference(
+                        current_expression = arena->allocate_and_construct<IndexReference>(
                             span_range(current_expression->range, last_range),
                             current_expression,
                             index
@@ -1312,7 +1314,7 @@ namespace {
 
                             expect(expression, parse_expression(OperatorPrecedence::Cast));
 
-                            current_expression = new Cast(
+                            current_expression = arena->allocate_and_construct<Cast>(
                                 span_range(current_expression->range, expression->range),
                                 current_expression,
                                 expression
@@ -1376,7 +1378,7 @@ namespace {
 
             consume_token();
 
-            List<Tag> tags {};
+            List<Tag> tags(arena);
             while(true) {
                 expect(name, expect_identifier());
 
@@ -1384,7 +1386,7 @@ namespace {
 
                 expect(token, peek_token());
 
-                List<Expression*> parameters {};
+                List<Expression*> parameters(arena);
                 if(token.kind == TokenKind::OpenRoundBracket) {
                     consume_token();
 
@@ -1415,7 +1417,7 @@ namespace {
                                 } break;
 
                                 default: {
-                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                    error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                     return err();
                                 } break;
@@ -1460,7 +1462,7 @@ namespace {
 
             expect(pre_token, peek_token());
 
-            List<Expression*> return_types {};
+            List<Expression*> return_types(arena);
             if(pre_token.kind == TokenKind::Arrow) {
                 consume_token();
 
@@ -1485,7 +1487,7 @@ namespace {
 
                             break;
                         } else {
-                            error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                            error("Expected ',' or ')'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
                         }
                     }
                 } else {
@@ -1504,7 +1506,7 @@ namespace {
                 case TokenKind::OpenCurlyBracket: {
                     consume_token();
 
-                    List<Statement*> statements {};
+                    List<Statement*> statements(arena);
 
                     while(true) {
                         expect(token, peek_token());
@@ -1522,7 +1524,7 @@ namespace {
                         }
                     }
 
-                    return ok((Statement*)new FunctionDeclaration(
+                    return ok((Statement*)arena->allocate_and_construct<FunctionDeclaration>(
                         span_range(name.range, last_range),
                         name,
                         parameters,
@@ -1535,7 +1537,7 @@ namespace {
                 case TokenKind::Semicolon: {
                     consume_token();
 
-                    return ok((Statement*)new FunctionDeclaration(
+                    return ok((Statement*)arena->allocate_and_construct<FunctionDeclaration>(
                         span_range(name.range, last_range),
                         name,
                         parameters,
@@ -1545,7 +1547,7 @@ namespace {
                 } break;
 
                 default: {
-                    error("Expected '->', '{', ';', or '#', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                    error("Expected '->', '{', ';', or '#', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                     return err();
                 } break;
@@ -1564,7 +1566,7 @@ namespace {
                     expect(token, peek_token());
 
                     if(token.kind != TokenKind::Identifier) {
-                        error("Expected 'import', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                        error("Expected 'import', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                         return err();
                     }
@@ -1576,19 +1578,19 @@ namespace {
 
                         expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                        expect(executable_path, get_executable_path());
-                        expect(executable_directory, path_get_directory_component(executable_path));
+                        expect(executable_path, get_executable_path(arena));
+                        expect(executable_directory, path_get_directory_component(arena, executable_path));
 
-                        expect(source_file_directory, path_get_directory_component(path));
+                        expect(source_file_directory, path_get_directory_component(arena, path));
 
                         auto found_import_file = false;
                         String import_file_path;
                         {
-                            StringBuffer buffer {};
+                            StringBuffer buffer(arena);
                             buffer.append(source_file_directory);
                             buffer.append(string);
 
-                            auto file_test = fopen(buffer.to_c_string(), "rb");
+                            auto file_test = fopen(buffer.to_c_string(arena), "rb");
 
                             if(file_test != nullptr) {
                                 fclose(file_test);
@@ -1598,11 +1600,11 @@ namespace {
                             }
                         }
                         if(!found_import_file) {
-                            StringBuffer buffer {};
+                            StringBuffer buffer(arena);
                             buffer.append(executable_directory);
                             buffer.append(string);
 
-                            auto file_test = fopen(buffer.to_c_string(), "rb");
+                            auto file_test = fopen(buffer.to_c_string(arena), "rb");
 
                             if(file_test != nullptr) {
                                 fclose(file_test);
@@ -1612,12 +1614,12 @@ namespace {
                             }
                         }
                         if(!found_import_file) {
-                            StringBuffer buffer {};
+                            StringBuffer buffer(arena);
                             buffer.append(executable_directory);
                             buffer.append(u8"../share/simple-compiler/"_S);
                             buffer.append(string);
 
-                            auto file_test = fopen(buffer.to_c_string(), "rb");
+                            auto file_test = fopen(buffer.to_c_string(arena), "rb");
 
                             if(file_test != nullptr) {
                                 fclose(file_test);
@@ -1633,9 +1635,9 @@ namespace {
                             return err();
                         }
 
-                        expect(import_file_path_absolute, path_relative_to_absolute(import_file_path));
+                        expect(import_file_path_absolute, path_relative_to_absolute(arena, import_file_path));
 
-                        expect(name, path_get_file_component(string));
+                        expect(name, path_get_file_component(arena, string));
 
                         for(size_t i = 0; i < name.length; i += 1) {
                             if(name[i] == '.') {
@@ -1643,7 +1645,7 @@ namespace {
                             }
                         }
 
-                        return ok((Statement*)new Import(
+                        return ok((Statement*)arena->allocate_and_construct<Import>(
                             span_range(first_range, last_range),
                             string,
                             import_file_path_absolute,
@@ -1654,7 +1656,7 @@ namespace {
 
                         expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
 
-                        List<Statement*> statements {};
+                        List<Statement*> statements(arena);
 
                         FileRange last_range;
                         while(true) {
@@ -1673,7 +1675,7 @@ namespace {
                             }
                         }
 
-                        return ok((Statement*)new StaticIf(
+                        return ok((Statement*)arena->allocate_and_construct<StaticIf>(
                             span_range(first_range, last_range),
                             expression,
                             statements
@@ -1691,17 +1693,17 @@ namespace {
 
                         auto function_call = (FunctionCall*)expression;
 
-                        auto bake = new Bake(
+                        auto bake = arena->allocate_and_construct<Bake>(
                             span_range(first_range, function_call->range),
                             function_call
                         );
 
-                        return ok((Statement*)new ExpressionStatement(
+                        return ok((Statement*)arena->allocate_and_construct<ExpressionStatement>(
                             span_range(first_range, last_range),
                             bake
                         ));
                     } else {
-                        error("Expected 'import', 'if' or 'bake', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                        error("Expected 'import', 'if' or 'bake', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                         return err();
                     }
@@ -1715,7 +1717,7 @@ namespace {
 
                         expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
 
-                        List<Statement*> statements {};
+                        List<Statement*> statements(arena);
 
                         FileRange last_range;
                         while(true) {
@@ -1734,10 +1736,10 @@ namespace {
                             }
                         }
 
-                        List<IfStatement::ElseIf> else_ifs {};
+                        List<IfStatement::ElseIf> else_ifs(arena);
 
                         auto has_else = false;
-                        List<Statement*> else_statements {};
+                        List<Statement*> else_statements(arena);
                         while(true) {
                             expect(token, peek_token());
 
@@ -1771,7 +1773,7 @@ namespace {
 
                                     case TokenKind::Identifier: {
                                         if(token.identifier != u8"if"_S) {
-                                            error("Expected '{' or 'if', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                            error("Expected '{' or 'if', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                             return err();
                                         }
@@ -1782,7 +1784,7 @@ namespace {
 
                                         expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
                                         
-                                        List<Statement*> statements {};
+                                        List<Statement*> statements(arena);
 
                                         while(true) {
                                             expect(token, peek_token());
@@ -1808,7 +1810,7 @@ namespace {
                                     } break;
 
                                     default: {
-                                        error("Expected '{' or 'if', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                        error("Expected '{' or 'if', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                         return err();
                                     } break;
@@ -1822,7 +1824,7 @@ namespace {
                             }
                         }
 
-                        return ok((Statement*)new IfStatement(
+                        return ok((Statement*)arena->allocate_and_construct<IfStatement>(
                             span_range(first_range, last_range),
                             expression,
                             statements,
@@ -1834,7 +1836,7 @@ namespace {
 
                         expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
 
-                        List<Statement*> statements {};
+                        List<Statement*> statements(arena);
 
                         FileRange last_range;
                         while(true) {
@@ -1853,7 +1855,7 @@ namespace {
                             }
                         }
 
-                        return ok((Statement*)new WhileLoop(
+                        return ok((Statement*)arena->allocate_and_construct<WhileLoop>(
                             span_range(first_range, last_range),
                             expression,
                             statements
@@ -1903,7 +1905,7 @@ namespace {
 
                         { expect_void(expect_basic_token(TokenKind::OpenCurlyBracket)); }
 
-                        List<Statement*> statements {};
+                        List<Statement*> statements(arena);
 
                         FileRange last_range;
                         while(true) {
@@ -1923,7 +1925,7 @@ namespace {
                         }
 
                         if(has_index_name) {
-                            return ok((Statement*)new ForLoop(
+                            return ok((Statement*)arena->allocate_and_construct<ForLoop>(
                                 span_range(first_range, last_range),
                                 index_name,
                                 from,
@@ -1931,7 +1933,7 @@ namespace {
                                 statements
                             ));
                         } else {
-                            return ok((Statement*)new ForLoop(
+                            return ok((Statement*)arena->allocate_and_construct<ForLoop>(
                                 span_range(first_range, last_range),
                                 from,
                                 to,
@@ -1941,7 +1943,7 @@ namespace {
                     } else if(token.identifier == u8"return"_S) {
                         expect(token, peek_token());
 
-                        List<Expression*> values {};
+                        List<Expression*> values(arena);
                         FileRange last_range;
                         if(token.kind == TokenKind::Semicolon) {
                             consume_token();
@@ -1964,19 +1966,19 @@ namespace {
 
                                     break;
                                 } else {
-                                    error("Expected ',' or ';'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                    error("Expected ',' or ';'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
                                 }
                             }
                         }
 
-                        return ok((Statement*)new ReturnStatement(
+                        return ok((Statement*)arena->allocate_and_construct<ReturnStatement>(
                             span_range(first_range, last_range),
                             values
                         ));
                     } else if(token.identifier == u8"break"_S) {
                         expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                        return ok((Statement*)new BreakStatement(
+                        return ok((Statement*)arena->allocate_and_construct<BreakStatement>(
                             span_range(first_range, last_range)
                         ));
                     } else if(token.identifier == u8"asm"_S) {
@@ -1984,7 +1986,7 @@ namespace {
 
                         expect(token, peek_token());
 
-                        List<InlineAssembly::Binding> bindings {};
+                        List<InlineAssembly::Binding> bindings(arena);
                         if(token.kind == TokenKind::Comma) {
                             consume_token();
 
@@ -2013,7 +2015,7 @@ namespace {
 
                         expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                        return ok((Statement*)new InlineAssembly(
+                        return ok((Statement*)arena->allocate_and_construct<InlineAssembly>(
                             span_range(first_range, last_range),
                             assembly,
                             bindings
@@ -2032,7 +2034,7 @@ namespace {
 
                         expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                        return ok((Statement*)new UsingStatement(
+                        return ok((Statement*)arena->allocate_and_construct<UsingStatement>(
                             span_range(first_range, last_range),
                             export_,
                             expression
@@ -2066,7 +2068,7 @@ namespace {
 
                                                 expect(name, expect_identifier());
 
-                                                List<FunctionParameter> parameters {};
+                                                List<FunctionParameter> parameters(arena);
 
                                                 expect(parameter, parse_function_parameter_second_half(name, true));
 
@@ -2112,7 +2114,7 @@ namespace {
                                                                 } break;
 
                                                                 default: {
-                                                                    error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                                    error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                                     return err();
                                                                 } break;
@@ -2133,7 +2135,7 @@ namespace {
                                                     } break;
 
                                                     default: {
-                                                        error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                        error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                         return err();
                                                     } break;
@@ -2160,7 +2162,7 @@ namespace {
                                                 expect(token, peek_token());
 
                                                 if(token.kind == TokenKind::Colon) {
-                                                    List<FunctionParameter> parameters {};
+                                                    List<FunctionParameter> parameters(arena);
 
                                                     expect(parameter, parse_function_parameter_second_half(first_identifier, false));
 
@@ -2206,7 +2208,7 @@ namespace {
                                                                     } break;
 
                                                                     default: {
-                                                                        error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                                        error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                                         return err();
                                                                     } break;
@@ -2227,7 +2229,7 @@ namespace {
                                                         } break;
 
                                                         default: {
-                                                            error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                            error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                             return err();
                                                         } break;
@@ -2249,7 +2251,7 @@ namespace {
 
                                                     expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                                                    return ok((Statement*)new ConstantDefinition(
+                                                    return ok((Statement*)arena->allocate_and_construct<ConstantDefinition>(
                                                         span_range(first_range, last_range),
                                                         identifier,
                                                         outer_right_expression
@@ -2264,7 +2266,7 @@ namespace {
 
                                                 expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                                                return ok((Statement*)new ConstantDefinition(
+                                                return ok((Statement*)arena->allocate_and_construct<ConstantDefinition>(
                                                     span_range(first_range, last_range),
                                                     identifier,
                                                     right_expression
@@ -2278,7 +2280,7 @@ namespace {
                                             if(token.identifier == u8"struct"_S) {
                                                 expect(maybe_parameter_token, peek_token());
 
-                                                List<StructDefinition::Parameter> parameters {};
+                                                List<StructDefinition::Parameter> parameters(arena);
 
                                                 if(maybe_parameter_token.kind == TokenKind::OpenRoundBracket) {
                                                     consume_token();
@@ -2316,7 +2318,7 @@ namespace {
                                                                 } break;
 
                                                                 default: {
-                                                                    error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                                    error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
                                                                 } break;
                                                             }
 
@@ -2329,7 +2331,7 @@ namespace {
 
                                                 expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
 
-                                                List<StructDefinition::Member> members {};
+                                                List<StructDefinition::Member> members(arena);
 
                                                 expect(token, peek_token());
 
@@ -2367,7 +2369,7 @@ namespace {
                                                             } break;
 
                                                             default: {
-                                                                error("Expected ',' or '}', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                                error("Expected ',' or '}', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                                 return err();
                                                             } break;
@@ -2381,7 +2383,7 @@ namespace {
                                                     }
                                                 }
 
-                                                return ok((Statement*)new StructDefinition(
+                                                return ok((Statement*)arena->allocate_and_construct<StructDefinition>(
                                                     span_range(first_range, token_range(token)),
                                                     identifier,
                                                     parameters,
@@ -2390,7 +2392,7 @@ namespace {
                                             } else if(token.identifier == u8"union"_S) {
                                                 expect(maybe_parameter_token, peek_token());
 
-                                                List<UnionDefinition::Parameter> parameters {};
+                                                List<UnionDefinition::Parameter> parameters(arena);
 
                                                 if(maybe_parameter_token.kind == TokenKind::OpenRoundBracket) {
                                                     consume_token();
@@ -2428,7 +2430,7 @@ namespace {
                                                                 } break;
 
                                                                 default: {
-                                                                    error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                                    error("Expected ',' or ')', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
                                                                 } break;
                                                             }
 
@@ -2441,7 +2443,7 @@ namespace {
 
                                                 expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
 
-                                                List<UnionDefinition::Member> members {};
+                                                List<UnionDefinition::Member> members(arena);
 
                                                 expect(token, peek_token());
 
@@ -2479,7 +2481,7 @@ namespace {
                                                             } break;
 
                                                             default: {
-                                                                error("Expected ',' or '}', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                                error("Expected ',' or '}', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                                 return err();
                                                             } break;
@@ -2493,7 +2495,7 @@ namespace {
                                                     }
                                                 }
 
-                                                return ok((Statement*)new UnionDefinition(
+                                                return ok((Statement*)arena->allocate_and_construct<UnionDefinition>(
                                                     span_range(first_range, token_range(token)),
                                                     identifier,
                                                     parameters,
@@ -2513,7 +2515,7 @@ namespace {
 
                                                 expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
 
-                                                List<EnumDefinition::Variant> variants {};
+                                                List<EnumDefinition::Variant> variants(arena);
 
                                                 expect(token, peek_token());
 
@@ -2560,7 +2562,7 @@ namespace {
                                                             } break;
 
                                                             default: {
-                                                                error("Expected ',' or '}', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                                                error("Expected ',' or '}', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                                                 return err();
                                                             } break;
@@ -2574,7 +2576,7 @@ namespace {
                                                     }
                                                 }
 
-                                                return ok((Statement*)new EnumDefinition(
+                                                return ok((Statement*)arena->allocate_and_construct<EnumDefinition>(
                                                     span_range(first_range, token_range(token)),
                                                     identifier,
                                                     backing_type,
@@ -2589,7 +2591,7 @@ namespace {
 
                                                 expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                                                return ok((Statement*)new ConstantDefinition(
+                                                return ok((Statement*)arena->allocate_and_construct<ConstantDefinition>(
                                                     span_range(first_range, last_range),
                                                     identifier,
                                                     right_expression
@@ -2602,7 +2604,7 @@ namespace {
 
                                             expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                                            return ok((Statement*)new ConstantDefinition(
+                                            return ok((Statement*)arena->allocate_and_construct<ConstantDefinition>(
                                                 span_range(first_range, last_range),
                                                 identifier,
                                                 expression
@@ -2634,7 +2636,7 @@ namespace {
 
                                     expect_void(expect_basic_token(TokenKind::Semicolon));
 
-                                    return ok((Statement*)new VariableDeclaration(
+                                    return ok((Statement*)arena->allocate_and_construct<VariableDeclaration>(
                                         span_range(first_range, token_range(token)),
                                         identifier,
                                         type,
@@ -2647,8 +2649,8 @@ namespace {
                             consume_token();
 
                             auto all_identifiers = true;
-                            List<Identifier> identifiers {};
-                            List<Expression*> targets {};
+                            List<Identifier> identifiers(arena);
+                            List<Expression*> targets(arena);
                             identifiers.append(identifier);
 
                             while(true) {
@@ -2736,7 +2738,7 @@ namespace {
                                 if(token.kind == TokenKind::Equals) {
                                     consume_token();
 
-                                    auto targets = allocate<Expression*>(identifiers.length);
+                                    auto targets = arena->allocate<Expression*>(identifiers.length);
 
                                     for(size_t i = 0; i < identifiers.length; i += 1) {
                                         targets[i] = named_reference_from_identifier(identifiers[i]);
@@ -2746,7 +2748,7 @@ namespace {
 
                                     expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                                    return ok((Statement*)new MultiReturnAssignment(
+                                    return ok((Statement*)arena->allocate_and_construct<MultiReturnAssignment>(
                                         span_range(first_range, last_range),
                                         Array(identifiers.length, targets),
                                         value
@@ -2760,13 +2762,13 @@ namespace {
 
                                     expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                                    return ok((Statement*)new MultiReturnVariableDeclaration(
+                                    return ok((Statement*)arena->allocate_and_construct<MultiReturnVariableDeclaration>(
                                         span_range(first_range, last_range),
                                         identifiers,
                                         initializer
                                     ));
                                 } else {
-                                    error("Expected '=' or ':', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                    error("Expected '=' or ':', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                     return err();
                                 }
@@ -2777,7 +2779,7 @@ namespace {
 
                                 expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                                return ok((Statement*)new MultiReturnAssignment(
+                                return ok((Statement*)arena->allocate_and_construct<MultiReturnAssignment>(
                                     span_range(first_range, last_range),
                                     targets,
                                     value
@@ -2794,7 +2796,7 @@ namespace {
                                 case TokenKind::Semicolon: {
                                     consume_token();
 
-                                    return ok((Statement*)new ExpressionStatement(
+                                    return ok((Statement*)arena->allocate_and_construct<ExpressionStatement>(
                                         span_range(first_range, token_range(token)),
                                         right_expression
                                     ));
@@ -2803,7 +2805,7 @@ namespace {
                                 case TokenKind::Comma: {
                                     consume_token();
 
-                                    List<Expression*> targets {};
+                                    List<Expression*> targets(arena);
                                     targets.append(right_expression);
 
                                     while(true) {
@@ -2828,7 +2830,7 @@ namespace {
 
                                     expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                                    return ok((Statement*)new MultiReturnAssignment(
+                                    return ok((Statement*)arena->allocate_and_construct<MultiReturnAssignment>(
                                         span_range(first_range, last_range),
                                         targets,
                                         value
@@ -2881,7 +2883,7 @@ namespace {
                                         } break;
 
                                         default: {
-                                            error("Expected '=', '+=', '-=', '*=', '/=', '%=', ',' or ';', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                                            error("Expected '=', '+=', '-=', '*=', '/=', '%=', ',' or ';', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                                             return err();
                                         } break;
@@ -2892,14 +2894,14 @@ namespace {
                                     expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
                                     if(is_binary_operation_assignment) {
-                                        return ok((Statement*)new BinaryOperationAssignment(
+                                        return ok((Statement*)arena->allocate_and_construct<BinaryOperationAssignment>(
                                             span_range(first_range, last_range),
                                             right_expression,
                                             binary_operator,
                                             expression
                                         ));
                                     } else {
-                                        return ok((Statement*)new Assignment(
+                                        return ok((Statement*)arena->allocate_and_construct<Assignment>(
                                             span_range(first_range, last_range),
                                             right_expression,
                                             expression
@@ -2920,7 +2922,7 @@ namespace {
                         case TokenKind::Semicolon: {
                             consume_token();
 
-                            return ok((Statement*)new ExpressionStatement(
+                            return ok((Statement*)arena->allocate_and_construct<ExpressionStatement>(
                                 span_range(first_range, token_range(token)),
                                 expression
                             ));
@@ -2929,7 +2931,7 @@ namespace {
                         case TokenKind::Comma: {
                             consume_token();
 
-                            List<Expression*> targets {};
+                            List<Expression*> targets(arena);
                             targets.append(expression);
 
                             while(true) {
@@ -2954,7 +2956,7 @@ namespace {
 
                             expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                            return ok((Statement*)new MultiReturnAssignment(
+                            return ok((Statement*)arena->allocate_and_construct<MultiReturnAssignment>(
                                 span_range(first_range, last_range),
                                 targets,
                                 value
@@ -2968,7 +2970,7 @@ namespace {
 
                             expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
-                            return ok((Statement*)new Assignment(
+                            return ok((Statement*)arena->allocate_and_construct<Assignment>(
                                 span_range(first_range, last_range),
                                 expression,
                                 value_expression
@@ -2976,7 +2978,7 @@ namespace {
                         } break;
 
                         default: {
-                            error("Expected '=' or ';', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text()));
+                            error("Expected '=' or ';', got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
 
                             return err();
                         } break;
@@ -2987,12 +2989,13 @@ namespace {
     };
 };
 
-profiled_function(Result<Array<Statement*>>, parse_tokens, (String path, Array<Token> tokens), (path, tokens)) {
+profiled_function(Result<Array<Statement*>>, parse_tokens, (Arena* arena, String path, Array<Token> tokens), (path, tokens)) {
     Parser parser {};
+    parser.arena = arena;
     parser.path = path;
     parser.tokens = tokens;
 
-    List<Statement*> statements {};
+    List<Statement*> statements(arena);
 
     while(parser.next_token_index < tokens.length) {
         expect(statement, parser.parse_statement());

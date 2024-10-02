@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "arena.h"
 #include "array.h"
 #include "result.h"
 
@@ -9,8 +10,8 @@ Result<size_t> validate_c_string(const char* c_string);
 
 // Must contain valid UTF-8
 struct String : Array<char8_t> {
-    static const Result<String> from_c_string(const char* c_string);
-    char* to_c_string();
+    static const Result<String> from_c_string(Arena* arena, const char* c_string);
+    char* to_c_string(Arena* arena);
 
     inline String slice(size_t index, size_t length) {
         assert(index + length <= this->length);
@@ -42,7 +43,12 @@ inline const String operator "" _S(const char8_t* data, size_t length) {
 #define STRING_PRINTF_ARGUMENTS(string) (int)(string).length, (char*)(string).elements
 
 struct StringBuffer : String {
+    Arena* arena;
+
     size_t capacity;
+
+    StringBuffer() = default;
+    explicit inline StringBuffer(Arena* arena) : String({}), arena(arena), capacity(0) {}
 
     void append(String string);
     Result<void> append_c_string(const char* c_string);

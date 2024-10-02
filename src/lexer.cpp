@@ -2,9 +2,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #include "profiler.h"
 #include "list.h"
-#include "util.h"
 
 static void error(String path, unsigned int line, unsigned int column, const char* format, ...) {
     va_list arguments;
@@ -14,7 +14,9 @@ static void error(String path, unsigned int line, unsigned int column, const cha
     vfprintf(stderr, format, arguments);
     fprintf(stderr, "\n");
 
-    auto file = fopen(path.to_c_string(), "rb");
+    Arena arena {};
+
+    auto file = fopen(path.to_c_string(&arena), "rb");
 
     if(file != nullptr) {
         unsigned int current_line = 1;
@@ -122,6 +124,8 @@ void append_double_character_token(unsigned int line, unsigned int first_column,
 
 namespace {
     struct Lexer {
+        Arena* arena;
+
         String path;
 
         size_t length;
@@ -265,7 +269,7 @@ namespace {
         }
 
         Result<Array<Token>> tokenize() {
-            List<Token> tokens {};
+            List<Token> tokens(arena);
 
             while(index < length) {
                 expect(character, get_current_character());
@@ -653,7 +657,7 @@ namespace {
 
                     auto first_column = column;
 
-                    StringBuffer buffer {};
+                    StringBuffer buffer(arena);
 
                     while(true) {
                         if(index == length) {
@@ -698,7 +702,7 @@ namespace {
 
                                 return err();
                             } else {
-                                StringBuffer buffer {};
+                                StringBuffer buffer(arena);
                                 buffer.append_character(character);
 
                                 error(path, line, column, "Unknown escape code '\\%.*s'", STRING_PRINTF_ARGUMENTS(buffer));
@@ -727,7 +731,7 @@ namespace {
                     (character >= 'A' && character <= 'Z') ||
                     character == '_'
                 ) {
-                    StringBuffer buffer {};
+                    StringBuffer buffer(arena);
 
                     buffer.append_character(character);
 
@@ -798,7 +802,7 @@ namespace {
                         }
                     }
 
-                    StringBuffer buffer {};
+                    StringBuffer buffer(arena);
 
                     while(index < length) {
                         expect(character, get_current_character());
@@ -892,12 +896,12 @@ namespace {
                         tokens.append(token);
                     } else {
                         token.kind = TokenKind::FloatingPoint;
-                        token.floating_point = atof(buffer.to_c_string());
+                        token.floating_point = atof(buffer.to_c_string(arena));
 
                         tokens.append(token);
                     }
                 } else {
-                    StringBuffer buffer {};
+                    StringBuffer buffer(arena);
                     buffer.append_character(character);
 
                     error(path, line, column, "Unexpected character '%.*s'", STRING_PRINTF_ARGUMENTS(buffer));
@@ -911,13 +915,14 @@ namespace {
     };
 };
 
-profiled_function(Result<Array<Token>>, tokenize_source, (String path), (path)) {
+profiled_function(Result<Array<Token>>, tokenize_source, (Arena* arena, String path), (path)) {
     Lexer lexer {};
+    lexer.arena = arena;
     lexer.path = path;
 
     enter_region("read source file");
 
-    auto file = fopen(path.to_c_string(), "rb");
+    auto file = fopen(path.to_c_string(arena), "rb");
 
     if(file == nullptr) {
         fprintf(stderr, "Error: Unable to read source file at '%.*s'\n", STRING_PRINTF_ARGUMENTS(path));
@@ -943,7 +948,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (String path), (path)) 
 
     fseek(file, 0, SEEK_SET);
 
-    lexer.source = allocate<uint8_t>(lexer.length);
+    lexer.source = arena->allocate<uint8_t>(lexer.length);
 
     if(fread(lexer.source, lexer.length, 1, file) != 1) {
         fprintf(stderr, "Error: Unable to read source file at '%.*s'\n", STRING_PRINTF_ARGUMENTS(path));

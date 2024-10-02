@@ -1,5 +1,6 @@
 #pragma once
 
+#include "arena.h"
 #include "ast.h"
 #include "constant.h"
 #include "types.h"
@@ -126,6 +127,8 @@ struct AnyJob {
     JobState state;
 
     size_t waiting_for;
+
+    Arena arena;
 
     union {
         ParseFile parse_file;

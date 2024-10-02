@@ -65,5 +65,5 @@ struct Token {
     };
 
     void print();
-    String get_text();
+    String get_text(Arena* arena);
 };

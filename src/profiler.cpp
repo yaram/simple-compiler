@@ -109,8 +109,10 @@ static void process_stack_frame_for_speedscope(List<String>* type_names, List<Sp
 void dump_profile() {
     printf("Generating profiler dump...\n");
 
-    List<String> type_names {};
-    List<SpeedscopeEntry> entries {};
+    Arena arena {};
+
+    List<String> type_names(arena);
+    List<SpeedscopeEntry> entries(arena);
 
     size_t index = 0;
 

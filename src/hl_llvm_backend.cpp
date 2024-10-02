@@ -18,8 +18,6 @@
 #include "path.h"
 #include "llvm-c/Types.h"
 
-static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType type);
-
 inline LLVMTypeRef get_llvm_integer_type(RegisterSize size) {
     switch(size) {
         case RegisterSize::Size8: {
@@ -64,7 +62,7 @@ inline LLVMTypeRef get_llvm_pointer_type(ArchitectureSizes architecture_sizes) {
     return LLVMPointerTypeInContext(LLVMGetGlobalContext(), 0);
 }
 
-static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType type) {
+static LLVMTypeRef get_llvm_type(Arena* arena, ArchitectureSizes architecture_sizes, IRType type) {
     if(type.kind == IRTypeKind::Boolean) {
         return get_llvm_integer_type(architecture_sizes.boolean_size);
     } else if(type.kind == IRTypeKind::Integer) {
@@ -76,16 +74,16 @@ static LLVMTypeRef get_llvm_type(ArchitectureSizes architecture_sizes, IRType ty
     } else if(type.kind == IRTypeKind::StaticArray) {
         auto static_array = type.static_array;
 
-        auto element_llvm_type = get_llvm_type(architecture_sizes, *static_array.element_type);
+        auto element_llvm_type = get_llvm_type(arena, architecture_sizes, *static_array.element_type);
 
         return LLVMArrayType2(element_llvm_type, static_array.length);
     } else if(type.kind == IRTypeKind::Struct) {
         auto struct_ = type.struct_;
 
-        auto members = allocate<LLVMTypeRef>(struct_.members.length);
+        auto members = arena->allocate<LLVMTypeRef>(struct_.members.length);
 
         for(size_t i = 0; i < struct_.members.length; i += 1) {
-            members[i] = get_llvm_type(architecture_sizes, struct_.members[i]);
+            members[i] = get_llvm_type(arena, architecture_sizes, struct_.members[i]);
         }
 
         return LLVMStructType(members, struct_.members.length, false);
@@ -99,7 +97,12 @@ struct FileDebugScope {
     LLVMMetadataRef scope;
 };
 
-static Result<LLVMMetadataRef> get_file_debug_scope(LLVMDIBuilderRef debug_builder, List<FileDebugScope>* file_debug_scopes, String path) {
+static Result<LLVMMetadataRef> get_file_debug_scope(
+    Arena* arena,
+    LLVMDIBuilderRef debug_builder,
+    List<FileDebugScope>* file_debug_scopes,
+    String path
+) {
     auto found = false;
     LLVMMetadataRef result;
     for(auto entry : *file_debug_scopes) {
@@ -112,7 +115,7 @@ static Result<LLVMMetadataRef> get_file_debug_scope(LLVMDIBuilderRef debug_build
     }
 
     if(!found) {
-        expect(directory, path_get_directory_component(path));
+        expect(directory, path_get_directory_component(arena, path));
 
         result = LLVMDIBuilderCreateFile(
             debug_builder,
@@ -152,6 +155,7 @@ const LLVMDWARFTypeEncoding DW_ATE_lo_user = 0x80;
 const LLVMDWARFTypeEncoding DW_ATE_hi_user = 0xFF;
 
 static Result<LLVMMetadataRef> get_llvm_debug_type(
+    Arena* arena,
     LLVMDIBuilderRef debug_builder,
     List<FileDebugScope>* file_debug_scopes,
     LLVMMetadataRef file_scope,
@@ -161,10 +165,10 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
     if(type.kind == TypeKind::FunctionTypeType) {
         auto function = type.function;
 
-        auto parameters = allocate<LLVMMetadataRef>(function.parameters.length);
+        auto parameters = arena->allocate<LLVMMetadataRef>(function.parameters.length);
 
         for(size_t i = 0; i < function.parameters.length; i += 1) {
-            expect(debug_type, get_llvm_debug_type(debug_builder, file_debug_scopes, file_scope, architecture_sizes, function.parameters[i]));
+            expect(debug_type, get_llvm_debug_type(arena, debug_builder, file_debug_scopes, file_scope, architecture_sizes, function.parameters[i]));
 
             parameters[i] = debug_type;
         }
@@ -175,6 +179,7 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
             return_llvm_debug_type = LLVMDIBuilderCreateUnspecifiedType(debug_builder, (char*)name.elements, name.length);
         } else if(function.return_types.length == 1) {
             expect(debug_type, get_llvm_debug_type(
+                arena,
                 debug_builder,
                 file_debug_scopes,
                 file_scope,
@@ -184,13 +189,14 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
 
             return_llvm_debug_type = debug_type;
         } else {
-            auto elements = allocate<LLVMMetadataRef>(function.return_types.length);
+            auto elements = arena->allocate<LLVMMetadataRef>(function.return_types.length);
 
             size_t size = 0;
             size_t alignment = 0;
             size_t current_offset = 0;
             for(size_t i = 0; i < function.return_types.length; i += 1) {
                 expect(return_debug_type, get_llvm_debug_type(
+                    arena,
                     debug_builder,
                     file_debug_scopes,
                     file_scope,
@@ -266,7 +272,7 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
         auto name = u8"bool"_S;
         return ok(LLVMDIBuilderCreateBasicType(debug_builder, (char*)name.elements, name.length, 8, DW_ATE_boolean, LLVMDIFlagZero));
     } else if(type.kind == TypeKind::Integer) {
-        auto name = type.get_description();
+        auto name = type.get_description(arena);
 
         LLVMDWARFTypeEncoding encoding;
         if(type.integer.is_signed) {
@@ -279,15 +285,16 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
 
         return ok(LLVMDIBuilderCreateBasicType(debug_builder, (char*)name.elements, name.length, size * 8, encoding, LLVMDIFlagZero));
     } else if(type.kind == TypeKind::FloatType) {
-        auto name = type.get_description();
+        auto name = type.get_description(arena);
 
         auto size = register_size_to_byte_size(type.float_.size);
 
         return ok(LLVMDIBuilderCreateBasicType(debug_builder, (char*)name.elements, name.length, size * 8, DW_ATE_float, LLVMDIFlagZero));
     } else if(type.kind == TypeKind::Pointer) {
-        auto name = type.get_description();
+        auto name = type.get_description(arena);
 
         expect(pointed_to_llvm_debug_type, get_llvm_debug_type(
+            arena,
             debug_builder,
             file_debug_scopes,
             file_scope,
@@ -309,11 +316,12 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
     } else if(type.kind == TypeKind::ArrayTypeType) {
         auto array = type.array;
 
-        auto name = type.get_description();
+        auto name = type.get_description(arena);
         auto size = type.get_size(architecture_sizes);
         auto alignment = type.get_alignment(architecture_sizes);
 
         expect(length_debug_type, get_llvm_debug_type(
+            arena,
             debug_builder,
             file_debug_scopes,
             file_scope,
@@ -322,6 +330,7 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
         ));
 
         expect(pointer_debug_type, get_llvm_debug_type(
+            arena,
             debug_builder,
             file_debug_scopes,
             file_scope,
@@ -385,6 +394,7 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
         auto static_array = type.static_array;
 
         expect(element_llvm_debug_type, get_llvm_debug_type(
+            arena,
             debug_builder,
             file_debug_scopes,
             file_scope,
@@ -408,6 +418,7 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
         auto struct_ = type.struct_;
 
         expect(struct_file_scope, get_file_debug_scope(
+            arena,
             debug_builder,
             file_debug_scopes,
             struct_.definition_file_path
@@ -416,10 +427,11 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
         auto size = struct_.get_size(architecture_sizes);
         auto alignment = struct_.get_alignment(architecture_sizes);
 
-        auto elements = allocate<LLVMMetadataRef>(struct_.members.length);
+        auto elements = arena->allocate<LLVMMetadataRef>(struct_.members.length);
 
         for(size_t i = 0; i < struct_.members.length; i += 1) {
             expect(member_debug_type, get_llvm_debug_type(
+                arena,
                 debug_builder,
                 file_debug_scopes,
                 file_scope,
@@ -468,6 +480,7 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
         auto union_ = type.union_;
 
         expect(union_file_scope, get_file_debug_scope(
+            arena,
             debug_builder,
             file_debug_scopes,
             union_.definition_file_path
@@ -476,10 +489,11 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
         auto size = union_.get_size(architecture_sizes);
         auto alignment = union_.get_alignment(architecture_sizes);
 
-        auto elements = allocate<LLVMMetadataRef>(union_.members.length);
+        auto elements = arena->allocate<LLVMMetadataRef>(union_.members.length);
 
         for(size_t i = 0; i < union_.members.length; i += 1) {
             expect(member_debug_type, get_llvm_debug_type(
+                arena,
                 debug_builder,
                 file_debug_scopes,
                 union_file_scope,
@@ -525,6 +539,7 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
         auto enum_ = type.enum_;
 
         expect(enum_file_scope, get_file_debug_scope(
+            arena,
             debug_builder,
             file_debug_scopes,
             enum_.definition_file_path
@@ -532,7 +547,7 @@ static Result<LLVMMetadataRef> get_llvm_debug_type(
 
         auto size = register_size_to_byte_size(enum_.backing_type->size);
 
-        auto elements = allocate<LLVMMetadataRef>(enum_.variant_values.length);
+        auto elements = arena->allocate<LLVMMetadataRef>(enum_.variant_values.length);
 
         for(size_t i = 0; i < enum_.variant_values.length; i += 1) {
             elements[i] = LLVMDIBuilderCreateEnumerator(
@@ -570,7 +585,7 @@ struct GetLLVMConstantResult {
     LLVMValueRef value;
 };
 
-static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_sizes, IRType type, IRConstantValue value) {
+static GetLLVMConstantResult get_llvm_constant(Arena* arena, ArchitectureSizes architecture_sizes, IRType type, IRConstantValue value) {
     LLVMTypeRef result_type;
     LLVMValueRef result_value;
     if(type.kind == IRTypeKind::Boolean) {
@@ -620,17 +635,17 @@ static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_si
     } else if(type.kind == IRTypeKind::StaticArray) {
         auto static_array = type.static_array;
 
-        auto element_llvm_type = get_llvm_type(architecture_sizes, *static_array.element_type);
+        auto element_llvm_type = get_llvm_type(arena, architecture_sizes, *static_array.element_type);
 
         result_type = LLVMArrayType2(element_llvm_type, static_array.length);
 
         if(value.kind == IRConstantValueKind::StaticArrayConstant) {
             assert(static_array.length == value.static_array.elements.length);
 
-            auto elements = allocate<LLVMValueRef>(static_array.length);
+            auto elements = arena->allocate<LLVMValueRef>(static_array.length);
 
             for(size_t i = 0; i < static_array.length; i += 1) {
-                elements[i] = get_llvm_constant(architecture_sizes, *static_array.element_type, value.static_array.elements[i]).value;
+                elements[i] = get_llvm_constant(arena, architecture_sizes, *static_array.element_type, value.static_array.elements[i]).value;
             }
 
             result_value = LLVMConstArray2(element_llvm_type, elements, type.static_array.length);
@@ -642,14 +657,14 @@ static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_si
     } else if(type.kind == IRTypeKind::Struct) {
         auto struct_ = type.struct_;
 
-        auto member_types = allocate<LLVMTypeRef>(struct_.members.length);
-        auto member_values = allocate<LLVMValueRef>(struct_.members.length);
+        auto member_types = arena->allocate<LLVMTypeRef>(struct_.members.length);
+        auto member_values = arena->allocate<LLVMValueRef>(struct_.members.length);
 
         if(value.kind == IRConstantValueKind::StructConstant) {
             assert(struct_.members.length == value.struct_.members.length);
 
             for(size_t i = 0; i < struct_.members.length; i += 1) {
-                auto result = get_llvm_constant(architecture_sizes, struct_.members[i], value.struct_.members[i]);
+                auto result = get_llvm_constant(arena, architecture_sizes, struct_.members[i], value.struct_.members[i]);
 
                 member_types[i] = result.llvm_type;
                 member_values[i] = result.value;
@@ -660,9 +675,9 @@ static GetLLVMConstantResult get_llvm_constant(ArchitectureSizes architecture_si
         } else {
             assert(value.kind == IRConstantValueKind::UndefConstant);
 
-            auto member_types = allocate<LLVMTypeRef>(struct_.members.length);
+            auto member_types = arena->allocate<LLVMTypeRef>(struct_.members.length);
             for(size_t i = 0; i < struct_.members.length; i += 1) {
-                auto result = get_llvm_type(architecture_sizes, struct_.members[i]);
+                auto result = get_llvm_type(arena, architecture_sizes, struct_.members[i]);
 
                 member_types[i] = result;
             }
@@ -786,6 +801,7 @@ static TypedValue get_register_value(Function function, LLVMValueRef function_va
 #define llvm_instruction_ignore(call) { auto value=(call);if(LLVMIsAInstruction(value))LLVMInstructionSetDebugLoc(value, debug_location); }
 
 profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
+    Arena* arena,
     String top_level_source_file_path,
     Array<RuntimeStatic*> statics,
     String architecture,
@@ -796,6 +812,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     Array<String> reserved_names,
     bool print
 ), (
+    arena,
     top_level_source_file_path,
     statics,
     architecture,
@@ -805,7 +822,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     reserved_names,
     print
 )) {
-    List<NameMapping> name_mappings {};
+    List<NameMapping> name_mappings(arena);
 
     for(auto runtime_static : statics) {
         if(runtime_static->is_no_mangle) {
@@ -836,7 +853,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
     for(auto runtime_static : statics) {
         if(!runtime_static->is_no_mangle) {
-            StringBuffer name_buffer {};
+            StringBuffer name_buffer(arena);
 
             size_t number = 0;
             while(true) {
@@ -888,9 +905,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
     auto debug_builder = LLVMCreateDIBuilder(module);
 
-    List<FileDebugScope> file_debug_scopes {};
+    List<FileDebugScope> file_debug_scopes(arena);
 
-    expect(top_level_source_file_directory, path_get_directory_component(top_level_source_file_path));
+    expect(top_level_source_file_directory, path_get_directory_component(arena, top_level_source_file_path));
 
     auto top_level_file_debug_scope = LLVMDIBuilderCreateFile(
         debug_builder,
@@ -947,7 +964,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         0
     );
 
-    auto global_values = allocate<LLVMValueRef>(statics.length);
+    auto global_values = arena->allocate<LLVMValueRef>(statics.length);
 
     for(size_t i = 0; i < statics.length; i += 1) {
         auto runtime_static = statics[i];
@@ -964,30 +981,30 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         }
         assert(found);
 
-        expect(file_debug_scope, get_file_debug_scope(debug_builder, &file_debug_scopes, runtime_static->path));
+        expect(file_debug_scope, get_file_debug_scope(arena, debug_builder, &file_debug_scopes, runtime_static->path));
 
         LLVMValueRef global_value;
         if(runtime_static->kind == RuntimeStaticKind::Function) {
             auto function = (Function*)runtime_static;
 
             auto parameter_count = function->parameters.length;
-            auto parameter_llvm_types = allocate<LLVMTypeRef>(parameter_count);
+            auto parameter_llvm_types = arena->allocate<LLVMTypeRef>(parameter_count);
             for(size_t i = 0; i < parameter_count; i += 1) {
                 auto parameter = function->parameters[i];
 
-                parameter_llvm_types[i] = get_llvm_type(architecture_sizes, parameter);
+                parameter_llvm_types[i] = get_llvm_type(arena, architecture_sizes, parameter);
             }
 
             LLVMTypeRef return_llvm_type;
             if(function->has_return) {
-                return_llvm_type = get_llvm_type(architecture_sizes, function->return_type);
+                return_llvm_type = get_llvm_type(arena, architecture_sizes, function->return_type);
             } else {
                 return_llvm_type = LLVMVoidType();
             }
 
             auto function_llvm_type = LLVMFunctionType(return_llvm_type, parameter_llvm_types, (unsigned int)parameter_count, false);
 
-            global_value = LLVMAddFunction(module, name.to_c_string(), function_llvm_type);
+            global_value = LLVMAddFunction(module, name.to_c_string(arena), function_llvm_type);
 
             if(function->is_external) {
                 LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
@@ -999,15 +1016,16 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         } else if(runtime_static->kind == RuntimeStaticKind::StaticConstant) {
             auto constant = (StaticConstant*)runtime_static;
 
-            auto llvm_type = get_llvm_type(architecture_sizes, constant->type);
+            auto llvm_type = get_llvm_type(arena, architecture_sizes, constant->type);
 
-            global_value = LLVMAddGlobal(module, llvm_type, name.to_c_string());
+            global_value = LLVMAddGlobal(module, llvm_type, name.to_c_string(arena));
             LLVMSetGlobalConstant(global_value, true);
 
-            auto constant_value_llvm = get_llvm_constant(architecture_sizes, constant->type, constant->value).value;
+            auto constant_value_llvm = get_llvm_constant(arena, architecture_sizes, constant->type, constant->value).value;
             LLVMSetInitializer(global_value, constant_value_llvm);
 
             expect(debug_type, get_llvm_debug_type(
+                arena,
                 debug_builder,
                 &file_debug_scopes,
                 file_debug_scope,
@@ -1037,19 +1055,20 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         } else if(runtime_static->kind == RuntimeStaticKind::StaticVariable) {
             auto variable = (StaticVariable*)runtime_static;
 
-            auto llvm_type = get_llvm_type(architecture_sizes, variable->type);
+            auto llvm_type = get_llvm_type(arena, architecture_sizes, variable->type);
 
-            global_value = LLVMAddGlobal(module, llvm_type, name.to_c_string());
+            global_value = LLVMAddGlobal(module, llvm_type, name.to_c_string(arena));
 
             if(variable->is_external) {
                 LLVMSetLinkage(global_value, LLVMLinkage::LLVMExternalLinkage);
             } else if(variable->has_initial_value) {
-                auto initial_value_llvm = get_llvm_constant(architecture_sizes, variable->type, variable->initial_value).value;
+                auto initial_value_llvm = get_llvm_constant(arena, architecture_sizes, variable->type, variable->initial_value).value;
 
                 LLVMSetInitializer(global_value, initial_value_llvm);
             }
 
             expect(debug_type, get_llvm_debug_type(
+                arena,
                 debug_builder,
                 &file_debug_scopes,
                 file_debug_scope,
@@ -1106,19 +1125,19 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
             if(!function->is_external) {
                 auto entry_llvm_block = LLVMAppendBasicBlock(function_value, "entry");
 
-                auto llvm_blocks = allocate<LLVMBasicBlockRef>(function->blocks.length);
+                auto llvm_blocks = arena->allocate<LLVMBasicBlockRef>(function->blocks.length);
 
                 for(size_t i = 0; i < function->blocks.length; i += 1) {
                     auto block = function->blocks[i];
 
-                    StringBuffer block_name {};
+                    StringBuffer block_name(arena);
                     block_name.append(u8"block_"_S);
                     block_name.append_integer(i);
 
-                    llvm_blocks[i] = LLVMAppendBasicBlock(function_value, block_name.to_c_string());
+                    llvm_blocks[i] = LLVMAppendBasicBlock(function_value, block_name.to_c_string(arena));
                 }
 
-                List<Register> registers {};
+                List<Register> registers(arena);
 
                 struct Local {
                     AllocateLocal* allocate_local;
@@ -1126,11 +1145,12 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                     LLVMValueRef pointer_value;
                 };
 
-                List<Local> locals {};
+                List<Local> locals(arena);
 
-                expect(file_debug_scope, get_file_debug_scope(debug_builder, &file_debug_scopes, function->path));
+                expect(file_debug_scope, get_file_debug_scope(arena, debug_builder, &file_debug_scopes, function->path));
 
                 expect(function_debug_type, get_llvm_debug_type(
+                    arena,
                     debug_builder,
                     &file_debug_scopes,
                     file_debug_scope,
@@ -1157,7 +1177,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                 LLVMSetSubprogram(function_value, function_debug_scope);
 
-                auto debug_variable_scopes = allocate<LLVMMetadataRef>(function->debug_scopes.length);
+                auto debug_variable_scopes = arena->allocate<LLVMMetadataRef>(function->debug_scopes.length);
 
                 for(size_t i = 0; i < function->debug_scopes.length; i += 1) {
                     debug_variable_scopes[i] = nullptr;
@@ -1215,13 +1235,14 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 nullptr
                             );
 
-                            auto llvm_type = get_llvm_type(architecture_sizes, allocate_local->type);
+                            auto llvm_type = get_llvm_type(arena, architecture_sizes, allocate_local->type);
 
                             auto pointer_value = LLVMBuildAlloca(builder, llvm_type, "allocate_local");
                             if(!allocate_local->has_debug_info) {
                                 LLVMInstructionSetDebugLoc(pointer_value, debug_location);
                             } else if(should_generate_debug_types) {
                                 expect(debug_type, get_llvm_debug_type(
+                                    arena,
                                     debug_builder,
                                     &file_debug_scopes,
                                     file_debug_scope,
@@ -1616,7 +1637,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             auto integer_llvm_type = get_llvm_integer_type(architecture_sizes.address_size);
 
-                            auto pointer_llvm_type = get_llvm_type(architecture_sizes, source_value_a.type);
+                            auto pointer_llvm_type = get_llvm_type(arena, architecture_sizes, source_value_a.type);
 
                             llvm_instruction(integer_value_a, LLVMBuildPtrToInt(builder, value_a, integer_llvm_type, "pointer_to_int"));
                             llvm_instruction(integer_value_b, LLVMBuildPtrToInt(builder, value_b, integer_llvm_type, "pointer_to_int"));
@@ -1744,10 +1765,10 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             auto first_element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[0]);
 
-                            auto element_llvm_type = get_llvm_type(architecture_sizes, first_element_value.type);
+                            auto element_llvm_type = get_llvm_type(arena, architecture_sizes, first_element_value.type);
                             auto llvm_type = LLVMArrayType2(element_llvm_type, assemble_static_array->element_registers.length);
 
-                            auto initial_constant_values = allocate<LLVMValueRef>(assemble_static_array->element_registers.length);
+                            auto initial_constant_values = arena->allocate<LLVMValueRef>(assemble_static_array->element_registers.length);
 
                             for(size_t i = 1; i < assemble_static_array->element_registers.length; i += 1) {
                                 auto element_value = get_register_value(*function, function_value, registers, assemble_static_array->element_registers[i]);
@@ -1799,7 +1820,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             auto type = IRType::create_static_array(
                                 assemble_static_array->element_registers.length,
-                                heapify(first_element_value.type)
+                                arena->heapify(first_element_value.type)
                             );
 
                             registers.append(Register(
@@ -1828,7 +1849,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         } else if(instruction->kind == InstructionKind::AssembleStruct) {
                             auto assemble_struct = (AssembleStruct*)instruction;
 
-                            auto initial_constant_values = allocate<LLVMValueRef>(assemble_struct->member_registers.length);
+                            auto initial_constant_values = arena->allocate<LLVMValueRef>(assemble_struct->member_registers.length);
 
                             for(size_t i = 0; i < assemble_struct->member_registers.length; i += 1) {
                                 auto member_value = get_register_value(*function, function_value, registers, assemble_struct->member_registers[i]);
@@ -1836,7 +1857,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 if(LLVMIsConstant(member_value.value)) {
                                     initial_constant_values[i] = member_value.value;
                                 } else {
-                                    initial_constant_values[i] = LLVMGetUndef(get_llvm_type(architecture_sizes, member_value.type));
+                                    initial_constant_values[i] = LLVMGetUndef(get_llvm_type(arena, architecture_sizes, member_value.type));
                                 }
                             }
 
@@ -1846,7 +1867,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 false
                             );
 
-                            auto member_types = allocate<IRType>(assemble_struct->member_registers.length);
+                            auto member_types = arena->allocate<IRType>(assemble_struct->member_registers.length);
 
                             for(size_t i = 0; i < assemble_struct->member_registers.length; i += 1) {
                                 auto member_value = get_register_value(*function, function_value, registers, assemble_struct->member_registers[i]);
@@ -1896,7 +1917,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         } else if(instruction->kind == InstructionKind::Literal) {
                             auto literal = (Literal*)instruction;
 
-                            auto llvm_constant_result = get_llvm_constant(architecture_sizes, literal->type, literal->value);
+                            auto llvm_constant_result = get_llvm_constant(arena, architecture_sizes, literal->type, literal->value);
 
                             registers.append(Register(
                                 literal->destination_register,
@@ -1969,19 +1990,19 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             assert(function_pointer_value.type.kind == IRTypeKind::Pointer);
 
-                            auto parameter_types = allocate<LLVMTypeRef>(parameter_count);
-                            auto parameter_values = allocate<LLVMValueRef>(parameter_count);
+                            auto parameter_types = arena->allocate<LLVMTypeRef>(parameter_count);
+                            auto parameter_values = arena->allocate<LLVMValueRef>(parameter_count);
                             for(size_t i = 0; i < parameter_count; i += 1) {
                                 auto parameter = function_call->parameters[i];
 
-                                parameter_types[i] = get_llvm_type(architecture_sizes, parameter.type);
+                                parameter_types[i] = get_llvm_type(arena, architecture_sizes, parameter.type);
 
                                 parameter_values[i] = get_register_value(*function, function_value, registers, parameter.register_index).value;
                             }
 
                             LLVMTypeRef return_llvm_type;
                             if(function_call->has_return) {
-                                return_llvm_type = get_llvm_type(architecture_sizes, function_call->return_type);
+                                return_llvm_type = get_llvm_type(arena, architecture_sizes, function_call->return_type);
                             } else {
                                 return_llvm_type = LLVMVoidType();
                             }
@@ -2025,19 +2046,19 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             auto parameter_count = intrinsic_call->parameters.length;
 
-                            auto parameter_types = allocate<LLVMTypeRef>(parameter_count);
-                            auto parameter_values = allocate<LLVMValueRef>(parameter_count);
+                            auto parameter_types = arena->allocate<LLVMTypeRef>(parameter_count);
+                            auto parameter_values = arena->allocate<LLVMValueRef>(parameter_count);
                             for(size_t i = 0; i < parameter_count; i += 1) {
                                 auto parameter = intrinsic_call->parameters[i];
 
-                                parameter_types[i] = get_llvm_type(architecture_sizes, parameter.type);
+                                parameter_types[i] = get_llvm_type(arena, architecture_sizes, parameter.type);
 
                                 parameter_values[i] = get_register_value(*function, function_value, registers, parameter.register_index).value;
                             }
 
                             LLVMTypeRef return_llvm_type;
                             if(intrinsic_call->has_return) {
-                                return_llvm_type = get_llvm_type(architecture_sizes, intrinsic_call->return_type);
+                                return_llvm_type = get_llvm_type(arena, architecture_sizes, intrinsic_call->return_type);
                             } else {
                                 return_llvm_type = LLVMVoidType();
                             }
@@ -2121,7 +2142,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             assert(pointer_register.type.kind == IRTypeKind::Pointer);
 
-                            auto llvm_type = get_llvm_type(architecture_sizes, load->destination_type);
+                            auto llvm_type = get_llvm_type(arena, architecture_sizes, load->destination_type);
 
                             llvm_instruction(value, LLVMBuildLoad2(builder, llvm_type, pointer_register.value, "load"));
 
@@ -2152,7 +2173,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             auto struct_type = IRType::create_struct(struct_member_pointer->members);
 
-                            auto struct_llvm_type = get_llvm_type(architecture_sizes, struct_type);
+                            auto struct_llvm_type = get_llvm_type(arena, architecture_sizes, struct_type);
 
                             llvm_instruction(member_pointer_value, LLVMBuildStructGEP2(
                                 builder,
@@ -2177,7 +2198,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
                             assert(pointer_value.type.kind == IRTypeKind::Pointer);
 
-                            auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, pointer_index->pointed_to_type);
+                            auto pointed_to_llvm_type = get_llvm_type(arena, architecture_sizes, pointer_index->pointed_to_type);
 
                             llvm_instruction(result_pointer_value, LLVMBuildGEP2(
                                 builder,
@@ -2195,13 +2216,13 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                         } else if(instruction->kind == InstructionKind::AssemblyInstruction) {
                             auto assembly_instruction = (AssemblyInstruction*)instruction;
 
-                            StringBuffer constraints_buffer {};
+                            StringBuffer constraints_buffer(arena);
 
-                            List<LLVMTypeRef> call_parameter_types {};
-                            List<LLVMValueRef> call_parameters {};
+                            List<LLVMTypeRef> call_parameter_types(arena);
+                            List<LLVMValueRef> call_parameters(arena);
 
-                            List<LLVMTypeRef> call_return_types {};
-                            List<LLVMValueRef> output_binding_pointer_values {};
+                            List<LLVMTypeRef> call_return_types(arena);
+                            List<LLVMValueRef> output_binding_pointer_values(arena);
 
                             for(size_t i = 0; i < assembly_instruction->bindings.length; i += 1) {
                                 auto binding = assembly_instruction->bindings[i];
@@ -2216,12 +2237,12 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
                                 if(binding.constraint[0] == '=') {
                                     assert(value.type.kind == IRTypeKind::Pointer);
 
-                                    auto pointed_to_llvm_type = get_llvm_type(architecture_sizes, binding.pointed_to_type);
+                                    auto pointed_to_llvm_type = get_llvm_type(arena, architecture_sizes, binding.pointed_to_type);
 
                                     call_return_types.append(pointed_to_llvm_type);
                                     output_binding_pointer_values.append(value.value);
                                 } else {
-                                    auto llvm_type = get_llvm_type(architecture_sizes, value.type);
+                                    auto llvm_type = get_llvm_type(arena, architecture_sizes, value.type);
 
                                     call_parameter_types.append(llvm_type);
                                     call_parameters.append(value.value);
@@ -2330,7 +2351,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
     assert(LLVMVerifyModule(module, LLVMVerifierFailureAction::LLVMAbortProcessAction, nullptr) == 0);
 
-    auto triple = get_llvm_triple(architecture, os, toolchain);
+    auto triple = get_llvm_triple(arena, architecture, os, toolchain);
 
     LLVMTargetRef target;
     if(architecture == u8"x86"_S || architecture == u8"x64"_S) {
@@ -2355,7 +2376,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
         abort();
     }
 
-    auto status = LLVMGetTargetFromTriple(triple.to_c_string(), &target, nullptr);
+    auto status = LLVMGetTargetFromTriple(triple.to_c_string(arena), &target, nullptr);
     assert(status == 0);
 
     auto features = get_llvm_features(architecture);
@@ -2371,9 +2392,9 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
 
     auto target_machine = LLVMCreateTargetMachine(
         target,
-        triple.to_c_string(),
+        triple.to_c_string(arena),
         "",
-        features.to_c_string(),
+        features.to_c_string(arena),
         optimization_level,
         LLVMRelocMode::LLVMRelocPIC,
         LLVMCodeModel::LLVMCodeModelDefault
@@ -2381,7 +2402,7 @@ profiled_function(Result<Array<NameMapping>>, generate_llvm_object, (
     assert(target_machine != nullptr);
 
     char* error_message;
-    if(LLVMTargetMachineEmitToFile(target_machine, module, object_file_path.to_c_string(), LLVMCodeGenFileType::LLVMObjectFile, &error_message) != 0) {
+    if(LLVMTargetMachineEmitToFile(target_machine, module, object_file_path.to_c_string(arena), LLVMCodeGenFileType::LLVMObjectFile, &error_message) != 0) {
         fprintf(stderr, "Error: Unable to emit object file '%.*s' (%s)\n", STRING_PRINTF_ARGUMENTS(object_file_path), error_message);
 
         return err();

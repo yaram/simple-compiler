@@ -308,7 +308,7 @@ struct AnyType {
 
     bool operator==(AnyType other);
     bool operator!=(AnyType other);
-    String get_description();
+    String get_description(Arena* arena);
     bool is_runtime_type();
     bool is_pointable_type();
     uint64_t get_alignment(ArchitectureSizes architecture_sizes);

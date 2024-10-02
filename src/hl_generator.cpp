@@ -106,6 +106,8 @@ struct VariableScope {
 };
 
 struct GenerationContext {
+    Arena* arena;
+
     Array<AnyType> return_types;
 
     Array<ConstantScope*> child_scopes;
@@ -179,7 +181,7 @@ static size_t append_integer_arithmetic_operation(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto integer_arithmetic_operation = new IntegerArithmeticOperation;
+    auto integer_arithmetic_operation = context->arena->allocate_and_construct<IntegerArithmeticOperation>();
     integer_arithmetic_operation->range = range;
     integer_arithmetic_operation->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_arithmetic_operation->operation = operation;
@@ -204,7 +206,7 @@ static size_t append_integer_comparison_operation(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto integer_comparison_operation = new IntegerComparisonOperation;
+    auto integer_comparison_operation = context->arena->allocate_and_construct<IntegerComparisonOperation>();
     integer_comparison_operation->range = range;
     integer_comparison_operation->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_comparison_operation->operation = operation;
@@ -229,7 +231,7 @@ static size_t append_integer_extension(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto integer_extension = new IntegerExtension;
+    auto integer_extension = context->arena->allocate_and_construct<IntegerExtension>();
     integer_extension->range = range;
     integer_extension->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_extension->is_signed = is_signed;
@@ -253,7 +255,7 @@ static size_t append_integer_truncation(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto integer_truncation = new IntegerTruncation;
+    auto integer_truncation = context->arena->allocate_and_construct<IntegerTruncation>();
     integer_truncation->range = range;
     integer_truncation->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_truncation->source_register = source_register;
@@ -277,7 +279,7 @@ static size_t append_float_arithmetic_operation(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto float_arithmetic_operation = new FloatArithmeticOperation;
+    auto float_arithmetic_operation = context->arena->allocate_and_construct<FloatArithmeticOperation>();
     float_arithmetic_operation->range = range;
     float_arithmetic_operation->debug_scope_index = current_variable_scope.debug_scope_index;
     float_arithmetic_operation->operation = operation;
@@ -302,7 +304,7 @@ static size_t append_float_comparison_operation(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto float_comparison_operation = new FloatComparisonOperation;
+    auto float_comparison_operation = context->arena->allocate_and_construct<FloatComparisonOperation>();
     float_comparison_operation->range = range;
     float_comparison_operation->debug_scope_index = current_variable_scope.debug_scope_index;
     float_comparison_operation->operation = operation;
@@ -326,7 +328,7 @@ static size_t append_float_conversion(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto float_conversion = new FloatConversion;
+    auto float_conversion = context->arena->allocate_and_construct<FloatConversion>();
     float_conversion->range = range;
     float_conversion->debug_scope_index = current_variable_scope.debug_scope_index;
     float_conversion->source_register = source_register;
@@ -350,7 +352,7 @@ static size_t append_float_from_integer(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto float_from_integer = new FloatFromInteger;
+    auto float_from_integer = context->arena->allocate_and_construct<FloatFromInteger>();
     float_from_integer->range = range;
     float_from_integer->debug_scope_index = current_variable_scope.debug_scope_index;
     float_from_integer->is_signed = is_signed;
@@ -375,7 +377,7 @@ static size_t append_integer_from_float(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto integer_from_float = new IntegerFromFloat;
+    auto integer_from_float = context->arena->allocate_and_construct<IntegerFromFloat>();
     integer_from_float->range = range;
     integer_from_float->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_from_float->is_signed = is_signed;
@@ -399,7 +401,7 @@ static size_t append_pointer_equality(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto pointer_equality = new PointerEquality;
+    auto pointer_equality = context->arena->allocate_and_construct<PointerEquality>();
     pointer_equality->range = range;
     pointer_equality->debug_scope_index = current_variable_scope.debug_scope_index;
     pointer_equality->source_register_a = source_register_a;
@@ -421,7 +423,7 @@ static size_t append_pointer_from_integer(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto pointer_from_integer = new PointerFromInteger;
+    auto pointer_from_integer = context->arena->allocate_and_construct<PointerFromInteger>();
     pointer_from_integer->range = range;
     pointer_from_integer->debug_scope_index = current_variable_scope.debug_scope_index;
     pointer_from_integer->source_register = source_register;
@@ -443,7 +445,7 @@ static size_t append_integer_from_pointer(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto integer_from_pointer = new IntegerFromPointer;
+    auto integer_from_pointer = context->arena->allocate_and_construct<IntegerFromPointer>();
     integer_from_pointer->range = range;
     integer_from_pointer->debug_scope_index = current_variable_scope.debug_scope_index;
     integer_from_pointer->source_register = source_register;
@@ -467,7 +469,7 @@ static size_t append_boolean_arithmetic_operation(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto boolean_arithmetic_operation = new BooleanArithmeticOperation;
+    auto boolean_arithmetic_operation = context->arena->allocate_and_construct<BooleanArithmeticOperation>();
     boolean_arithmetic_operation->range = range;
     boolean_arithmetic_operation->debug_scope_index = current_variable_scope.debug_scope_index;
     boolean_arithmetic_operation->operation = operation;
@@ -491,7 +493,7 @@ static size_t append_boolean_equality(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto boolean_equality = new BooleanEquality;
+    auto boolean_equality = context->arena->allocate_and_construct<BooleanEquality>();
     boolean_equality->range = range;
     boolean_equality->debug_scope_index = current_variable_scope.debug_scope_index;
     boolean_equality->source_register_a = source_register_a;
@@ -513,7 +515,7 @@ static size_t append_boolean_inversion(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto boolean_inversion = new BooleanInversion;
+    auto boolean_inversion = context->arena->allocate_and_construct<BooleanInversion>();
     boolean_inversion->range = range;
     boolean_inversion->debug_scope_index = current_variable_scope.debug_scope_index;
     boolean_inversion->source_register = source_register;
@@ -534,7 +536,7 @@ static size_t append_assemble_static_array(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto assembly_static_array = new AssembleStaticArray;
+    auto assembly_static_array = context->arena->allocate_and_construct<AssembleStaticArray>();
     assembly_static_array->range = range;
     assembly_static_array->debug_scope_index = current_variable_scope.debug_scope_index;
     assembly_static_array->element_registers = element_registers;
@@ -556,7 +558,7 @@ static size_t append_read_static_array_element(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto read_static_array_element = new ReadStaticArrayElement;
+    auto read_static_array_element = context->arena->allocate_and_construct<ReadStaticArrayElement>();
     read_static_array_element->range = range;
     read_static_array_element->debug_scope_index = current_variable_scope.debug_scope_index;
     read_static_array_element->element_index = element_index;
@@ -578,7 +580,7 @@ static size_t append_assemble_struct(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto assemble_struct = new AssembleStruct;
+    auto assemble_struct = context->arena->allocate_and_construct<AssembleStruct>();
     assemble_struct->range = range;
     assemble_struct->debug_scope_index = current_variable_scope.debug_scope_index;
     assemble_struct->member_registers = member_registers;
@@ -600,7 +602,7 @@ static size_t append_read_struct_member(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto read_read_struct_member = new ReadStructMember;
+    auto read_read_struct_member = context->arena->allocate_and_construct<ReadStructMember>();
     read_read_struct_member->range = range;
     read_read_struct_member->debug_scope_index = current_variable_scope.debug_scope_index;
     read_read_struct_member->member_index = member_index;
@@ -618,7 +620,7 @@ static size_t append_literal(GenerationContext* context, FileRange range, IRType
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto literal = new Literal;
+    auto literal = context->arena->allocate_and_construct<Literal>();
     literal->range = range;
     literal->debug_scope_index = current_variable_scope.debug_scope_index;
     literal->destination_register = destination_register;
@@ -634,7 +636,7 @@ static void append_jump(GenerationContext* context, FileRange range, Block* dest
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto jump = new Jump;
+    auto jump = context->arena->allocate_and_construct<Jump>();
     jump->range = range;
     jump->debug_scope_index = current_variable_scope.debug_scope_index;
     jump->destination_block = destination_block;
@@ -652,7 +654,7 @@ static void append_branch(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto branch = new Branch;
+    auto branch = context->arena->allocate_and_construct<Branch>();
     branch->range = range;
     branch->debug_scope_index = current_variable_scope.debug_scope_index;
     branch->condition_register = condition_register;
@@ -672,7 +674,7 @@ static size_t append_allocate_local(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto allocate_local = new AllocateLocal;
+    auto allocate_local = context->arena->allocate_and_construct<AllocateLocal>();
     allocate_local->range = range;
     allocate_local->debug_scope_index = current_variable_scope.debug_scope_index;
     allocate_local->type = type;
@@ -696,7 +698,7 @@ static size_t append_allocate_local(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto allocate_local = new AllocateLocal;
+    auto allocate_local = context->arena->allocate_and_construct<AllocateLocal>();
     allocate_local->range = range;
     allocate_local->debug_scope_index = current_variable_scope.debug_scope_index;
     allocate_local->type = type;
@@ -721,7 +723,7 @@ static size_t append_load(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto load = new Load;
+    auto load = context->arena->allocate_and_construct<Load>();
     load->range = range;
     load->debug_scope_index = current_variable_scope.debug_scope_index;
     load->pointer_register = pointer_register;
@@ -742,7 +744,7 @@ static void append_store(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto store = new Store;
+    auto store = context->arena->allocate_and_construct<Store>();
     store->range = range;
     store->debug_scope_index = current_variable_scope.debug_scope_index;
     store->source_register = source_register;
@@ -763,7 +765,7 @@ static size_t append_struct_member_pointer(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto struct_member_pointer = new StructMemberPointer;
+    auto struct_member_pointer = context->arena->allocate_and_construct<StructMemberPointer>();
     struct_member_pointer->range = range;
     struct_member_pointer->debug_scope_index = current_variable_scope.debug_scope_index;
     struct_member_pointer->members = members;
@@ -788,7 +790,7 @@ static size_t append_pointer_index(
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto pointer_index = new PointerIndex;
+    auto pointer_index = context->arena->allocate_and_construct<PointerIndex>();
     pointer_index->range = range;
     pointer_index->debug_scope_index = current_variable_scope.debug_scope_index;
     pointer_index->index_register = index_register;
@@ -807,7 +809,7 @@ static size_t append_reference_static(GenerationContext* context, FileRange rang
     assert(context->variable_scope_stack.length != 0);
     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-    auto reference_static = new ReferenceStatic;
+    auto reference_static = context->arena->allocate_and_construct<ReferenceStatic>();
     reference_static->range = range;
     reference_static->debug_scope_index = current_variable_scope.debug_scope_index;
     reference_static->runtime_static = runtime_static;
@@ -818,8 +820,8 @@ static size_t append_reference_static(GenerationContext* context, FileRange rang
     return destination_register;
 }
 
-inline IRType get_array_ir_type(ArchitectureSizes architecture_sizes, ArrayTypeType array) {
-    auto members = allocate<IRType>(2);
+inline IRType get_array_ir_type(Arena* arena, ArchitectureSizes architecture_sizes, ArrayTypeType array) {
+    auto members = arena->allocate<IRType>(2);
 
     members[0].kind = IRTypeKind::Integer;
     members[0].integer.size = architecture_sizes.address_size;
@@ -829,30 +831,30 @@ inline IRType get_array_ir_type(ArchitectureSizes architecture_sizes, ArrayTypeT
     return IRType::create_struct(Array(2, members));
 }
 
-static IRType get_ir_type(ArchitectureSizes architecture_sizes, AnyType type);
+static IRType get_ir_type(Arena* arena, ArchitectureSizes architecture_sizes, AnyType type);
 
-inline IRType get_static_array_ir_type(ArchitectureSizes architecture_sizes, StaticArray static_array) {
+inline IRType get_static_array_ir_type(Arena* arena, ArchitectureSizes architecture_sizes, StaticArray static_array) {
     return IRType::create_static_array(
         static_array.length,
-        heapify(get_ir_type(architecture_sizes, *static_array.element_type))
+        arena->heapify(get_ir_type(arena, architecture_sizes, *static_array.element_type))
     );
 }
 
-inline IRType get_struct_ir_type(ArchitectureSizes architecture_sizes, StructType struct_) {
-    auto members = allocate<IRType>(struct_.members.length);
+inline IRType get_struct_ir_type(Arena* arena, ArchitectureSizes architecture_sizes, StructType struct_) {
+    auto members = arena->allocate<IRType>(struct_.members.length);
 
     for(size_t i = 0; i < struct_.members.length; i += 1) {
-        members[i] = get_ir_type(architecture_sizes, struct_.members[i].type);
+        members[i] = get_ir_type(arena, architecture_sizes, struct_.members[i].type);
     }
 
     return IRType::create_struct(Array(struct_.members.length, members));
 }
 
-inline IRType get_union_ir_type(ArchitectureSizes architecture_sizes, UnionType union_) {
-    return IRType::create_static_array(union_.get_size(architecture_sizes), heapify(IRType::create_integer(RegisterSize::Size8)));
+inline IRType get_union_ir_type(Arena* arena, ArchitectureSizes architecture_sizes, UnionType union_) {
+    return IRType::create_static_array(union_.get_size(architecture_sizes), arena->heapify(IRType::create_integer(RegisterSize::Size8)));
 }
 
-static IRType get_ir_type(ArchitectureSizes architecture_sizes, AnyType type) {
+static IRType get_ir_type(Arena* arena, ArchitectureSizes architecture_sizes, AnyType type) {
     if(type.kind == TypeKind::Integer) {
         return IRType::create_integer(type.integer.size);
     } else if(type.kind == TypeKind::Boolean) {
@@ -862,13 +864,13 @@ static IRType get_ir_type(ArchitectureSizes architecture_sizes, AnyType type) {
     } else if(type.kind == TypeKind::Pointer) {
         return IRType::create_pointer();
     } else if(type.kind == TypeKind::ArrayTypeType) {
-        return get_array_ir_type(architecture_sizes, type.array);
+        return get_array_ir_type(arena, architecture_sizes, type.array);
     } else if(type.kind == TypeKind::StaticArray) {
-        return get_static_array_ir_type(architecture_sizes, type.static_array);
+        return get_static_array_ir_type(arena, architecture_sizes, type.static_array);
     } else if(type.kind == TypeKind::StructType) {
-        return get_struct_ir_type(architecture_sizes, type.struct_);
+        return get_struct_ir_type(arena, architecture_sizes, type.struct_);
     } else if(type.kind == TypeKind::UnionType) {
-        return get_union_ir_type(architecture_sizes, type.union_);
+        return get_union_ir_type(arena, architecture_sizes, type.union_);
     } else if(type.kind == TypeKind::Enum) {
         return IRType::create_integer(type.enum_.backing_type->size);
     } else {
@@ -876,39 +878,39 @@ static IRType get_ir_type(ArchitectureSizes architecture_sizes, AnyType type) {
     }
 }
 
-static IRConstantValue get_runtime_ir_constant_value(AnyConstantValue value);
+static IRConstantValue get_runtime_ir_constant_value(Arena* arena, AnyConstantValue value);
 
-inline IRConstantValue get_array_ir_constant_value(ArrayConstant array) {
-    auto members = allocate<IRConstantValue>(2);
+inline IRConstantValue get_array_ir_constant_value(Arena* arena, ArrayConstant array) {
+    auto members = arena->allocate<IRConstantValue>(2);
 
-    members[0] = get_runtime_ir_constant_value(*array.length);
+    members[0] = get_runtime_ir_constant_value(arena, *array.length);
 
-    members[1] = get_runtime_ir_constant_value(*array.pointer);
+    members[1] = get_runtime_ir_constant_value(arena, *array.pointer);
 
     return IRConstantValue::create_struct(Array(2, members));
 }
 
-inline IRConstantValue get_static_array_ir_constant_value(StaticArrayConstant static_array) {
-    auto elements = allocate<IRConstantValue>(static_array.elements.length);
+inline IRConstantValue get_static_array_ir_constant_value(Arena* arena, StaticArrayConstant static_array) {
+    auto elements = arena->allocate<IRConstantValue>(static_array.elements.length);
 
     for(size_t i = 0; i < static_array.elements.length; i += 1) {
-        elements[i] = get_runtime_ir_constant_value(static_array.elements[i]);
+        elements[i] = get_runtime_ir_constant_value(arena, static_array.elements[i]);
     }
 
     return IRConstantValue::create_static_array(Array(static_array.elements.length, elements));
 }
 
-inline IRConstantValue get_struct_ir_constant_value(StructConstant struct_) {
-    auto members = allocate<IRConstantValue>(struct_.members.length);
+inline IRConstantValue get_struct_ir_constant_value(Arena* arena, StructConstant struct_) {
+    auto members = arena->allocate<IRConstantValue>(struct_.members.length);
 
     for(size_t i = 0; i < struct_.members.length; i += 1) {
-        members[i] = get_runtime_ir_constant_value(struct_.members[i]);
+        members[i] = get_runtime_ir_constant_value(arena, struct_.members[i]);
     }
 
     return IRConstantValue::create_struct(Array(struct_.members.length, members));
 }
 
-static IRConstantValue get_runtime_ir_constant_value(AnyConstantValue value) {
+static IRConstantValue get_runtime_ir_constant_value(Arena* arena, AnyConstantValue value) {
     if(value.kind == ConstantValueKind::IntegerConstant) {
         return IRConstantValue::create_integer(value.integer);
     } else if(value.kind == ConstantValueKind::FloatConstant) {
@@ -916,11 +918,11 @@ static IRConstantValue get_runtime_ir_constant_value(AnyConstantValue value) {
     } else if(value.kind == ConstantValueKind::BooleanConstant) {
         return IRConstantValue::create_boolean(value.boolean);
     } else if(value.kind == ConstantValueKind::ArrayConstant) {
-        return get_array_ir_constant_value(value.array);
+        return get_array_ir_constant_value(arena, value.array);
     } else if(value.kind == ConstantValueKind::StaticArrayConstant) {
-        return get_static_array_ir_constant_value(value.static_array);
+        return get_static_array_ir_constant_value(arena, value.static_array);
     } else if(value.kind == ConstantValueKind::StructConstant) {
-        return get_struct_ir_constant_value(value.struct_);
+        return get_struct_ir_constant_value(arena, value.struct_);
     } else if(value.kind == ConstantValueKind::UndefConstant) {
         return IRConstantValue::create_undef();
     } else {
@@ -936,10 +938,10 @@ static StaticConstant* register_static_constant(
     AnyType type,
     AnyConstantValue value
 ) {
-    auto ir_type = get_ir_type(info.architecture_sizes, type);
-    auto ir_value = get_runtime_ir_constant_value(value);
+    auto ir_type = get_ir_type(context->arena, info.architecture_sizes, type);
+    auto ir_value = get_runtime_ir_constant_value(context->arena, value);
 
-    auto constant = new StaticConstant;
+    auto constant = context->arena->allocate_and_construct<StaticConstant>();
     constant->name = u8"static_constant"_S;
     constant->is_no_mangle = false;
     constant->path = get_scope_file_path(*scope);
@@ -962,7 +964,7 @@ static size_t generate_in_register_value(
     if(value.kind == RuntimeValueKind::ConstantValue) {
         auto constant_value = value.constant;
 
-        auto ir_constant_value = get_runtime_ir_constant_value(constant_value);
+        auto ir_constant_value = get_runtime_ir_constant_value(context->arena, constant_value);
 
         return append_literal(context, range, type, ir_constant_value);
     } else if(value.kind == RuntimeValueKind::RegisterValue) {
@@ -1004,7 +1006,7 @@ static Result<RegisterValue> coerce_to_integer_register_value(
     } else if(type.kind == TypeKind::UndeterminedInteger) {
         auto integer_value = value.unwrap_constant_value().unwrap_integer();
 
-        expect_void(check_undetermined_integer_to_integer_coercion(scope, range, target_type, (int64_t)integer_value, probing));
+        expect_void(check_undetermined_integer_to_integer_coercion(context->arena, scope, range, target_type, (int64_t)integer_value, probing));
 
         auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_integer(integer_value));
 
@@ -1024,7 +1026,7 @@ static Result<RegisterValue> coerce_to_integer_register_value(
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
+        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description(context->arena)));
     }
 
     return err();
@@ -1068,7 +1070,7 @@ static Result<RegisterValue> coerce_to_float_register_value(
     }
 
     if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
+        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description(context->arena)));
     }
 
     return err();
@@ -1107,7 +1109,7 @@ static Result<RegisterValue> coerce_to_pointer_register_value(
     }
 
     if (!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description()));
+        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description(context->arena)));
     }
 
     return err();
@@ -1182,7 +1184,7 @@ static Result<RegisterValue> coerce_to_type_register(
     } else if(target_type.kind == TypeKind::ArrayTypeType) {
         auto target_array = target_type.array;
 
-        auto ir_type = get_array_ir_type(info.architecture_sizes, target_type.array);
+        auto ir_type = get_array_ir_type(context->arena, info.architecture_sizes, target_type.array);
 
         if(type.kind == TypeKind::ArrayTypeType) {
             auto array_type = type.array;
@@ -1191,7 +1193,7 @@ static Result<RegisterValue> coerce_to_type_register(
                     if(value.constant.kind == ConstantValueKind::ArrayConstant) {
                         auto array_value = value.constant.array;
 
-                        auto ir_value = get_array_ir_constant_value(array_value);
+                        auto ir_value = get_array_ir_constant_value(context->arena, array_value);
 
                         auto register_index = append_literal(context, range, ir_type, ir_value);
 
@@ -1227,9 +1229,9 @@ static Result<RegisterValue> coerce_to_type_register(
                         IRConstantValue::create_integer(static_array.length)
                     );
 
-                    auto element_ir_type = get_ir_type(info.architecture_sizes, *target_array.element_type);
+                    auto element_ir_type = get_ir_type(context->arena, info.architecture_sizes, *target_array.element_type);
 
-                    auto member_registers = allocate<size_t>(2);
+                    auto member_registers = context->arena->allocate<size_t>(2);
 
                     member_registers[0] = length_register;
                     member_registers[1] = addressed_value.pointer_register;
@@ -1278,7 +1280,7 @@ static Result<RegisterValue> coerce_to_type_register(
                         );
 
                         if(pointer_result.status) {
-                            auto member_registers = allocate<size_t>(2);
+                            auto member_registers = context->arena->allocate<size_t>(2);
 
                             member_registers[0] = length_result.value.register_index;
                             member_registers[1] = pointer_result.value.register_index;
@@ -1317,7 +1319,7 @@ static Result<RegisterValue> coerce_to_type_register(
                         );
 
                         if(pointer_result.status) {
-                            auto member_registers = allocate<size_t>(2);
+                            auto member_registers = context->arena->allocate<size_t>(2);
 
                             member_registers[0] = length_result.value.register_index;
                             member_registers[1] = pointer_result.value.register_index;
@@ -1339,7 +1341,7 @@ static Result<RegisterValue> coerce_to_type_register(
     } else if(target_type.kind == TypeKind::StaticArray) {
         auto target_static_array = target_type.static_array;
 
-        auto ir_type = get_static_array_ir_type(info.architecture_sizes, target_static_array);
+        auto ir_type = get_static_array_ir_type(context->arena, info.architecture_sizes, target_static_array);
 
         if(type.kind == TypeKind::StaticArray) {
             auto static_array = type.static_array;
@@ -1349,7 +1351,7 @@ static Result<RegisterValue> coerce_to_type_register(
                 if(value.kind == RuntimeValueKind::ConstantValue) {
                     auto constant_value = value.constant;
 
-                    auto ir_constant_value = get_runtime_ir_constant_value(constant_value);
+                    auto ir_constant_value = get_runtime_ir_constant_value(context->arena, constant_value);
 
                     register_index = append_literal(
                         context,
@@ -1379,7 +1381,7 @@ static Result<RegisterValue> coerce_to_type_register(
     } else if(target_type.kind == TypeKind::StructType) {
         auto target_struct_type = target_type.struct_;
 
-        auto ir_type = get_struct_ir_type(info.architecture_sizes, target_struct_type);
+        auto ir_type = get_struct_ir_type(context->arena, info.architecture_sizes, target_struct_type);
 
         if(type.kind == TypeKind::StructType) {
             auto struct_type = type.struct_;
@@ -1433,7 +1435,7 @@ static Result<RegisterValue> coerce_to_type_register(
                     }
 
                     if(same_members) {
-                        auto member_registers = allocate<size_t>(undetermined_struct.members.length);
+                        auto member_registers = context->arena->allocate<size_t>(undetermined_struct.members.length);
 
                         auto success = true;
                         for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
@@ -1482,7 +1484,7 @@ static Result<RegisterValue> coerce_to_type_register(
                     }
 
                     if(same_members) {
-                        auto member_registers = allocate<size_t>(undetermined_struct.members.length);
+                        auto member_registers = context->arena->allocate<size_t>(undetermined_struct.members.length);
 
                         auto success = true;
                         for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
@@ -1528,7 +1530,7 @@ static Result<RegisterValue> coerce_to_type_register(
     } else if(target_type.kind == TypeKind::UnionType) {
         auto target_union_type = target_type.union_;
 
-        auto ir_type = get_union_ir_type(info.architecture_sizes, target_union_type);
+        auto ir_type = get_union_ir_type(context->arena, info.architecture_sizes, target_union_type);
 
         if(type.kind == TypeKind::UnionType) {
             auto union_type = type.union_;
@@ -1662,7 +1664,13 @@ static Result<RegisterValue> coerce_to_type_register(
         } else if(type.kind == TypeKind::UndeterminedInteger) {
             auto integer_value = value.unwrap_constant_value().unwrap_integer();
 
-            expect_void(check_undetermined_integer_to_integer_coercion(scope, range, *target_enum.backing_type, (int64_t)integer_value, probing));
+            expect_void(check_undetermined_integer_to_integer_coercion(
+                context->arena,
+                scope,
+                range,
+                *target_enum.backing_type,
+                (int64_t)integer_value, probing
+            ));
 
             auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_integer(integer_value));
 
@@ -1686,11 +1694,11 @@ static Result<RegisterValue> coerce_to_type_register(
 
     if(!probing) {
         if(value.kind == RuntimeValueKind::ConstantValue) {
-            error(scope, range, "Cannot implicitly convert constant '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(value.constant.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+            error(scope, range, "Cannot implicitly convert constant '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(value.constant.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(target_type.get_description(context->arena)));
         } else if(value.kind == RuntimeValueKind::RegisterValue) {
-            error(scope, range, "Cannot implicitly convert anonymous '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+            error(scope, range, "Cannot implicitly convert anonymous '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(target_type.get_description(context->arena)));
         } else {
-            error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+            error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(target_type.get_description(context->arena)));
         }
     }
 
@@ -1719,7 +1727,7 @@ static DelayedResult<AnyType> evaluate_type_expression(
 
         return ok(constant_value.unwrap_type());
     } else {
-        error(scope, expression->range, "Expected a type, got %.*s", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+        error(scope, expression->range, "Expected a type, got %.*s", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
 
         return err();
     }
@@ -1741,6 +1749,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
 
     if(left.value.kind == RuntimeValueKind::ConstantValue && right.value.kind == RuntimeValueKind::ConstantValue) {
         expect(constant, evaluate_constant_binary_operation(
+            context->arena,
             info,
             scope,
             range,
@@ -1759,7 +1768,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         ));
     }
 
-    expect(type, determine_binary_operation_type(scope, range, left.type, right.type));
+    expect(type, determine_binary_operation_type(context->arena, scope, range, left.type, right.type));
 
     expect(determined_type, coerce_to_default_type(info, scope, range, type));
 
@@ -1905,7 +1914,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             result_type = AnyType::create_boolean();
         }
 
-        auto result_ir_type = get_ir_type(info.architecture_sizes, result_type);
+        auto result_ir_type = get_ir_type(context->arena, info.architecture_sizes, result_type);
 
         return ok(TypedRuntimeValue(
             result_type,
@@ -1913,7 +1922,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         ));
     } else if(determined_type.kind == TypeKind::Boolean) {
         if(left.type.kind != TypeKind::Boolean) {
-            error(scope, left_expression->range, "Expected 'bool', got '%.*s'", STRING_PRINTF_ARGUMENTS(left.type.get_description()));
+            error(scope, left_expression->range, "Expected 'bool', got '%.*s'", STRING_PRINTF_ARGUMENTS(left.type.get_description(context->arena)));
 
             return err();
         }
@@ -1923,7 +1932,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
         auto left_register = generate_in_register_value(context, left_expression->range, ir_type, left.value);
 
         if(right.type.kind != TypeKind::Boolean) {
-            error(scope, right_expression->range, "Expected 'bool', got '%.*s'", STRING_PRINTF_ARGUMENTS(right.type.get_description()));
+            error(scope, right_expression->range, "Expected 'bool', got '%.*s'", STRING_PRINTF_ARGUMENTS(right.type.get_description(context->arena)));
 
             return err();
         }
@@ -2093,7 +2102,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             result_type = AnyType::create_boolean();
         }
 
-        auto result_ir_type = get_ir_type(info.architecture_sizes, result_type);
+        auto result_ir_type = get_ir_type(context->arena, info.architecture_sizes, result_type);
 
         return ok(TypedRuntimeValue(
             result_type,
@@ -2133,7 +2142,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             } break;
 
             default: {
-                error(scope, range, "Cannot perform that operation on '%.*s'", STRING_PRINTF_ARGUMENTS(AnyType(pointer).get_description()));
+                error(scope, range, "Cannot perform that operation on '%.*s'", STRING_PRINTF_ARGUMENTS(AnyType(pointer).get_description(context->arena)));
 
                 return err();
             } break;
@@ -2192,7 +2201,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             } break;
 
             default: {
-                error(scope, range, "Cannot perform that operation on '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                error(scope, range, "Cannot perform that operation on '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
 
                 return err();
             } break;
@@ -2276,7 +2285,14 @@ static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name
             auto using_statement = (UsingStatement*)statement;
 
             if(!external || using_statement->export_) {
-                expect_delayed(expression_value, evaluate_constant_expression(info, jobs, scope, nullptr, using_statement->value));
+                expect_delayed(expression_value, evaluate_constant_expression(
+                    context->arena,
+                    info,
+                    jobs,
+                    scope,
+                    nullptr,
+                    using_statement->value
+                ));
 
                 if(expression_value.type.kind == TypeKind::FileModule) {
                     auto file_module = expression_value.value.unwrap_file_module();
@@ -2320,12 +2336,12 @@ static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name
                             }
                         }
                     } else {
-                        error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                        error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
 
                         return err();
                     }
                 } else {
-                    error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+                    error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
 
                     return err();
                 }
@@ -2407,7 +2423,7 @@ static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name
                                         generate_static_variable.static_variable
                                     );
 
-                                    auto ir_type = get_ir_type(info.architecture_sizes, generate_static_variable.type);
+                                    auto ir_type = get_ir_type(context->arena, info.architecture_sizes, generate_static_variable.type);
 
                                     RuntimeNameSearchResult result {};
                                     result.found = true;
@@ -2552,6 +2568,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         if(expression_value.value.kind == RuntimeValueKind::ConstantValue && index.value.kind == RuntimeValueKind::ConstantValue) {
              expect(constant, evaluate_constant_index(
+                context->arena,
                 info,
                 scope,
                 expression_value.type,
@@ -2588,8 +2605,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto array_type = expression_value.type.array;
             element_type = *array_type.element_type;
 
-            auto ir_type = get_array_ir_type(info.architecture_sizes, array_type);
-            element_ir_type = get_ir_type(info.architecture_sizes, element_type);
+            auto ir_type = get_array_ir_type(context->arena, info.architecture_sizes, array_type);
+            element_ir_type = get_ir_type(context->arena, info.architecture_sizes, element_type);
 
             if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
                 if(expression_value.value.constant.kind == ConstantValueKind::ArrayConstant) {
@@ -2599,7 +2616,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         context,
                         index_reference->expression->range,
                         IRType::create_pointer(),
-                        get_runtime_ir_constant_value(*array_value.pointer)
+                        get_runtime_ir_constant_value(context->arena, *array_value.pointer)
                     );
                 } else {
                     error(scope, index_reference->expression->range, "Cannot index array constant at runtime");
@@ -2639,8 +2656,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto static_array = expression_value.type.static_array;
             element_type = *static_array.element_type;
 
-            auto ir_type = get_static_array_ir_type(info.architecture_sizes, static_array);
-            element_ir_type = get_ir_type(info.architecture_sizes, element_type);
+            auto ir_type = get_static_array_ir_type(context->arena, info.architecture_sizes, static_array);
+            element_ir_type = get_ir_type(context->arena, info.architecture_sizes, element_type);
 
             if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
                 error(scope, index_reference->expression->range, "Cannot index static array constant at runtime");
@@ -2658,7 +2675,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 abort();
             }
         } else {
-            error(scope, index_reference->expression->range, "Cannot index '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+            error(scope, index_reference->expression->range, "Cannot index '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
 
             return err();
         }
@@ -2687,12 +2704,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             actual_type = *pointer.pointed_to_type;
 
             if(!actual_type.is_runtime_type()) {
-                error(scope, member_reference->expression->range, "Cannot access members of '%.*s'", STRING_PRINTF_ARGUMENTS(actual_type.get_description()));
+                error(scope, member_reference->expression->range, "Cannot access members of '%.*s'", STRING_PRINTF_ARGUMENTS(actual_type.get_description(context->arena)));
 
                 return err();
             }
 
-            auto actual_ir_type = get_ir_type(info.architecture_sizes, actual_type);
+            auto actual_ir_type = get_ir_type(context->arena, info.architecture_sizes, actual_type);
 
             size_t pointer_register;
             if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
@@ -2700,7 +2717,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     context,
                     member_reference->expression->range,
                     IRType::create_pointer(),
-                    get_runtime_ir_constant_value(expression_value.value.constant)
+                    get_runtime_ir_constant_value(context->arena, expression_value.value.constant)
                 );
             } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
                 auto register_value = expression_value.value.register_;
@@ -2728,7 +2745,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         if(actual_type.kind == TypeKind::ArrayTypeType) {
             auto array_type = actual_type.array;
 
-            auto array_ir_type = get_array_ir_type(info.architecture_sizes, array_type);
+            auto array_ir_type = get_array_ir_type(context->arena, info.architecture_sizes, array_type);
 
             if(member_reference->name.text == u8"length"_S) {
                 AnyRuntimeValue value;
@@ -2789,7 +2806,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     value
                 ));
             } else if(member_reference->name.text == u8"pointer"_S) {
-                auto element_ir_type = get_ir_type(info.architecture_sizes, *array_type.element_type);
+                auto element_ir_type = get_ir_type(context->arena, info.architecture_sizes, *array_type.element_type);
 
                 AnyRuntimeValue value;
                 if(actual_value.kind == RuntimeValueKind::ConstantValue) {
@@ -2847,7 +2864,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         } else if(actual_type.kind == TypeKind::StaticArray) {
             auto static_array = actual_type.static_array;
 
-            auto element_ir_type = get_ir_type(info.architecture_sizes, *static_array.element_type);
+            auto element_ir_type = get_ir_type(context->arena, info.architecture_sizes, *static_array.element_type);
 
             if(member_reference->name.text == u8"length"_S) {
                 return ok(TypedRuntimeValue(
@@ -2890,12 +2907,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         } else if(actual_type.kind == TypeKind::StructType) {
             auto struct_type = actual_type.struct_;
 
-            auto struct_ir_type = get_struct_ir_type(info.architecture_sizes, struct_type);
+            auto struct_ir_type = get_struct_ir_type(context->arena, info.architecture_sizes, struct_type);
 
             for(size_t i = 0; i < struct_type.members.length; i += 1) {
                 if(struct_type.members[i].name == member_reference->name.text) {
                     auto member_type = struct_type.members[i].type;
-                    auto member_ir_type = get_ir_type(info.architecture_sizes, member_type);
+                    auto member_ir_type = get_ir_type(context->arena, info.architecture_sizes, member_type);
 
                     if(actual_value.kind == RuntimeValueKind::ConstantValue) {
                         if(expression_value.value.constant.kind == ConstantValueKind::StructConstant) {
@@ -2956,12 +2973,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             for(size_t i = 0; i < union_type.members.length; i += 1) {
                 if(union_type.members[i].name == member_reference->name.text) {
                     auto member_type = union_type.members[i].type;
-                    auto member_ir_type = get_ir_type(info.architecture_sizes, member_type);
+                    auto member_ir_type = get_ir_type(context->arena, info.architecture_sizes, member_type);
 
                     if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                         auto register_value = actual_value.register_;
 
-                        auto union_ir_type = get_union_ir_type(info.architecture_sizes, union_type);
+                        auto union_ir_type = get_union_ir_type(context->arena, info.architecture_sizes, union_type);
 
                         auto pointer_register = append_allocate_local(
                             context,
@@ -3101,13 +3118,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     scope,
                     member_reference->expression->range,
                     "Type '%.*s' has no members",
-                    STRING_PRINTF_ARGUMENTS(type.get_description())
+                    STRING_PRINTF_ARGUMENTS(type.get_description(context->arena))
                 );
 
                 return err();
             }
         } else {
-            error(scope, member_reference->expression->range, "Type %.*s has no members", STRING_PRINTF_ARGUMENTS(actual_type.get_description()));
+            error(scope, member_reference->expression->range, "Type %.*s has no members", STRING_PRINTF_ARGUMENTS(actual_type.get_description(context->arena)));
 
             return err();
         }
@@ -3130,7 +3147,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto character_count = string_literal->characters.length;
 
-        auto characters = allocate<AnyConstantValue>(character_count);
+        auto characters = context->arena->allocate<AnyConstantValue>(character_count);
 
         for(size_t i = 0; i < character_count; i += 1) {
             characters[i] = AnyConstantValue((uint64_t)string_literal->characters[i]);
@@ -3139,7 +3156,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         return ok(TypedRuntimeValue(
             AnyType(StaticArray(
                 character_count,
-                heapify(AnyType(Integer(
+                context->arena->heapify(AnyType(Integer(
                     RegisterSize::Size8,
                     false
                 )))
@@ -3164,12 +3181,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         expect(determined_element_type, coerce_to_default_type(info, scope, array_literal->elements[0]->range, first_element.type));
 
         if(!determined_element_type.is_runtime_type()) {
-            error(scope, array_literal->range, "Arrays cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(determined_element_type.get_description()));
+            error(scope, array_literal->range, "Arrays cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(determined_element_type.get_description(context->arena)));
 
             return err();
         }
 
-        auto elements = allocate<TypedRuntimeValue>(element_count);
+        auto elements = context->arena->allocate<TypedRuntimeValue>(element_count);
         elements[0] = first_element;
 
         auto all_constant = first_element.value.kind == RuntimeValueKind::ConstantValue;
@@ -3185,10 +3202,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         AnyRuntimeValue value;
         if(all_constant) {
-            auto element_values = allocate<AnyConstantValue>(element_count);
+            auto element_values = context->arena->allocate<AnyConstantValue>(element_count);
 
             for(size_t i = 0; i < element_count; i += 1) {
                 expect(coerced_constant_value, coerce_constant_to_type(
+                    context->arena,
                     info,
                     scope,
                     array_literal->elements[i]->range,
@@ -3205,9 +3223,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 Array(element_count, element_values)
             )));
         } else {
-            auto element_ir_type = get_ir_type(info.architecture_sizes, determined_element_type);
+            auto element_ir_type = get_ir_type(context->arena, info.architecture_sizes, determined_element_type);
 
-            auto element_registers = allocate<size_t>(element_count);
+            auto element_registers = context->arena->allocate<size_t>(element_count);
 
             for(size_t i = 0; i < element_count; i += 1) {
                 expect(register_value, coerce_to_type_register(
@@ -3231,7 +3249,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             );
 
             value = AnyRuntimeValue(RegisterValue(
-                IRType::create_static_array(element_count, heapify(element_ir_type)),
+                IRType::create_static_array(element_count, context->arena->heapify(element_ir_type)),
                 register_index
             ));
         }
@@ -3239,7 +3257,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         return ok(TypedRuntimeValue(
             AnyType(StaticArray(
                 element_count,
-                heapify(determined_element_type)
+                context->arena->heapify(determined_element_type)
             )),
             value
         ));
@@ -3254,8 +3272,8 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto member_count = struct_literal->members.length;
 
-        auto type_members = allocate<StructTypeMember>(member_count);
-        auto member_values = allocate<AnyRuntimeValue>(member_count);
+        auto type_members = context->arena->allocate<StructTypeMember>(member_count);
+        auto member_values = context->arena->allocate<AnyRuntimeValue>(member_count);
         auto all_constant = true;
 
         for(size_t i = 0; i < member_count; i += 1) {
@@ -3283,7 +3301,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         AnyRuntimeValue value;
         if(all_constant) {
-            auto constant_member_values = allocate<AnyConstantValue>(member_count);
+            auto constant_member_values = context->arena->allocate<AnyConstantValue>(member_count);
 
             for(size_t i = 0; i < member_count; i += 1) {
                 constant_member_values[i] = member_values[i].constant;
@@ -3312,7 +3330,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         if(expression_value.type.kind == TypeKind::FunctionTypeType || expression_value.type.kind == TypeKind::PolymorphicFunction) {
             auto call_parameter_count = function_call->parameters.length;
 
-            auto call_parameters = allocate<TypedRuntimeValue>(call_parameter_count);
+            auto call_parameters = context->arena->allocate<TypedRuntimeValue>(call_parameter_count);
             for(size_t i = 0; i < call_parameter_count; i += 1) {
                 expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[i]));
 
@@ -3341,7 +3359,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err();
                 }
 
-                auto polymorphic_parameters = allocate<TypedConstantValue>(declaration_parameter_count);
+                auto polymorphic_parameters = context->arena->allocate<TypedConstantValue>(declaration_parameter_count);
 
                 for(size_t i = 0; i < declaration_parameter_count; i += 1) {
                     auto declaration_parameter = declaration_parameters[i];
@@ -3422,13 +3440,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
 
                 if(!found) {
-                    auto call_parameter_ranges = allocate<FileRange>(declaration_parameter_count);
+                    auto call_parameter_ranges = context->arena->allocate<FileRange>(declaration_parameter_count);
 
                     for(size_t i = 0; i < declaration_parameter_count; i += 1) {
                         call_parameter_ranges[i] = function_call->parameters[i]->range;
                     }
 
-                    AnyJob job;
+                    AnyJob job {};
                     job.kind = JobKind::ResolvePolymorphicFunction;
                     job.state = JobState::Working;
                     job.resolve_polymorphic_function.declaration = polymorphic_function_value.declaration;
@@ -3484,9 +3502,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             }
 
             if(!found) {
-                runtime_function = new Function;
+                runtime_function = context->arena->allocate_and_construct<Function>();
 
-                AnyJob job;
+                AnyJob job {};
                 job.kind = JobKind::GenerateFunction;
                 job.state = JobState::Working;
                 job.generate_function.type = function_type;
@@ -3496,7 +3514,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 jobs->append(job);
             }
 
-            auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(function_type.parameters.length);
+            auto instruction_parameters = context->arena->allocate<FunctionCallInstruction::Parameter>(function_type.parameters.length);
 
             size_t runtime_parameter_index = 0;
             for(size_t i = 0; i < call_parameter_count; i += 1) {
@@ -3512,7 +3530,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         false
                     ));
 
-                    auto ir_type = get_ir_type(info.architecture_sizes, function_type.parameters[i]);
+                    auto ir_type = get_ir_type(context->arena, info.architecture_sizes, function_type.parameters[i]);
 
                     instruction_parameters[i] = {
                         ir_type,
@@ -3534,14 +3552,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else if(function_type.return_types.length == 1) {
                 return_type = function_type.return_types[0];
                 has_ir_return = true;
-                return_ir_type = get_ir_type(info.architecture_sizes, return_type);
+                return_ir_type = get_ir_type(context->arena, info.architecture_sizes, return_type);
             } else {
                 return_type = AnyType(MultiReturn(function_type.return_types));
 
-                auto member_ir_types = allocate<IRType>(function_type.return_types.length);
+                auto member_ir_types = context->arena->allocate<IRType>(function_type.return_types.length);
 
                 for(size_t i = 0; i < function_type.return_types.length; i += 1) {
-                    member_ir_types[i] = get_ir_type(info.architecture_sizes, function_type.return_types[i]);
+                    member_ir_types[i] = get_ir_type(context->arena, info.architecture_sizes, function_type.return_types[i]);
                 }
 
                 has_ir_return = true;
@@ -3553,7 +3571,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             assert(context->variable_scope_stack.length != 0);
             auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-            auto function_call_instruction = new FunctionCallInstruction;
+            auto function_call_instruction = context->arena->allocate_and_construct<FunctionCallInstruction>();
             function_call_instruction->range = function_call->range;
             function_call_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
             function_call_instruction->pointer_register = pointer_register;
@@ -3603,7 +3621,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
 
                 if(!type.is_runtime_type()) {
-                    error(scope, function_call->parameters[0]->range, "'%.*s'' has no size", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description()));
+                    error(scope, function_call->parameters[0]->range, "'%.*s'' has no size", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description(context->arena)));
 
                     return err();
                 }
@@ -3642,7 +3660,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 expect(determined_type, coerce_to_default_type(info, scope, function_call->parameters[0]->range, parameter_value.type));
 
                 if(!determined_type.is_runtime_type()) {
-                    error(scope, function_call->parameters[0]->range, "Type '%.*s' cannot exist at runtime", STRING_PRINTF_ARGUMENTS(determined_type.get_description()));
+                    error(scope, function_call->parameters[0]->range, "Type '%.*s' cannot exist at runtime", STRING_PRINTF_ARGUMENTS(determined_type.get_description(context->arena)));
 
                     return err();
                 }
@@ -3656,6 +3674,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 auto constant_value = parameter_value.value.constant;
 
                 expect(coerced_value, coerce_constant_to_type(
+                    context->arena,
                     info,
                     scope,
                     function_call->parameters[0]->range,
@@ -3696,7 +3715,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 expect(determined_type, coerce_to_default_type(info, scope, function_call->parameters[0]->range, parameter_value.type));
 
                 if(!determined_type.is_runtime_type()) {
-                    error(scope, function_call->parameters[0]->range, "Type '%.*s' cannot exist at runtime", STRING_PRINTF_ARGUMENTS(determined_type.get_description()));
+                    error(scope, function_call->parameters[0]->range, "Type '%.*s' cannot exist at runtime", STRING_PRINTF_ARGUMENTS(determined_type.get_description(context->arena)));
 
                     return err();
                 }
@@ -3710,6 +3729,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 auto constant_value = parameter_value.value.constant;
 
                 expect(coerced_value, coerce_constant_to_type(
+                    context->arena,
                     info,
                     scope,
                     function_call->parameters[0]->range,
@@ -3719,9 +3739,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     false
                 ));
 
-                auto ir_constant_value = get_runtime_ir_constant_value(coerced_value);
+                auto ir_constant_value = get_runtime_ir_constant_value(context->arena, coerced_value);
 
-                auto ir_type = get_ir_type(info.architecture_sizes, determined_type);
+                auto ir_type = get_ir_type(context->arena, info.architecture_sizes, determined_type);
 
                 auto pointer_register = append_allocate_local(
                     context,
@@ -3791,7 +3811,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         result_size = parameter_value.type.float_.size;
                         value = constant_value.unwrap_float();
                     } else {
-                        error(scope, function_call->parameters[0]->range, "Expected a float type, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description()));
+                        error(scope, function_call->parameters[0]->range, "Expected a float type, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description(context->arena)));
 
                         return err();
                     }
@@ -3804,7 +3824,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     ));
                 } else {
                     if(parameter_value.type.kind != TypeKind::FloatType) {
-                        error(scope, function_call->parameters[0]->range, "Expected a float type, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description()));
+                        error(scope, function_call->parameters[0]->range, "Expected a float type, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description(context->arena)));
 
                         return err();
                     }
@@ -3836,11 +3856,11 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     assert(context->variable_scope_stack.length != 0);
                     auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-                    auto intrinsic_call_instruction = new IntrinsicCallInstruction;
+                    auto intrinsic_call_instruction = context->arena->allocate_and_construct<IntrinsicCallInstruction>();
                     intrinsic_call_instruction->range = function_call->range;
                     intrinsic_call_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
                     intrinsic_call_instruction->intrinsic = IntrinsicCallInstruction::Intrinsic::Sqrt;
-                    intrinsic_call_instruction->parameters = Array(1, heapify(ir_parameter));
+                    intrinsic_call_instruction->parameters = Array(1, context->arena->heapify(ir_parameter));
                     intrinsic_call_instruction->has_return = true;
                     intrinsic_call_instruction->return_type = ir_type;
                     intrinsic_call_instruction->return_register = return_register;
@@ -3859,7 +3879,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto pointer = expression_value.type.pointer;
 
             if(pointer.pointed_to_type->kind != TypeKind::FunctionTypeType) {
-                error(scope, function_call->expression->range, "Cannot call '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+                error(scope, function_call->expression->range, "Cannot call '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
 
                 return err();
             }
@@ -3887,7 +3907,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return err();
             }
 
-            auto instruction_parameters = allocate<FunctionCallInstruction::Parameter>(parameter_count);
+            auto instruction_parameters = context->arena->allocate<FunctionCallInstruction::Parameter>(parameter_count);
 
             for(size_t i = 0; i < parameter_count; i += 1) {
                 expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[i]));
@@ -3903,7 +3923,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     false
                 ));
 
-                auto parameter_ir_type = get_ir_type(info.architecture_sizes, function_type.parameters[i]);
+                auto parameter_ir_type = get_ir_type(context->arena, info.architecture_sizes, function_type.parameters[i]);
 
                 instruction_parameters[i] = {
                     parameter_ir_type,
@@ -3920,14 +3940,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             } else if(function_type.return_types.length == 1) {
                 return_type = function_type.return_types[0];
                 has_ir_return = true;
-                return_ir_type = get_ir_type(info.architecture_sizes, return_type);
+                return_ir_type = get_ir_type(context->arena, info.architecture_sizes, return_type);
             } else {
                 return_type = AnyType(MultiReturn(function_type.return_types));
 
-                auto member_ir_types = allocate<IRType>(function_type.return_types.length);
+                auto member_ir_types = context->arena->allocate<IRType>(function_type.return_types.length);
 
                 for(size_t i = 0; i < function_type.return_types.length; i += 1) {
-                    member_ir_types[i] = get_ir_type(info.architecture_sizes, function_type.return_types[i]);
+                    member_ir_types[i] = get_ir_type(context->arena, info.architecture_sizes, function_type.return_types[i]);
                 }
 
                 has_ir_return = true;
@@ -3937,7 +3957,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             assert(context->variable_scope_stack.length != 0);
             auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-            auto function_call_instruction = new FunctionCallInstruction;
+            auto function_call_instruction = context->arena->allocate_and_construct<FunctionCallInstruction>();
             function_call_instruction->range = function_call->range;
             function_call_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
             function_call_instruction->pointer_register = pointer_register;
@@ -3980,12 +4000,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err();
                 }
 
-                auto parameters = allocate<AnyConstantValue>(parameter_count);
+                auto parameters = context->arena->allocate<AnyConstantValue>(parameter_count);
 
                 for(size_t i = 0; i < parameter_count; i += 1) {
-                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, function_call->parameters[i]));
+                    expect_delayed(parameter, evaluate_constant_expression(context->arena, info, jobs, scope, nullptr, function_call->parameters[i]));
 
                     expect(parameter_value, coerce_constant_to_type(
+                        context->arena,
                         info,
                         scope,
                         function_call->parameters[i]->range,
@@ -4029,7 +4050,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     }
                 }
 
-                AnyJob job;
+                AnyJob job {};
                 job.kind = JobKind::ResolvePolymorphicStruct;
                 job.state = JobState::Working;
                 job.resolve_polymorphic_struct.definition = definition;
@@ -4051,12 +4072,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err();
                 }
 
-                auto parameters = allocate<AnyConstantValue>(parameter_count);
+                auto parameters = context->arena->allocate<AnyConstantValue>(parameter_count);
 
                 for(size_t i = 0; i < parameter_count; i += 1) {
-                    expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, function_call->parameters[i]));
+                    expect_delayed(parameter, evaluate_constant_expression(context->arena, info, jobs, scope, nullptr, function_call->parameters[i]));
 
                     expect(parameter_value, coerce_constant_to_type(
+                        context->arena,
                         info,
                         scope,
                         function_call->parameters[i]->range,
@@ -4100,7 +4122,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     }
                 }
 
-                AnyJob job;
+                AnyJob job {};
                 job.kind = JobKind::ResolvePolymorphicUnion;
                 job.state = JobState::Working;
                 job.resolve_polymorphic_union.definition = definition;
@@ -4111,12 +4133,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 return wait(job_index);
             } else {
-                error(scope, function_call->expression->range, "Type '%.*s' is not polymorphic", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                error(scope, function_call->expression->range, "Type '%.*s' is not polymorphic", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
 
                 return err();
             }
         } else {
-            error(scope, function_call->expression->range, "Cannot call '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+            error(scope, function_call->expression->range, "Cannot call '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
 
             return err();
         }
@@ -4174,9 +4196,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         }
 
                         if(!found) {
-                            runtime_function = new Function;
+                            runtime_function = context->arena->allocate_and_construct<Function>();
 
-                            AnyJob job;
+                            AnyJob job {};
                             job.kind = JobKind::GenerateFunction;
                             job.state = JobState::Working;
                             job.generate_function.type = function;
@@ -4195,17 +4217,17 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         auto type = constant_value.unwrap_type();
 
                         if(!type.is_pointable_type()) {
-                            error(scope, unary_operation->expression->range, "Cannot create pointers to type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                            error(scope, unary_operation->expression->range, "Cannot create pointers to type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
 
                             return err();
                         }
 
                         return ok(TypedRuntimeValue(
                             AnyType::AnyType::create_type_type(),
-                            AnyRuntimeValue(AnyConstantValue(AnyType(Pointer(heapify(type)))))
+                            AnyRuntimeValue(AnyConstantValue(AnyType(Pointer(context->arena->heapify(type)))))
                         ));
                     } else {
-                        error(scope, unary_operation->expression->range, "Cannot take pointers to constants of type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+                        error(scope, unary_operation->expression->range, "Cannot take pointers to constants of type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
 
                         return err();
                     }
@@ -4225,14 +4247,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
 
                 return ok(TypedRuntimeValue(
-                    AnyType(Pointer(heapify(expression_value.type))),
+                    AnyType(Pointer(context->arena->heapify(expression_value.type))),
                     AnyRuntimeValue(RegisterValue(IRType::create_pointer(), pointer_register))
                 ));
             } break;
 
             case UnaryOperation::Operator::PointerDereference: {
                 if(expression_value.type.kind != TypeKind::Pointer) {
-                    error(scope, unary_operation->expression->range, "Expected a pointer, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+                    error(scope, unary_operation->expression->range, "Expected a pointer, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
 
                     return err();
                 }
@@ -4240,12 +4262,12 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 auto pointed_to_type = *expression_value.type.pointer.pointed_to_type;
 
                 if(!pointed_to_type.is_runtime_type()) {
-                    error(scope, unary_operation->expression->range, "Cannot dereference pointers to type '%.*s'", STRING_PRINTF_ARGUMENTS(pointed_to_type.get_description()));
+                    error(scope, unary_operation->expression->range, "Cannot dereference pointers to type '%.*s'", STRING_PRINTF_ARGUMENTS(pointed_to_type.get_description(context->arena)));
 
                     return err();
                 }
 
-                auto pointed_to_ir_type = get_ir_type(info.architecture_sizes, pointed_to_type);
+                auto pointed_to_ir_type = get_ir_type(context->arena, info.architecture_sizes, pointed_to_type);
 
                 auto pointer_register = generate_in_register_value(
                     context,
@@ -4262,7 +4284,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             case UnaryOperation::Operator::BooleanInvert: {
                 if(expression_value.type.kind != TypeKind::Boolean) {
-                    error(scope, unary_operation->expression->range, "Expected bool, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+                    error(scope, unary_operation->expression->range, "Expected bool, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
 
                     return err();
                 }
@@ -4436,7 +4458,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                         AnyRuntimeValue(AnyConstantValue(-float_value))
                     ));
                 } else {
-                    error(scope, unary_operation->expression->range, "Cannot negate '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+                    error(scope, unary_operation->expression->range, "Cannot negate '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
 
                     return err();
                 }
@@ -4455,6 +4477,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
             auto constant_cast_result = evaluate_constant_cast(
+                context->arena,
                 info,
                 scope,
                 expression_value.type,
@@ -4758,14 +4781,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         }
 
         if(has_cast) {
-            auto ir_type = get_ir_type(info.architecture_sizes, target_type);
+            auto ir_type = get_ir_type(context->arena, info.architecture_sizes, target_type);
 
             return ok(TypedRuntimeValue(
                 target_type,
                 AnyRuntimeValue(RegisterValue(ir_type, register_index))
             ));
         } else {
-            error(scope, cast->range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()), STRING_PRINTF_ARGUMENTS(target_type.get_description()));
+            error(scope, cast->range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(target_type.get_description(context->arena)));
 
             return err();
         }
@@ -4778,7 +4801,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto call_parameter_count = function_call->parameters.length;
 
-        auto call_parameters = allocate<TypedRuntimeValue>(call_parameter_count);
+        auto call_parameters = context->arena->allocate<TypedRuntimeValue>(call_parameter_count);
         for(size_t i = 0; i < call_parameter_count; i += 1) {
             expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[i]));
 
@@ -4805,7 +4828,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return err();
             }
 
-            auto polymorphic_parameters = allocate<TypedConstantValue>(declaration_parameter_count);
+            auto polymorphic_parameters = context->arena->allocate<TypedConstantValue>(declaration_parameter_count);
 
             for(size_t i = 0; i < declaration_parameter_count; i += 1) {
                 auto declaration_parameter = declaration_parameters[i];
@@ -4882,13 +4905,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 }
             }
 
-            auto call_parameter_ranges = allocate<FileRange>(declaration_parameter_count);
+            auto call_parameter_ranges = context->arena->allocate<FileRange>(declaration_parameter_count);
 
             for(size_t i = 0; i < declaration_parameter_count; i += 1) {
                 call_parameter_ranges[i] = function_call->parameters[i]->range;
             }
 
-            AnyJob job;
+            AnyJob job {};
             job.kind = JobKind::ResolvePolymorphicFunction;
             job.state = JobState::Working;
             job.resolve_polymorphic_function.declaration = polymorphic_function_value.declaration;
@@ -4924,7 +4947,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 AnyRuntimeValue(AnyConstantValue(function_value))
             ));
         } else {
-            error(scope, function_call->expression->range, "Expected a function, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description()));
+            error(scope, function_call->expression->range, "Expected a function, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
 
             return err();
         }
@@ -4934,15 +4957,16 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
         expect_delayed(type, evaluate_type_expression(info, jobs, scope, context, array_type->expression));
 
         if(!type.is_runtime_type()) {
-            error(scope, array_type->expression->range, "Cannot have arrays of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+            error(scope, array_type->expression->range, "Cannot have arrays of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
 
             return err();
         }
 
         if(array_type->length != nullptr) {
-            expect_delayed(index_value, evaluate_constant_expression(info, jobs, scope, nullptr, array_type->length));
+            expect_delayed(index_value, evaluate_constant_expression(context->arena, info, jobs, scope, nullptr, array_type->length));
 
             expect(length, coerce_constant_to_integer_type(
+                context->arena,
                 scope,
                 array_type->length->range,
                 index_value.type,
@@ -4966,14 +4990,14 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 AnyType::create_type_type(),
                 AnyRuntimeValue(AnyConstantValue(AnyType(StaticArray(
                     length_integer,
-                    heapify(type)
+                    context->arena->heapify(type)
                 ))))
             ));
         } else {
             return ok(TypedRuntimeValue(
                 AnyType::create_type_type(),
                 AnyRuntimeValue(AnyConstantValue(AnyType(ArrayTypeType(
-                    heapify(type)
+                    context->arena->heapify(type)
                 ))))
             ));
         }
@@ -4982,7 +5006,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto parameter_count = function_type->parameters.length;
 
-        auto parameters = allocate<AnyType>(parameter_count);
+        auto parameters = context->arena->allocate<AnyType>(parameter_count);
 
         for(size_t i = 0; i < parameter_count; i += 1) {
             auto parameter = function_type->parameters[i];
@@ -4996,7 +5020,7 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             expect_delayed(type, evaluate_type_expression(info, jobs, scope, context, parameter.type));
 
             if(!type.is_runtime_type()) {
-                error(scope, function_type->parameters[i].type->range, "Function parameters cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                error(scope, function_type->parameters[i].type->range, "Function parameters cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
 
                 return err();
             }
@@ -5006,15 +5030,15 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
         auto return_type_count = function_type->return_types.length;
 
-        auto return_types = allocate<AnyType>(return_type_count);
+        auto return_types = context->arena->allocate<AnyType>(return_type_count);
 
         for(size_t i = 0; i < return_type_count; i += 1) {
             auto expression = function_type->return_types[i];
 
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, (Statement*)nullptr, expression));
+            expect_delayed(type, evaluate_type_expression(context->arena, info, jobs, scope, (Statement*)nullptr, expression));
 
             if(!type.is_runtime_type()) {
-                error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
 
                 return err();
             }
@@ -5046,9 +5070,9 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     return err();
                 }
 
-                expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, tag.parameters[0]));
+                expect_delayed(parameter, evaluate_constant_expression(context->arena, info, jobs, scope, nullptr, tag.parameters[0]));
 
-                expect(calling_convention_name, array_to_string(scope, tag.parameters[0]->range, parameter.type, parameter.value));
+                expect(calling_convention_name, array_to_string(context->arena, scope, tag.parameters[0]->range, parameter.type, parameter.value));
 
                 if(calling_convention_name == u8"default"_S) {
                     calling_convention = CallingConvention::Default;
@@ -5093,11 +5117,11 @@ static bool does_current_block_need_finisher(GenerationContext* context) {
 
 static void enter_new_block(GenerationContext* context, FileRange range) {
     if(context->instructions.length == 0) {
-        // New block is not required
+        // context->arena->allocate_and_new<block>() is not required
         return;
     }
 
-    auto new_block = new Block;
+    auto new_block = context->arena->allocate_and_construct<Block>();
 
     auto last_instruction = context->instructions[context->instructions.length - 1];
 
@@ -5109,7 +5133,7 @@ static void enter_new_block(GenerationContext* context, FileRange range) {
     context->blocks.append(context->current_block);
 
     context->current_block = new_block;
-    context->instructions = {};
+    context->instructions = List<Instruction*>(context->arena);
 }
 
 static void change_block(GenerationContext* context, FileRange range, Block* block) {
@@ -5119,7 +5143,7 @@ static void change_block(GenerationContext* context, FileRange range, Block* blo
     context->blocks.append(context->current_block);
 
     context->current_block = block;
-    context->instructions = {};
+    context->instructions = List<Instruction*>(context->arena);
 }
 
 static bool is_runtime_statement(Statement* statement) {
@@ -5192,7 +5216,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     expect_delayed(type_value, evaluate_type_expression(info, jobs, scope, context, variable_declaration->type));
 
                     if(!type_value.is_runtime_type()) {
-                        error(scope, variable_declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type_value.get_description()));
+                        error(scope, variable_declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type_value.get_description(context->arena)));
 
                         return err();
                     }
@@ -5201,7 +5225,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, variable_declaration->initializer));
 
-                    auto ir_type = get_ir_type(info.architecture_sizes, type);
+                    auto ir_type = get_ir_type(context->arena, info.architecture_sizes, type);
 
                     auto pointer_register = append_allocate_local(
                         context,
@@ -5236,14 +5260,14 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     expect(actual_type, coerce_to_default_type(info, scope, variable_declaration->initializer->range, initializer_value.type));
                     
                     if(!actual_type.is_runtime_type()) {
-                        error(scope, variable_declaration->initializer->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_type.get_description()));
+                        error(scope, variable_declaration->initializer->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_type.get_description(context->arena)));
 
                         return err();
                     }
 
                     type = actual_type;
 
-                    auto ir_type = get_ir_type(info.architecture_sizes, type);
+                    auto ir_type = get_ir_type(context->arena, info.architecture_sizes, type);
 
                     auto pointer_register = append_allocate_local(
                         context,
@@ -5292,7 +5316,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 expect_delayed(initializer, generate_expression(info, jobs, scope, context, variable_declaration->initializer));
 
                 if(initializer.type.kind != TypeKind::MultiReturn) {
-                    error(scope, variable_declaration->initializer->range, "Expected multiple return values, got '%.*s'", STRING_PRINTF_ARGUMENTS(initializer.type.get_description()));
+                    error(scope, variable_declaration->initializer->range, "Expected multiple return values, got '%.*s'", STRING_PRINTF_ARGUMENTS(initializer.type.get_description(context->arena)));
 
                     return err();
                 }
@@ -5313,10 +5337,10 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 auto register_value = initializer.value.unwrap_register_value();
 
-                auto return_struct_member_ir_types = allocate<IRType>(return_types.length);
+                auto return_struct_member_ir_types = context->arena->allocate<IRType>(return_types.length);
 
                 for(size_t i = 0; i < return_types.length; i += 1) {
-                    return_struct_member_ir_types[i] = get_ir_type(info.architecture_sizes, return_types[i]);
+                    return_struct_member_ir_types[i] = get_ir_type(context->arena, info.architecture_sizes, return_types[i]);
                 }
 
                 for(size_t i = 0; i < return_types.length; i += 1) {
@@ -5396,7 +5420,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 expect_delayed(value, generate_expression(info, jobs, scope, context, assignment->value));
 
                 if(value.type.kind != TypeKind::MultiReturn) {
-                    error(scope, assignment->value->range, "Expected multiple return values, got '%.*s'", STRING_PRINTF_ARGUMENTS(value.type.get_description()));
+                    error(scope, assignment->value->range, "Expected multiple return values, got '%.*s'", STRING_PRINTF_ARGUMENTS(value.type.get_description(context->arena)));
 
                     return err();
                 }
@@ -5417,10 +5441,10 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 auto register_value = value.value.unwrap_register_value();
 
-                auto return_struct_member_ir_types = allocate<IRType>(return_types.length);
+                auto return_struct_member_ir_types = context->arena->allocate<IRType>(return_types.length);
 
                 for(size_t i = 0; i < return_types.length; i += 1) {
-                    return_struct_member_ir_types[i] = get_ir_type(info.architecture_sizes, return_types[i]);
+                    return_struct_member_ir_types[i] = get_ir_type(context->arena, info.architecture_sizes, return_types[i]);
                 }
 
                 for(size_t i = 0; i < return_types.length; i += 1) {
@@ -5509,21 +5533,21 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
             } else if(statement->kind == StatementKind::IfStatement) {
                 auto if_statement = (IfStatement*)statement;
 
-                auto end_block = new Block;
+                auto end_block = context->arena->allocate_and_construct<Block>();
 
                 Block* next_block;
                 if(if_statement->else_ifs.length == 0 && if_statement->else_statements.length == 0) {
                     next_block = end_block;
                 } else {
-                    next_block = new Block;
+                    next_block = context->arena->allocate_and_construct<Block>();
                 }
 
-                auto body_block = new Block;
+                auto body_block = context->arena->allocate_and_construct<Block>();
 
                 expect_delayed(condition, generate_expression(info, jobs, scope, context, if_statement->condition));
 
                 if(condition.type.kind != TypeKind::Boolean) {
-                    error(scope, if_statement->condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
+                    error(scope, if_statement->condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description(context->arena)));
 
                     return err();
                 }
@@ -5562,6 +5586,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 VariableScope if_variable_scope {};
                 if_variable_scope.constant_scope = if_scope;
                 if_variable_scope.debug_scope_index = debug_scope_index;
+                if_variable_scope.variables.arena = context->arena;
 
                 context->variable_scope_stack.append(if_variable_scope);
 
@@ -5579,15 +5604,15 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     if(i == if_statement->else_ifs.length - 1 && if_statement->else_statements.length == 0) {
                         next_block = end_block;
                     } else {
-                        next_block = new Block;
+                        next_block = context->arena->allocate_and_construct<Block>();
                     }
 
-                    auto body_block = new Block;
+                    auto body_block = context->arena->allocate_and_construct<Block>();
 
                     expect_delayed(condition, generate_expression(info, jobs, scope, context, if_statement->else_ifs[i].condition));
 
                     if(condition.type.kind != TypeKind::Boolean) {
-                        error(scope, if_statement->else_ifs[i].condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
+                        error(scope, if_statement->else_ifs[i].condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description(context->arena)));
 
                         return err();
                     }
@@ -5623,6 +5648,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     VariableScope else_if_variable_scope {};
                     else_if_variable_scope.constant_scope = else_if_scope;
                     else_if_variable_scope.debug_scope_index = debug_scope_index;
+                    else_if_variable_scope.variables.arena = context->arena;
 
                     context->variable_scope_stack.append(else_if_variable_scope);
 
@@ -5652,6 +5678,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     VariableScope else_variable_scope {};
                     else_variable_scope.constant_scope = else_scope;
                     else_variable_scope.debug_scope_index = debug_scope_index;
+                    else_variable_scope.variables.arena = context->arena;
 
                     context->variable_scope_stack.append(else_variable_scope);
 
@@ -5668,9 +5695,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
             } else if(statement->kind == StatementKind::WhileLoop) {
                 auto while_loop = (WhileLoop*)statement;
 
-                auto end_block = new Block;
+                auto end_block = context->arena->allocate_and_construct<Block>();
 
-                auto body_block = new Block;
+                auto body_block = context->arena->allocate_and_construct<Block>();
 
                 enter_new_block(context, while_loop->condition->range);
 
@@ -5679,7 +5706,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 expect_delayed(condition, generate_expression(info, jobs, scope, context, while_loop->condition));
 
                 if(condition.type.kind != TypeKind::Boolean) {
-                    error(scope, while_loop->condition->range, "Non-boolean while loop condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description()));
+                    error(scope, while_loop->condition->range, "Non-boolean while loop condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description(context->arena)));
 
                     return err();
                 }
@@ -5718,6 +5745,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 VariableScope while_variable_scope {};
                 while_variable_scope.constant_scope = while_scope;
                 while_variable_scope.debug_scope_index = debug_scope_index;
+                while_variable_scope.variables.arena = context->arena;
 
                 context->variable_scope_stack.append(while_variable_scope);
 
@@ -5765,7 +5793,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 } else if(to_value.type.kind == TypeKind::Integer) {
                     determined_index_type = to_value.type.integer;
                 } else {
-                    error(scope, for_loop->range, "For loop index/range must be an integer. Got '%.*s'", STRING_PRINTF_ARGUMENTS(from_value.type.get_description()));
+                    error(scope, for_loop->range, "For loop index/range must be an integer. Got '%.*s'", STRING_PRINTF_ARGUMENTS(from_value.type.get_description(context->arena)));
 
                     return err();
                 }
@@ -5807,9 +5835,9 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     index_pointer_register
                 );
 
-                auto end_block = new Block;
+                auto end_block = context->arena->allocate_and_construct<Block>();
 
-                auto body_block = new Block;
+                auto body_block = context->arena->allocate_and_construct<Block>();
 
                 enter_new_block(context, for_loop->range);
 
@@ -5864,6 +5892,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 VariableScope for_variable_scope {};
                 for_variable_scope.constant_scope = for_scope;
                 for_variable_scope.debug_scope_index = debug_scope_index;
+                for_variable_scope.variables.arena = context->arena;
 
                 context->variable_scope_stack.append(for_variable_scope);
 
@@ -5917,7 +5946,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 assert(context->variable_scope_stack.length != 0);
                 auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-                auto return_instruction = new ReturnInstruction;
+                auto return_instruction = context->arena->allocate_and_construct<ReturnInstruction>();
                 return_instruction->range = return_statement->range;
                 return_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
 
@@ -5951,7 +5980,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                     return_instruction->value_register = register_value.register_index;
                 } else if(return_type_count > 1) {
-                    auto return_struct_members = allocate<size_t>(return_type_count);
+                    auto return_struct_members = context->arena->allocate<size_t>(return_type_count);
 
                     for(size_t i = 0; i < return_type_count; i += 1) {
                         expect_delayed(value, generate_expression(info, jobs, scope, context, return_statement->values[i]));
@@ -5993,7 +6022,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
             } else if(statement->kind == StatementKind::InlineAssembly) {
                 auto inline_assembly = (InlineAssembly*)statement;
 
-                auto bindings = allocate<AssemblyInstruction::Binding>(inline_assembly->bindings.length);
+                auto bindings = context->arena->allocate<AssemblyInstruction::Binding>(inline_assembly->bindings.length);
 
                 for(size_t i = 0; i < inline_assembly->bindings.length; i += 1) {
                     auto binding = inline_assembly->bindings[i];
@@ -6047,7 +6076,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                         expect(determined_value_type, coerce_to_default_type(info, scope, binding.value->range, value.type));
 
                         if(!determined_value_type.is_runtime_type()) {
-                            error(scope, binding.value->range, "Value of type '%.*s' cannot be used as a binding", STRING_PRINTF_ARGUMENTS(determined_value_type.get_description()));
+                            error(scope, binding.value->range, "Value of type '%.*s' cannot be used as a binding", STRING_PRINTF_ARGUMENTS(determined_value_type.get_description(context->arena)));
 
                             return err();
                         }
@@ -6074,7 +6103,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                 assert(context->variable_scope_stack.length != 0);
                 auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-                auto assembly_instruction = new AssemblyInstruction;
+                auto assembly_instruction = context->arena->allocate_and_construct<AssemblyInstruction>();
                 assembly_instruction->range = inline_assembly->range;
                 assembly_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
                 assembly_instruction->assembly = inline_assembly->assembly;
@@ -6093,12 +6122,14 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     FunctionTypeType type,
     FunctionConstant value,
     Function* function
 ), (
     info,
     jobs,
+    arena,
     type,
     value,
     function
@@ -6111,14 +6142,14 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
     auto runtime_parameter_count = type.parameters.length;
 
-    auto ir_parameters = allocate<IRType>(runtime_parameter_count);
+    auto ir_parameters = arena->allocate<IRType>(runtime_parameter_count);
 
     size_t runtime_parameter_index = 0;
     for(size_t i = 0; i < declaration_parameter_count; i += 1) {
         if(!declaration->parameters[i].is_constant) {
             auto argument_type = type.parameters[runtime_parameter_index];
 
-            ir_parameters[runtime_parameter_index] = get_ir_type(info.architecture_sizes, argument_type);
+            ir_parameters[runtime_parameter_index] = get_ir_type(arena, info.architecture_sizes, argument_type);
 
             runtime_parameter_index += 1;
         }
@@ -6132,12 +6163,12 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         has_ir_return = false;
     } else if(type.return_types.length == 1) {
         has_ir_return = true;
-        return_ir_type = get_ir_type(info.architecture_sizes, type.return_types[0]);
+        return_ir_type = get_ir_type(arena, info.architecture_sizes, type.return_types[0]);
     } else {
-        auto return_struct_members = allocate<IRType>(type.return_types.length);
+        auto return_struct_members = arena->allocate<IRType>(type.return_types.length);
 
         for(size_t i = 0; i < type.return_types.length; i += 1) {
-            return_struct_members[i] = get_ir_type(info.architecture_sizes, type.return_types[i]);
+            return_struct_members[i] = get_ir_type(arena, info.architecture_sizes, type.return_types[i]);
         }
 
         has_ir_return = true;
@@ -6164,6 +6195,12 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         function->is_no_mangle = value.is_no_mangle;
 
         GenerationContext context {};
+        context.arena = arena;
+        context.variable_scope_stack.arena = arena;
+        context.debug_scopes.arena = arena;
+        context.blocks.arena = arena;
+        context.instructions.arena = arena;
+        context.static_constants.arena = arena;
 
         context.return_types = type.return_types;
 
@@ -6177,14 +6214,15 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         VariableScope body_variable_scope {};
         body_variable_scope.constant_scope = value.body_scope;
         body_variable_scope.debug_scope_index = debug_scope_index;
+        body_variable_scope.variables.arena = context.arena;
 
         context.variable_scope_stack.append(body_variable_scope);
 
         context.child_scopes = value.child_scopes;
 
-        context.current_block = new Block;
+        context.current_block = arena->allocate_and_construct<Block>();
 
-        List<Instruction*> first_block_instructions {};
+        List<Instruction*> first_block_instructions(arena);
 
         size_t runtime_parameter_index = 0;
         for(size_t i = 0; i < declaration->parameters.length; i += 1) {
@@ -6244,7 +6282,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
                 return err();
             } else {
-                auto return_instruction = new ReturnInstruction;
+                auto return_instruction = arena->allocate_and_construct<ReturnInstruction>();
                 return_instruction->range = declaration->range;
                 return_instruction->debug_scope_index = debug_scope_index;
 
@@ -6266,11 +6304,13 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variable, (
     GlobalInfo info,
     List<AnyJob>* jobs,
+    Arena* arena,
     VariableDeclaration* declaration,
     ConstantScope* scope
 ), (
     info,
     jobs,
+    arena,
     declaration,
     scope
 )) {
@@ -6285,10 +6325,10 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
                 return err();
             }
 
-            List<String> libraries {};
+            List<String> libraries(arena);
 
             for(size_t i = 0; i < tag.parameters.length; i += 1) {
-                expect_delayed(parameter, evaluate_constant_expression(info, jobs, scope, nullptr, tag.parameters[i]));
+                expect_delayed(parameter, evaluate_constant_expression(arena, info, jobs, scope, nullptr, tag.parameters[i]));
 
                 if(parameter.type.kind == TypeKind::ArrayTypeType) {
                     auto array = parameter.type.array;
@@ -6305,13 +6345,13 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
                             auto static_array_value = parameter.value.unwrap_static_array();
 
                             for(auto element : static_array_value.elements) {
-                                expect(library_path, array_to_string(scope, tag.parameters[i]->range, *array.element_type, element));
+                                expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, *array.element_type, element));
 
                                 libraries.append(library_path);
                             }
                         }
                     } else {
-                        expect(library_path, array_to_string(scope, tag.parameters[i]->range, parameter.type, parameter.value));
+                        expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, parameter.type, parameter.value));
 
                         libraries.append(library_path);
                     }
@@ -6327,17 +6367,17 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
                         assert(static_array.length == static_array_value.elements.length);
 
                         for(auto element : static_array_value.elements) {
-                            expect(library_path, array_to_string(scope, tag.parameters[i]->range, *static_array.element_type, element));
+                            expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, *static_array.element_type, element));
 
                             libraries.append(library_path);
                         }
                     } else {
-                        expect(library_path, array_to_string(scope, tag.parameters[i]->range, parameter.type, parameter.value));
+                        expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, parameter.type, parameter.value));
 
                         libraries.append(library_path);
                     }
                 } else {
-                    error(scope, tag.parameters[i]->range, "Expected a string or array of strings, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter.type.get_description()));
+                    error(scope, tag.parameters[i]->range, "Expected a string or array of strings, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter.type.get_description(arena)));
 
                     return err();
                 }
@@ -6373,20 +6413,20 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             return err();
         }
 
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, (Statement*)nullptr, declaration->type));
+        expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, (Statement*)nullptr, declaration->type));
 
         if(!type.is_runtime_type()) {
-            error(scope, declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+            error(scope, declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
             return err();
         }
 
-        auto static_variable = new StaticVariable;
+        auto static_variable = arena->allocate_and_construct<StaticVariable>();
         static_variable->name = declaration->name.text;
         static_variable->is_no_mangle = true;
         static_variable->path = get_scope_file_path(*scope);
         static_variable->range = declaration->range;
-        static_variable->type = get_ir_type(info.architecture_sizes, type);
+        static_variable->type = get_ir_type(arena, info.architecture_sizes, type);
         static_variable->is_external = true;
         static_variable->libraries = external_libraries;
         static_variable->debug_type = type;
@@ -6404,17 +6444,18 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
         }
 
         if(declaration->type != nullptr) {
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, (Statement*)nullptr, declaration->type));
+            expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, (Statement*)nullptr, declaration->type));
 
             if(!type.is_runtime_type()) {
-                error(scope, declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                error(scope, declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
                 return err();
             }
 
-            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, nullptr, declaration->initializer));
+            expect_delayed(initial_value, evaluate_constant_expression(arena, info, jobs, scope, nullptr, declaration->initializer));
 
             expect(coerced_initial_value, coerce_constant_to_type(
+                arena,
                 info,
                 scope,
                 declaration->initializer->range,
@@ -6424,14 +6465,14 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
                 false
             ));
 
-            auto ir_initial_value = get_runtime_ir_constant_value(coerced_initial_value);
+            auto ir_initial_value = get_runtime_ir_constant_value(arena, coerced_initial_value);
 
-            auto static_variable = new StaticVariable;
+            auto static_variable = arena->allocate_and_construct<StaticVariable>();
             static_variable->name = declaration->name.text;
             static_variable->is_no_mangle = is_no_mangle;
             static_variable->path = get_scope_file_path(*scope);
             static_variable->range = declaration->range;
-            static_variable->type = get_ir_type(info.architecture_sizes, type);
+            static_variable->type = get_ir_type(arena, info.architecture_sizes, type);
             static_variable->is_external = false;
             static_variable->has_initial_value = true;
             static_variable->initial_value = ir_initial_value;
@@ -6443,23 +6484,23 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
 
             return ok(result);
         } else {
-            expect_delayed(initial_value, evaluate_constant_expression(info, jobs, scope, nullptr, declaration->initializer));
+            expect_delayed(initial_value, evaluate_constant_expression(arena, info, jobs, scope, nullptr, declaration->initializer));
 
             expect(type, coerce_to_default_type(info, scope, declaration->initializer->range, initial_value.type));
 
             if(!type.is_runtime_type()) {
-                error(scope, declaration->initializer->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description()));
+                error(scope, declaration->initializer->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
                 return err();
             }
 
-            auto ir_initial_value = get_runtime_ir_constant_value(initial_value.value);
+            auto ir_initial_value = get_runtime_ir_constant_value(arena, initial_value.value);
 
-            auto static_variable = new StaticVariable;
+            auto static_variable = arena->allocate_and_construct<StaticVariable>();
             static_variable->name = declaration->name.text;
             static_variable->path = get_scope_file_path(*scope);
             static_variable->range = declaration->range;
-            static_variable->type = get_ir_type(info.architecture_sizes, type);
+            static_variable->type = get_ir_type(arena, info.architecture_sizes, type);
             static_variable->is_no_mangle = is_no_mangle;
             static_variable->is_external = false;
             static_variable->has_initial_value = true;

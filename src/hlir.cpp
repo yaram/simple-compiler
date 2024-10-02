@@ -2,6 +2,7 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 bool IRType::operator==(IRType other) {
     if(other.kind != kind) {
