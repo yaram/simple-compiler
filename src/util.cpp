@@ -2,7 +2,16 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+static ErrorHandler* error_handler = nullptr;
+static void* error_handler_data;
+
 void error(String path, FileRange range, const char* format, va_list arguments) {
+    if(error_handler != nullptr) {
+        error_handler(error_handler_data, path, range, format, arguments);
+
+        return;
+    }
+
     fprintf(stderr, "Error: %.*s(%u,%u): ", STRING_PRINTF_ARGUMENTS(path), range.first_line, range.first_column);
     vfprintf(stderr, format, arguments);
     fprintf(stderr, "\n");
@@ -110,4 +119,9 @@ void error(String path, FileRange range, const char* format, ...) {
     error(path, range, format, arguments);
 
     va_end(arguments);
+}
+
+void register_error_handler(ErrorHandler* handler, void* data) {
+    error_handler = handler;
+    error_handler_data = data;
 }

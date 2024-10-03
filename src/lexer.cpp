@@ -5,99 +5,19 @@
 #include <stdlib.h>
 #include "profiler.h"
 #include "list.h"
+#include "util.h"
 
 static void error(String path, unsigned int line, unsigned int column, const char* format, ...) {
     va_list arguments;
     va_start(arguments, format);
 
-    fprintf(stderr, "Error: %.*s(%u,%u): ", STRING_PRINTF_ARGUMENTS(path), line, column);
-    vfprintf(stderr, format, arguments);
-    fprintf(stderr, "\n");
+    FileRange range {};
+    range.first_line = line;
+    range.first_column = column;
+    range.last_line = line;
+    range.last_column = column;
 
-    Arena arena {};
-
-    auto file = fopen(path.to_c_string(&arena), "rb");
-
-    if(file != nullptr) {
-        unsigned int current_line = 1;
-
-        while(current_line != line) {
-            auto character = fgetc(file);
-
-            switch(character) {
-                case '\r': {
-                    auto character = fgetc(file);
-
-                    if(character == '\n') {
-                        current_line += 1;
-                    } else {
-                        ungetc(character, file);
-
-                        current_line += 1;
-                    }
-                } break;
-
-                case '\n': {
-                    current_line += 1;
-                } break;
-
-                case EOF: {
-                    fclose(file);
-
-                    va_end(arguments);
-
-                    return;
-                } break;
-            }
-        }
-
-        unsigned int skipped_spaces = 0;
-        auto done_skipping_spaces = false;
-
-        auto done = false;
-        while(!done) {
-            auto character = fgetc(file);
-
-            switch(character) {
-                case '\r':
-                case '\n': {
-                    done = true;
-                } break;
-
-                case ' ': {
-                    if(!done_skipping_spaces) {
-                        skipped_spaces += 1;
-                    } else {
-                        fprintf(stderr, "%c", character);
-                    }
-                } break;
-
-                case EOF: {
-                    fclose(file);
-
-                    va_end(arguments);
-
-                    return;
-                } break;
-
-                default: {
-                    fprintf(stderr, "%c", character);
-
-                    done_skipping_spaces = true;
-                } break;
-            }
-        }
-
-        fprintf(stderr, "\n");
-
-        for(unsigned int i = 1; i < column - skipped_spaces; i += 1) {
-            fprintf(stderr, " ");
-        }
-
-        fprintf(stderr, "^\n");
-
-        fclose(file);
-    }
+    error(path, range, format, arguments);
 
     va_end(arguments);
 }

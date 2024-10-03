@@ -29,6 +29,10 @@ void Arena::free() {
 }
 
 void* Arena::allocate_memory(size_t size) {
+    if(size == 0) {
+        return nullptr;
+    }
+
     auto chunk_header_aligned_size = divide_round_up(sizeof(ArenaChunkHeader), maximum_alignment) * maximum_alignment;
 
     auto aligned_size = divide_round_up(size, maximum_alignment) * maximum_alignment;

@@ -13,3 +13,7 @@ struct FileRange {
 
 void error(String path, FileRange range, const char* format, va_list arguments);
 void error(String path, FileRange range, const char* format, ...);
+
+using ErrorHandler = void (void* data, String path, FileRange range, const char* format, va_list arguments);
+
+void register_error_handler(ErrorHandler* handler, void* data);
