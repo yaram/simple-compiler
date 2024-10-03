@@ -4343,7 +4343,15 @@ profiled_function(Result<void>, process_scope, (
             case StatementKind::VariableDeclaration: {
                 if(is_top_level) {
                     auto variable_declaration = (VariableDeclaration*)statement;
+#if defined(SERVER)
+                    AnyJob job {};
+                    job.kind = JobKind::TypeStaticVariable;
+                    job.state = JobState::Working;
+                    job.type_static_variable.declaration = variable_declaration;
+                    job.type_static_variable.scope = scope;
 
+                    jobs->append(job);
+#else
                     AnyJob job {};
                     job.kind = JobKind::GenerateStaticVariable;
                     job.state = JobState::Working;
@@ -4351,6 +4359,7 @@ profiled_function(Result<void>, process_scope, (
                     job.generate_static_variable.scope = scope;
 
                     jobs->append(job);
+#endif
                 }
             } break;
 

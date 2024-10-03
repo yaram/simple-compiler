@@ -9,7 +9,7 @@
 #include "platform.h"
 #include "list.h"
 #include "jobs.h"
-#include "hl_generator.h"
+#include "typed_tree_generator.h"
 #include "types.h"
 #include "path.h"
 
@@ -260,6 +260,8 @@ int main(int argument_count, const char* arguments[]) {
     {
         compilation_arena.reset();
 
+        
+
         List<AnyJob> jobs(&compilation_arena);
 
         size_t main_file_parse_job_index;
@@ -270,13 +272,6 @@ int main(int argument_count, const char* arguments[]) {
             job.parse_file.path = absolute_source_file_path;
 
             main_file_parse_job_index = jobs.append(job);
-        }
-
-        List<RuntimeStatic*> runtime_statics(&compilation_arena);
-        List<String> libraries(&compilation_arena);
-
-        if(os == u8"windows"_S || os == u8"mingw"_S) {
-            libraries.append(u8"kernel32"_S);
         }
 
         while(true) {
@@ -375,12 +370,12 @@ int main(int argument_count, const char* arguments[]) {
 
                                     auto found = false;
                                     for(auto job : jobs) {
-                                        if(job.kind == JobKind::GenerateFunction) {
-                                            auto generate_function = job.generate_function;
+                                        if(job.kind == JobKind::TypeFunctionBody) {
+                                            auto type_function_body = job.type_function_body;
 
                                             if(
-                                                generate_function.value.declaration == function_value.declaration &&
-                                                generate_function.value.body_scope == function_value.body_scope
+                                                type_function_body.value.declaration == function_value.declaration &&
+                                                type_function_body.value.body_scope == function_value.body_scope
                                             ) {
                                                 found = true;
                                                 break;
@@ -390,11 +385,10 @@ int main(int argument_count, const char* arguments[]) {
 
                                     if(!found) {
                                         AnyJob job {};
-                                        job.kind = JobKind::GenerateFunction;
+                                        job.kind = JobKind::TypeFunctionBody;
                                         job.state = JobState::Working;
-                                        job.generate_function.type = function_type;
-                                        job.generate_function.value = function_value;
-                                        job.generate_function.function = compilation_arena.allocate_and_construct<Function>();
+                                        job.type_function_body.type = function_type;
+                                        job.type_function_body.value = function_value;
 
                                         jobs.append(job);
                                     }
@@ -604,16 +598,15 @@ int main(int argument_count, const char* arguments[]) {
                             }
                         } break;
 
-                        case JobKind::GenerateFunction: {
-                            auto generate_function = job->generate_function;
+                        case JobKind::TypeFunctionBody: {
+                            auto type_function_body = job->type_function_body;
 
-                            auto result = do_generate_function(
+                            auto result = do_type_function_body(
                                 info,
                                 &jobs,
                                 &job->arena,
-                                generate_function.type,
-                                generate_function.value,
-                                generate_function.function
+                                type_function_body.type,
+                                type_function_body.value
                             );
 
                             auto job_after = &jobs[job_index];
@@ -624,28 +617,7 @@ int main(int argument_count, const char* arguments[]) {
                                 }
 
                                 job_after->state = JobState::Done;
-
-                                runtime_statics.append(job_after->generate_function.function);
-
-                                if(job_after->generate_function.function->is_external) {
-                                    for(auto library : job_after->generate_function.function->libraries) {
-                                        auto already_registered = false;
-                                        for(auto registered_library : libraries) {
-                                            if(registered_library == library) {
-                                                already_registered = true;
-                                                break;
-                                            }
-                                        }
-
-                                        if(!already_registered) {
-                                            libraries.append(library);
-                                        }
-                                    }
-                                }
-
-                                for(auto static_constant : result.value) {
-                                    runtime_statics.append(static_constant);
-                                }
+                                job_after->type_function_body.statements = result.value;
                             } else {
                                 job_after->state = JobState::Waiting;
                                 job_after->waiting_for = result.waiting_for;
@@ -653,15 +625,15 @@ int main(int argument_count, const char* arguments[]) {
                             }
                         } break;
 
-                        case JobKind::GenerateStaticVariable: {
-                            auto generate_static_variable = job->generate_static_variable;
+                        case JobKind::TypeStaticVariable: {
+                            auto type_static_variable = job->type_static_variable;
 
-                            auto result = do_generate_static_variable(
+                            auto result = do_type_static_variable(
                                 info,
                                 &jobs,
                                 &job->arena,
-                                generate_static_variable.declaration,
-                                generate_static_variable.scope
+                                type_static_variable.declaration,
+                                type_static_variable.scope
                             );
 
                             auto job_after = &jobs[job_index];
@@ -672,26 +644,7 @@ int main(int argument_count, const char* arguments[]) {
                                 }
 
                                 job_after->state = JobState::Done;
-                                job_after->generate_static_variable.static_variable = result.value.static_variable;
-                                job_after->generate_static_variable.type = result.value.type;
-
-                                runtime_statics.append((RuntimeStatic*)result.value.static_variable);
-
-                                if(job_after->generate_static_variable.static_variable->is_external) {
-                                    for(auto library : job_after->generate_static_variable.static_variable->libraries) {
-                                        auto already_registered = false;
-                                        for(auto registered_library : libraries) {
-                                            if(registered_library == library) {
-                                                already_registered = true;
-                                                break;
-                                            }
-                                        }
-
-                                        if(!already_registered) {
-                                            libraries.append(library);
-                                        }
-                                    }
-                                }
+                                job_after->type_static_variable.type = result.value;
                             } else {
                                 job_after->state = JobState::Waiting;
                                 job_after->waiting_for = result.waiting_for;
@@ -788,18 +741,18 @@ int main(int argument_count, const char* arguments[]) {
                             range = resolve_polymorphic_union.definition->range;
                         } break;
 
-                        case JobKind::GenerateFunction: {
-                            auto generate_function = job.generate_function;
+                        case JobKind::TypeFunctionBody: {
+                            auto type_function_body = job.type_function_body;
 
-                            scope = generate_function.value.body_scope->parent;
-                            range = generate_function.value.declaration->range;
+                            scope = type_function_body.value.body_scope->parent;
+                            range = type_function_body.value.declaration->range;
                         } break;
 
-                        case JobKind::GenerateStaticVariable: {
-                            auto generate_static_variable = job.generate_static_variable;
+                        case JobKind::TypeStaticVariable: {
+                            auto type_static_variable = job.type_static_variable;
 
-                            scope = generate_static_variable.scope;
-                            range = generate_static_variable.declaration->range;
+                            scope = type_static_variable.scope;
+                            range = type_static_variable.declaration->range;
                         } break;
 
                         default: abort();

@@ -4,7 +4,11 @@
 #include "ast.h"
 #include "constant.h"
 #include "types.h"
+#if defined(SERVER)
+#include "typed_tree.h"
+#else
 #include "hlir.h"
+#endif
 
 struct ParseFile {
     String path;
@@ -84,6 +88,24 @@ struct ResolveEnumDefinition {
     Enum type;
 };
 
+#if defined(SERVER)
+
+struct TypeFunctionBody {
+    FunctionTypeType type;
+    FunctionConstant value;
+
+    Array<TypedStatement> statements;
+};
+
+struct TypeStaticVariable {
+    VariableDeclaration* declaration;
+    ConstantScope* scope;
+
+    AnyType type;
+};
+
+#else
+
 struct GenerateFunction {
     FunctionTypeType type;
     FunctionConstant value;
@@ -99,6 +121,8 @@ struct GenerateStaticVariable {
     AnyType type;
 };
 
+#endif
+
 enum struct JobKind {
     ParseFile,
     ResolveStaticIf,
@@ -110,9 +134,13 @@ enum struct JobKind {
     ResolveUnionDefinition,
     ResolvePolymorphicUnion,
     ResolveEnumDefinition,
+#if defined(SERVER)
+    TypeFunctionBody,
+    TypeStaticVariable
+#else
     GenerateFunction,
-    GeneratePolymorphicFunction,
     GenerateStaticVariable
+#endif
 };
 
 enum struct JobState {
@@ -141,7 +169,12 @@ struct AnyJob {
         ResolveUnionDefinition resolve_union_definition;
         ResolvePolymorphicUnion resolve_polymorphic_union;
         ResolveEnumDefinition resolve_enum_definition;
+#if defined(SERVER)
+        TypeFunctionBody type_function_body;
+        TypeStaticVariable type_static_variable;
+#else
         GenerateFunction generate_function;
         GenerateStaticVariable generate_static_variable;
+#endif
     };
 };

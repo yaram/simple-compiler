@@ -161,9 +161,6 @@ add_executable(compiler-server
     src/parser.h
     src/parser.cpp
 
-    src/hlir.h
-    src/hlir.cpp
-
     src/register_size.h
     src/register_size.cpp
 
@@ -173,13 +170,16 @@ add_executable(compiler-server
     src/constant.h
     src/constant.cpp
 
-    src/hl_generator.h
-    src/hl_generator.cpp
+    src/typed_tree.h
+
+    src/typed_tree_generator.h
+    src/typed_tree_generator.cpp
 
     src/server.cpp
 )
 
 target_compile_features(compiler-server PRIVATE cxx_std_20)
+target_compile_definitions(compiler-server PRIVATE SERVER)
 add_dependencies(compiler-server copy_stdlib)
 target_include_directories(compiler-server PRIVATE thirdparty/cJSON)
 
