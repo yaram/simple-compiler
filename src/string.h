@@ -10,7 +10,7 @@ Result<size_t> validate_c_string(const char* c_string);
 
 // Must contain valid UTF-8
 struct String : Array<char8_t> {
-    static const Result<String> from_c_string(Arena* arena, const char* c_string);
+    static Result<String> from_c_string(Arena* arena, const char* c_string);
     char* to_c_string(Arena* arena);
 
     inline String slice(size_t index, size_t length) {

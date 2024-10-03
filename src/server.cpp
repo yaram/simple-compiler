@@ -53,8 +53,737 @@ static void* cjson_malloc(size_t sz) {
 
 static void cjson_free(void* ptr) {}
 
-static void error_handler(void* data, String path, FileRange range, const char* format, va_list arguments) {
+struct Error {
+    String path;
+    FileRange range;
+    String text;
+};
 
+struct ErrorHandlerState {
+    Arena* arena;
+    List<Error>* errors;
+};
+
+static void error_handler(void* data, String path, FileRange range, const char* format, va_list arguments) {
+    auto state = (ErrorHandlerState*)data;
+
+    Error error {};
+    error.path = path;
+    error.range = range;
+
+    char buffer[1024];
+    vsnprintf(buffer, 1024, format, arguments);
+
+    auto result = String::from_c_string(state->arena, buffer);
+    if(result.status) {
+        error.text = result.value;
+    } else {
+        error.text = u8"Unable to allocate error string"_S;
+    }
+
+    state->errors->append(error);
+}
+
+struct CompiledFile {
+    String absolute_path;
+
+    Arena compilation_arena;
+
+    Array<AnyJob> jobs;
+
+    Array<Error> errors;
+};
+
+struct CompileSourceFileResult {
+    bool status;
+
+    CompiledFile file;
+};
+
+static CompileSourceFileResult compile_source_file(GlobalInfo info, String absolute_path) {
+    Arena compilation_arena {};
+
+    List<Error> errors(&compilation_arena);
+
+    ErrorHandlerState error_handler_state {};
+    error_handler_state.arena = &compilation_arena;
+    error_handler_state.errors = &errors;
+
+    register_error_handler(&error_handler, &error_handler_state);
+
+    cjson_arena = &compilation_arena;
+
+    errors.length = 0;
+
+    List<AnyJob> jobs(&compilation_arena);
+
+    {
+        AnyJob job {};
+        job.kind = JobKind::ParseFile;
+        job.state = JobState::Working;
+        job.parse_file.path = absolute_path;
+
+        jobs.append(job);
+    }
+
+    while(true) {
+        auto did_work = false;
+        for(size_t job_index = 0; job_index < jobs.length; job_index += 1) {
+            auto job = &jobs[job_index];
+
+            if(job->state != JobState::Done) {
+                if(job->state == JobState::Waiting) {
+                    if(jobs[job->waiting_for].state != JobState::Done) {
+                        continue;
+                    }
+
+                    job->state = JobState::Working;
+                }
+
+                switch(job->kind) {
+                    case JobKind::ParseFile: {
+                        auto parse_file = &job->parse_file;
+
+                        auto tokens_result = tokenize_source(&job->arena, parse_file->path);
+                        if(!tokens_result.status) {
+                            CompiledFile file {};
+                            file.absolute_path = absolute_path;
+                            file.compilation_arena = compilation_arena;
+                            file.jobs = jobs;
+                            file.errors = errors;
+
+                            CompileSourceFileResult result {};
+                            result.status = false;
+                            result.file = file;
+
+                            return result;
+                        }
+
+                        auto statements_result = parse_tokens(&job->arena, parse_file->path, tokens_result.value);
+                        if(!statements_result.status) {
+                            CompiledFile file {};
+                            file.absolute_path = absolute_path;
+                            file.compilation_arena = compilation_arena;
+                            file.jobs = jobs;
+                            file.errors = errors;
+
+                            CompileSourceFileResult result {};
+                            result.status = false;
+                            result.file = file;
+
+                            return result;
+                        }
+
+                        auto scope = compilation_arena.allocate_and_construct<ConstantScope>();
+                        scope->statements = statements_result.value;
+                        scope->declarations = create_declaration_hash_table(&compilation_arena, statements_result.value);
+                        scope->scope_constants = {};
+                        scope->is_top_level = true;
+                        scope->file_path = parse_file->path;
+
+                        parse_file->scope = scope;
+                        job->state = JobState::Done;
+
+                        auto result = process_scope(&compilation_arena, &jobs, scope, statements_result.value, nullptr, true);
+                        if(!result.status) {
+                            CompiledFile file {};
+                            file.absolute_path = absolute_path;
+                            file.compilation_arena = compilation_arena;
+                            file.jobs = jobs;
+                            file.errors = errors;
+
+                            CompileSourceFileResult result {};
+                            result.status = false;
+                            result.file = file;
+
+                            return result;
+                        }
+
+                        auto job_after = jobs[job_index];
+                    } break;
+
+                    case JobKind::ResolveStaticIf: {
+                        auto resolve_static_if = job->resolve_static_if;
+
+                        auto result = do_resolve_static_if(
+                            info,
+                            &jobs,
+                            &compilation_arena,
+                            &job->arena,
+                            resolve_static_if.static_if,
+                            resolve_static_if.scope
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                CompiledFile file {};
+                                file.absolute_path = absolute_path;
+                                file.compilation_arena = compilation_arena;
+                                file.jobs = jobs;
+                                file.errors = errors;
+
+                                CompileSourceFileResult result {};
+                                result.status = false;
+                                result.file = file;
+
+                                return result;
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_static_if.condition = result.value.condition;
+                            job_after->resolve_static_if.declarations = result.value.declarations;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::ResolveFunctionDeclaration: {
+                        auto resolve_function_declaration = job->resolve_function_declaration;
+
+                        auto result = do_resolve_function_declaration(
+                            info,
+                            &jobs,
+                            &compilation_arena,
+                            &job->arena,
+                            resolve_function_declaration.declaration,
+                            resolve_function_declaration.scope
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                CompiledFile file {};
+                                file.absolute_path = absolute_path;
+                                file.compilation_arena = compilation_arena;
+                                file.jobs = jobs;
+                                file.errors = errors;
+
+                                CompileSourceFileResult result {};
+                                result.status = false;
+                                result.file = file;
+
+                                return result;
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_function_declaration.type = result.value.type;
+                            job_after->resolve_function_declaration.value = result.value.value;
+
+                            if(job_after->resolve_function_declaration.type.kind == TypeKind::FunctionTypeType) {
+                                auto function_type = job_after->resolve_function_declaration.type.function;
+
+                                auto function_value = job_after->resolve_function_declaration.value.unwrap_function();
+
+                                auto found = false;
+                                for(auto job : jobs) {
+                                    if(job.kind == JobKind::TypeFunctionBody) {
+                                        auto type_function_body = job.type_function_body;
+
+                                        if(
+                                            type_function_body.value.declaration == function_value.declaration &&
+                                            type_function_body.value.body_scope == function_value.body_scope
+                                        ) {
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if(!found) {
+                                    AnyJob job {};
+                                    job.kind = JobKind::TypeFunctionBody;
+                                    job.state = JobState::Working;
+                                    job.type_function_body.type = function_type;
+                                    job.type_function_body.value = function_value;
+
+                                    jobs.append(job);
+                                }
+                            }
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::ResolvePolymorphicFunction: {
+                        auto resolve_polymorphic_function = job->resolve_polymorphic_function;
+
+                        auto result = do_resolve_polymorphic_function(
+                            info,
+                            &jobs,
+                            &compilation_arena,
+                            &job->arena,
+                            resolve_polymorphic_function.declaration,
+                            resolve_polymorphic_function.parameters,
+                            resolve_polymorphic_function.scope,
+                            resolve_polymorphic_function.call_scope,
+                            resolve_polymorphic_function.call_parameter_ranges
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                CompiledFile file {};
+                                file.absolute_path = absolute_path;
+                                file.compilation_arena = compilation_arena;
+                                file.jobs = jobs;
+                                file.errors = errors;
+
+                                CompileSourceFileResult result {};
+                                result.status = false;
+                                result.file = file;
+
+                                return result;
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_polymorphic_function.type = result.value.type;
+                            job_after->resolve_polymorphic_function.value = result.value.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::ResolveConstantDefinition: {
+                        auto resolve_constant_definition = job->resolve_constant_definition;
+
+                        auto result = evaluate_constant_expression(
+                            &job->arena,
+                            info,
+                            &jobs,
+                            resolve_constant_definition.scope,
+                            nullptr,
+                            resolve_constant_definition.definition->expression
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                CompiledFile file {};
+                                file.absolute_path = absolute_path;
+                                file.compilation_arena = compilation_arena;
+                                file.jobs = jobs;
+                                file.errors = errors;
+
+                                CompileSourceFileResult result {};
+                                result.status = false;
+                                result.file = file;
+
+                                return result;
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_constant_definition.type = result.value.type;
+                            job_after->resolve_constant_definition.value = result.value.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::ResolveStructDefinition: {
+                        auto resolve_struct_definition = job->resolve_struct_definition;
+
+                        auto result = do_resolve_struct_definition(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            resolve_struct_definition.definition,
+                            resolve_struct_definition.scope
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                CompiledFile file {};
+                                file.absolute_path = absolute_path;
+                                file.compilation_arena = compilation_arena;
+                                file.jobs = jobs;
+                                file.errors = errors;
+
+                                CompileSourceFileResult result {};
+                                result.status = false;
+                                result.file = file;
+
+                                return result;
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_struct_definition.type = result.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::ResolvePolymorphicStruct: {
+                        auto resolve_polymorphic_struct = job->resolve_polymorphic_struct;
+
+                        auto result = do_resolve_polymorphic_struct(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            resolve_polymorphic_struct.definition,
+                            resolve_polymorphic_struct.parameters,
+                            resolve_polymorphic_struct.scope
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                CompiledFile file {};
+                                file.absolute_path = absolute_path;
+                                file.compilation_arena = compilation_arena;
+                                file.jobs = jobs;
+                                file.errors = errors;
+
+                                CompileSourceFileResult result {};
+                                result.status = false;
+                                result.file = file;
+
+                                return result;
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_polymorphic_struct.type = result.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::ResolveUnionDefinition: {
+                        auto resolve_union_definition = job->resolve_union_definition;
+
+                        auto result = do_resolve_union_definition(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            resolve_union_definition.definition,
+                            resolve_union_definition.scope
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                CompiledFile file {};
+                                file.absolute_path = absolute_path;
+                                file.compilation_arena = compilation_arena;
+                                file.jobs = jobs;
+                                file.errors = errors;
+
+                                CompileSourceFileResult result {};
+                                result.status = false;
+                                result.file = file;
+
+                                return result;
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_union_definition.type = result.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::ResolvePolymorphicUnion: {
+                        auto resolve_polymorphic_union = job->resolve_polymorphic_union;
+
+                        auto result = do_resolve_polymorphic_union(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            resolve_polymorphic_union.definition,
+                            resolve_polymorphic_union.parameters,
+                            resolve_polymorphic_union.scope
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                CompiledFile file {};
+                                file.absolute_path = absolute_path;
+                                file.compilation_arena = compilation_arena;
+                                file.jobs = jobs;
+                                file.errors = errors;
+
+                                CompileSourceFileResult result {};
+                                result.status = false;
+                                result.file = file;
+
+                                return result;
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_polymorphic_union.type = result.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::ResolveEnumDefinition: {
+                        auto resolve_enum_definition = job->resolve_enum_definition;
+
+                        auto result = do_resolve_enum_definition(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            resolve_enum_definition.definition,
+                            resolve_enum_definition.scope
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                CompiledFile file {};
+                                file.absolute_path = absolute_path;
+                                file.compilation_arena = compilation_arena;
+                                file.jobs = jobs;
+                                file.errors = errors;
+
+                                CompileSourceFileResult result {};
+                                result.status = false;
+                                result.file = file;
+
+                                return result;
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->resolve_enum_definition.type = result.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::TypeFunctionBody: {
+                        auto type_function_body = job->type_function_body;
+
+                        auto result = do_type_function_body(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            type_function_body.type,
+                            type_function_body.value
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                CompiledFile file {};
+                                file.absolute_path = absolute_path;
+                                file.compilation_arena = compilation_arena;
+                                file.jobs = jobs;
+                                file.errors = errors;
+
+                                CompileSourceFileResult result {};
+                                result.status = false;
+                                result.file = file;
+
+                                return result;
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->type_function_body.statements = result.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::TypeStaticVariable: {
+                        auto type_static_variable = job->type_static_variable;
+
+                        auto result = do_type_static_variable(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            type_static_variable.declaration,
+                            type_static_variable.scope
+                        );
+
+                        auto job_after = &jobs[job_index];
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                CompiledFile file {};
+                                file.absolute_path = absolute_path;
+                                file.compilation_arena = compilation_arena;
+                                file.jobs = jobs;
+                                file.errors = errors;
+
+                                CompileSourceFileResult result {};
+                                result.status = false;
+                                result.file = file;
+
+                                return result;
+                            }
+
+                            job_after->state = JobState::Done;
+                            job_after->type_static_variable.type = result.value;
+                        } else {
+                            job_after->state = JobState::Waiting;
+                            job_after->waiting_for = result.waiting_for;
+                            job_after->arena.reset();
+                        }
+                    } break;
+
+                    default: abort();
+                }
+
+                did_work = true;
+                break;
+            }
+        }
+
+        if(!did_work) {
+            break;
+        }
+    }
+
+    auto all_jobs_done = true;
+    for(auto job : jobs) {
+        if(job.state != JobState::Done) {
+            all_jobs_done = false;
+        }
+    }
+
+    if(!all_jobs_done) {
+        for(auto job : jobs) {
+            if(job.state != JobState::Done) {
+                ConstantScope* scope;
+                FileRange range;
+                switch(job.kind) {
+                    case JobKind::ParseFile: {
+                        abort();
+                    } break;
+
+                    case JobKind::ResolveStaticIf: {
+                        auto resolve_static_if = job.resolve_static_if;
+
+                        scope = resolve_static_if.scope;
+                        range = resolve_static_if.static_if->range;
+                    } break;
+
+                    case JobKind::ResolveFunctionDeclaration: {
+                        auto resolve_function_declaration = job.resolve_function_declaration;
+
+                        scope = resolve_function_declaration.scope;
+                        range = resolve_function_declaration.declaration->range;
+                    } break;
+
+                    case JobKind::ResolvePolymorphicFunction: {
+                        auto resolve_polymorphic_function = job.resolve_polymorphic_function;
+
+                        scope = resolve_polymorphic_function.scope;
+                        range = resolve_polymorphic_function.declaration->range;
+                    } break;
+
+                    case JobKind::ResolveConstantDefinition: {
+                        auto resolve_constant_definition = job.resolve_constant_definition;
+
+                        scope = resolve_constant_definition.scope;
+                        range = resolve_constant_definition.definition->range;
+                    } break;
+
+                    case JobKind::ResolveStructDefinition: {
+                        auto resolve_struct_definition = job.resolve_struct_definition;
+
+                        scope = resolve_struct_definition.scope;
+                        range = resolve_struct_definition.definition->range;
+                    } break;
+
+                    case JobKind::ResolvePolymorphicStruct: {
+                        auto resolve_polymorphic_struct = job.resolve_polymorphic_struct;
+
+                        scope = resolve_polymorphic_struct.scope;
+                        range = resolve_polymorphic_struct.definition->range;
+                    } break;
+
+                    case JobKind::ResolveUnionDefinition: {
+                        auto resolve_union_definition = job.resolve_union_definition;
+
+                        scope = resolve_union_definition.scope;
+                        range = resolve_union_definition.definition->range;
+                    } break;
+
+                    case JobKind::ResolvePolymorphicUnion: {
+                        auto resolve_polymorphic_union = job.resolve_polymorphic_union;
+
+                        scope = resolve_polymorphic_union.scope;
+                        range = resolve_polymorphic_union.definition->range;
+                    } break;
+
+                    case JobKind::TypeFunctionBody: {
+                        auto type_function_body = job.type_function_body;
+
+                        scope = type_function_body.value.body_scope->parent;
+                        range = type_function_body.value.declaration->range;
+                    } break;
+
+                    case JobKind::TypeStaticVariable: {
+                        auto type_static_variable = job.type_static_variable;
+
+                        scope = type_static_variable.scope;
+                        range = type_static_variable.declaration->range;
+                    } break;
+
+                    default: abort();
+                }
+
+                error(scope, range, "Circular dependency detected");
+            }
+        }
+
+        CompiledFile file {};
+        file.absolute_path = absolute_path;
+        file.compilation_arena = compilation_arena;
+        file.jobs = jobs;
+        file.errors = errors;
+
+        CompileSourceFileResult result {};
+        result.status = false;
+        result.file = file;
+
+        return result;
+    }
+
+    CompiledFile file {};
+    file.absolute_path = absolute_path;
+    file.compilation_arena = compilation_arena;
+    file.jobs = jobs;
+    file.errors = errors;
+
+    CompileSourceFileResult result {};
+    result.status = true;
+    result.file = file;
+
+    return result;
 }
 
 int main(int argument_count, const char* arguments[]) {
@@ -246,525 +975,14 @@ int main(int argument_count, const char* arguments[]) {
         architecture_sizes
     };
 
-    register_error_handler(&error_handler, nullptr);
-
-    Arena compilation_arena {};
-
-    cjson_arena = &compilation_arena;
-
     cJSON_Hooks cjson_hooks {};
     cjson_hooks.malloc_fn = &cjson_malloc;
     cjson_hooks.free_fn = &cjson_free;
     cJSON_InitHooks(&cjson_hooks);
 
-    {
-        compilation_arena.reset();
+    List<CompiledFile> compiled_files(&global_arena);
 
+    while(true) {
         
-
-        List<AnyJob> jobs(&compilation_arena);
-
-        size_t main_file_parse_job_index;
-        {
-            AnyJob job {};
-            job.kind = JobKind::ParseFile;
-            job.state = JobState::Working;
-            job.parse_file.path = absolute_source_file_path;
-
-            main_file_parse_job_index = jobs.append(job);
-        }
-
-        while(true) {
-            auto did_work = false;
-            for(size_t job_index = 0; job_index < jobs.length; job_index += 1) {
-                auto job = &jobs[job_index];
-
-                if(job->state != JobState::Done) {
-                    if(job->state == JobState::Waiting) {
-                        if(jobs[job->waiting_for].state != JobState::Done) {
-                            continue;
-                        }
-
-                        job->state = JobState::Working;
-                    }
-
-                    switch(job->kind) {
-                        case JobKind::ParseFile: {
-                            auto parse_file = &job->parse_file;
-
-                            expect(tokens, tokenize_source(&job->arena, parse_file->path));
-
-                            expect(statements, parse_tokens(&job->arena, parse_file->path, tokens));
-
-                            auto scope = compilation_arena.allocate_and_construct<ConstantScope>();
-                            scope->statements = statements;
-                            scope->declarations = create_declaration_hash_table(&compilation_arena, statements);
-                            scope->scope_constants = {};
-                            scope->is_top_level = true;
-                            scope->file_path = parse_file->path;
-
-                            parse_file->scope = scope;
-                            job->state = JobState::Done;
-
-                            expect_void(process_scope(&compilation_arena, &jobs, scope, statements, nullptr, true));
-
-                            auto job_after = jobs[job_index];
-                        } break;
-
-                        case JobKind::ResolveStaticIf: {
-                            auto resolve_static_if = job->resolve_static_if;
-
-                            auto result = do_resolve_static_if(
-                                info,
-                                &jobs,
-                                &compilation_arena,
-                                &job->arena,
-                                resolve_static_if.static_if,
-                                resolve_static_if.scope
-                            );
-
-                            auto job_after = &jobs[job_index];
-
-                            if(result.has_value) {
-                                if(!result.status) {
-                                    return err();
-                                }
-
-                                job_after->state = JobState::Done;
-                                job_after->resolve_static_if.condition = result.value.condition;
-                                job_after->resolve_static_if.declarations = result.value.declarations;
-                            } else {
-                                job_after->state = JobState::Waiting;
-                                job_after->waiting_for = result.waiting_for;
-                                job_after->arena.reset();
-                            }
-                        } break;
-
-                        case JobKind::ResolveFunctionDeclaration: {
-                            auto resolve_function_declaration = job->resolve_function_declaration;
-
-                            auto result = do_resolve_function_declaration(
-                                info,
-                                &jobs,
-                                &compilation_arena,
-                                &job->arena,
-                                resolve_function_declaration.declaration,
-                                resolve_function_declaration.scope
-                            );
-
-                            auto job_after = &jobs[job_index];
-
-                            if(result.has_value) {
-                                if(!result.status) {
-                                    return err();
-                                }
-
-                                job_after->state = JobState::Done;
-                                job_after->resolve_function_declaration.type = result.value.type;
-                                job_after->resolve_function_declaration.value = result.value.value;
-
-                                if(job_after->resolve_function_declaration.type.kind == TypeKind::FunctionTypeType) {
-                                    auto function_type = job_after->resolve_function_declaration.type.function;
-
-                                    auto function_value = job_after->resolve_function_declaration.value.unwrap_function();
-
-                                    auto found = false;
-                                    for(auto job : jobs) {
-                                        if(job.kind == JobKind::TypeFunctionBody) {
-                                            auto type_function_body = job.type_function_body;
-
-                                            if(
-                                                type_function_body.value.declaration == function_value.declaration &&
-                                                type_function_body.value.body_scope == function_value.body_scope
-                                            ) {
-                                                found = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    if(!found) {
-                                        AnyJob job {};
-                                        job.kind = JobKind::TypeFunctionBody;
-                                        job.state = JobState::Working;
-                                        job.type_function_body.type = function_type;
-                                        job.type_function_body.value = function_value;
-
-                                        jobs.append(job);
-                                    }
-                                }
-                            } else {
-                                job_after->state = JobState::Waiting;
-                                job_after->waiting_for = result.waiting_for;
-                                job_after->arena.reset();
-                            }
-                        } break;
-
-                        case JobKind::ResolvePolymorphicFunction: {
-                            auto resolve_polymorphic_function = job->resolve_polymorphic_function;
-
-                            auto result = do_resolve_polymorphic_function(
-                                info,
-                                &jobs,
-                                &compilation_arena,
-                                &job->arena,
-                                resolve_polymorphic_function.declaration,
-                                resolve_polymorphic_function.parameters,
-                                resolve_polymorphic_function.scope,
-                                resolve_polymorphic_function.call_scope,
-                                resolve_polymorphic_function.call_parameter_ranges
-                            );
-
-                            auto job_after = &jobs[job_index];
-
-                            if(result.has_value) {
-                                if(!result.status) {
-                                    return err();
-                                }
-
-                                job_after->state = JobState::Done;
-                                job_after->resolve_polymorphic_function.type = result.value.type;
-                                job_after->resolve_polymorphic_function.value = result.value.value;
-                            } else {
-                                job_after->state = JobState::Waiting;
-                                job_after->waiting_for = result.waiting_for;
-                                job_after->arena.reset();
-                            }
-                        } break;
-
-                        case JobKind::ResolveConstantDefinition: {
-                            auto resolve_constant_definition = job->resolve_constant_definition;
-
-                            auto result = evaluate_constant_expression(
-                                &job->arena,
-                                info,
-                                &jobs,
-                                resolve_constant_definition.scope,
-                                nullptr,
-                                resolve_constant_definition.definition->expression
-                            );
-
-                            auto job_after = &jobs[job_index];
-
-                            if(result.has_value) {
-                                if(!result.status) {
-                                    return err();
-                                }
-
-                                job_after->state = JobState::Done;
-                                job_after->resolve_constant_definition.type = result.value.type;
-                                job_after->resolve_constant_definition.value = result.value.value;
-                            } else {
-                                job_after->state = JobState::Waiting;
-                                job_after->waiting_for = result.waiting_for;
-                                job_after->arena.reset();
-                            }
-                        } break;
-
-                        case JobKind::ResolveStructDefinition: {
-                            auto resolve_struct_definition = job->resolve_struct_definition;
-
-                            auto result = do_resolve_struct_definition(
-                                info,
-                                &jobs,
-                                &job->arena,
-                                resolve_struct_definition.definition,
-                                resolve_struct_definition.scope
-                            );
-
-                            auto job_after = &jobs[job_index];
-
-                            if(result.has_value) {
-                                if(!result.status) {
-                                    return err();
-                                }
-
-                                job_after->state = JobState::Done;
-                                job_after->resolve_struct_definition.type = result.value;
-                            } else {
-                                job_after->state = JobState::Waiting;
-                                job_after->waiting_for = result.waiting_for;
-                                job_after->arena.reset();
-                            }
-                        } break;
-
-                        case JobKind::ResolvePolymorphicStruct: {
-                            auto resolve_polymorphic_struct = job->resolve_polymorphic_struct;
-
-                            auto result = do_resolve_polymorphic_struct(
-                                info,
-                                &jobs,
-                                &job->arena,
-                                resolve_polymorphic_struct.definition,
-                                resolve_polymorphic_struct.parameters,
-                                resolve_polymorphic_struct.scope
-                            );
-
-                            auto job_after = &jobs[job_index];
-
-                            if(result.has_value) {
-                                if(!result.status) {
-                                    return err();
-                                }
-
-                                job_after->state = JobState::Done;
-                                job_after->resolve_polymorphic_struct.type = result.value;
-                            } else {
-                                job_after->state = JobState::Waiting;
-                                job_after->waiting_for = result.waiting_for;
-                                job_after->arena.reset();
-                            }
-                        } break;
-
-                        case JobKind::ResolveUnionDefinition: {
-                            auto resolve_union_definition = job->resolve_union_definition;
-
-                            auto result = do_resolve_union_definition(
-                                info,
-                                &jobs,
-                                &job->arena,
-                                resolve_union_definition.definition,
-                                resolve_union_definition.scope
-                            );
-
-                            auto job_after = &jobs[job_index];
-
-                            if(result.has_value) {
-                                if(!result.status) {
-                                    return err();
-                                }
-
-                                job_after->state = JobState::Done;
-                                job_after->resolve_union_definition.type = result.value;
-                            } else {
-                                job_after->state = JobState::Waiting;
-                                job_after->waiting_for = result.waiting_for;
-                                job_after->arena.reset();
-                            }
-                        } break;
-
-                        case JobKind::ResolvePolymorphicUnion: {
-                            auto resolve_polymorphic_union = job->resolve_polymorphic_union;
-
-                            auto result = do_resolve_polymorphic_union(
-                                info,
-                                &jobs,
-                                &job->arena,
-                                resolve_polymorphic_union.definition,
-                                resolve_polymorphic_union.parameters,
-                                resolve_polymorphic_union.scope
-                            );
-
-                            auto job_after = &jobs[job_index];
-
-                            if(result.has_value) {
-                                if(!result.status) {
-                                    return err();
-                                }
-
-                                job_after->state = JobState::Done;
-                                job_after->resolve_polymorphic_union.type = result.value;
-                            } else {
-                                job_after->state = JobState::Waiting;
-                                job_after->waiting_for = result.waiting_for;
-                                job_after->arena.reset();
-                            }
-                        } break;
-
-                        case JobKind::ResolveEnumDefinition: {
-                            auto resolve_enum_definition = job->resolve_enum_definition;
-
-                            auto result = do_resolve_enum_definition(
-                                info,
-                                &jobs,
-                                &job->arena,
-                                resolve_enum_definition.definition,
-                                resolve_enum_definition.scope
-                            );
-
-                            auto job_after = &jobs[job_index];
-
-                            if(result.has_value) {
-                                if(!result.status) {
-                                    return err();
-                                }
-
-                                job_after->state = JobState::Done;
-                                job_after->resolve_enum_definition.type = result.value;
-                            } else {
-                                job_after->state = JobState::Waiting;
-                                job_after->waiting_for = result.waiting_for;
-                                job_after->arena.reset();
-                            }
-                        } break;
-
-                        case JobKind::TypeFunctionBody: {
-                            auto type_function_body = job->type_function_body;
-
-                            auto result = do_type_function_body(
-                                info,
-                                &jobs,
-                                &job->arena,
-                                type_function_body.type,
-                                type_function_body.value
-                            );
-
-                            auto job_after = &jobs[job_index];
-
-                            if(result.has_value) {
-                                if(!result.status) {
-                                    return err();
-                                }
-
-                                job_after->state = JobState::Done;
-                                job_after->type_function_body.statements = result.value;
-                            } else {
-                                job_after->state = JobState::Waiting;
-                                job_after->waiting_for = result.waiting_for;
-                                job_after->arena.reset();
-                            }
-                        } break;
-
-                        case JobKind::TypeStaticVariable: {
-                            auto type_static_variable = job->type_static_variable;
-
-                            auto result = do_type_static_variable(
-                                info,
-                                &jobs,
-                                &job->arena,
-                                type_static_variable.declaration,
-                                type_static_variable.scope
-                            );
-
-                            auto job_after = &jobs[job_index];
-
-                            if(result.has_value) {
-                                if(!result.status) {
-                                    return err();
-                                }
-
-                                job_after->state = JobState::Done;
-                                job_after->type_static_variable.type = result.value;
-                            } else {
-                                job_after->state = JobState::Waiting;
-                                job_after->waiting_for = result.waiting_for;
-                                job_after->arena.reset();
-                            }
-                        } break;
-
-                        default: abort();
-                    }
-
-                    did_work = true;
-                    break;
-                }
-            }
-
-            if(!did_work) {
-                break;
-            }
-        }
-
-        auto all_jobs_done = true;
-        for(auto job : jobs) {
-            if(job.state != JobState::Done) {
-                all_jobs_done = false;
-            }
-        }
-
-        if(!all_jobs_done) {
-            fprintf(stderr, "Error: Circular dependency detected!\n");
-            fprintf(stderr, "Error: The following areas depend on eathother:\n");
-
-            for(auto job : jobs) {
-                if(job.state != JobState::Done) {
-                    ConstantScope* scope;
-                    FileRange range;
-                    switch(job.kind) {
-                        case JobKind::ParseFile: {
-                            abort();
-                        } break;
-
-                        case JobKind::ResolveStaticIf: {
-                            auto resolve_static_if = job.resolve_static_if;
-
-                            scope = resolve_static_if.scope;
-                            range = resolve_static_if.static_if->range;
-                        } break;
-
-                        case JobKind::ResolveFunctionDeclaration: {
-                            auto resolve_function_declaration = job.resolve_function_declaration;
-
-                            scope = resolve_function_declaration.scope;
-                            range = resolve_function_declaration.declaration->range;
-                        } break;
-
-                        case JobKind::ResolvePolymorphicFunction: {
-                            auto resolve_polymorphic_function = job.resolve_polymorphic_function;
-
-                            scope = resolve_polymorphic_function.scope;
-                            range = resolve_polymorphic_function.declaration->range;
-                        } break;
-
-                        case JobKind::ResolveConstantDefinition: {
-                            auto resolve_constant_definition = job.resolve_constant_definition;
-
-                            scope = resolve_constant_definition.scope;
-                            range = resolve_constant_definition.definition->range;
-                        } break;
-
-                        case JobKind::ResolveStructDefinition: {
-                            auto resolve_struct_definition = job.resolve_struct_definition;
-
-                            scope = resolve_struct_definition.scope;
-                            range = resolve_struct_definition.definition->range;
-                        } break;
-
-                        case JobKind::ResolvePolymorphicStruct: {
-                            auto resolve_polymorphic_struct = job.resolve_polymorphic_struct;
-
-                            scope = resolve_polymorphic_struct.scope;
-                            range = resolve_polymorphic_struct.definition->range;
-                        } break;
-
-                        case JobKind::ResolveUnionDefinition: {
-                            auto resolve_union_definition = job.resolve_union_definition;
-
-                            scope = resolve_union_definition.scope;
-                            range = resolve_union_definition.definition->range;
-                        } break;
-
-                        case JobKind::ResolvePolymorphicUnion: {
-                            auto resolve_polymorphic_union = job.resolve_polymorphic_union;
-
-                            scope = resolve_polymorphic_union.scope;
-                            range = resolve_polymorphic_union.definition->range;
-                        } break;
-
-                        case JobKind::TypeFunctionBody: {
-                            auto type_function_body = job.type_function_body;
-
-                            scope = type_function_body.value.body_scope->parent;
-                            range = type_function_body.value.declaration->range;
-                        } break;
-
-                        case JobKind::TypeStaticVariable: {
-                            auto type_static_variable = job.type_static_variable;
-
-                            scope = type_static_variable.scope;
-                            range = type_static_variable.declaration->range;
-                        } break;
-
-                        default: abort();
-                    }
-
-                    error(scope, range, "Here");
-                }
-            }
-
-            return err();
-        }
-
-        return ok();
     }
 }

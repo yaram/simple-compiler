@@ -113,7 +113,7 @@ Result<size_t> validate_c_string(const char* c_string) {
     return ok(length);
 }
 
-const Result<String> String::from_c_string(Arena* arena, const char* c_string) {
+Result<String> String::from_c_string(Arena* arena, const char* c_string) {
     expect(length, validate_c_string(c_string));
 
     auto elements = arena->allocate<char8_t>(length);
