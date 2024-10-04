@@ -12,6 +12,8 @@
 
 struct ParseFile {
     String path;
+    bool has_source;
+    Array<uint8_t> source;
 
     ConstantScope* scope;
 };

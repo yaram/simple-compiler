@@ -99,32 +99,28 @@ struct SourceFile {
     Array<Error> errors;
 };
 
-struct CompileSourceFileResult {
-    bool status;
+static void compile_source_file(GlobalInfo info, SourceFile* file) {
+    file->needs_compilation = false;
 
-    Array<AnyJob> jobs;
+    file->compilation_arena.reset();
 
-    Array<Error> errors;
-};
-
-static CompileSourceFileResult compile_source_file(Arena* compilation_arena, GlobalInfo info, String absolute_path) {
-    List<Error> errors(compilation_arena);
+    List<Error> errors(&file->compilation_arena);
 
     ErrorHandlerState error_handler_state {};
-    error_handler_state.arena = compilation_arena;
+    error_handler_state.arena = &file->compilation_arena;
     error_handler_state.errors = &errors;
 
     register_error_handler(&error_handler, &error_handler_state);
 
-    errors.length = 0;
-
-    List<AnyJob> jobs(compilation_arena);
+    List<AnyJob> jobs(&file->compilation_arena);
 
     {
         AnyJob job {};
         job.kind = JobKind::ParseFile;
         job.state = JobState::Working;
-        job.parse_file.path = absolute_path;
+        job.parse_file.path = file->absolute_path;
+        job.parse_file.has_source = true;
+        job.parse_file.source = Array(file->source_text.length, (uint8_t*)file->source_text.elements);
 
         jobs.append(job);
     }
@@ -147,29 +143,40 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
                     case JobKind::ParseFile: {
                         auto parse_file = &job->parse_file;
 
-                        auto tokens_result = tokenize_source(&job->arena, parse_file->path);
-                        if(!tokens_result.status) {
-                            CompileSourceFileResult result {};
-                            result.status = false;
-                            result.jobs = jobs;
-                            result.errors = errors;
+                        Array<Token> tokens;
+                        if(parse_file->has_source) {
+                            auto tokens_result = tokenize_source(&job->arena, parse_file->path, parse_file->source);
+                            if(!tokens_result.status) {
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                            return result;
+                                return;
+                            }
+
+                            tokens = tokens_result.value;
+                        } else {
+                            auto tokens_result = tokenize_source(&job->arena, parse_file->path);
+                            if(!tokens_result.status) {
+                                file->jobs = jobs;
+                                file->errors = errors;
+
+                                return;
+                            }
+
+                            tokens = tokens_result.value;
                         }
 
-                        auto statements_result = parse_tokens(&job->arena, parse_file->path, tokens_result.value);
+                        auto statements_result = parse_tokens(&job->arena, parse_file->path, tokens);
                         if(!statements_result.status) {
-                            CompileSourceFileResult result {};
-                            result.status = false;
-                            result.jobs = jobs;
-                            result.errors = errors;
+                            file->jobs = jobs;
+                            file->errors = errors;
 
-                            return result;
+                            return;
                         }
 
-                        auto scope = compilation_arena->allocate_and_construct<ConstantScope>();
+                        auto scope = file->compilation_arena.allocate_and_construct<ConstantScope>();
                         scope->statements = statements_result.value;
-                        scope->declarations = create_declaration_hash_table(compilation_arena, statements_result.value);
+                        scope->declarations = create_declaration_hash_table(&file->compilation_arena, statements_result.value);
                         scope->scope_constants = {};
                         scope->is_top_level = true;
                         scope->file_path = parse_file->path;
@@ -177,14 +184,12 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
                         parse_file->scope = scope;
                         job->state = JobState::Done;
 
-                        auto result = process_scope(compilation_arena, &jobs, scope, statements_result.value, nullptr, true);
+                        auto result = process_scope(&file->compilation_arena, &jobs, scope, statements_result.value, nullptr, true);
                         if(!result.status) {
-                            CompileSourceFileResult result {};
-                            result.status = false;
-                            result.jobs = jobs;
-                            result.errors = errors;
+                            file->jobs = jobs;
+                            file->errors = errors;
 
-                            return result;
+                            return;
                         }
 
                         auto job_after = jobs[job_index];
@@ -196,7 +201,7 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
                         auto result = do_resolve_static_if(
                             info,
                             &jobs,
-                            compilation_arena,
+                            &file->compilation_arena,
                             &job->arena,
                             resolve_static_if.static_if,
                             resolve_static_if.scope
@@ -206,12 +211,10 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompileSourceFileResult result {};
-                                result.status = false;
-                                result.jobs = jobs;
-                                result.errors = errors;
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                                return result;
+                                return;
                             }
 
                             job_after->state = JobState::Done;
@@ -230,7 +233,7 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
                         auto result = do_resolve_function_declaration(
                             info,
                             &jobs,
-                            compilation_arena,
+                            &file->compilation_arena,
                             &job->arena,
                             resolve_function_declaration.declaration,
                             resolve_function_declaration.scope
@@ -240,12 +243,10 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompileSourceFileResult result {};
-                                result.status = false;
-                                result.jobs = jobs;
-                                result.errors = errors;
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                                return result;
+                                return;
                             }
 
                             job_after->state = JobState::Done;
@@ -295,7 +296,7 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
                         auto result = do_resolve_polymorphic_function(
                             info,
                             &jobs,
-                            compilation_arena,
+                            &file->compilation_arena,
                             &job->arena,
                             resolve_polymorphic_function.declaration,
                             resolve_polymorphic_function.parameters,
@@ -308,12 +309,10 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompileSourceFileResult result {};
-                                result.status = false;
-                                result.jobs = jobs;
-                                result.errors = errors;
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                                return result;
+                                return;
                             }
 
                             job_after->state = JobState::Done;
@@ -342,12 +341,10 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompileSourceFileResult result {};
-                                result.status = false;
-                                result.jobs = jobs;
-                                result.errors = errors;
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                                return result;
+                                return;
                             }
 
                             job_after->state = JobState::Done;
@@ -375,12 +372,10 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompileSourceFileResult result {};
-                                result.status = false;
-                                result.jobs = jobs;
-                                result.errors = errors;
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                                return result;
+                                return;
                             }
 
                             job_after->state = JobState::Done;
@@ -408,12 +403,10 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompileSourceFileResult result {};
-                                result.status = false;
-                                result.jobs = jobs;
-                                result.errors = errors;
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                                return result;
+                                return;
                             }
 
                             job_after->state = JobState::Done;
@@ -440,12 +433,10 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompileSourceFileResult result {};
-                                result.status = false;
-                                result.jobs = jobs;
-                                result.errors = errors;
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                                return result;
+                                return;
                             }
 
                             job_after->state = JobState::Done;
@@ -473,12 +464,10 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompileSourceFileResult result {};
-                                result.status = false;
-                                result.jobs = jobs;
-                                result.errors = errors;
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                                return result;
+                                return;
                             }
 
                             job_after->state = JobState::Done;
@@ -505,12 +494,10 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompileSourceFileResult result {};
-                                result.status = false;
-                                result.jobs = jobs;
-                                result.errors = errors;
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                                return result;
+                                return;
                             }
 
                             job_after->state = JobState::Done;
@@ -537,12 +524,10 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompileSourceFileResult result {};
-                                result.status = false;
-                                result.jobs = jobs;
-                                result.errors = errors;
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                                return result;
+                                return;
                             }
 
                             job_after->state = JobState::Done;
@@ -569,12 +554,10 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompileSourceFileResult result {};
-                                result.status = false;
-                                result.jobs = jobs;
-                                result.errors = errors;
+                                file->jobs = jobs;
+                                file->errors = errors;
 
-                                return result;
+                                return;
                             }
 
                             job_after->state = JobState::Done;
@@ -598,6 +581,8 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
             break;
         }
     }
+
+    file->jobs = jobs;
 
     auto all_jobs_done = true;
     for(auto job : jobs) {
@@ -692,21 +677,9 @@ static CompileSourceFileResult compile_source_file(Arena* compilation_arena, Glo
                 error(scope, range, "Circular dependency detected");
             }
         }
-
-        CompileSourceFileResult result {};
-        result.status = false;
-        result.jobs = jobs;
-        result.errors = errors;
-
-        return result;
     }
 
-    CompileSourceFileResult result {};
-    result.status = true;
-    result.jobs = jobs;
-    result.errors = errors;
-
-    return result;
+    file->errors = errors;
 }
 
 enum ErrorCode {
@@ -758,6 +731,23 @@ static void send_error_response(Arena* arena, cJSON* id, ErrorCode error_code, S
     cJSON_AddStringToObject(error, "message", error_message.to_c_string(arena));
 
     cJSON_AddItemToObject(json, "error", error);
+
+    auto json_text = cJSON_PrintUnformatted(json);
+
+    printf("Content-Length: %zu\r\n", strlen(json_text));
+    printf("\r\n");
+    fputs(json_text, stdout);
+    fflush(stdout);
+}
+
+static void send_notification(Arena* arena, const char* method, cJSON* params) {
+    auto json = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(json, "jsonrpc", "2.0");
+
+    cJSON_AddStringToObject(json, "method", method);
+
+    cJSON_AddItemToObject(json, "params", params);
 
     auto json_text = cJSON_PrintUnformatted(json);
 
@@ -853,6 +843,153 @@ static Result<size_t> utf16_position_to_utf8_offset(String text, unsigned int li
     }
 
     return err();
+}
+
+struct UTF8PositionToUTF16PositionResult {
+    unsigned int line;
+    unsigned int column;
+};
+
+// Input is one-based (like FileRange and Token), output is zero-based
+static Result<UTF8PositionToUTF16PositionResult> utf8_position_to_utf16_position(
+    String text,
+    unsigned int line,
+    unsigned int column,
+    bool one_past
+) {
+    unsigned int current_line = 1;
+    unsigned int current_column = 1;
+
+    unsigned int result_line = 0;
+    unsigned int result_column = 0;
+
+    size_t index = 0;
+    while(index != text.length) {
+        if(!one_past && current_line == line && current_column == column) {
+            UTF8PositionToUTF16PositionResult result {};
+            result.line = result_line;
+            result.column = result_column;
+
+            return ok(result);
+        }
+
+        auto old_current_line = current_line;
+        auto old_current_column = current_column;
+
+        auto old_index = index;
+
+        auto codepoint = get_codepoint_at(text, &index);
+
+        auto codepoint_utf8_length = index - old_index;
+
+        if(codepoint == '\r') {
+            if(index != text.length) {
+                auto temp_index = index;
+
+                auto codepoint = get_codepoint_at(text, &temp_index);
+
+                if(codepoint == '\n') {
+                    index = temp_index;
+                }
+            }
+
+            current_line += 1;
+            current_column = 1;
+
+            result_line += 1;
+            result_column = 0;
+        } else if(codepoint =='\n') {
+            current_line += 1;
+            current_column = 1;
+
+            result_line += 1;
+            result_column = 0;
+        } else {
+            current_column += codepoint_utf8_length;
+
+            if(codepoint >= 0x010000) {
+                result_column += 2;
+            } else {
+                result_column += 1;
+            }
+        }
+
+        if(one_past && old_current_line == line && old_current_column == column) {
+            UTF8PositionToUTF16PositionResult result {};
+            result.line = result_line;
+            result.column = result_column;
+
+            return ok(result);
+        }
+    }
+
+    if(!one_past && current_line == line && current_column == column) {
+        UTF8PositionToUTF16PositionResult result {};
+        result.line = result_line;
+        result.column = result_column;
+
+        return ok(result);
+    }
+
+    return err();
+}
+
+static void compile_and_send_diagnostics(Arena* request_arena, GlobalInfo info, String uri, SourceFile* file) {
+    compile_source_file(info, file);
+
+    auto params = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(params, "uri", uri.to_c_string(request_arena));
+
+    auto diagnostics = cJSON_CreateArray();
+
+    for(auto error : file->errors) {
+        if(error.path == file->absolute_path) {
+            auto diagnostic = cJSON_CreateObject();
+
+            auto range = cJSON_CreateObject();
+
+            auto start = cJSON_CreateObject();
+
+            auto start_result = utf8_position_to_utf16_position(
+                file->source_text,
+                error.range.first_line,
+                error.range.first_column,
+                false
+            );
+            assert(start_result.status);
+
+            cJSON_AddNumberToObject(start, "line", (double)start_result.value.line);
+            cJSON_AddNumberToObject(start, "character", (double)start_result.value.column);
+
+            cJSON_AddItemToObject(range, "start", start);
+
+            auto end = cJSON_CreateObject();
+
+            auto end_result = utf8_position_to_utf16_position(
+                file->source_text,
+                error.range.last_line,
+                error.range.last_column,
+                true
+            );
+            assert(end_result.status);
+
+            cJSON_AddNumberToObject(end, "line", (double)end_result.value.line);
+            cJSON_AddNumberToObject(end, "character", (double)end_result.value.column);
+
+            cJSON_AddItemToObject(range, "end", end);
+
+            cJSON_AddItemToObject(diagnostic, "range", range);
+
+            cJSON_AddStringToObject(diagnostic, "message", error.text.to_c_string(request_arena));
+
+            cJSON_AddItemToArray(diagnostics, diagnostic);
+        }
+    }
+
+    cJSON_AddItemToObject(params, "diagnostics", diagnostics);
+
+    send_notification(request_arena, "textDocument/publishDiagnostics", params);
 }
 
 int main(int argument_count, const char* arguments[]) {
@@ -1407,6 +1544,8 @@ int main(int argument_count, const char* arguments[]) {
                     source_file->is_claimed = true;
                     source_file->source_text = text;
                     source_file->needs_compilation = true;
+
+                    compile_and_send_diagnostics(&request_arena, info, uri, source_file);
                 } else {
                     Arena source_text_arena {};
 
@@ -1424,7 +1563,9 @@ int main(int argument_count, const char* arguments[]) {
                     new_source_file.source_text = text;
                     new_source_file.needs_compilation = true;
 
-                    source_files.append(new_source_file);
+                    auto index = source_files.append(new_source_file);
+
+                    compile_and_send_diagnostics(&request_arena, info, uri, &source_files[index]);
                 }
             } else if(method == u8"textDocument/didChange"_S) {
                 if(id != nullptr) {
@@ -1692,6 +1833,8 @@ int main(int argument_count, const char* arguments[]) {
                     source_file->source_text_arena = final_source_text_arena;
                     source_file->source_text = current_source_text;
                     source_file->needs_compilation = true;
+
+                    compile_and_send_diagnostics(&request_arena, info, uri, source_file);
                 }
             } else if(method == u8"textDocument/didClose"_S) {
                 if(id != nullptr) {

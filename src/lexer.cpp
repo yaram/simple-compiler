@@ -836,10 +836,6 @@ namespace {
 };
 
 profiled_function(Result<Array<Token>>, tokenize_source, (Arena* arena, String path), (path)) {
-    Lexer lexer {};
-    lexer.arena = arena;
-    lexer.path = path;
-
     enter_region("read source file");
 
     auto file = fopen(path.to_c_string(arena), "rb");
@@ -864,13 +860,13 @@ profiled_function(Result<Array<Token>>, tokenize_source, (Arena* arena, String p
         return err();
     }
 
-    lexer.length = (size_t)signed_length;
+    auto length = (size_t)signed_length;
 
     fseek(file, 0, SEEK_SET);
 
-    lexer.source = arena->allocate<uint8_t>(lexer.length);
+    auto source = arena->allocate<uint8_t>(length);
 
-    if(fread(lexer.source, lexer.length, 1, file) != 1) {
+    if(fread(source, length, 1, file) != 1) {
         fprintf(stderr, "Error: Unable to read source file at '%.*s'\n", STRING_PRINTF_ARGUMENTS(path));
 
         leave_region();
@@ -881,6 +877,17 @@ profiled_function(Result<Array<Token>>, tokenize_source, (Arena* arena, String p
     fclose(file);
 
     leave_region();
+
+    return tokenize_source(arena, path, Array(length, source));
+}
+
+profiled_function(Result<Array<Token>>, tokenize_source, (Arena* arena, String path, Array<uint8_t> source), (path)) {
+    Lexer lexer {};
+    lexer.arena = arena;
+    lexer.path = path;
+
+    lexer.source = source.elements;
+    lexer.length = source.length;
 
     lexer.index = 0;
 

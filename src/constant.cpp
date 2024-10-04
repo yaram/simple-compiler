@@ -4474,6 +4474,7 @@ profiled_function(Result<void>, process_scope, (
                     job.kind = JobKind::ParseFile;
                     job.state = JobState::Working;
                     job.parse_file.path = import->absolute_path;
+                    job.parse_file.has_source = false;
 
                     jobs->append(job);
                 }

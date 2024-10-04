@@ -493,6 +493,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         job.kind = JobKind::ParseFile;
         job.state = JobState::Working;
         job.parse_file.path = absolute_source_file_path;
+        job.parse_file.has_source = false;
 
         main_file_parse_job_index = jobs.append(job);
     }
@@ -532,7 +533,16 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
                         auto start_time = get_timer_counts();
 
-                        expect(tokens, tokenize_source(&job->arena, parse_file->path));
+                        Array<Token> tokens;
+                        if(parse_file->has_source) {
+                            expect(the_tokens, tokenize_source(&job->arena, parse_file->path, parse_file->source));
+
+                            tokens = the_tokens;
+                        } else {
+                            expect(the_tokens, tokenize_source(&job->arena, parse_file->path));
+
+                            tokens = the_tokens;
+                        }
 
                         expect(statements, parse_tokens(&job->arena, parse_file->path, tokens));
 
