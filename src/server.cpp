@@ -111,8 +111,6 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
     register_error_handler(&error_handler, &error_handler_state);
 
-    cjson_arena = &compilation_arena;
-
     errors.length = 0;
 
     List<AnyJob> jobs(&compilation_arena);
@@ -982,7 +980,121 @@ int main(int argument_count, const char* arguments[]) {
 
     List<CompiledFile> compiled_files(&global_arena);
 
+    Arena request_arena {};
+
+    List<uint8_t> header_line_buffer(&global_arena);
     while(true) {
-        
+        request_arena.reset();
+
+        auto valid_header = true;
+        auto found_content_length = false;
+        size_t content_length;
+        while(true) {
+            header_line_buffer.length = 0;
+
+            bool valid_header_line;
+            while(true) {
+                auto character = fgetc(stdin);
+
+                if(character == EOF) {
+                    return 1;
+                }
+
+                if(character == '\r') {
+                    auto character = fgetc(stdin);
+
+                    if(character == EOF) {
+                        return 1;
+                    }
+
+                    if(character == '\n') {
+                        valid_header_line = true;
+                    } else {
+                        valid_header_line = false;
+                    }
+
+                    break;
+                }
+
+                header_line_buffer.append((uint8_t)character);
+            }
+
+            if(!valid_header_line) {
+                valid_header = false;
+                break;
+            }
+
+            if(!validate_ascii_string(header_line_buffer.elements, header_line_buffer.length).status) {
+                valid_header = false;
+                break;
+            }
+
+            String line {};
+            line.elements = (char8_t*)header_line_buffer.elements;
+            line.length = header_line_buffer.length;
+
+            if(line.length == 0) {
+                break;
+            }
+
+            auto found_separator = false;
+            size_t separator_index;
+            for(size_t i = 0; i < line.length; i += 1) {
+                if(line[i] == ':') {
+                    separator_index = i;
+                    found_separator = true;
+                    break;
+                }
+            }
+
+            if(!found_separator) {
+                valid_header = false;
+                break;
+            }
+
+            auto field_name = line.slice(0, separator_index).strip_whitespace();
+            auto field_value = line.slice(separator_index + 1).strip_whitespace();
+
+            if(field_name == u8"Content-Length"_S) {
+                if(sscanf(field_value.to_c_string(&request_arena), "%zu", &content_length) != 1) {
+                    valid_header = false;
+                    break;
+                }
+
+                found_content_length = true;
+            } else if(field_name == u8"Content-Type"_S) {
+                if(field_value != u8"application/vscode-jsonrpc; charset=utf-8"_S) {
+                    valid_header = false;
+                    break;
+                }
+            } else {
+                valid_header = false;
+                break;
+            }
+        }
+
+        if(!valid_header) {
+            return 1;
+        }
+
+        if(!found_content_length) {
+            return 1;
+        }
+
+        auto content = request_arena.allocate<uint8_t>(content_length);
+
+        if(fread(content, content_length, 1, stdin) != 1) {
+            return 1;
+        }
+
+        if(!validate_utf8_string(content, content_length).status) {
+            return 1;
+        }
+
+        cjson_arena = &request_arena;
+        auto json = cJSON_ParseWithLength((char*)content, content_length);
+        if(json == nullptr) {
+            return 1;
+        }
     }
 }

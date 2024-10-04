@@ -1,7 +1,17 @@
 #include <string.h>
 #include "string.h"
-#include "util.h"
 #include "profiler.h"
+
+Result<void> validate_ascii_string(uint8_t* bytes, size_t length) {
+    size_t index = 0;
+    for(size_t i = 0; i < length; i += 1) {
+        if(bytes[index] > 0x7F) {
+            return err();
+        }
+    }
+
+    return ok();
+}
 
 Result<void> validate_utf8_string(uint8_t* bytes, size_t length) {
     size_t index = 0;
@@ -132,6 +142,41 @@ char* String::to_c_string(Arena* arena) {
     c_string[length] = '\0';
 
     return c_string;
+}
+
+String String::strip_whitespace() {
+    if(length == 0) {
+        return *this;
+    }
+
+    auto found_first_index = false;
+    size_t first_index;
+    for(size_t i = 0; i < length; i += 1) {
+        auto code_unit = elements[i];
+
+        if(code_unit != ' ' && code_unit != '\t') {
+            found_first_index = true;
+            first_index = i;
+            break;
+        }
+    }
+
+    if(!found_first_index) {
+        return String::empty();
+    }
+
+    size_t last_index;
+    for(size_t i = 0; i < length; i += 1) {
+        auto index = length - 1 - i;
+        auto code_unit = elements[index];
+
+        if(code_unit != ' ' && code_unit != '\t') {
+            last_index = i;
+            break;
+        }
+    }
+
+    return slice(first_index, first_index - last_index + 1);
 }
 
 bool String::operator==(String other) {
