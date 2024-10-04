@@ -135,6 +135,15 @@ Result<String> String::from_c_string(Arena* arena, const char* c_string) {
     return ok(string);
 }
 
+Result<String> String::from_c_string(const char* c_string) {
+    expect(length, validate_c_string(c_string));
+
+    String string {};
+    string.length = length;
+    string.elements = (char8_t*)c_string;
+    return ok(string);
+}
+
 char* String::to_c_string(Arena* arena) {
     auto c_string = arena->allocate<char>(length + 1);
 
@@ -171,12 +180,12 @@ String String::strip_whitespace() {
         auto code_unit = elements[index];
 
         if(code_unit != ' ' && code_unit != '\t') {
-            last_index = i;
+            last_index = index;
             break;
         }
     }
 
-    return slice(first_index, first_index - last_index + 1);
+    return slice(first_index, last_index - first_index + 1);
 }
 
 bool String::operator==(String other) {

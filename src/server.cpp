@@ -784,6 +784,64 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
     return result;
 }
 
+enum ErrorCode {
+	UnknownErrorCode = -32001,
+	ServerNotInitialized = -32002,
+    InvalidRequest = -32600,
+    MethodNotFound = -32601,
+    InvalidParams = -32602,
+    InternalError = -32603,
+    ParseError = -32700,
+    RequestCancelled = -32800,
+    ContentModified = -32801,
+    ServerCancelled = -32802,
+    RequestFailed = -32803,
+};
+
+static void send_success_response(Arena* arena, cJSON* id, cJSON* result) {
+    auto json = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(json, "jsonrpc", "2.0");
+
+    cJSON_AddItemToObject(json, "id", id);
+
+    cJSON_AddItemToObject(json, "result", result);
+
+    auto json_text = cJSON_PrintUnformatted(json);
+
+    printf("Content-Length: %zu\r\n", strlen(json_text));
+    printf("\r\n");
+    fputs(json_text, stdout);
+    fflush(stdout);
+}
+
+static void send_error_response(Arena* arena, cJSON* id, ErrorCode error_code, String error_message) {
+    auto json = cJSON_CreateObject();
+
+    cJSON_AddStringToObject(json, "jsonrpc", "2.0");
+
+    if(id == nullptr) {
+        cJSON_AddNullToObject(json, "id");
+    } else {
+        cJSON_AddItemToObject(json, "id", id);
+    }
+
+    auto error = cJSON_CreateObject();
+
+    cJSON_AddNumberToObject(error, "code", error_code);
+
+    cJSON_AddStringToObject(error, "message", error_message.to_c_string(arena));
+
+    cJSON_AddItemToObject(json, "error", error);
+
+    auto json_text = cJSON_PrintUnformatted(json);
+
+    printf("Content-Length: %zu\r\n", strlen(json_text));
+    printf("\r\n");
+    fputs(json_text, stdout);
+    fflush(stdout);
+}
+
 int main(int argument_count, const char* arguments[]) {
     Arena global_arena {};
 
@@ -982,6 +1040,13 @@ int main(int argument_count, const char* arguments[]) {
 
     Arena request_arena {};
 
+    cjson_arena = &request_arena;
+
+    auto is_initialized = false;
+
+    bool has_root_uri;
+    String root_uri;
+
     List<uint8_t> header_line_buffer(&global_arena);
     while(true) {
         request_arena.reset();
@@ -1013,6 +1078,9 @@ int main(int argument_count, const char* arguments[]) {
                         valid_header_line = false;
                     }
 
+                    break;
+                } else if(character == '\n') {
+                    valid_header_line = false;
                     break;
                 }
 
@@ -1073,12 +1141,9 @@ int main(int argument_count, const char* arguments[]) {
             }
         }
 
-        if(!valid_header) {
-            return 1;
-        }
-
-        if(!found_content_length) {
-            return 1;
+        if(!valid_header || !found_content_length) {
+            send_error_response(&request_arena, nullptr, ErrorCode::UnknownErrorCode, u8"Invalid message header received"_S);
+            continue;
         }
 
         auto content = request_arena.allocate<uint8_t>(content_length);
@@ -1088,13 +1153,144 @@ int main(int argument_count, const char* arguments[]) {
         }
 
         if(!validate_utf8_string(content, content_length).status) {
-            return 1;
+            send_error_response(&request_arena, nullptr, ErrorCode::UnknownErrorCode, u8"Message content is not valid UTF-8"_S);
+            continue;
         }
 
-        cjson_arena = &request_arena;
         auto json = cJSON_ParseWithLength((char*)content, content_length);
         if(json == nullptr) {
-            return 1;
+            send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message content is not valid JSON"_S);
+            continue;
+        }
+        
+        if(!cJSON_IsObject(json)) {
+            send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body is not an object"_S);
+            continue;
+        }
+
+        auto jsonrpc_item = cJSON_GetObjectItem(json, "jsonrpc");
+        if(jsonrpc_item == nullptr) {
+            send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body is missing \"jsonrpc\" attribute"_S);
+            continue;
+        }
+
+        if(!cJSON_IsString(jsonrpc_item)) {
+            send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body \"jsonrpc\" attribute is not a string"_S);
+            continue;
+        }
+
+        auto jsonrpc_result = String::from_c_string(cJSON_GetStringValue(jsonrpc_item));
+        if(!jsonrpc_result.status) {
+            send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body \"jsonrpc\" attribute is not a valid UTF-8 string"_S);
+            continue;
+        }
+
+        if(jsonrpc_result.value != u8"2.0"_S) {
+            send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body \"jsonrpc\" attribute is not \"2.0\""_S);
+            continue;
+        }
+
+        auto method_item = cJSON_GetObjectItem(json, "method");
+        if(method_item == nullptr) {
+            send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body is missing \"method\" attribute"_S);
+            continue;
+        }
+
+        if(!cJSON_IsString(method_item)) {
+            send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body \"method\" attribute is not a string"_S);
+            continue;
+        }
+
+        auto method_result = String::from_c_string(cJSON_GetStringValue(method_item));
+        if(!method_result.status) {
+            send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body \"method\" attribute is not a valid UTF-8 string"_S);
+            continue;
+        }
+
+        auto method = method_result.value;
+
+        auto id = cJSON_DetachItemFromObject(json, "id");
+
+        if(id != nullptr) {
+            if(!cJSON_IsString(id) && !cJSON_IsNumber(id)) {
+                send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body \"id\" attribute is incorrect type"_S);
+                continue;
+            }
+        }
+
+        auto params_item = cJSON_GetObjectItem(json, "params");
+
+        if(method == u8"initialize"_S) {
+            if(id == nullptr) {
+                send_error_response(&request_arena, nullptr, ErrorCode::InvalidRequest, u8"Message body \"id\" attribute is missing"_S);
+                continue;
+            }
+
+            if(is_initialized) {
+                send_error_response(&request_arena, id, ErrorCode::RequestFailed, u8"Server has already been initialized"_S);
+                continue;
+            }
+
+            if(!cJSON_IsObject(params_item)) {
+                send_error_response(&request_arena, id, ErrorCode::InvalidParams, u8"Parameters should be an object"_S);
+                continue;
+            }
+
+            auto process_id_item = cJSON_GetObjectItem(params_item, "processId");
+            if(process_id_item == nullptr) {
+                send_error_response(&request_arena, id, ErrorCode::InvalidParams, u8"Parameters \"processId\" attribute is missing"_S);
+                continue;
+            }
+
+            if(!cJSON_IsNumber(process_id_item) && !cJSON_IsNull(process_id_item)) {
+                send_error_response(&request_arena, id, ErrorCode::InvalidParams, u8"Parameters \"processId\" attribute is incorrect type"_S);
+                continue;
+            }
+
+            auto root_uri_item = cJSON_GetObjectItem(params_item, "rootUri");
+            if(root_uri_item == nullptr) {
+                send_error_response(&request_arena, id, ErrorCode::InvalidParams, u8"Parameters \"rootUri\" attribute is missing"_S);
+                continue;
+            }
+
+            if(cJSON_IsString(root_uri_item)) {
+                auto result = String::from_c_string(&global_arena, cJSON_GetStringValue(root_uri_item));
+
+                if(!result.status) {
+                    send_error_response(&request_arena, id, ErrorCode::InvalidParams, u8"Parameters \"rootUri\" attribute is not a valid UTF-8 string"_S);
+                    continue;
+                }
+
+                has_root_uri = true;
+                root_uri = result.value;
+            } else if(cJSON_IsNull(root_uri_item)) {
+                has_root_uri = false;
+            } else {
+                send_error_response(&request_arena, id, ErrorCode::InvalidParams, u8"Parameters \"rootUri\" attribute is incorrect type"_S);
+                continue;
+            }
+
+            is_initialized = true;
+
+            auto result = cJSON_CreateObject();
+
+            cJSON_AddObjectToObject(result, "capabilities");
+
+            send_success_response(&request_arena, id, result);
+        } else {
+            if(!is_initialized && id != nullptr) {
+                send_error_response(&request_arena, id, ErrorCode::ServerNotInitialized, u8"Server has not been initialized"_S);
+                continue;
+            }
+
+            if(method == u8"initialized"_S) {
+                // Do nothing
+            } else {
+                if(!(method.length >= 2 && method.slice(0, 2) == u8"$/"_S && id == nullptr)) {
+                    send_error_response(&request_arena, id, ErrorCode::MethodNotFound, u8"Unknown or unimplemented method"_S);
+                    continue;
+                }
+            }
         }
     }
 }
