@@ -84,36 +84,41 @@ static void error_handler(void* data, String path, FileRange range, const char* 
     state->errors->append(error);
 }
 
-struct CompiledFile {
+struct SourceFile {
     String absolute_path;
 
+    bool is_claimed;
+
+    Arena source_text_arena;
+    String source_text;
+
+    bool needs_compilation;
+
     Arena compilation_arena;
-
     Array<AnyJob> jobs;
-
     Array<Error> errors;
 };
 
 struct CompileSourceFileResult {
     bool status;
 
-    CompiledFile file;
+    Array<AnyJob> jobs;
+
+    Array<Error> errors;
 };
 
-static CompileSourceFileResult compile_source_file(GlobalInfo info, String absolute_path) {
-    Arena compilation_arena {};
-
-    List<Error> errors(&compilation_arena);
+static CompileSourceFileResult compile_source_file(Arena* compilation_arena, GlobalInfo info, String absolute_path) {
+    List<Error> errors(compilation_arena);
 
     ErrorHandlerState error_handler_state {};
-    error_handler_state.arena = &compilation_arena;
+    error_handler_state.arena = compilation_arena;
     error_handler_state.errors = &errors;
 
     register_error_handler(&error_handler, &error_handler_state);
 
     errors.length = 0;
 
-    List<AnyJob> jobs(&compilation_arena);
+    List<AnyJob> jobs(compilation_arena);
 
     {
         AnyJob job {};
@@ -144,37 +149,27 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         auto tokens_result = tokenize_source(&job->arena, parse_file->path);
                         if(!tokens_result.status) {
-                            CompiledFile file {};
-                            file.absolute_path = absolute_path;
-                            file.compilation_arena = compilation_arena;
-                            file.jobs = jobs;
-                            file.errors = errors;
-
                             CompileSourceFileResult result {};
                             result.status = false;
-                            result.file = file;
+                            result.jobs = jobs;
+                            result.errors = errors;
 
                             return result;
                         }
 
                         auto statements_result = parse_tokens(&job->arena, parse_file->path, tokens_result.value);
                         if(!statements_result.status) {
-                            CompiledFile file {};
-                            file.absolute_path = absolute_path;
-                            file.compilation_arena = compilation_arena;
-                            file.jobs = jobs;
-                            file.errors = errors;
-
                             CompileSourceFileResult result {};
                             result.status = false;
-                            result.file = file;
+                            result.jobs = jobs;
+                            result.errors = errors;
 
                             return result;
                         }
 
-                        auto scope = compilation_arena.allocate_and_construct<ConstantScope>();
+                        auto scope = compilation_arena->allocate_and_construct<ConstantScope>();
                         scope->statements = statements_result.value;
-                        scope->declarations = create_declaration_hash_table(&compilation_arena, statements_result.value);
+                        scope->declarations = create_declaration_hash_table(compilation_arena, statements_result.value);
                         scope->scope_constants = {};
                         scope->is_top_level = true;
                         scope->file_path = parse_file->path;
@@ -182,17 +177,12 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
                         parse_file->scope = scope;
                         job->state = JobState::Done;
 
-                        auto result = process_scope(&compilation_arena, &jobs, scope, statements_result.value, nullptr, true);
+                        auto result = process_scope(compilation_arena, &jobs, scope, statements_result.value, nullptr, true);
                         if(!result.status) {
-                            CompiledFile file {};
-                            file.absolute_path = absolute_path;
-                            file.compilation_arena = compilation_arena;
-                            file.jobs = jobs;
-                            file.errors = errors;
-
                             CompileSourceFileResult result {};
                             result.status = false;
-                            result.file = file;
+                            result.jobs = jobs;
+                            result.errors = errors;
 
                             return result;
                         }
@@ -206,7 +196,7 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
                         auto result = do_resolve_static_if(
                             info,
                             &jobs,
-                            &compilation_arena,
+                            compilation_arena,
                             &job->arena,
                             resolve_static_if.static_if,
                             resolve_static_if.scope
@@ -216,15 +206,10 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompiledFile file {};
-                                file.absolute_path = absolute_path;
-                                file.compilation_arena = compilation_arena;
-                                file.jobs = jobs;
-                                file.errors = errors;
-
                                 CompileSourceFileResult result {};
                                 result.status = false;
-                                result.file = file;
+                                result.jobs = jobs;
+                                result.errors = errors;
 
                                 return result;
                             }
@@ -245,7 +230,7 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
                         auto result = do_resolve_function_declaration(
                             info,
                             &jobs,
-                            &compilation_arena,
+                            compilation_arena,
                             &job->arena,
                             resolve_function_declaration.declaration,
                             resolve_function_declaration.scope
@@ -255,15 +240,10 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompiledFile file {};
-                                file.absolute_path = absolute_path;
-                                file.compilation_arena = compilation_arena;
-                                file.jobs = jobs;
-                                file.errors = errors;
-
                                 CompileSourceFileResult result {};
                                 result.status = false;
-                                result.file = file;
+                                result.jobs = jobs;
+                                result.errors = errors;
 
                                 return result;
                             }
@@ -315,7 +295,7 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
                         auto result = do_resolve_polymorphic_function(
                             info,
                             &jobs,
-                            &compilation_arena,
+                            compilation_arena,
                             &job->arena,
                             resolve_polymorphic_function.declaration,
                             resolve_polymorphic_function.parameters,
@@ -328,15 +308,10 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompiledFile file {};
-                                file.absolute_path = absolute_path;
-                                file.compilation_arena = compilation_arena;
-                                file.jobs = jobs;
-                                file.errors = errors;
-
                                 CompileSourceFileResult result {};
                                 result.status = false;
-                                result.file = file;
+                                result.jobs = jobs;
+                                result.errors = errors;
 
                                 return result;
                             }
@@ -367,15 +342,10 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompiledFile file {};
-                                file.absolute_path = absolute_path;
-                                file.compilation_arena = compilation_arena;
-                                file.jobs = jobs;
-                                file.errors = errors;
-
                                 CompileSourceFileResult result {};
                                 result.status = false;
-                                result.file = file;
+                                result.jobs = jobs;
+                                result.errors = errors;
 
                                 return result;
                             }
@@ -405,15 +375,10 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompiledFile file {};
-                                file.absolute_path = absolute_path;
-                                file.compilation_arena = compilation_arena;
-                                file.jobs = jobs;
-                                file.errors = errors;
-
                                 CompileSourceFileResult result {};
                                 result.status = false;
-                                result.file = file;
+                                result.jobs = jobs;
+                                result.errors = errors;
 
                                 return result;
                             }
@@ -443,15 +408,10 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompiledFile file {};
-                                file.absolute_path = absolute_path;
-                                file.compilation_arena = compilation_arena;
-                                file.jobs = jobs;
-                                file.errors = errors;
-
                                 CompileSourceFileResult result {};
                                 result.status = false;
-                                result.file = file;
+                                result.jobs = jobs;
+                                result.errors = errors;
 
                                 return result;
                             }
@@ -480,15 +440,10 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompiledFile file {};
-                                file.absolute_path = absolute_path;
-                                file.compilation_arena = compilation_arena;
-                                file.jobs = jobs;
-                                file.errors = errors;
-
                                 CompileSourceFileResult result {};
                                 result.status = false;
-                                result.file = file;
+                                result.jobs = jobs;
+                                result.errors = errors;
 
                                 return result;
                             }
@@ -518,15 +473,10 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompiledFile file {};
-                                file.absolute_path = absolute_path;
-                                file.compilation_arena = compilation_arena;
-                                file.jobs = jobs;
-                                file.errors = errors;
-
                                 CompileSourceFileResult result {};
                                 result.status = false;
-                                result.file = file;
+                                result.jobs = jobs;
+                                result.errors = errors;
 
                                 return result;
                             }
@@ -555,15 +505,10 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompiledFile file {};
-                                file.absolute_path = absolute_path;
-                                file.compilation_arena = compilation_arena;
-                                file.jobs = jobs;
-                                file.errors = errors;
-
                                 CompileSourceFileResult result {};
                                 result.status = false;
-                                result.file = file;
+                                result.jobs = jobs;
+                                result.errors = errors;
 
                                 return result;
                             }
@@ -592,15 +537,10 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompiledFile file {};
-                                file.absolute_path = absolute_path;
-                                file.compilation_arena = compilation_arena;
-                                file.jobs = jobs;
-                                file.errors = errors;
-
                                 CompileSourceFileResult result {};
                                 result.status = false;
-                                result.file = file;
+                                result.jobs = jobs;
+                                result.errors = errors;
 
                                 return result;
                             }
@@ -629,15 +569,10 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
 
                         if(result.has_value) {
                             if(!result.status) {
-                                CompiledFile file {};
-                                file.absolute_path = absolute_path;
-                                file.compilation_arena = compilation_arena;
-                                file.jobs = jobs;
-                                file.errors = errors;
-
                                 CompileSourceFileResult result {};
                                 result.status = false;
-                                result.file = file;
+                                result.jobs = jobs;
+                                result.errors = errors;
 
                                 return result;
                             }
@@ -758,28 +693,18 @@ static CompileSourceFileResult compile_source_file(GlobalInfo info, String absol
             }
         }
 
-        CompiledFile file {};
-        file.absolute_path = absolute_path;
-        file.compilation_arena = compilation_arena;
-        file.jobs = jobs;
-        file.errors = errors;
-
         CompileSourceFileResult result {};
         result.status = false;
-        result.file = file;
+        result.jobs = jobs;
+        result.errors = errors;
 
         return result;
     }
 
-    CompiledFile file {};
-    file.absolute_path = absolute_path;
-    file.compilation_arena = compilation_arena;
-    file.jobs = jobs;
-    file.errors = errors;
-
     CompileSourceFileResult result {};
     result.status = true;
-    result.file = file;
+    result.jobs = jobs;
+    result.errors = errors;
 
     return result;
 }
@@ -840,6 +765,94 @@ static void send_error_response(Arena* arena, cJSON* id, ErrorCode error_code, S
     printf("\r\n");
     fputs(json_text, stdout);
     fflush(stdout);
+}
+
+static char32_t get_codepoint_at(String text, size_t* index) {
+    auto first_byte = text[*index];
+    *index += 1;
+
+    if(first_byte >> 7 == 0) {
+        return (char32_t)first_byte;
+    }
+
+    auto second_byte = text[*index];
+    *index += 1;
+
+    if(first_byte >> 5 == 0b110) {
+        auto codepoint = (((uint32_t)first_byte & 0b11111) << 6) | ((uint32_t)second_byte & 0b111111);
+
+        return (char32_t)codepoint;
+    }
+
+    auto third_byte = text[*index];
+    *index += 1;
+
+    if(first_byte >> 4 == 0b1110) {
+        auto codepoint =
+            (((uint32_t)first_byte & 0b1111) << 12) |
+            (((uint32_t)second_byte & 0b111111) << 6) |
+            ((uint32_t)third_byte & 0b111111)
+        ;
+
+        return (char32_t)codepoint;
+    }
+
+    auto fourth_byte = text[*index];
+    *index += 1;
+
+    auto codepoint =
+        (((uint32_t)first_byte & 0b111) << 18) |
+        (((uint32_t)second_byte & 0b111111) << 12) |
+        (((uint32_t)third_byte & 0b111111) << 6) |
+        ((uint32_t)fourth_byte & 0b111111)
+    ;
+
+    return (char32_t)codepoint;
+}
+
+// Input is zero-based
+static Result<size_t> utf16_position_to_utf8_offset(String text, unsigned int line, unsigned int column) {
+    size_t index = 0;
+    unsigned int current_line = 0;
+    unsigned int current_column = 0;
+
+    while(index != text.length) {
+        if(current_line == line && current_column == column) {
+            return ok(index);
+        }
+
+        auto codepoint = get_codepoint_at(text, &index);
+
+        if(codepoint == '\r') {
+            if(index != text.length) {
+                auto temp_index = index;
+
+                auto codepoint = get_codepoint_at(text, &temp_index);
+
+                if(codepoint == '\n') {
+                    index = temp_index;
+                }
+            }
+
+            current_line += 1;
+            current_column = 0;
+        } else if(codepoint =='\n') {
+            current_line += 1;
+            current_column = 0;
+        } else {
+            if(codepoint >= 0x010000) {
+                current_column += 2;
+            } else {
+                current_column += 1;
+            }
+        }
+    }
+
+    if(current_line == line && current_column == column) {
+        return ok(index);
+    }
+
+    return err();
 }
 
 int main(int argument_count, const char* arguments[]) {
@@ -1036,7 +1049,7 @@ int main(int argument_count, const char* arguments[]) {
     cjson_hooks.free_fn = &cjson_free;
     cJSON_InitHooks(&cjson_hooks);
 
-    List<CompiledFile> compiled_files(&global_arena);
+    List<SourceFile> source_files(&global_arena);
 
     Arena request_arena {};
 
@@ -1180,10 +1193,7 @@ int main(int argument_count, const char* arguments[]) {
         }
 
         auto jsonrpc_result = String::from_c_string(cJSON_GetStringValue(jsonrpc_item));
-        if(!jsonrpc_result.status) {
-            send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body \"jsonrpc\" attribute is not a valid UTF-8 string"_S);
-            continue;
-        }
+        assert(jsonrpc_result.status);
 
         if(jsonrpc_result.value != u8"2.0"_S) {
             send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body \"jsonrpc\" attribute is not \"2.0\""_S);
@@ -1202,11 +1212,7 @@ int main(int argument_count, const char* arguments[]) {
         }
 
         auto method_result = String::from_c_string(cJSON_GetStringValue(method_item));
-        if(!method_result.status) {
-            send_error_response(&request_arena, nullptr, ErrorCode::ParseError, u8"Message body \"method\" attribute is not a valid UTF-8 string"_S);
-            continue;
-        }
-
+        assert(method_result.status);
         auto method = method_result.value;
 
         auto id = cJSON_DetachItemFromObject(json, "id");
@@ -1255,11 +1261,7 @@ int main(int argument_count, const char* arguments[]) {
 
             if(cJSON_IsString(root_uri_item)) {
                 auto result = String::from_c_string(&global_arena, cJSON_GetStringValue(root_uri_item));
-
-                if(!result.status) {
-                    send_error_response(&request_arena, id, ErrorCode::InvalidParams, u8"Parameters \"rootUri\" attribute is not a valid UTF-8 string"_S);
-                    continue;
-                }
+                assert(result.status);
 
                 has_root_uri = true;
                 root_uri = result.value;
@@ -1285,6 +1287,482 @@ int main(int argument_count, const char* arguments[]) {
 
             if(method == u8"initialized"_S) {
                 // Do nothing
+            } else if(method == u8"textDocument/didOpen"_S) {
+                if(id != nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidRequest, u8"Message body \"id\" attribute should not exist"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsObject(params_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters should be an object"_S);
+                    continue;
+                }
+
+                auto text_document = cJSON_GetObjectItem(params_item, "textDocument");
+                if(text_document == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"textDocument\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsObject(text_document)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"textDocument\" attribute should be an object"_S);
+                    continue;
+                }
+
+                auto uri_item = cJSON_GetObjectItem(text_document, "uri");
+                if(uri_item == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentItem \"uri\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsString(uri_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentItem \"uri\" attribute should be a string"_S);
+                    continue;
+                }
+
+                auto uri_result = String::from_c_string(cJSON_GetStringValue(uri_item));
+                assert(uri_result.status);
+                auto uri = uri_result.value;
+
+                const auto uri_prefix = u8"file://"_S;
+
+                if(uri.length < uri_prefix.length || uri.slice(0, uri_prefix.length) != uri_prefix) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Source file URI does not start with \"file://\""_S);
+                    continue;
+                }
+
+                auto path = uri.slice(uri_prefix.length);
+
+                auto absolute_path_result = path_relative_to_absolute(&request_arena, path);
+                if(!absolute_path_result.status) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Source file URI is invalid"_S);
+                    continue;
+                }
+
+                auto absolute_path = absolute_path_result.value;
+
+                auto found_source_file = false;
+                SourceFile* source_file;
+                for(auto& file : source_files) {
+                    if(file.absolute_path == absolute_path) {
+                        found_source_file = true;
+                        source_file = &file;
+                        break;
+                    }
+                }
+
+                auto language_id_item = cJSON_GetObjectItem(text_document, "languageId");
+                if(language_id_item == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentItem \"languageId\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsString(language_id_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentItem \"languageId\" attribute should be a string"_S);
+                    continue;
+                }
+
+                auto language_id_result = String::from_c_string(cJSON_GetStringValue(language_id_item));
+                assert(language_id_result.status);
+
+                auto language_id = language_id_result.value;
+
+                if(language_id != u8"simple"_S) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Language ID should be \"simple\""_S);
+                    continue;
+                }
+
+                auto version_item = cJSON_GetObjectItem(text_document, "version");
+                if(version_item == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentItem \"version\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsNumber(version_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentItem \"version\" attribute should be a number"_S);
+                    continue;
+                }
+
+                auto version = cJSON_GetNumberValue(version_item);
+
+                auto text_item = cJSON_GetObjectItem(text_document, "text");
+                if(text_item == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentItem \"text\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsString(text_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentItem \"text\" attribute should be a string"_S);
+                    continue;
+                }
+
+                if(found_source_file) {
+                    source_file->source_text_arena.reset();
+
+                    auto text_result = String::from_c_string(&source_file->source_text_arena, cJSON_GetStringValue(text_item));
+                    assert(text_result.status);
+
+                    auto text = text_result.value;
+
+                    source_file->is_claimed = true;
+                    source_file->source_text = text;
+                    source_file->needs_compilation = true;
+                } else {
+                    Arena source_text_arena {};
+
+                    auto text_result = String::from_c_string(&source_text_arena, cJSON_GetStringValue(text_item));
+                    assert(text_result.status);
+
+                    auto text = text_result.value;
+
+                    auto global_absolute_path = absolute_path.clone(&global_arena);
+
+                    SourceFile new_source_file {};
+                    new_source_file.absolute_path = global_absolute_path;
+                    new_source_file.is_claimed = true;
+                    new_source_file.source_text_arena = source_text_arena;
+                    new_source_file.source_text = text;
+                    new_source_file.needs_compilation = true;
+
+                    source_files.append(new_source_file);
+                }
+            } else if(method == u8"textDocument/didChange"_S) {
+                if(id != nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidRequest, u8"Message body \"id\" attribute should not exist"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsObject(params_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters should be an object"_S);
+                    continue;
+                }
+
+                auto text_document = cJSON_GetObjectItem(params_item, "textDocument");
+                if(text_document == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"textDocument\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsObject(text_document)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"textDocument\" attribute should be an object"_S);
+                    continue;
+                }
+
+                auto uri_item = cJSON_GetObjectItem(text_document, "uri");
+                if(uri_item == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"VersionedTextDocumentIdentifier \"uri\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsString(uri_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"VersionedTextDocumentIdentifier \"uri\" attribute should be a string"_S);
+                    continue;
+                }
+
+                auto uri_result = String::from_c_string(cJSON_GetStringValue(uri_item));
+                assert(uri_result.status);
+                auto uri = uri_result.value;
+
+                const auto uri_prefix = u8"file://"_S;
+
+                if(uri.length < uri_prefix.length || uri.slice(0, uri_prefix.length) != uri_prefix) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Source file URI does not start with \"file://\""_S);
+                    continue;
+                }
+
+                auto path = uri.slice(uri_prefix.length);
+
+                auto absolute_path_result = path_relative_to_absolute(&request_arena, path);
+                if(!absolute_path_result.status) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Source file URI is invalid"_S);
+                    continue;
+                }
+
+                auto absolute_path = absolute_path_result.value;
+
+                auto version_item = cJSON_GetObjectItem(text_document, "version");
+                if(version_item == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"VersionedTextDocumentIdentifier \"version\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsNumber(version_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"VersionedTextDocumentIdentifier \"version\" attribute should be a number"_S);
+                    continue;
+                }
+
+                auto version = cJSON_GetNumberValue(version_item);
+
+                auto found_source_file = false;
+                SourceFile* source_file;
+                for(auto& file : source_files) {
+                    if(file.absolute_path == absolute_path) {
+                        found_source_file = true;
+                        source_file = &file;
+                        break;
+                    }
+                }
+
+                if(!found_source_file || !source_file->is_claimed) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Source file has not been claimed by client with \"textDocument/didOpen\""_S);
+                    continue;
+                }
+
+                auto content_changes = cJSON_GetObjectItem(params_item, "contentChanges");
+                if(content_changes == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"contentChanges\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsArray(content_changes)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"contentChanges\" attribute should be an array"_S);
+                    continue;
+                }
+
+                auto content_change_count = (size_t)cJSON_GetArraySize(content_changes);
+
+                if(content_change_count != 0) {
+                    Arena final_source_text_arena {};
+
+                    auto current_source_text = source_file->source_text;
+
+                    for(size_t i = 0; i < content_change_count; i += 1) {
+                        Arena* current_arena;
+                        if(i == content_change_count - 1) {
+                            current_arena = &final_source_text_arena;
+                        } else {
+                            current_arena = &request_arena;
+                        }
+
+                        auto content_change = cJSON_GetArrayItem(content_changes, (int)i);
+
+                        if(!cJSON_IsObject(content_change)) {
+                            send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"contentChanges\" attribute element is not an object"_S);
+                            continue;
+                        }
+
+                        auto range = cJSON_GetObjectItem(content_change, "range");
+
+                        auto text_item = cJSON_GetObjectItem(content_change, "text");
+                        if(text_item == nullptr) {
+                            send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentContentChangeEvent \"text\" attribute is missing"_S);
+                            continue;
+                        }
+
+                        if(range == nullptr) {
+                            auto result = String::from_c_string(current_arena, cJSON_GetStringValue(text_item));
+                            assert(result.status);
+
+                            current_source_text = result.value;
+                        } else {
+                            if(!cJSON_IsObject(range)) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentContentChangeEvent \"range\" attribute is not an object"_S);
+                                continue;
+                            }
+
+                            auto start = cJSON_GetObjectItem(range, "start");
+                            if(start == nullptr) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Range \"start\" attribute is missing"_S);
+                                continue;
+                            }
+
+                            if(!cJSON_IsObject(start)) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Range \"start\" attribute is not an object"_S);
+                                continue;
+                            }
+
+                            auto start_line_item = cJSON_GetObjectItem(range, "line");
+                            if(start_line_item == nullptr) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"line\" attribute is missing"_S);
+                                continue;
+                            }
+
+                            if(!cJSON_IsNumber(start_line_item)) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"line\" attribute is not a number"_S);
+                                continue;
+                            }
+
+                            auto start_line_double = cJSON_GetNumberValue(start_line_item);
+
+                            auto start_line = (unsigned int)start_line_double;
+                            if(start_line_double != (double)start_line) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Range start line is not an integer, is negative, or is too large"_S);
+                                continue;
+                            }
+
+                            auto start_character_item = cJSON_GetObjectItem(range, "character");
+                            if(start_character_item == nullptr) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"character\" attribute is missing"_S);
+                                continue;
+                            }
+
+                            if(!cJSON_IsNumber(start_character_item)) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"character\" attribute is not a number"_S);
+                                continue;
+                            }
+
+                            auto start_character_double = cJSON_GetNumberValue(start_character_item);
+
+                            auto start_character = (unsigned int)start_character_double;
+                            if(start_character_double != (double)start_character) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Range start character is not an integer, is negative, or is too large"_S);
+                                continue;
+                            }
+
+                            auto end = cJSON_GetObjectItem(range, "end");
+                            if(end == nullptr) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Range \"end\" attribute is missing"_S);
+                                continue;
+                            }
+
+                            if(!cJSON_IsObject(end)) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Range \"end\" attribute is not an object"_S);
+                                continue;
+                            }
+
+                            auto end_line_item = cJSON_GetObjectItem(range, "line");
+                            if(end_line_item == nullptr) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"line\" attribute is missing"_S);
+                                continue;
+                            }
+
+                            if(!cJSON_IsNumber(end_line_item)) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"line\" attribute is not a number"_S);
+                                continue;
+                            }
+
+                            auto end_line_double = cJSON_GetNumberValue(end_line_item);
+
+                            auto end_line = (unsigned int)end_line_double;
+                            if(end_line_double != (double)end_line) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Range end line is not an integer, is negative, or is too large"_S);
+                                continue;
+                            }
+
+                            auto end_character_item = cJSON_GetObjectItem(range, "character");
+                            if(end_character_item == nullptr) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"character\" attribute is missing"_S);
+                                continue;
+                            }
+
+                            if(!cJSON_IsNumber(end_character_item)) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"character\" attribute is not a number"_S);
+                                continue;
+                            }
+
+                            auto end_character_double = cJSON_GetNumberValue(end_character_item);
+
+                            auto end_character = (unsigned int)end_character_double;
+                            if(end_character_double != (double)end_character) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Range end character is not an integer, is negative, or is too large"_S);
+                                continue;
+                            }
+
+                            auto start_index_result = utf16_position_to_utf8_offset(current_source_text, start_line, start_character);
+                            if(!start_index_result.status) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Start range is beyond the end of the file"_S);
+                                continue;
+                            }
+
+                            auto start_index = start_index_result.value;
+
+                            auto end_index_result = utf16_position_to_utf8_offset(current_source_text, end_line, end_character);
+                            if(!end_index_result.status) {
+                                send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"End range is beyond the end of the file"_S);
+                                continue;
+                            }
+
+                            auto end_index = end_index_result.value;
+
+                            StringBuffer buffer(current_arena);
+
+                            buffer.append(current_source_text.slice(0, start_index));
+
+                            auto result = buffer.append_c_string(cJSON_GetStringValue(text_item));
+                            assert(result.status);
+
+                            buffer.append(current_source_text.slice(end_index));
+
+                            current_source_text = buffer;
+                        }
+                    }
+
+                    source_file->source_text_arena.free();
+
+                    source_file->source_text_arena = final_source_text_arena;
+                    source_file->source_text = current_source_text;
+                    source_file->needs_compilation = true;
+                }
+            } else if(method == u8"textDocument/didClose"_S) {
+                if(id != nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidRequest, u8"Message body \"id\" attribute should not exist"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsObject(params_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters should be an object"_S);
+                    continue;
+                }
+
+                auto text_document = cJSON_GetObjectItem(params_item, "textDocument");
+                if(text_document == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"textDocument\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsObject(text_document)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"textDocument\" attribute should be an object"_S);
+                    continue;
+                }
+
+                auto uri_item = cJSON_GetObjectItem(text_document, "uri");
+                if(uri_item == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentIdentifier \"uri\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsString(uri_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentIdentifier \"uri\" attribute should be a string"_S);
+                    continue;
+                }
+
+                auto uri_result = String::from_c_string(cJSON_GetStringValue(uri_item));
+                assert(uri_result.status);
+                auto uri = uri_result.value;
+
+                const auto uri_prefix = u8"file://"_S;
+
+                if(uri.length < uri_prefix.length || uri.slice(0, uri_prefix.length) != uri_prefix) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Source file URI does not start with \"file://\""_S);
+                    continue;
+                }
+
+                auto path = uri.slice(uri_prefix.length);
+
+                auto absolute_path_result = path_relative_to_absolute(&request_arena, path);
+                if(!absolute_path_result.status) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Source file URI is invalid"_S);
+                    continue;
+                }
+
+                auto absolute_path = absolute_path_result.value;
+
+                auto found_source_file = false;
+                SourceFile* source_file;
+                for(auto& file : source_files) {
+                    if(file.absolute_path == absolute_path) {
+                        found_source_file = true;
+                        source_file = &file;
+                        break;
+                    }
+                }
+
+                if(!found_source_file || !source_file->is_claimed) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Source file has not been claimed by client with \"textDocument/didOpen\""_S);
+                    continue;
+                }
+
+                source_file->is_claimed = false;
             } else {
                 if(!(method.length >= 2 && method.slice(0, 2) == u8"$/"_S && id == nullptr)) {
                     send_error_response(&request_arena, id, ErrorCode::MethodNotFound, u8"Unknown or unimplemented method"_S);

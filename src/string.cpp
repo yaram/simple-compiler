@@ -153,6 +153,16 @@ char* String::to_c_string(Arena* arena) {
     return c_string;
 }
 
+String String::clone(Arena* into_arena) {
+    String result {};
+    result.length = length;
+    result.elements = into_arena->allocate<char8_t>(length);
+
+    memcpy(result.elements, elements, length);
+
+    return result;
+}
+
 String String::strip_whitespace() {
     if(length == 0) {
         return *this;
@@ -201,6 +211,10 @@ bool String::operator!=(String other) {
 }
 
 profiled_function_void(StringBuffer::append, (String string), (string)) {
+    if(string.length == 0) {
+        return;
+    }
+
     const size_t minimum_allocation = 64;
 
     if(capacity == 0) {

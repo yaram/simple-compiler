@@ -13,7 +13,10 @@ Result<size_t> validate_c_string(const char* c_string);
 struct String : Array<char8_t> {
     static Result<String> from_c_string(Arena* arena, const char* c_string);
     static Result<String> from_c_string(const char* c_string);
+
     char* to_c_string(Arena* arena);
+
+    String clone(Arena* into_arena);
 
     inline String empty() {
         String result {};
