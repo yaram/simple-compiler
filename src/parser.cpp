@@ -76,7 +76,7 @@ namespace {
 
                 return ok(token);
             } else {
-                fprintf(stderr, "Error: %.*s: Unexpected end of file\n", STRING_PRINTF_ARGUMENTS(path));
+                error("Unexpected end of file");
 
                 return err();
             }
