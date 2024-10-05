@@ -1413,7 +1413,16 @@ int main(int argument_count, const char* arguments[]) {
 
             auto result = cJSON_CreateObject();
 
-            cJSON_AddObjectToObject(result, "capabilities");
+            auto capabilities = cJSON_CreateObject();
+
+            auto text_document_sync = cJSON_CreateObject();
+
+            cJSON_AddBoolToObject(text_document_sync, "openClose", true);
+            cJSON_AddNumberToObject(text_document_sync, "change", 2); // Incremental
+
+            cJSON_AddItemToObject(capabilities, "textDocumentSync", text_document_sync);
+
+            cJSON_AddItemToObject(result, "capabilities", capabilities);
 
             send_success_response(&request_arena, id, result);
         } else {
