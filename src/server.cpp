@@ -1721,7 +1721,7 @@ int main(int argument_count, const char* arguments[]) {
                                 continue;
                             }
 
-                            auto start_line_item = cJSON_GetObjectItem(range, "line");
+                            auto start_line_item = cJSON_GetObjectItem(start, "line");
                             if(start_line_item == nullptr) {
                                 send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"line\" attribute is missing"_S);
                                 continue;
@@ -1740,7 +1740,7 @@ int main(int argument_count, const char* arguments[]) {
                                 continue;
                             }
 
-                            auto start_character_item = cJSON_GetObjectItem(range, "character");
+                            auto start_character_item = cJSON_GetObjectItem(start, "character");
                             if(start_character_item == nullptr) {
                                 send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"character\" attribute is missing"_S);
                                 continue;
@@ -1770,7 +1770,7 @@ int main(int argument_count, const char* arguments[]) {
                                 continue;
                             }
 
-                            auto end_line_item = cJSON_GetObjectItem(range, "line");
+                            auto end_line_item = cJSON_GetObjectItem(end, "line");
                             if(end_line_item == nullptr) {
                                 send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"line\" attribute is missing"_S);
                                 continue;
@@ -1789,7 +1789,7 @@ int main(int argument_count, const char* arguments[]) {
                                 continue;
                             }
 
-                            auto end_character_item = cJSON_GetObjectItem(range, "character");
+                            auto end_character_item = cJSON_GetObjectItem(end, "character");
                             if(end_character_item == nullptr) {
                                 send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"character\" attribute is missing"_S);
                                 continue;
