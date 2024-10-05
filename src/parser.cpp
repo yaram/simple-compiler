@@ -65,7 +65,21 @@ namespace {
             va_list arguments;
             va_start(arguments, format);
 
-            ::error(path, token_range(tokens[next_token_index]), format, arguments);
+            FileRange range;
+            if(next_token_index == tokens.length) {
+                if(next_token_index != 0) {
+                    range = token_range(tokens[next_token_index - 1]);
+                } else {
+                    range.first_line = 1;
+                    range.first_column = 1;
+                    range.last_column = 1;
+                    range.last_line = 1;
+                }
+            } else {
+                range = token_range(tokens[next_token_index]);
+            }
+
+            ::error(path, range, format, arguments);
 
             va_end(arguments);
         }
