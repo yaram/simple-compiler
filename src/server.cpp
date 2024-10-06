@@ -102,6 +102,10 @@ struct SourceFile {
 static void compile_source_file(GlobalInfo info, SourceFile* file) {
     file->needs_compilation = false;
 
+    for(auto old_job : file->jobs) {
+        old_job.arena.free();
+    }
+
     file->compilation_arena.reset();
 
     List<Error> errors(&file->compilation_arena);
