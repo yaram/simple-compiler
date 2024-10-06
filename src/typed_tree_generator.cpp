@@ -700,7 +700,7 @@ static DelayedResult<EvaluateConstantExpressionResult> evaluate_constant_express
 ) {
     expect_delayed(expression_value, generate_expression(info, jobs, scope, context, expression));
 
-    if(expression_value.value.kind != RuntimeValueKind::ConstantValue) {
+    if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
         auto constant_value = expression_value.value.unwrap_constant_value();
 
         EvaluateConstantExpressionResult result {};
