@@ -257,13 +257,15 @@ namespace {
                         unsigned int level = 1;
 
                         while(level > 0) {
-                            expect(character, get_current_character());
-
                             if(index == length) {
                                 error(path, line, column, "Unexpected end of file");
 
                                 return err();
-                            } else if(character == '\r') {
+                            }
+
+                            expect(character, get_current_character());
+
+                            if(character == '\r') {
                                 consume_current_character();
 
                                 if(index < length) {
