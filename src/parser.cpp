@@ -416,6 +416,10 @@ namespace {
 
                             expect(tags, parse_tags());
 
+                            if(tags.length != 0) {
+                                last_range = tags[tags.length - 1].range;
+                            }
+
                             left_expression = arena->allocate_and_construct<FunctionType>(
                                 span_range(first_range, last_range),
                                 parameters,
@@ -466,6 +470,10 @@ namespace {
                             }
 
                             expect(tags, parse_tags());
+
+                            if(tags.length != 0) {
+                                last_range = tags[tags.length - 1].range;
+                            }
 
                             left_expression = arena->allocate_and_construct<FunctionType>(
                                 span_range(first_range, last_range),
@@ -595,6 +603,10 @@ namespace {
                                 }
 
                                 expect(tags, parse_tags());
+
+                                if(tags.length != 0) {
+                                    last_range = tags[tags.length - 1].range;
+                                }
 
                                 left_expression = arena->allocate_and_construct<FunctionType>(
                                     span_range(first_range, last_range),
@@ -864,6 +876,12 @@ namespace {
 
                                     last_range = token_range(token);
                                 } break;
+
+                                default: {
+                                    error("Expected ',' or '}'. Got '%.*s'", STRING_PRINTF_ARGUMENTS(token.get_text(arena)));
+
+                                    return err();
+                                }
                             }
 
                             left_expression = arena->allocate_and_construct<ArrayLiteral>(
@@ -880,19 +898,16 @@ namespace {
                     expect(token, peek_token());
 
                     Expression* index;
-                    FileRange last_range;
                     if(token.kind == TokenKind::CloseSquareBracket) {
                         consume_token();
 
                         index = nullptr;
-                        last_range = token_range(token);
                     } else {
                         expect(expression, parse_expression(OperatorPrecedence::None));
 
                         expect(range, expect_basic_token_with_range(TokenKind::CloseSquareBracket));
 
                         index = expression;
-                        last_range = range;
                     }
 
                     expect(expression, parse_expression(OperatorPrecedence::PrefixUnary));
@@ -1303,8 +1318,6 @@ namespace {
 
                         consume_token();
 
-                        auto first_range = token_range(token);
-
                         expect(index, parse_expression(OperatorPrecedence::None));
 
                         expect(last_range, expect_basic_token_with_range(TokenKind::CloseSquareBracket));
@@ -1513,6 +1526,10 @@ namespace {
             }
 
             expect(tags, parse_tags());
+
+            if(tags.length != 0) {
+                last_range = tags[tags.length - 1].range;
+            }
 
             expect(token, peek_token());
 
@@ -1917,7 +1934,7 @@ namespace {
 
                         expect(to, parse_expression(OperatorPrecedence::None));
 
-                        { expect_void(expect_basic_token(TokenKind::OpenCurlyBracket)); }
+                        expect_void(expect_basic_token(TokenKind::OpenCurlyBracket));
 
                         List<Statement*> statements(arena);
 
@@ -2398,7 +2415,7 @@ namespace {
                                                 }
 
                                                 return ok((Statement*)arena->allocate_and_construct<StructDefinition>(
-                                                    span_range(first_range, token_range(token)),
+                                                    span_range(first_range, last_range),
                                                     identifier,
                                                     parameters,
                                                     members
@@ -2510,7 +2527,7 @@ namespace {
                                                 }
 
                                                 return ok((Statement*)arena->allocate_and_construct<UnionDefinition>(
-                                                    span_range(first_range, token_range(token)),
+                                                    span_range(first_range, last_range),
                                                     identifier,
                                                     parameters,
                                                     members
@@ -2591,7 +2608,7 @@ namespace {
                                                 }
 
                                                 return ok((Statement*)arena->allocate_and_construct<EnumDefinition>(
-                                                    span_range(first_range, token_range(token)),
+                                                    span_range(first_range, last_range),
                                                     identifier,
                                                     backing_type,
                                                     variants
@@ -2648,10 +2665,10 @@ namespace {
 
                                     expect(tags, parse_tags());
 
-                                    expect_void(expect_basic_token(TokenKind::Semicolon));
+                                    expect(last_range, expect_basic_token_with_range(TokenKind::Semicolon));
 
                                     return ok((Statement*)arena->allocate_and_construct<VariableDeclaration>(
-                                        span_range(first_range, token_range(token)),
+                                        span_range(first_range, last_range),
                                         identifier,
                                         type,
                                         initializer,
