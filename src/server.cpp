@@ -927,8 +927,101 @@ static Result<UTF8PositionToUTF16PositionResult> utf8_position_to_utf16_position
         }
     }
 
-    if(!one_past && current_line == line && current_column == column) {
+    if(current_line == line && current_column == column) {
         UTF8PositionToUTF16PositionResult result {};
+        result.line = result_line;
+        if(one_past) {
+            result.column = result_column + 1;
+        } else {
+            result.column = result_column;
+        }
+
+        return ok(result);
+    }
+
+    return err();
+}
+
+struct UTF16PositionToUTF8PositionResult {
+    unsigned int line;
+    unsigned int column;
+};
+
+// Input is zero-based, output is one-based (like FileRange and Token)
+static Result<UTF16PositionToUTF8PositionResult> utf16_position_to_utf8_position(
+    String text,
+    unsigned int line,
+    unsigned int column,
+    bool one_past
+) {
+    unsigned int current_line = 0;
+    unsigned int current_column = 0;
+
+    unsigned int result_line = 1;
+    unsigned int result_column = 1;
+
+    size_t index = 0;
+    while(index != text.length) {
+        if(!one_past && current_line == line && current_column == column) {
+            UTF16PositionToUTF8PositionResult result {};
+            result.line = result_line;
+            result.column = result_column;
+
+            return ok(result);
+        }
+
+        auto old_current_line = current_line;
+        auto old_current_column = current_column;
+
+        auto old_index = index;
+
+        auto codepoint = get_codepoint_at(text, &index);
+
+        auto codepoint_utf8_length = index - old_index;
+
+        if(codepoint == '\r') {
+            if(index != text.length) {
+                auto temp_index = index;
+
+                auto codepoint = get_codepoint_at(text, &temp_index);
+
+                if(codepoint == '\n') {
+                    index = temp_index;
+                }
+            }
+
+            current_line += 1;
+            current_column = 0;
+
+            result_line += 1;
+            result_column = 1;
+        } else if(codepoint =='\n') {
+            current_line += 1;
+            current_column = 0;
+
+            result_line += 1;
+            result_column = 1;
+        } else {
+            if(codepoint >= 0x010000) {
+                current_column += 2;
+            } else {
+                current_column += 1;
+            }
+
+            result_column += codepoint_utf8_length;
+        }
+
+        if(one_past && old_current_line == line && old_current_column == column) {
+            UTF16PositionToUTF8PositionResult result {};
+            result.line = result_line;
+            result.column = result_column;
+
+            return ok(result);
+        }
+    }
+
+    if(!one_past && current_line == line && current_column == column) {
+        UTF16PositionToUTF8PositionResult result {};
         result.line = result_line;
         result.column = result_column;
 
@@ -994,6 +1087,20 @@ static void compile_and_send_diagnostics(Arena* request_arena, GlobalInfo info, 
     cJSON_AddItemToObject(params, "diagnostics", diagnostics);
 
     send_notification(request_arena, "textDocument/publishDiagnostics", params);
+}
+
+inline bool is_position_in_range(FileRange range, unsigned int line, unsigned int column) {
+    if(line < range.first_line || line > range.last_line) {
+        return false;
+    } else if(range.first_line == range.last_line) {
+        return column >= range.first_column && column <= range.last_column;
+    } else if(line == range.first_line) {
+        return column >= range.first_column;
+    } else if(line == range.last_line) {
+        return column <= range.last_column;
+    } else {
+        return true;
+    }
 }
 
 int main(int argument_count, const char* arguments[]) {
@@ -1425,6 +1532,8 @@ int main(int argument_count, const char* arguments[]) {
             cJSON_AddNumberToObject(text_document_sync, "change", 2); // Incremental
 
             cJSON_AddItemToObject(capabilities, "textDocumentSync", text_document_sync);
+
+            cJSON_AddBoolToObject(capabilities, "hoverProvider", true);
 
             cJSON_AddItemToObject(result, "capabilities", capabilities);
 
@@ -1919,6 +2028,356 @@ int main(int argument_count, const char* arguments[]) {
                 }
 
                 source_file->is_claimed = false;
+            } else if(method == u8"textDocument/hover"_S) {
+                if(id == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidRequest, u8"Message body \"id\" attribute does not exist"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsObject(params_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters should be an object"_S);
+                    continue;
+                }
+
+                auto text_document = cJSON_GetObjectItem(params_item, "textDocument");
+                if(text_document == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"textDocument\" attribute is missing"_S);
+                    continue;
+                }
+
+                auto uri_item = cJSON_GetObjectItem(text_document, "uri");
+                if(uri_item == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentIdentifier \"uri\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsString(uri_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"TextDocumentIdentifier \"uri\" attribute should be a string"_S);
+                    continue;
+                }
+
+                auto uri_result = String::from_c_string(cJSON_GetStringValue(uri_item));
+                assert(uri_result.status);
+                auto uri = uri_result.value;
+
+                const auto uri_prefix = u8"file://"_S;
+
+                if(uri.length < uri_prefix.length || uri.slice(0, uri_prefix.length) != uri_prefix) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Source file URI does not start with \"file://\""_S);
+                    continue;
+                }
+
+                auto path = uri.slice(uri_prefix.length);
+
+                auto absolute_path_result = path_relative_to_absolute(&request_arena, path);
+                if(!absolute_path_result.status) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Source file URI is invalid"_S);
+                    continue;
+                }
+
+                auto absolute_path = absolute_path_result.value;
+
+                auto found_source_file = false;
+                SourceFile* source_file;
+                for(auto& file : source_files) {
+                    if(file.absolute_path == absolute_path) {
+                        found_source_file = true;
+                        source_file = &file;
+                        break;
+                    }
+                }
+
+                if(!found_source_file || !source_file->is_claimed) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Source file has not been claimed by client with \"textDocument/didOpen\""_S);
+                    continue;
+                }
+
+                auto position = cJSON_GetObjectItem(params_item, "position");
+                if(position == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"position\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsObject(position)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Parameters \"position\" attribute is not an object"_S);
+                    continue;
+                }
+
+                auto line_item = cJSON_GetObjectItem(position, "line");
+                if(line_item == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"line\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsNumber(line_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"line\" attribute is not a number"_S);
+                    continue;
+                }
+
+                auto line_double = cJSON_GetNumberValue(line_item);
+
+                auto line = (unsigned int)line_double;
+                if(line_double != (double)line) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position line is not an integer, is negative, or is too large"_S);
+                    continue;
+                }
+
+                auto character_item = cJSON_GetObjectItem(position, "character");
+                if(character_item == nullptr) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"character\" attribute is missing"_S);
+                    continue;
+                }
+
+                if(!cJSON_IsNumber(character_item)) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position \"character\" attribute is not a number"_S);
+                    continue;
+                }
+
+                auto character_double = cJSON_GetNumberValue(character_item);
+
+                auto character = (unsigned int)character_double;
+                if(character_double != (double)character) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position character is not an integer, is negative, or is too large"_S);
+                    continue;
+                }
+
+                auto actual_position_result = utf16_position_to_utf8_position(source_file->source_text, line, character, false);
+                if(!actual_position_result.status) {
+                    send_error_response(&request_arena, nullptr, ErrorCode::InvalidParams, u8"Position is beyond the end of the file"_S);
+                    continue;
+                }
+
+                auto actual_position = actual_position_result.value;
+
+                fprintf(stderr, "B: %p\n", &source_file->jobs);
+
+                auto found_job = false;
+                bool job_is_range;
+                FileRange job_range;
+                AnyType job_type;
+                Array<TypedStatement> job_statements;
+                for(auto job : source_file->jobs) {
+                    if(job->kind == JobKind::TypeFunctionBody) {
+                        if(
+                            job->state == JobState::Done &&
+                            get_scope_file_path(*job->type_function_body.value.body_scope) == absolute_path &&
+                            is_position_in_range(
+                                job->type_function_body.value.declaration->range,
+                                actual_position.line,
+                                actual_position.column
+                            )
+                        ) {
+                            found_job = true;
+                            job_is_range = false;
+                            job_statements = job->type_function_body.statements;
+
+                            break;
+                        }
+
+                        fprintf(
+                            stderr,
+                            "%.*s, %u:%u - %u:%u, %u:%u, %d, %d, %d\n",
+                            STRING_PRINTF_ARGUMENTS(job->type_function_body.value.declaration->name.text),
+                            job->type_function_body.value.declaration->range.first_line,
+                            job->type_function_body.value.declaration->range.first_column,
+                            job->type_function_body.value.declaration->range.last_line,
+                            job->type_function_body.value.declaration->range.last_column,
+                            actual_position.line,
+                            actual_position.column,
+                            (int)(job->state),
+                            (int)(get_scope_file_path(*job->type_function_body.value.body_scope) == absolute_path),
+                            (int)is_position_in_range(
+                                job->type_function_body.value.declaration->range,
+                                actual_position.line,
+                                actual_position.column
+                            )
+                        );
+                    } else if(job->kind == JobKind::TypeStaticVariable) {
+                        if(
+                            job->state == JobState::Done &&
+                            get_scope_file_path(*job->type_static_variable.scope) == absolute_path
+                        ) {
+                            if(is_position_in_range(
+                                job->type_static_variable.declaration->name.range,
+                                actual_position.line,
+                                actual_position.column
+                            )) {
+                                found_job = true;
+                                job_is_range = true;
+                                job_range = job->type_static_variable.declaration->name.range;
+                                job_type = job->type_static_variable.type;
+
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if(!found_job) {
+                    send_success_response(&request_arena, id, cJSON_CreateNull());
+                    continue;
+                }
+
+                auto found_range = false;
+                FileRange range;
+                AnyType type;
+                if(job_is_range) {
+                    found_range = true;
+                    range = job_range;
+                    type = job_type;
+                } else {
+                    auto found_statement = false;
+                    Array<TypedName> statement_names;
+                    Array<TypedExpression> statement_expressions;
+                    for(auto statement : job_statements) {
+                        if(is_position_in_range(statement.range, actual_position.line, actual_position.column)) {
+                            auto current_statement = statement;
+                            while(true) {
+                                auto found_child = false;
+                                for(auto child : current_statement.children) {
+                                    if(is_position_in_range(child.range, actual_position.line, actual_position.column)) {
+                                        found_child = true;
+                                        current_statement = child;
+
+                                        break;
+                                    }
+                                }
+
+                                if(!found_child) {
+                                    break;
+                                }
+                            }
+
+                            found_statement = true;
+                            statement_names = current_statement.names;
+                            statement_expressions = current_statement.expressions;
+                            break;
+                        }
+                    }
+
+                    if(found_statement) {
+                        auto found_expression = false;
+                        FileRange expression_range;
+                        AnyType expression_type;
+                        Array<TypedName> expression_names;
+                        for(auto expression : statement_expressions) {
+                            if(is_position_in_range(expression.range, actual_position.line, actual_position.column)) {
+                                auto current_expression = expression;
+                                while(true) {
+                                    auto found_child = false;
+                                    for(auto child : current_expression.children) {
+                                        if(is_position_in_range(child.range, actual_position.line, actual_position.column)) {
+                                            found_child = true;
+                                            current_expression = child;
+
+                                            break;
+                                        }
+                                    }
+
+                                    if(!found_child) {
+                                        break;
+                                    }
+                                }
+
+                                found_expression = true;
+                                expression_range = current_expression.range;
+                                expression_type = current_expression.type;
+                                expression_names = current_expression.names;
+                                break;
+                            }
+                        }
+
+                        if(found_expression) {
+                            auto found_name = false;
+                            FileRange name_range;
+                            AnyType name_type;
+                            for(auto name : expression_names) {
+                                if(is_position_in_range(name.range, actual_position.line, actual_position.column)) {
+                                    found_name = true;
+                                    name_range = name.range;
+                                    name_type = name.type;
+
+                                    break;
+                                }
+                            }
+
+                            if(found_name) {
+                                found_range = true;
+                                range = name_range;
+                                type = name_type;
+                            } else {
+                                found_range = true;
+                                range = expression_range;
+                                type = expression_type;
+                            }
+                        } else {
+                            auto found_name = false;
+                            FileRange name_range;
+                            AnyType name_type;
+                            for(auto name : statement_names) {
+                                if(is_position_in_range(name.range, actual_position.line, actual_position.column)) {
+                                    found_name = true;
+                                    name_range = name.range;
+                                    name_type = name.type;
+
+                                    break;
+                                }
+                            }
+
+                            if(found_name) {
+                                found_range = true;
+                                range = name_range;
+                                type = name_type;
+                            }
+                        }
+                    }
+                }
+
+                if(found_range) {
+                    auto result = cJSON_CreateObject();
+
+                    auto type_description = type.get_description(&request_arena);
+                    cJSON_AddStringToObject(result, "contents", type_description.to_c_string(&request_arena));
+
+                    auto range_item = cJSON_CreateObject();
+
+                    auto start = cJSON_CreateObject();
+
+                    auto start_result = utf8_position_to_utf16_position(
+                        source_file->source_text,
+                        range.first_line,
+                        range.first_column,
+                        false
+                    );
+                    assert(start_result.status);
+
+                    cJSON_AddNumberToObject(start, "line", (double)start_result.value.line);
+                    cJSON_AddNumberToObject(start, "character", (double)start_result.value.column);
+
+                    cJSON_AddItemToObject(range_item, "start", start);
+
+                    auto end = cJSON_CreateObject();
+
+                    auto end_result = utf8_position_to_utf16_position(
+                        source_file->source_text,
+                        range.last_line,
+                        range.last_column,
+                        true
+                    );
+                    assert(end_result.status);
+
+                    cJSON_AddNumberToObject(end, "line", (double)end_result.value.line);
+                    cJSON_AddNumberToObject(end, "character", (double)end_result.value.column);
+
+                    cJSON_AddItemToObject(range_item, "end", end);
+
+                    cJSON_AddItemToObject(result, "range", range_item);
+
+                    send_success_response(&request_arena, id, result);
+                } else {
+                    send_success_response(&request_arena, id, cJSON_CreateNull());
+                    continue;
+                }
             } else {
                 if(!(method.length >= 2 && method.slice(0, 2) == u8"$/"_S && id == nullptr)) {
                     send_error_response(&request_arena, id, ErrorCode::MethodNotFound, u8"Unknown or unimplemented method"_S);
