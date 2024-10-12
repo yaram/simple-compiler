@@ -2,13 +2,8 @@
 
 #include "arena.h"
 #include "ast.h"
-#include "constant.h"
 #include "types.h"
-#if defined(SERVER)
 #include "typed_tree.h"
-#else
-#include "hlir.h"
-#endif
 
 struct ParseFile {
     String path;
@@ -18,15 +13,14 @@ struct ParseFile {
     ConstantScope* scope;
 };
 
-struct ResolveStaticIf {
+struct TypeStaticIf {
     StaticIf* static_if;
     ConstantScope* scope;
 
     bool condition;
-    DeclarationHashTable declarations;
 };
 
-struct ResolveFunctionDeclaration {
+struct TypeFunctionDeclaration {
     FunctionDeclaration* declaration;
     ConstantScope* scope;
 
@@ -34,18 +28,18 @@ struct ResolveFunctionDeclaration {
     AnyConstantValue value;
 };
 
-struct ResolvePolymorphicFunction {
+struct TypePolymorphicFunction {
     FunctionDeclaration* declaration;
-    TypedConstantValue* parameters;
+    Array<TypedConstantValue> parameters;
     ConstantScope* scope;
     ConstantScope* call_scope;
-    FileRange* call_parameter_ranges;
+    Array<FileRange> call_parameter_ranges;
 
     FunctionTypeType type;
     FunctionConstant value;
 };
 
-struct ResolveConstantDefinition {
+struct TypeConstantDefinition {
     ConstantDefinition* definition;
     ConstantScope* scope;
 
@@ -53,44 +47,42 @@ struct ResolveConstantDefinition {
     AnyConstantValue value;
 };
 
-struct ResolveStructDefinition {
+struct TypeStructDefinition {
     StructDefinition* definition;
     ConstantScope* scope;
 
     AnyType type;
 };
 
-struct ResolvePolymorphicStruct {
+struct TypePolymorphicStruct {
     StructDefinition* definition;
-    AnyConstantValue* parameters;
+    Array<AnyConstantValue> parameters;
     ConstantScope* scope;
 
     AnyType type;
 };
 
-struct ResolveUnionDefinition {
+struct TypeUnionDefinition {
     UnionDefinition* definition;
     ConstantScope* scope;
 
     AnyType type;
 };
 
-struct ResolvePolymorphicUnion {
+struct TypePolymorphicUnion {
     UnionDefinition* definition;
-    AnyConstantValue* parameters;
+    Array<AnyConstantValue> parameters;
     ConstantScope* scope;
 
     AnyType type;
 };
 
-struct ResolveEnumDefinition {
+struct TypeEnumDefinition {
     EnumDefinition* definition;
     ConstantScope* scope;
 
     Enum type;
 };
-
-#if defined(SERVER)
 
 struct TypeFunctionBody {
     FunctionTypeType type;
@@ -106,43 +98,19 @@ struct TypeStaticVariable {
     AnyType type;
 };
 
-#else
-
-struct GenerateFunction {
-    FunctionTypeType type;
-    FunctionConstant value;
-
-    Function* function;
-};
-
-struct GenerateStaticVariable {
-    VariableDeclaration* declaration;
-    ConstantScope* scope;
-
-    StaticVariable* static_variable;
-    AnyType type;
-};
-
-#endif
-
 enum struct JobKind {
     ParseFile,
-    ResolveStaticIf,
-    ResolveFunctionDeclaration,
-    ResolvePolymorphicFunction,
-    ResolveConstantDefinition,
-    ResolveStructDefinition,
-    ResolvePolymorphicStruct,
-    ResolveUnionDefinition,
-    ResolvePolymorphicUnion,
-    ResolveEnumDefinition,
-#if defined(SERVER)
+    TypeStaticIf,
+    TypeFunctionDeclaration,
+    TypePolymorphicFunction,
+    TypeConstantDefinition,
+    TypeStructDefinition,
+    TypePolymorphicStruct,
+    TypeUnionDefinition,
+    TypePolymorphicUnion,
+    TypeEnumDefinition,
     TypeFunctionBody,
     TypeStaticVariable
-#else
-    GenerateFunction,
-    GenerateStaticVariable
-#endif
 };
 
 enum struct JobState {
@@ -162,21 +130,16 @@ struct AnyJob {
 
     union {
         ParseFile parse_file;
-        ResolveStaticIf resolve_static_if;
-        ResolveFunctionDeclaration resolve_function_declaration;
-        ResolvePolymorphicFunction resolve_polymorphic_function;
-        ResolveConstantDefinition resolve_constant_definition;
-        ResolveStructDefinition resolve_struct_definition;
-        ResolvePolymorphicStruct resolve_polymorphic_struct;
-        ResolveUnionDefinition resolve_union_definition;
-        ResolvePolymorphicUnion resolve_polymorphic_union;
-        ResolveEnumDefinition resolve_enum_definition;
-#if defined(SERVER)
+        TypeStaticIf type_static_if;
+        TypeFunctionDeclaration type_function_declaration;
+        TypePolymorphicFunction type_polymorphic_function;
+        TypeConstantDefinition type_constant_definition;
+        TypeStructDefinition type_struct_definition;
+        TypePolymorphicStruct type_polymorphic_struct;
+        TypeUnionDefinition type_union_definition;
+        TypePolymorphicUnion type_polymorphic_union;
+        TypeEnumDefinition type_enum_definition;
         TypeFunctionBody type_function_body;
         TypeStaticVariable type_static_variable;
-#else
-        GenerateFunction generate_function;
-        GenerateStaticVariable generate_static_variable;
-#endif
     };
 };

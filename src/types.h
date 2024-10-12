@@ -155,6 +155,13 @@ struct UndeterminedStruct {
     Array<StructTypeMember> members;
 };
 
+struct UndeterminedArray {
+    inline UndeterminedArray() = default;
+    explicit inline UndeterminedArray(Array<AnyType> elements) : elements(elements) {}
+
+    Array<AnyType> elements;
+};
+
 struct Enum {
     inline Enum() = default;
     explicit inline Enum(
@@ -198,6 +205,7 @@ enum struct TypeKind {
     Pointer,
     ArrayTypeType,
     StaticArray,
+    UndeterminedArray,
     StructType,
     PolymorphicStruct,
     UnionType,
@@ -219,6 +227,7 @@ struct AnyType {
         Pointer pointer;
         ArrayTypeType array;
         StaticArray static_array;
+        UndeterminedArray undetermined_array;
         StructType struct_;
         PolymorphicStruct polymorphic_struct;
         UnionType union_;
@@ -235,6 +244,7 @@ struct AnyType {
     explicit inline AnyType(Pointer pointer) : kind(TypeKind::Pointer), pointer(pointer) {}
     explicit inline AnyType(ArrayTypeType array) : kind(TypeKind::ArrayTypeType), array(array) {}
     explicit inline AnyType(StaticArray static_array) : kind(TypeKind::StaticArray), static_array(static_array) {}
+    explicit inline AnyType(UndeterminedArray undetermined_array) : kind(TypeKind::UndeterminedArray), undetermined_array(undetermined_array) {}
     explicit inline AnyType(StructType struct_) : kind(TypeKind::StructType), struct_(struct_) {}
     explicit inline AnyType(PolymorphicStruct polymorphic_struct) : kind(TypeKind::PolymorphicStruct), polymorphic_struct(polymorphic_struct) {}
     explicit inline AnyType(UnionType union_) : kind(TypeKind::UnionType), union_(union_) {}
