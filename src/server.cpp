@@ -2,7 +2,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "cJSON.h"
-#include "constant.h"
 #include "lexer.h"
 #include "parser.h"
 #include "util.h"
@@ -95,15 +94,15 @@ struct SourceFile {
     bool needs_compilation;
 
     Arena compilation_arena;
-    Array<AnyJob> jobs;
+    Array<AnyJob*> jobs;
     Array<Error> errors;
 };
 
-static void compile_source_file(GlobalInfo info, SourceFile* file) {
+static Result<void> compile_source_file(GlobalInfo info, SourceFile* file) {
     file->needs_compilation = false;
 
     for(auto old_job : file->jobs) {
-        old_job.arena.free();
+        old_job->arena.free();
     }
 
     file->compilation_arena.reset();
@@ -116,7 +115,7 @@ static void compile_source_file(GlobalInfo info, SourceFile* file) {
 
     register_error_handler(&error_handler, &error_handler_state);
 
-    List<AnyJob> jobs(&file->compilation_arena);
+    List<AnyJob*> jobs(&file->compilation_arena);
 
     {
         AnyJob job {};
@@ -126,17 +125,17 @@ static void compile_source_file(GlobalInfo info, SourceFile* file) {
         job.parse_file.has_source = true;
         job.parse_file.source = Array(file->source_text.length, (uint8_t*)file->source_text.elements);
 
-        jobs.append(job);
+        jobs.append(file->compilation_arena.heapify(job));
     }
 
     while(true) {
         auto did_work = false;
         for(size_t job_index = 0; job_index < jobs.length; job_index += 1) {
-            auto job = &jobs[job_index];
+            auto job = jobs[job_index];
 
             if(job->state != JobState::Done) {
                 if(job->state == JobState::Waiting) {
-                    if(jobs[job->waiting_for].state != JobState::Done) {
+                    if(jobs[job->waiting_for]->state != JobState::Done) {
                         continue;
                     }
 
@@ -154,7 +153,7 @@ static void compile_source_file(GlobalInfo info, SourceFile* file) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
                             tokens = tokens_result.value;
@@ -164,7 +163,7 @@ static void compile_source_file(GlobalInfo info, SourceFile* file) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
                             tokens = tokens_result.value;
@@ -175,12 +174,11 @@ static void compile_source_file(GlobalInfo info, SourceFile* file) {
                             file->jobs = jobs;
                             file->errors = errors;
 
-                            return;
+                            return err();
                         }
 
                         auto scope = file->compilation_arena.allocate_and_construct<ConstantScope>();
                         scope->statements = statements_result.value;
-                        scope->declarations = create_declaration_hash_table(&file->compilation_arena, statements_result.value);
                         scope->scope_constants = {};
                         scope->is_top_level = true;
                         scope->file_path = parse_file->path;
@@ -193,79 +191,77 @@ static void compile_source_file(GlobalInfo info, SourceFile* file) {
                             file->jobs = jobs;
                             file->errors = errors;
 
-                            return;
+                            return err();
                         }
 
                         auto job_after = jobs[job_index];
                     } break;
 
-                    case JobKind::ResolveStaticIf: {
-                        auto resolve_static_if = job->resolve_static_if;
+                    case JobKind::TypeStaticIf: {
+                        auto type_static_if = job->type_static_if;
 
-                        auto result = do_resolve_static_if(
+                        auto result = do_type_static_if(
                             info,
                             &jobs,
                             &file->compilation_arena,
                             &job->arena,
-                            resolve_static_if.static_if,
-                            resolve_static_if.scope
+                            type_static_if.static_if,
+                            type_static_if.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_static_if.condition = result.value.condition;
-                            job_after->resolve_static_if.declarations = result.value.declarations;
+                            job->state = JobState::Done;
+                            job->type_static_if.condition = result.value.condition;
+                            job->type_static_if.condition_value = result.value.condition_value;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
-                    case JobKind::ResolveFunctionDeclaration: {
-                        auto resolve_function_declaration = job->resolve_function_declaration;
+                    case JobKind::TypeFunctionDeclaration: {
+                        auto type_function_declaration = job->type_function_declaration;
 
-                        auto result = do_resolve_function_declaration(
+                        auto result = do_type_function_declaration(
                             info,
                             &jobs,
                             &file->compilation_arena,
                             &job->arena,
-                            resolve_function_declaration.declaration,
-                            resolve_function_declaration.scope
+                            type_function_declaration.declaration,
+                            type_function_declaration.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_function_declaration.type = result.value.type;
-                            job_after->resolve_function_declaration.value = result.value.value;
+                            job->state = JobState::Done;
+                            job->type_function_declaration.parameters = result.value.parameters;
+                            job->type_function_declaration.return_types = result.value.return_types;
+                            job->type_function_declaration.type = result.value.type;
+                            job->type_function_declaration.value = result.value.value;
 
-                            if(job_after->resolve_function_declaration.type.kind == TypeKind::FunctionTypeType) {
-                                auto function_type = job_after->resolve_function_declaration.type.function;
+                            if(job->type_function_declaration.type.kind == TypeKind::FunctionTypeType) {
+                                auto function_type = job->type_function_declaration.type.function;
 
-                                auto function_value = job_after->resolve_function_declaration.value.unwrap_function();
+                                auto function_value = job->type_function_declaration.value.unwrap_function();
 
                                 auto found = false;
                                 for(auto job : jobs) {
-                                    if(job.kind == JobKind::TypeFunctionBody) {
-                                        auto type_function_body = job.type_function_body;
+                                    if(job->kind == JobKind::TypeFunctionBody) {
+                                        auto type_function_body = job->type_function_body;
 
                                         if(
                                             type_function_body.value.declaration == function_value.declaration &&
@@ -284,232 +280,226 @@ static void compile_source_file(GlobalInfo info, SourceFile* file) {
                                     job.type_function_body.type = function_type;
                                     job.type_function_body.value = function_value;
 
-                                    jobs.append(job);
+                                    jobs.append(file->compilation_arena.heapify(job));
                                 }
                             }
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
-                    case JobKind::ResolvePolymorphicFunction: {
-                        auto resolve_polymorphic_function = job->resolve_polymorphic_function;
+                    case JobKind::TypePolymorphicFunction: {
+                        auto type_polymorphic_function = job->type_polymorphic_function;
 
-                        auto result = do_resolve_polymorphic_function(
+                        auto result = do_type_polymorphic_function(
                             info,
                             &jobs,
                             &file->compilation_arena,
                             &job->arena,
-                            resolve_polymorphic_function.declaration,
-                            resolve_polymorphic_function.parameters,
-                            resolve_polymorphic_function.scope,
-                            resolve_polymorphic_function.call_scope,
-                            resolve_polymorphic_function.call_parameter_ranges
+                            type_polymorphic_function.declaration,
+                            type_polymorphic_function.parameters,
+                            type_polymorphic_function.scope,
+                            type_polymorphic_function.call_scope,
+                            type_polymorphic_function.call_parameter_ranges
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_polymorphic_function.type = result.value.type;
-                            job_after->resolve_polymorphic_function.value = result.value.value;
+                            job->state = JobState::Done;
+                            job->type_polymorphic_function.type = result.value.type;
+                            job->type_polymorphic_function.value = result.value.value;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
-                    case JobKind::ResolveConstantDefinition: {
-                        auto resolve_constant_definition = job->resolve_constant_definition;
+                    case JobKind::TypeConstantDefinition: {
+                        auto type_constant_definition = job->type_constant_definition;
 
-                        auto result = evaluate_constant_expression(
-                            &job->arena,
+                        auto result = do_type_constant_definition(
                             info,
                             &jobs,
-                            resolve_constant_definition.scope,
-                            nullptr,
-                            resolve_constant_definition.definition->expression
+                            &file->compilation_arena,
+                            &job->arena,
+                            type_constant_definition.definition,
+                            type_constant_definition.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_constant_definition.type = result.value.type;
-                            job_after->resolve_constant_definition.value = result.value.value;
+                            job->state = JobState::Done;
+                            job->type_constant_definition.value = result.value;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
-                    case JobKind::ResolveStructDefinition: {
-                        auto resolve_struct_definition = job->resolve_struct_definition;
+                    case JobKind::TypeStructDefinition: {
+                        auto type_struct_definition = job->type_struct_definition;
 
-                        auto result = do_resolve_struct_definition(
+                        auto result = do_type_struct_definition(
                             info,
                             &jobs,
                             &job->arena,
-                            resolve_struct_definition.definition,
-                            resolve_struct_definition.scope
+                            &file->compilation_arena,
+                            type_struct_definition.definition,
+                            type_struct_definition.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_struct_definition.type = result.value;
+                            job->state = JobState::Done;
+                            job->type_struct_definition.members = result.value.members;
+                            job->type_struct_definition.type = result.value.type;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
-                    case JobKind::ResolvePolymorphicStruct: {
-                        auto resolve_polymorphic_struct = job->resolve_polymorphic_struct;
+                    case JobKind::TypePolymorphicStruct: {
+                        auto type_polymorphic_struct = job->type_polymorphic_struct;
 
-                        auto result = do_resolve_polymorphic_struct(
+                        auto result = do_type_polymorphic_struct(
                             info,
                             &jobs,
                             &job->arena,
-                            resolve_polymorphic_struct.definition,
-                            resolve_polymorphic_struct.parameters,
-                            resolve_polymorphic_struct.scope
+                            &file->compilation_arena,
+                            type_polymorphic_struct.definition,
+                            type_polymorphic_struct.parameters,
+                            type_polymorphic_struct.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_polymorphic_struct.type = result.value;
+                            job->state = JobState::Done;
+                            job->type_polymorphic_struct.type = result.value;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
-                    case JobKind::ResolveUnionDefinition: {
-                        auto resolve_union_definition = job->resolve_union_definition;
+                    case JobKind::TypeUnionDefinition: {
+                        auto type_union_definition = job->type_union_definition;
 
-                        auto result = do_resolve_union_definition(
+                        auto result = do_type_union_definition(
                             info,
                             &jobs,
                             &job->arena,
-                            resolve_union_definition.definition,
-                            resolve_union_definition.scope
+                            &file->compilation_arena,
+                            type_union_definition.definition,
+                            type_union_definition.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_union_definition.type = result.value;
+                            job->state = JobState::Done;
+                            job->type_union_definition.members = result.value.members;
+                            job->type_union_definition.type = result.value.type;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
-                    case JobKind::ResolvePolymorphicUnion: {
-                        auto resolve_polymorphic_union = job->resolve_polymorphic_union;
+                    case JobKind::TypePolymorphicUnion: {
+                        auto type_polymorphic_union = job->type_polymorphic_union;
 
-                        auto result = do_resolve_polymorphic_union(
+                        auto result = do_type_polymorphic_union(
                             info,
                             &jobs,
                             &job->arena,
-                            resolve_polymorphic_union.definition,
-                            resolve_polymorphic_union.parameters,
-                            resolve_polymorphic_union.scope
+                            &file->compilation_arena,
+                            type_polymorphic_union.definition,
+                            type_polymorphic_union.parameters,
+                            type_polymorphic_union.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_polymorphic_union.type = result.value;
+                            job->state = JobState::Done;
+                            job->type_polymorphic_union.type = result.value;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
-                    case JobKind::ResolveEnumDefinition: {
-                        auto resolve_enum_definition = job->resolve_enum_definition;
+                    case JobKind::TypeEnumDefinition: {
+                        auto type_enum_definition = job->type_enum_definition;
 
-                        auto result = do_resolve_enum_definition(
+                        auto result = do_type_enum_definition(
                             info,
                             &jobs,
                             &job->arena,
-                            resolve_enum_definition.definition,
-                            resolve_enum_definition.scope
+                            &file->compilation_arena,
+                            type_enum_definition.definition,
+                            type_enum_definition.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_enum_definition.type = result.value;
+                            job->state = JobState::Done;
+                            job->type_enum_definition.backing_type = result.value.backing_type;
+                            job->type_enum_definition.variants = result.value.variants;
+                            job->type_enum_definition.type = result.value.type;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
@@ -520,26 +510,26 @@ static void compile_source_file(GlobalInfo info, SourceFile* file) {
                             info,
                             &jobs,
                             &job->arena,
+                            &file->compilation_arena,
                             type_function_body.type,
                             type_function_body.value
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->type_function_body.statements = result.value;
+                            job->state = JobState::Done;
+                            job->type_function_body.scope = result.value.scope;
+                            job->type_function_body.statements = result.value.statements;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
@@ -550,26 +540,29 @@ static void compile_source_file(GlobalInfo info, SourceFile* file) {
                             info,
                             &jobs,
                             &job->arena,
+                            &file->compilation_arena,
                             type_static_variable.declaration,
                             type_static_variable.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 file->jobs = jobs;
                                 file->errors = errors;
 
-                                return;
+                                return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->type_static_variable.type = result.value;
+                            job->state = JobState::Done;
+                            job->type_static_variable.is_external = result.value.is_external;
+                            job->type_static_variable.type = result.value.type;
+                            job->type_static_variable.initializer = result.value.initializer;
+                            job->type_static_variable.actual_type = result.value.actual_type;
+                            job->type_static_variable.external_libraries = result.value.external_libraries;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
@@ -586,90 +579,88 @@ static void compile_source_file(GlobalInfo info, SourceFile* file) {
         }
     }
 
-    file->jobs = jobs;
-
     auto all_jobs_done = true;
     for(auto job : jobs) {
-        if(job.state != JobState::Done) {
+        if(job->state != JobState::Done) {
             all_jobs_done = false;
         }
     }
 
     if(!all_jobs_done) {
         for(auto job : jobs) {
-            if(job.state != JobState::Done) {
+            if(job->state != JobState::Done) {
                 ConstantScope* scope;
                 FileRange range;
-                switch(job.kind) {
+                switch(job->kind) {
                     case JobKind::ParseFile: {
                         abort();
                     } break;
 
-                    case JobKind::ResolveStaticIf: {
-                        auto resolve_static_if = job.resolve_static_if;
+                    case JobKind::TypeStaticIf: {
+                        auto type_static_if = job->type_static_if;
 
-                        scope = resolve_static_if.scope;
-                        range = resolve_static_if.static_if->range;
+                        scope = type_static_if.scope;
+                        range = type_static_if.static_if->range;
                     } break;
 
-                    case JobKind::ResolveFunctionDeclaration: {
-                        auto resolve_function_declaration = job.resolve_function_declaration;
+                    case JobKind::TypeFunctionDeclaration: {
+                        auto type_function_declaration = job->type_function_declaration;
 
-                        scope = resolve_function_declaration.scope;
-                        range = resolve_function_declaration.declaration->range;
+                        scope = type_function_declaration.scope;
+                        range = type_function_declaration.declaration->range;
                     } break;
 
-                    case JobKind::ResolvePolymorphicFunction: {
-                        auto resolve_polymorphic_function = job.resolve_polymorphic_function;
+                    case JobKind::TypePolymorphicFunction: {
+                        auto type_polymorphic_function = job->type_polymorphic_function;
 
-                        scope = resolve_polymorphic_function.scope;
-                        range = resolve_polymorphic_function.declaration->range;
+                        scope = type_polymorphic_function.scope;
+                        range = type_polymorphic_function.declaration->range;
                     } break;
 
-                    case JobKind::ResolveConstantDefinition: {
-                        auto resolve_constant_definition = job.resolve_constant_definition;
+                    case JobKind::TypeConstantDefinition: {
+                        auto type_constant_definition = job->type_constant_definition;
 
-                        scope = resolve_constant_definition.scope;
-                        range = resolve_constant_definition.definition->range;
+                        scope = type_constant_definition.scope;
+                        range = type_constant_definition.definition->range;
                     } break;
 
-                    case JobKind::ResolveStructDefinition: {
-                        auto resolve_struct_definition = job.resolve_struct_definition;
+                    case JobKind::TypeStructDefinition: {
+                        auto type_struct_definition = job->type_struct_definition;
 
-                        scope = resolve_struct_definition.scope;
-                        range = resolve_struct_definition.definition->range;
+                        scope = type_struct_definition.scope;
+                        range = type_struct_definition.definition->range;
                     } break;
 
-                    case JobKind::ResolvePolymorphicStruct: {
-                        auto resolve_polymorphic_struct = job.resolve_polymorphic_struct;
+                    case JobKind::TypePolymorphicStruct: {
+                        auto type_polymorphic_struct = job->type_polymorphic_struct;
 
-                        scope = resolve_polymorphic_struct.scope;
-                        range = resolve_polymorphic_struct.definition->range;
+                        scope = type_polymorphic_struct.scope;
+                        range = type_polymorphic_struct.definition->range;
                     } break;
 
-                    case JobKind::ResolveUnionDefinition: {
-                        auto resolve_union_definition = job.resolve_union_definition;
+                    case JobKind::TypeUnionDefinition: {
+                        auto type_union_definition = job->type_union_definition;
 
-                        scope = resolve_union_definition.scope;
-                        range = resolve_union_definition.definition->range;
+                        scope = type_union_definition.scope;
+                        range = type_union_definition.definition->range;
                     } break;
 
-                    case JobKind::ResolvePolymorphicUnion: {
-                        auto resolve_polymorphic_union = job.resolve_polymorphic_union;
+                    case JobKind::TypePolymorphicUnion: {
+                        auto type_polymorphic_union = job->type_polymorphic_union;
 
-                        scope = resolve_polymorphic_union.scope;
-                        range = resolve_polymorphic_union.definition->range;
+                        scope = type_polymorphic_union.scope;
+                        range = type_polymorphic_union.definition->range;
                     } break;
 
                     case JobKind::TypeFunctionBody: {
-                        auto type_function_body = job.type_function_body;
+                        auto type_function_body = job->type_function_body;
 
                         scope = type_function_body.value.body_scope->parent;
                         range = type_function_body.value.declaration->range;
                     } break;
 
                     case JobKind::TypeStaticVariable: {
-                        auto type_static_variable = job.type_static_variable;
+                        auto type_static_variable = job->type_static_variable;
 
                         scope = type_static_variable.scope;
                         range = type_static_variable.declaration->range;
@@ -681,9 +672,17 @@ static void compile_source_file(GlobalInfo info, SourceFile* file) {
                 error(scope, range, "Circular dependency detected");
             }
         }
+
+        file->jobs = jobs;
+        file->errors = errors;
+
+        return ok();
     }
 
+    file->jobs = jobs;
     file->errors = errors;
+
+    return ok();
 }
 
 enum ErrorCode {
@@ -1032,7 +1031,17 @@ static Result<UTF16PositionToUTF8PositionResult> utf16_position_to_utf8_position
 }
 
 static void compile_and_send_diagnostics(Arena* request_arena, GlobalInfo info, String uri, SourceFile* file) {
-    compile_source_file(info, file);
+    auto result = compile_source_file(info, file);
+
+    if(result.status) {
+        assert(file->errors.length == 0);
+
+        for(auto job : file->jobs) {
+            assert(job->state == JobState::Done);
+        }
+    } else {
+        assert(file->errors.length != 0);
+    }
 
     auto params = cJSON_CreateObject();
 
@@ -1081,6 +1090,35 @@ static void compile_and_send_diagnostics(Arena* request_arena, GlobalInfo info, 
             cJSON_AddStringToObject(diagnostic, "message", error.text.to_c_string(request_arena));
 
             cJSON_AddItemToArray(diagnostics, diagnostic);
+        } else {
+            auto diagnostic = cJSON_CreateObject();
+
+            auto range = cJSON_CreateObject();
+
+            auto start = cJSON_CreateObject();
+
+            cJSON_AddNumberToObject(start, "line", 0);
+            cJSON_AddNumberToObject(start, "character", 0);
+
+            cJSON_AddItemToObject(range, "start", start);
+
+            auto end = cJSON_CreateObject();
+
+            cJSON_AddNumberToObject(end, "line", 0);
+            cJSON_AddNumberToObject(end, "character", 0);
+
+            cJSON_AddItemToObject(range, "end", end);
+
+            cJSON_AddItemToObject(diagnostic, "range", range);
+
+            StringBuffer message(request_arena);
+            message.append(u8"Error in imported file '"_S);
+            message.append(error.path);
+            message.append(u8"'"_S);
+
+            cJSON_AddStringToObject(diagnostic, "message", message.to_c_string(request_arena));
+
+            cJSON_AddItemToArray(diagnostics, diagnostic);
         }
     }
 
@@ -1101,6 +1139,503 @@ inline bool is_position_in_range(FileRange range, unsigned int line, unsigned in
     } else {
         return true;
     }
+}
+
+struct RangeInfo {
+    FileRange range;
+    AnyType type;
+    bool has_value;
+    AnyValue value;
+};
+
+static RangeInfo get_expression_range_info(TypedExpression top_expression, unsigned int line, unsigned int column) {
+    auto current_expression = top_expression;
+
+    while(true) {
+        if(current_expression.kind == TypedExpressionKind::VariableReference) {
+            break;
+        } else if(current_expression.kind == TypedExpressionKind::StaticVariableReference) {
+            break;
+        } else if(current_expression.kind == TypedExpressionKind::ConstantLiteral) {
+            break;
+        } else if(current_expression.kind == TypedExpressionKind::BinaryOperation) {
+            if(is_position_in_range(current_expression.binary_operation.left->range, line, column)) {
+                current_expression = *current_expression.binary_operation.left;
+            } else if(is_position_in_range(current_expression.binary_operation.right->range, line, column)) {
+                current_expression = *current_expression.binary_operation.right;
+            } else {
+                break;
+            }
+        } else if(current_expression.kind == TypedExpressionKind::IndexReference) {
+            if(is_position_in_range(current_expression.index_reference.value->range, line, column)) {
+                current_expression = *current_expression.index_reference.value;
+            } else if(is_position_in_range(current_expression.index_reference.index->range, line, column)) {
+                current_expression = *current_expression.index_reference.index;
+            } else {
+                break;
+            }
+        } else if(current_expression.kind == TypedExpressionKind::MemberReference) {
+            if(is_position_in_range(current_expression.member_reference.value->range, line, column)) {
+                current_expression = *current_expression.member_reference.value;
+            } else {
+                break;
+            }
+        } else if(current_expression.kind == TypedExpressionKind::ArrayLiteral) {
+            auto found = false;
+
+            for(auto element : current_expression.array_literal.elements) {
+                if(is_position_in_range(element.range, line, column)) {
+                    current_expression = element;
+
+                    found = true;
+                    break;
+                }
+            }
+
+            if(found) {
+                break;
+            }
+        } else if(current_expression.kind == TypedExpressionKind::StructLiteral) {
+            auto found = false;
+
+            for(auto member : current_expression.struct_literal.members) {
+                if(is_position_in_range(member.member.range, line, column)) {
+                    current_expression = member.member;
+
+                    found = true;
+                    break;
+                }
+            }
+
+            if(!found) {
+                break;
+            }
+        } else if(current_expression.kind == TypedExpressionKind::FunctionCall) {
+            if(is_position_in_range(current_expression.function_call.value->range, line, column)) {
+                current_expression = *current_expression.function_call.value;
+            } else {
+                auto found = false;
+
+                for(auto parameter : current_expression.function_call.parameters) {
+                    if(is_position_in_range(parameter.range, line, column)) {
+                        current_expression = parameter;
+
+                        found = true;
+                        break;
+                    }
+                }
+
+                if(!found) {
+                    break;
+                }
+            }
+        } else if(current_expression.kind == TypedExpressionKind::UnaryOperation) {
+            if(is_position_in_range(current_expression.unary_operation.value->range, line, column)) {
+                current_expression = *current_expression.unary_operation.value;
+            } else {
+                break;
+            }
+        } else if(current_expression.kind == TypedExpressionKind::Cast) {
+            if(is_position_in_range(current_expression.cast.value->range, line, column)) {
+                current_expression = *current_expression.cast.value;
+            } else if(is_position_in_range(current_expression.cast.type->range, line, column)) {
+                current_expression = *current_expression.cast.type;
+            } else {
+                break;
+            }
+        } else if(current_expression.kind == TypedExpressionKind::Bake) {
+            if(is_position_in_range(current_expression.bake.value->range, line, column)) {
+                current_expression = *current_expression.bake.value;
+            } else {
+                auto found = false;
+
+                for(auto parameter : current_expression.bake.parameters) {
+                    if(is_position_in_range(parameter.range, line, column)) {
+                        current_expression = parameter;
+
+                        found = true;
+                        break;
+                    }
+                }
+
+                if(!found) {
+                    break;
+                }
+            }
+        } else if(current_expression.kind == TypedExpressionKind::ArrayType) {
+            if(is_position_in_range(current_expression.array_type.element_type->range, line, column)) {
+                current_expression = *current_expression.array_type.element_type;
+            } else if(
+                current_expression.array_type.length != nullptr &&
+                is_position_in_range(current_expression.array_type.length->range, line, column)
+            ) {
+                current_expression = *current_expression.array_type.length;
+            } else {
+                break;
+            }
+        } else if(current_expression.kind == TypedExpressionKind::FunctionType) {
+            auto found = false;
+
+            for(auto parameter : current_expression.function_type.parameters) {
+                if(is_position_in_range(parameter.type.range, line, column)) {
+                    current_expression = parameter.type;
+
+                    found = true;
+                    break;
+                }
+            }
+
+            if(found) {
+                continue;
+            }
+
+            for(auto return_type : current_expression.function_type.return_types) {
+                if(is_position_in_range(return_type.range, line, column)) {
+                    current_expression = return_type;
+
+                    found = true;
+                    break;
+                }
+            }
+
+            if(!found) {
+                break;
+            }
+        } else {
+            abort();
+        }
+    }
+
+    RangeInfo result {};
+    result.range = current_expression.range;
+    result.type = current_expression.type;
+    result.has_value = true;
+    result.value = current_expression.value;
+
+    return result;
+}
+
+static Result<RangeInfo> get_statement_range_info(TypedStatement top_statement, unsigned int line, unsigned int column) {
+    auto current_statement = top_statement;
+
+    while(true) {
+        if(current_statement.kind == TypedStatementKind::ExpressionStatement) {
+            if(is_position_in_range(
+                current_statement.expression_statement.expression.range,
+                line,
+                column
+            )) {
+                return ok(get_expression_range_info(
+                    current_statement.expression_statement.expression,
+                    line,
+                    column
+                ));
+            }
+
+            break;
+        } else if(current_statement.kind == TypedStatementKind::VariableDeclaration) {
+            if(
+                current_statement.variable_declaration.has_type &&
+                is_position_in_range(
+                    current_statement.variable_declaration.type.range,
+                    line,
+                    column
+                )
+            ) {
+                return ok(get_expression_range_info(
+                    current_statement.variable_declaration.type,
+                    line,
+                    column
+                ));
+            }
+
+            if(
+                current_statement.variable_declaration.has_initializer &&
+                is_position_in_range(
+                    current_statement.variable_declaration.initializer.range,
+                    line,
+                    column
+                )
+            ) {
+                return ok(get_expression_range_info(
+                    current_statement.variable_declaration.initializer,
+                    line,
+                    column
+                ));
+            }
+
+            break;
+        } else if(current_statement.kind == TypedStatementKind::MultiReturnVariableDeclaration) {
+            if(is_position_in_range(
+                current_statement.multi_return_variable_declaration.initializer.range,
+                line,
+                column
+            )) {
+                return ok(get_expression_range_info(
+                    current_statement.multi_return_variable_declaration.initializer,
+                    line,
+                    column
+                ));
+            }
+
+            break;
+        } else if(current_statement.kind == TypedStatementKind::Assignment) {
+            if(is_position_in_range(
+                current_statement.assignment.target.range,
+                line,
+                column
+            )) {
+                return ok(get_expression_range_info(
+                    current_statement.assignment.target,
+                    line,
+                    column
+                ));
+            }
+
+            if(is_position_in_range(
+                current_statement.assignment.value.range,
+                line,
+                column
+            )) {
+                return ok(get_expression_range_info(
+                    current_statement.assignment.value,
+                    line,
+                    column
+                ));
+            }
+
+            break;
+        } else if(current_statement.kind == TypedStatementKind::MultiReturnAssignment) {
+            for(auto target : current_statement.multi_return_assignment.targets) {
+                if(is_position_in_range(
+                    target.range,
+                    line,
+                    column
+                )) {
+                    return ok(get_expression_range_info(
+                        target,
+                        line,
+                        column
+                    ));
+                }
+            }
+
+            if(is_position_in_range(
+                current_statement.multi_return_assignment.value.range,
+                line,
+                column
+            )) {
+                return ok(get_expression_range_info(
+                    current_statement.multi_return_assignment.value,
+                    line,
+                    column
+                ));
+            }
+
+            break;
+        } else if(current_statement.kind == TypedStatementKind::BinaryOperationAssignment) {
+            if(is_position_in_range(
+                current_statement.binary_operation_assignment.operation.range,
+                line,
+                column
+            )) {
+                return ok(get_expression_range_info(
+                    current_statement.binary_operation_assignment.operation,
+                    line,
+                    column
+                ));
+            }
+
+            break;
+        } else if(current_statement.kind == TypedStatementKind::IfStatement) {
+            if(is_position_in_range(
+                current_statement.if_statement.condition.range,
+                line,
+                column
+            )) {
+                return ok(get_expression_range_info(
+                    current_statement.if_statement.condition,
+                    line,
+                    column
+                ));
+            }
+
+            auto found = false;
+            for(auto statement : current_statement.if_statement.statements) {
+                if(is_position_in_range(
+                    statement.range,
+                    line,
+                    column
+                )) {
+                    current_statement = statement;
+
+                    found = true;
+                    break;
+                }
+            }
+
+            if(found) {
+                continue;
+            }
+
+            for(auto else_if : current_statement.if_statement.else_ifs) {
+                if(is_position_in_range(
+                    else_if.condition.range,
+                    line,
+                    column
+                )) {
+                    return ok(get_expression_range_info(
+                        else_if.condition,
+                        line,
+                        column
+                    ));
+                }
+
+                auto found = false;
+                for(auto statement : else_if.statements) {
+                    if(is_position_in_range(
+                        statement.range,
+                        line,
+                        column
+                    )) {
+                        current_statement = statement;
+
+                        found = true;
+                        break;
+                    }
+                }
+
+                if(found) {
+                    break;
+                }
+            }
+
+            if(found) {
+                continue;
+            }
+
+            for(auto statement : current_statement.if_statement.else_statements) {
+                if(is_position_in_range(
+                    statement.range,
+                    line,
+                    column
+                )) {
+                    current_statement = statement;
+
+                    found = true;
+                    break;
+                }
+            }
+
+            if(!found) {
+                break;
+            }
+        } else if(current_statement.kind == TypedStatementKind::WhileLoop) {
+            if(is_position_in_range(
+                current_statement.while_loop.condition.range,
+                line,
+                column
+            )) {
+                return ok(get_expression_range_info(
+                    current_statement.while_loop.condition,
+                    line,
+                    column
+                ));
+            }
+
+            auto found = false;
+            for(auto statement : current_statement.while_loop.statements) {
+                if(is_position_in_range(
+                    statement.range,
+                    line,
+                    column
+                )) {
+                    current_statement = statement;
+                }
+            }
+
+            if(!found) {
+                break;
+            }
+        } else if(current_statement.kind == TypedStatementKind::ForLoop) {
+            if(is_position_in_range(
+                current_statement.for_loop.from.range,
+                line,
+                column
+            )) {
+                return ok(get_expression_range_info(
+                    current_statement.for_loop.from,
+                    line,
+                    column
+                ));
+            }
+
+            if(is_position_in_range(
+                current_statement.for_loop.to.range,
+                line,
+                column
+            )) {
+                return ok(get_expression_range_info(
+                    current_statement.for_loop.to,
+                    line,
+                    column
+                ));
+            }
+
+            auto found = false;
+            for(auto statement : current_statement.for_loop.statements) {
+                if(is_position_in_range(
+                    statement.range,
+                    line,
+                    column
+                )) {
+                    current_statement = statement;
+                }
+            }
+
+            if(!found) {
+                break;
+            }
+        } else if(current_statement.kind == TypedStatementKind::Return) {
+            for(auto value : current_statement.return_.values) {
+                if(is_position_in_range(
+                    value.range,
+                    line,
+                    column
+                )) {
+                    return ok(get_expression_range_info(
+                        value,
+                        line,
+                        column
+                    ));
+                }
+            }
+
+            break;
+        } else if(current_statement.kind == TypedStatementKind::Break) {
+            break;
+        } else if(current_statement.kind == TypedStatementKind::InlineAssembly) {
+            for(auto binding : current_statement.inline_assembly.bindings) {
+                if(is_position_in_range(
+                    binding.value.range,
+                    line,
+                    column
+                )) {
+                    return ok(get_expression_range_info(
+                        binding.value,
+                        line,
+                        column
+                    ));
+                }
+            }
+
+            break;
+        } else {
+            abort();
+        }
+    }
+
+    return err();
 }
 
 int main(int argument_count, const char* arguments[]) {
@@ -2149,185 +2684,279 @@ int main(int argument_count, const char* arguments[]) {
 
                 auto actual_position = actual_position_result.value;
 
-                fprintf(stderr, "B: %p\n", &source_file->jobs);
-
-                auto found_job = false;
-                bool job_is_range;
-                FileRange job_range;
-                AnyType job_type;
-                Array<TypedStatement> job_statements;
-                for(auto job : source_file->jobs) {
-                    if(job->kind == JobKind::TypeFunctionBody) {
-                        if(
-                            job->state == JobState::Done &&
-                            get_scope_file_path(*job->type_function_body.value.body_scope) == absolute_path &&
-                            is_position_in_range(
-                                job->type_function_body.value.declaration->range,
-                                actual_position.line,
-                                actual_position.column
-                            )
-                        ) {
-                            found_job = true;
-                            job_is_range = false;
-                            job_statements = job->type_function_body.statements;
-
-                            break;
-                        }
-
-                        fprintf(
-                            stderr,
-                            "%.*s, %u:%u - %u:%u, %u:%u, %d, %d, %d\n",
-                            STRING_PRINTF_ARGUMENTS(job->type_function_body.value.declaration->name.text),
-                            job->type_function_body.value.declaration->range.first_line,
-                            job->type_function_body.value.declaration->range.first_column,
-                            job->type_function_body.value.declaration->range.last_line,
-                            job->type_function_body.value.declaration->range.last_column,
-                            actual_position.line,
-                            actual_position.column,
-                            (int)(job->state),
-                            (int)(get_scope_file_path(*job->type_function_body.value.body_scope) == absolute_path),
-                            (int)is_position_in_range(
-                                job->type_function_body.value.declaration->range,
-                                actual_position.line,
-                                actual_position.column
-                            )
-                        );
-                    } else if(job->kind == JobKind::TypeStaticVariable) {
-                        if(
-                            job->state == JobState::Done &&
-                            get_scope_file_path(*job->type_static_variable.scope) == absolute_path
-                        ) {
-                            if(is_position_in_range(
-                                job->type_static_variable.declaration->name.range,
-                                actual_position.line,
-                                actual_position.column
-                            )) {
-                                found_job = true;
-                                job_is_range = true;
-                                job_range = job->type_static_variable.declaration->name.range;
-                                job_type = job->type_static_variable.type;
-
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if(!found_job) {
-                    send_success_response(&request_arena, id, cJSON_CreateNull());
-                    continue;
-                }
-
                 auto found_range = false;
-                FileRange range;
-                AnyType type;
-                if(job_is_range) {
-                    found_range = true;
-                    range = job_range;
-                    type = job_type;
-                } else {
-                    auto found_statement = false;
-                    Array<TypedName> statement_names;
-                    Array<TypedExpression> statement_expressions;
-                    for(auto statement : job_statements) {
-                        if(is_position_in_range(statement.range, actual_position.line, actual_position.column)) {
-                            auto current_statement = statement;
-                            while(true) {
-                                auto found_child = false;
-                                for(auto child : current_statement.children) {
-                                    if(is_position_in_range(child.range, actual_position.line, actual_position.column)) {
-                                        found_child = true;
-                                        current_statement = child;
-
-                                        break;
-                                    }
+                RangeInfo range_info;
+                for(auto job : source_file->jobs) {
+                    if(job->state == JobState::Done) {
+                        if(job->kind == JobKind::TypeStaticIf) {
+                            if(
+                                job->type_static_if.scope->get_file_path() == absolute_path &&
+                                is_position_in_range(
+                                    job->type_static_if.static_if->range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )
+                            ) {
+                                if(is_position_in_range(
+                                    job->type_static_if.condition.range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )) {
+                                    found_range = true;
+                                    range_info = get_expression_range_info(
+                                        job->type_static_if.condition,
+                                        actual_position.line,
+                                        actual_position.column
+                                    );
                                 }
 
-                                if(!found_child) {
-                                    break;
-                                }
-                            }
-
-                            found_statement = true;
-                            statement_names = current_statement.names;
-                            statement_expressions = current_statement.expressions;
-                            break;
-                        }
-                    }
-
-                    if(found_statement) {
-                        auto found_expression = false;
-                        FileRange expression_range;
-                        AnyType expression_type;
-                        Array<TypedName> expression_names;
-                        for(auto expression : statement_expressions) {
-                            if(is_position_in_range(expression.range, actual_position.line, actual_position.column)) {
-                                auto current_expression = expression;
-                                while(true) {
-                                    auto found_child = false;
-                                    for(auto child : current_expression.children) {
-                                        if(is_position_in_range(child.range, actual_position.line, actual_position.column)) {
-                                            found_child = true;
-                                            current_expression = child;
-
-                                            break;
-                                        }
-                                    }
-
-                                    if(!found_child) {
-                                        break;
-                                    }
-                                }
-
-                                found_expression = true;
-                                expression_range = current_expression.range;
-                                expression_type = current_expression.type;
-                                expression_names = current_expression.names;
                                 break;
                             }
-                        }
+                        } else if(job->kind == JobKind::TypeFunctionDeclaration) {
+                            if(
+                                job->type_function_declaration.scope->get_file_path() == absolute_path &&
+                                is_position_in_range(
+                                    job->type_function_declaration.declaration->range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )
+                            ) {
+                                for(auto parameter : job->type_function_declaration.parameters) {
+                                    if(is_position_in_range(
+                                        parameter.type.range,
+                                        actual_position.line,
+                                        actual_position.column
+                                    )) {
+                                        found_range = true;
+                                        range_info = get_expression_range_info(
+                                            parameter.type,
+                                            actual_position.line,
+                                            actual_position.column
+                                        );
 
-                        if(found_expression) {
-                            auto found_name = false;
-                            FileRange name_range;
-                            AnyType name_type;
-                            for(auto name : expression_names) {
-                                if(is_position_in_range(name.range, actual_position.line, actual_position.column)) {
-                                    found_name = true;
-                                    name_range = name.range;
-                                    name_type = name.type;
+                                        break;
+                                    }
+                                }
+
+                                if(found_range) {
+                                    break;
+                                }
+
+                                for(auto return_type : job->type_function_declaration.return_types) {
+                                    if(is_position_in_range(
+                                        return_type.range,
+                                        actual_position.line,
+                                        actual_position.column
+                                    )) {
+                                        found_range = true;
+                                        range_info = get_expression_range_info(
+                                            return_type,
+                                            actual_position.line,
+                                            actual_position.column
+                                        );
+
+                                        break;
+                                    }
+                                }
+
+                                break;
+                            }
+                        } else if(job->kind == JobKind::TypePolymorphicFunction) {
+                            break;
+                        } else if(job->kind == JobKind::TypeConstantDefinition) {
+                            if(
+                                job->type_constant_definition.scope->get_file_path() == absolute_path &&
+                                is_position_in_range(
+                                    job->type_constant_definition.definition->range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )
+                            ) {
+                                if(is_position_in_range(
+                                    job->type_constant_definition.value.range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )) {
+                                    found_range = true;
+                                    range_info = get_expression_range_info(
+                                        job->type_constant_definition.value,
+                                        actual_position.line,
+                                        actual_position.column
+                                    );
+                                }
+
+                                break;
+                            }
+                        } else if(job->kind == JobKind::TypeStructDefinition) {
+                            if(
+                                job->type_struct_definition.scope->get_file_path() == absolute_path &&
+                                is_position_in_range(
+                                    job->type_struct_definition.definition->range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )
+                            ) {
+                                for(auto member : job->type_struct_definition.members) {
+                                    if(is_position_in_range(
+                                        member.member.range,
+                                        actual_position.line,
+                                        actual_position.column
+                                    )) {
+                                        found_range = true;
+                                        range_info = get_expression_range_info(
+                                            member.member,
+                                            actual_position.line,
+                                            actual_position.column
+                                        );
+
+                                        break;
+                                    }
+                                }
+
+                                break;
+                            }
+                        } else if(job->kind == JobKind::TypePolymorphicStruct) {
+                            break;
+                        } else if(job->kind == JobKind::TypeUnionDefinition) {
+                            if(
+                                job->type_union_definition.scope->get_file_path() == absolute_path &&
+                                is_position_in_range(
+                                    job->type_union_definition.definition->range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )
+                            ) {
+                                for(auto member : job->type_union_definition.members) {
+                                    if(is_position_in_range(
+                                        member.member.range,
+                                        actual_position.line,
+                                        actual_position.column
+                                    )) {
+                                        found_range = true;
+                                        range_info = get_expression_range_info(
+                                            member.member,
+                                            actual_position.line,
+                                            actual_position.column
+                                        );
+
+                                        break;
+                                    }
+                                }
+
+                                break;
+                            }
+                        } else if(job->kind == JobKind::TypePolymorphicUnion) {
+                            break;
+                        } else if(job->kind == JobKind::TypeEnumDefinition) {
+                            if(
+                                job->type_enum_definition.scope->get_file_path() == absolute_path &&
+                                is_position_in_range(
+                                    job->type_enum_definition.definition->range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )
+                            ) {
+                                for(auto variant : job->type_enum_definition.variants) {
+                                    if(
+                                        variant.has_value &&
+                                        is_position_in_range(
+                                            variant.value.range,
+                                            actual_position.line,
+                                            actual_position.column
+                                        )
+                                    ) {
+                                        found_range = true;
+                                        range_info = get_expression_range_info(
+                                            variant.value,
+                                            actual_position.line,
+                                            actual_position.column
+                                        );
+
+                                        break;
+                                    }
+                                }
+
+                                break;
+                            }
+                        } else if(job->kind == JobKind::TypeFunctionBody) {
+                            if(
+                                job->type_function_body.value.body_scope->get_file_path() == absolute_path &&
+                                is_position_in_range(
+                                    job->type_function_body.value.declaration->range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )
+                            ) {
+                                for(auto statement : job->type_function_body.statements) {
+                                    if(is_position_in_range(
+                                        statement.range,
+                                        actual_position.line,
+                                        actual_position.column
+                                    )) {
+                                        auto result = get_statement_range_info(
+                                            statement,
+                                            actual_position.line,
+                                            actual_position.column
+                                        );
+
+                                        if(result.status) {
+                                            found_range = true;
+                                            range_info = result.value;
+                                        }
+
+                                        break;
+                                    }
+                                }
+
+                                break;
+                            }
+                        } else if(job->kind == JobKind::TypeStaticVariable) {
+                            if(
+                                job->type_static_variable.scope->get_file_path() == absolute_path &&
+                                is_position_in_range(
+                                    job->type_static_variable.declaration->range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )
+                            ) {
+                                if(
+                                    (
+                                        job->type_static_variable.is_external ||
+                                        job->type_static_variable.declaration->type != nullptr
+                                    ) &&
+                                    is_position_in_range(
+                                    job->type_static_variable.type.range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )) {
+                                    found_range = true;
+                                    range_info = get_expression_range_info(
+                                        job->type_static_variable.type,
+                                        actual_position.line,
+                                        actual_position.column
+                                    );
 
                                     break;
                                 }
-                            }
 
-                            if(found_name) {
-                                found_range = true;
-                                range = name_range;
-                                type = name_type;
-                            } else {
-                                found_range = true;
-                                range = expression_range;
-                                type = expression_type;
-                            }
-                        } else {
-                            auto found_name = false;
-                            FileRange name_range;
-                            AnyType name_type;
-                            for(auto name : statement_names) {
-                                if(is_position_in_range(name.range, actual_position.line, actual_position.column)) {
-                                    found_name = true;
-                                    name_range = name.range;
-                                    name_type = name.type;
+                                if(
+                                    !job->type_static_variable.is_external &&
+                                    is_position_in_range(
+                                    job->type_static_variable.initializer.range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )) {
+                                    found_range = true;
+                                    range_info = get_expression_range_info(
+                                        job->type_static_variable.initializer,
+                                        actual_position.line,
+                                        actual_position.column
+                                    );
 
                                     break;
                                 }
-                            }
 
-                            if(found_name) {
-                                found_range = true;
-                                range = name_range;
-                                type = name_type;
+                                break;
                             }
                         }
                     }
@@ -2336,8 +2965,22 @@ int main(int argument_count, const char* arguments[]) {
                 if(found_range) {
                     auto result = cJSON_CreateObject();
 
-                    auto type_description = type.get_description(&request_arena);
-                    cJSON_AddStringToObject(result, "contents", type_description.to_c_string(&request_arena));
+                    StringBuffer buffer(&request_arena);
+
+                    if(range_info.has_value && range_info.value.kind == ValueKind::ConstantValue) {
+                        if(range_info.type.kind == TypeKind::Type) {
+                            buffer.append(range_info.value.constant.unwrap_type().get_description(&request_arena));
+                        } else {
+                            buffer.append(range_info.value.constant.get_description(&request_arena));
+                            buffer.append(u8" ("_S);
+                            buffer.append(range_info.type.get_description(&request_arena));
+                            buffer.append(u8" )"_S);
+                        }
+                    } else {
+                        buffer.append(range_info.type.get_description(&request_arena));
+                    }
+
+                    cJSON_AddStringToObject(result, "contents", buffer.to_c_string(&request_arena));
 
                     auto range_item = cJSON_CreateObject();
 
@@ -2345,8 +2988,8 @@ int main(int argument_count, const char* arguments[]) {
 
                     auto start_result = utf8_position_to_utf16_position(
                         source_file->source_text,
-                        range.first_line,
-                        range.first_column,
+                        range_info.range.first_line,
+                        range_info.range.first_column,
                         false
                     );
                     assert(start_result.status);
@@ -2360,8 +3003,8 @@ int main(int argument_count, const char* arguments[]) {
 
                     auto end_result = utf8_position_to_utf16_position(
                         source_file->source_text,
-                        range.last_line,
-                        range.last_column,
+                        range_info.range.last_line,
+                        range_info.range.last_column,
                         true
                     );
                     assert(end_result.status);

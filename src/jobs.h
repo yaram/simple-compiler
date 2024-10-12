@@ -17,13 +17,16 @@ struct TypeStaticIf {
     StaticIf* static_if;
     ConstantScope* scope;
 
-    bool condition;
+    TypedExpression condition;
+    bool condition_value;
 };
 
 struct TypeFunctionDeclaration {
     FunctionDeclaration* declaration;
     ConstantScope* scope;
 
+    Array<TypedFunctionParameter> parameters;
+    Array<TypedExpression> return_types;
     AnyType type;
     AnyConstantValue value;
 };
@@ -43,14 +46,14 @@ struct TypeConstantDefinition {
     ConstantDefinition* definition;
     ConstantScope* scope;
 
-    AnyType type;
-    AnyConstantValue value;
+    TypedExpression value;
 };
 
 struct TypeStructDefinition {
     StructDefinition* definition;
     ConstantScope* scope;
 
+    Array<TypedStructMember> members;
     AnyType type;
 };
 
@@ -59,13 +62,14 @@ struct TypePolymorphicStruct {
     Array<AnyConstantValue> parameters;
     ConstantScope* scope;
 
-    AnyType type;
+    StructType type;
 };
 
 struct TypeUnionDefinition {
     UnionDefinition* definition;
     ConstantScope* scope;
 
+    Array<TypedStructMember> members;
     AnyType type;
 };
 
@@ -74,13 +78,15 @@ struct TypePolymorphicUnion {
     Array<AnyConstantValue> parameters;
     ConstantScope* scope;
 
-    AnyType type;
+    UnionType type;
 };
 
 struct TypeEnumDefinition {
     EnumDefinition* definition;
     ConstantScope* scope;
 
+    TypedExpression backing_type;
+    Array<TypedEnumVariant> variants;
     Enum type;
 };
 
@@ -88,6 +94,7 @@ struct TypeFunctionBody {
     FunctionTypeType type;
     FunctionConstant value;
 
+    VariableScope* scope;
     Array<TypedStatement> statements;
 };
 
@@ -95,7 +102,11 @@ struct TypeStaticVariable {
     VariableDeclaration* declaration;
     ConstantScope* scope;
 
-    AnyType type;
+    bool is_external;
+    TypedExpression type;
+    TypedExpression initializer;
+    AnyType actual_type;
+    Array<String> external_libraries;
 };
 
 enum struct JobKind {

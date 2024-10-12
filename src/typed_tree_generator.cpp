@@ -1941,8 +1941,8 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                             if(job->state == JobState::Done) {
                                 NameSearchResult result {};
                                 result.found = true;
-                                result.type = type_constant_definition.type;
-                                result.constant = type_constant_definition.value;
+                                result.type = type_constant_definition.value.type;
+                                result.constant = type_constant_definition.value.value.constant;
 
                                 context->scope_search_stack.length -= 1;
 
@@ -2152,7 +2152,7 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                         found = true;
 
                         if(job->state == JobState::Done) {
-                            if(type_static_if.condition) {
+                            if(type_static_if.condition_value) {
                                 expect_delayed(search_value, search_for_name(
                                     info,
                                     jobs,
@@ -2196,7 +2196,7 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                 if(job->state == JobState::Done) {
                                     NameSearchResult result {};
                                     result.found = true;
-                                    result.type = type_static_variable.type;
+                                    result.type = type_static_variable.actual_type;
                                     result.is_static_variable = true;
                                     result.static_variable_declaration = variable_declaration;
 
@@ -3643,7 +3643,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                                     typed_expression.kind = TypedExpressionKind::FunctionCall;
                                     typed_expression.range = function_call->range;
                                     typed_expression.type = AnyType::create_type_type();
-                                    typed_expression.value = AnyValue(AnyConstantValue(type_polymorphic_struct.type));
+                                    typed_expression.value = AnyValue(AnyConstantValue(AnyType(type_polymorphic_struct.type)));
                                     typed_expression.function_call.value = context->arena->heapify(expression_value);
                                     typed_expression.function_call.parameters = Array(parameter_count, parameters);
 
@@ -3728,7 +3728,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                                     typed_expression.kind = TypedExpressionKind::FunctionCall;
                                     typed_expression.range = function_call->range;
                                     typed_expression.type = AnyType::create_type_type();
-                                    typed_expression.value = AnyValue(AnyConstantValue(type_polymorphic_union.type));
+                                    typed_expression.value = AnyValue(AnyConstantValue(AnyType(type_polymorphic_union.type)));
                                     typed_expression.function_call.value = context->arena->heapify(expression_value);
                                     typed_expression.function_call.parameters = Array(parameter_count, parameters);
 
@@ -6016,10 +6016,10 @@ profiled_function(DelayedResult<TypePolymorphicFunctionResult>, do_type_polymorp
     Arena* global_arena,
     Arena* arena,
     FunctionDeclaration* declaration,
-    TypedConstantValue* parameters,
+    Array<TypedConstantValue> parameters,
     ConstantScope* scope,
     ConstantScope* call_scope,
-    FileRange* call_parameter_ranges
+    Array<FileRange> call_parameter_ranges
 ), (
     info,
     jobs,
@@ -6243,6 +6243,33 @@ profiled_function(DelayedResult<TypePolymorphicFunctionResult>, do_type_polymorp
     result.value = function_constant;
 
     return ok(result);
+}
+
+DelayedResult<TypedExpression> do_type_constant_definition(
+    GlobalInfo info,
+    List<AnyJob*>* jobs,
+    Arena* global_arena,
+    Arena* arena,
+    ConstantDefinition* definition,
+    ConstantScope* scope
+) {
+    TypingContext context {};
+    context.arena = arena;
+    context.global_arena = global_arena;
+    context.scope_search_stack.arena = arena;
+    context.search_ignore_statement = definition;
+
+    expect(value, expect_constant_expression(
+        info,
+        jobs,
+        scope,
+        &context,
+        definition->expression
+    ));
+
+    assert(context.scope_search_stack.length == 0);
+
+    return ok(value.typed_expression);
 }
 
 profiled_function(DelayedResult<TypeStructDefinitionResult>, do_type_struct_definition, (
@@ -6966,7 +6993,6 @@ profiled_function(DelayedResult<TypeEnumDefinitionResult>, do_type_enum_definiti
     assert(context.scope_search_stack.length == 0);
 
     TypeEnumDefinitionResult result {};
-    result.has_backing_type = enum_definition->backing_type != nullptr;
     result.backing_type = backing_type;
     result.variants = Array(variant_count, variants);
     result.type = Enum(
@@ -7226,10 +7252,10 @@ profiled_function(DelayedResult<TypeStaticVariableResult>, do_type_static_variab
         }
 
         TypeStaticVariableResult result {};
-        result.name = declaration->name;
         result.is_external = true;
         result.type = type.typed_expression;
         result.actual_type = type.type;
+        result.external_libraries = external_libraries;
 
         return ok(result);
     } else {
@@ -7278,8 +7304,6 @@ profiled_function(DelayedResult<TypeStaticVariableResult>, do_type_static_variab
             assert(context.scope_search_stack.length == 0);
 
             TypeStaticVariableResult result {};
-            result.name = declaration->name;
-            result.has_type = true;
             result.type = type.typed_expression;
             result.initializer = initial_value.typed_expression;
             result.actual_type = type.type;
@@ -7318,7 +7342,6 @@ profiled_function(DelayedResult<TypeStaticVariableResult>, do_type_static_variab
             assert(context.scope_search_stack.length == 0);
 
             TypeStaticVariableResult result {};
-            result.name = declaration->name;
             result.initializer = initial_value.typed_expression;
             result.actual_type = determined_type;
 

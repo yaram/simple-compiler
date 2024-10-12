@@ -4,6 +4,8 @@
 #include "ast.h"
 #include "typed_tree.h"
 
+void error(ConstantScope* scope, FileRange range, const char* format, ...);
+
 template <typename T>
 struct DelayedResult {
     inline DelayedResult() {}
@@ -141,6 +143,15 @@ DelayedResult<TypePolymorphicFunctionResult> do_type_polymorphic_function(
     Array<FileRange> call_parameter_ranges
 );
 
+DelayedResult<TypedExpression> do_type_constant_definition(
+    GlobalInfo info,
+    List<AnyJob*>* jobs,
+    Arena* global_arena,
+    Arena* arena,
+    ConstantDefinition* definition,
+    ConstantScope* scope
+);
+
 struct TypeStructDefinitionResult {
     Array<TypedStructMember> members;
 
@@ -192,7 +203,6 @@ DelayedResult<UnionType> do_type_polymorphic_union(
 );
 
 struct TypeEnumDefinitionResult {
-    bool has_backing_type;
     TypedExpression backing_type;
 
     Array<TypedEnumVariant> variants;
@@ -224,16 +234,14 @@ DelayedResult<TypeFunctionBodyResult> do_type_function_body(
 );
 
 struct TypeStaticVariableResult {
-    Identifier name;
-
     bool is_external;
 
-    bool has_type;
     TypedExpression type;
-
     TypedExpression initializer;
 
     AnyType actual_type;
+
+    Array<String> external_libraries;
 };
 
 DelayedResult<TypeStaticVariableResult> do_type_static_variable(
