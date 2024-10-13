@@ -1033,102 +1033,112 @@ static Result<UTF16PositionToUTF8PositionResult> utf16_position_to_utf8_position
     return err();
 }
 
-static void compile_and_send_diagnostics(Arena* request_arena, GlobalInfo info, String uri, SourceFile* file) {
-    auto result = compile_source_file(info, file);
-
-    if(result.status) {
-        assert(file->errors.length == 0);
-
-        for(auto job : file->jobs) {
-            assert(job->state == JobState::Done);
+static void compile_and_send_diagnostics(Arena* request_arena, GlobalInfo info, Array<SourceFile> source_files) {
+    for(auto& file : source_files) {
+        if(!file.is_claimed || !file.needs_compilation) {
+            continue;
         }
-    } else {
-        assert(file->errors.length != 0);
-    }
 
-    auto params = cJSON_CreateObject();
+        auto result = compile_source_file(info, &file);
 
-    cJSON_AddStringToObject(params, "uri", uri.to_c_string(request_arena));
+        if(result.status) {
+            assert(file.errors.length == 0);
 
-    auto diagnostics = cJSON_CreateArray();
-
-    for(auto error : file->errors) {
-        auto diagnostic = cJSON_CreateObject();
-
-        if(error.path == file->absolute_path) {
-            auto range = cJSON_CreateObject();
-
-            auto start = cJSON_CreateObject();
-
-            auto start_result = utf8_position_to_utf16_position(
-                file->source_text,
-                error.range.first_line,
-                error.range.first_column,
-                false
-            );
-            assert(start_result.status);
-
-            cJSON_AddNumberToObject(start, "line", (double)start_result.value.line);
-            cJSON_AddNumberToObject(start, "character", (double)start_result.value.column);
-
-            cJSON_AddItemToObject(range, "start", start);
-
-            auto end = cJSON_CreateObject();
-
-            auto end_result = utf8_position_to_utf16_position(
-                file->source_text,
-                error.range.last_line,
-                error.range.last_column,
-                true
-            );
-            assert(end_result.status);
-
-            cJSON_AddNumberToObject(end, "line", (double)end_result.value.line);
-            cJSON_AddNumberToObject(end, "character", (double)end_result.value.column);
-
-            cJSON_AddItemToObject(range, "end", end);
-
-            cJSON_AddItemToObject(diagnostic, "range", range);
-
-            cJSON_AddStringToObject(diagnostic, "message", error.text.to_c_string(request_arena));
+            for(auto job : file.jobs) {
+                assert(job->state == JobState::Done);
+            }
         } else {
-            auto range = cJSON_CreateObject();
+            assert(file.errors.length != 0);
+        }
 
-            auto start = cJSON_CreateObject();
+        StringBuffer uri(request_arena);
+        uri.append(u8"file://"_S);
+        uri.append(file.absolute_path);
 
-            cJSON_AddNumberToObject(start, "line", 0);
-            cJSON_AddNumberToObject(start, "character", 0);
+        auto params = cJSON_CreateObject();
 
-            cJSON_AddItemToObject(range, "start", start);
+        cJSON_AddStringToObject(params, "uri", uri.to_c_string(request_arena));
 
-            auto end = cJSON_CreateObject();
+        auto diagnostics = cJSON_CreateArray();
 
-            cJSON_AddNumberToObject(end, "line", 0);
-            cJSON_AddNumberToObject(end, "character", 0);
+        for(auto error : file.errors) {
+            auto diagnostic = cJSON_CreateObject();
 
-            cJSON_AddItemToObject(range, "end", end);
+            if(error.path == file.absolute_path) {
+                auto range = cJSON_CreateObject();
 
-            cJSON_AddItemToObject(diagnostic, "range", range);
+                auto start = cJSON_CreateObject();
 
-            StringBuffer message(request_arena);
-            if(error.path == u8""_S) {
-                message.append(u8"Error: "_S);
-                message.append(error.text);
+                auto start_result = utf8_position_to_utf16_position(
+                    file.source_text,
+                    error.range.first_line,
+                    error.range.first_column,
+                    false
+                );
+                assert(start_result.status);
+
+                cJSON_AddNumberToObject(start, "line", (double)start_result.value.line);
+                cJSON_AddNumberToObject(start, "character", (double)start_result.value.column);
+
+                cJSON_AddItemToObject(range, "start", start);
+
+                auto end = cJSON_CreateObject();
+
+                auto end_result = utf8_position_to_utf16_position(
+                    file.source_text,
+                    error.range.last_line,
+                    error.range.last_column,
+                    true
+                );
+                assert(end_result.status);
+
+                cJSON_AddNumberToObject(end, "line", (double)end_result.value.line);
+                cJSON_AddNumberToObject(end, "character", (double)end_result.value.column);
+
+                cJSON_AddItemToObject(range, "end", end);
+
+                cJSON_AddItemToObject(diagnostic, "range", range);
+
+                cJSON_AddStringToObject(diagnostic, "message", error.text.to_c_string(request_arena));
             } else {
-                message.append(u8"Error in imported file '"_S);
-                message.append(error.path);
-                message.append(u8"'"_S);
+                auto range = cJSON_CreateObject();
+
+                auto start = cJSON_CreateObject();
+
+                cJSON_AddNumberToObject(start, "line", 0);
+                cJSON_AddNumberToObject(start, "character", 0);
+
+                cJSON_AddItemToObject(range, "start", start);
+
+                auto end = cJSON_CreateObject();
+
+                cJSON_AddNumberToObject(end, "line", 0);
+                cJSON_AddNumberToObject(end, "character", 0);
+
+                cJSON_AddItemToObject(range, "end", end);
+
+                cJSON_AddItemToObject(diagnostic, "range", range);
+
+                StringBuffer message(request_arena);
+                if(error.path == u8""_S) {
+                    message.append(u8"Error: "_S);
+                    message.append(error.text);
+                } else {
+                    message.append(u8"Error in imported file '"_S);
+                    message.append(error.path);
+                    message.append(u8"'"_S);
+                }
+
+                cJSON_AddStringToObject(diagnostic, "message", message.to_c_string(request_arena));
             }
 
-            cJSON_AddStringToObject(diagnostic, "message", message.to_c_string(request_arena));
+            cJSON_AddItemToArray(diagnostics, diagnostic);
         }
 
-        cJSON_AddItemToArray(diagnostics, diagnostic);
+        cJSON_AddItemToObject(params, "diagnostics", diagnostics);
+
+        send_notification(request_arena, "textDocument/publishDiagnostics", params);
     }
-
-    cJSON_AddItemToObject(params, "diagnostics", diagnostics);
-
-    send_notification(request_arena, "textDocument/publishDiagnostics", params);
 }
 
 inline bool is_position_in_range(FileRange range, unsigned int line, unsigned int column) {
@@ -1640,6 +1650,21 @@ static Result<RangeInfo> get_statement_range_info(TypedStatement top_statement, 
     }
 
     return err();
+}
+
+static void mark_file_dirty(SourceFile* source_file, Array<SourceFile> source_files) {
+    source_file->needs_compilation = true;
+
+    for(auto& file : source_files) {
+        if(&file != source_file && file.is_claimed) {
+            for(auto job : file.jobs) {
+                if(job->kind == JobKind::ParseFile && job->parse_file.path == source_file->absolute_path) {
+                    file.needs_compilation = true;
+                    break;
+                }
+            }
+        }
+    }
 }
 
 int main(int argument_count, const char* arguments[]) {
@@ -2209,9 +2234,8 @@ int main(int argument_count, const char* arguments[]) {
 
                     source_file->is_claimed = true;
                     source_file->source_text = text;
-                    source_file->needs_compilation = true;
 
-                    compile_and_send_diagnostics(&request_arena, info, uri, source_file);
+                    mark_file_dirty(source_file, source_files);
                 } else {
                     Arena source_text_arena {};
 
@@ -2227,12 +2251,13 @@ int main(int argument_count, const char* arguments[]) {
                     new_source_file.is_claimed = true;
                     new_source_file.source_text_arena = source_text_arena;
                     new_source_file.source_text = text;
-                    new_source_file.needs_compilation = true;
 
                     auto index = source_files.append(new_source_file);
 
-                    compile_and_send_diagnostics(&request_arena, info, uri, &source_files[index]);
+                    mark_file_dirty(&source_files[index], source_files);
                 }
+
+                compile_and_send_diagnostics(&request_arena, info, source_files);
             } else if(method == u8"textDocument/didChange"_S) {
                 if(id != nullptr) {
                     send_error_response(&request_arena, nullptr, ErrorCode::InvalidRequest, u8"Message body \"id\" attribute should not exist"_S);
@@ -2498,9 +2523,10 @@ int main(int argument_count, const char* arguments[]) {
 
                     source_file->source_text_arena = final_source_text_arena;
                     source_file->source_text = current_source_text;
-                    source_file->needs_compilation = true;
 
-                    compile_and_send_diagnostics(&request_arena, info, uri, source_file);
+                    mark_file_dirty(source_file, source_files);
+
+                    compile_and_send_diagnostics(&request_arena, info, source_files);
                 }
             } else if(method == u8"textDocument/didClose"_S) {
                 if(id != nullptr) {
