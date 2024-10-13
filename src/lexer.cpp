@@ -864,16 +864,21 @@ profiled_function(Result<Array<Token>>, tokenize_source, (Arena* arena, String p
 
     auto length = (size_t)signed_length;
 
-    fseek(file, 0, SEEK_SET);
+    uint8_t* source;
+    if(length == 0) {
+        source = nullptr;
+    } else {
+        fseek(file, 0, SEEK_SET);
 
-    auto source = arena->allocate<uint8_t>(length);
+        auto source = arena->allocate<uint8_t>(length);
 
-    if(fread(source, length, 1, file) != 1) {
-        error(u8""_S, 0, 0, "Unable to read source file at '%.*s'", STRING_PRINTF_ARGUMENTS(path));
+        if(fread(source, length, 1, file) != 1) {
+            error(u8""_S, 0, 0, "Unable to read source file at '%.*s'", STRING_PRINTF_ARGUMENTS(path));
 
-        leave_region();
+            leave_region();
 
-        return err();
+            return err();
+        }
     }
 
     fclose(file);
