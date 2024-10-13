@@ -843,7 +843,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (Arena* arena, String p
     auto file = fopen(path.to_c_string(arena), "rb");
 
     if(file == nullptr) {
-        fprintf(stderr, "Error: Unable to read source file at '%.*s'\n", STRING_PRINTF_ARGUMENTS(path));
+        error(u8""_S, 0, 0, "Unable to read source file at '%.*s'", STRING_PRINTF_ARGUMENTS(path));
 
         leave_region();
 
@@ -855,7 +855,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (Arena* arena, String p
     auto signed_length = ftell(file);
 
     if(signed_length == -1) {
-        fprintf(stderr, "Error: Unable to determine length of source file at '%.*s'\n", STRING_PRINTF_ARGUMENTS(path));
+        error(u8""_S, 0, 0, "Unable to determine length of source file at '%.*s'", STRING_PRINTF_ARGUMENTS(path));
 
         leave_region();
 
@@ -869,7 +869,7 @@ profiled_function(Result<Array<Token>>, tokenize_source, (Arena* arena, String p
     auto source = arena->allocate<uint8_t>(length);
 
     if(fread(source, length, 1, file) != 1) {
-        fprintf(stderr, "Error: Unable to read source file at '%.*s'\n", STRING_PRINTF_ARGUMENTS(path));
+        error(u8""_S, 0, 0, "Unable to read source file at '%.*s'", STRING_PRINTF_ARGUMENTS(path));
 
         leave_region();
 

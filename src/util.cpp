@@ -12,6 +12,14 @@ void error(String path, FileRange range, const char* format, va_list arguments) 
         return;
     }
 
+    if(path == u8""_S) {
+        fprintf(stderr, "Error: ");
+        vfprintf(stderr, format, arguments);
+        fprintf(stderr, "\n");
+
+        return;
+    }
+
     fprintf(stderr, "Error: %.*s(%u,%u): ", STRING_PRINTF_ARGUMENTS(path), range.first_line, range.first_column);
     vfprintf(stderr, format, arguments);
     fprintf(stderr, "\n");
