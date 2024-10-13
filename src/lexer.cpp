@@ -837,58 +837,77 @@ namespace {
     };
 };
 
+static SourceProvider* source_provider = nullptr;
+static void* source_provider_data;
+
+void register_source_provider(SourceProvider* provider, void* data) {
+    source_provider = provider;
+    source_provider_data = data;
+}
+
 profiled_function(Result<Array<Token>>, tokenize_source, (Arena* arena, String path), (path)) {
-    enter_region("read source file");
+    auto found = false;
+    Array<uint8_t> source;
+    if(source_provider != nullptr) {
+        auto result = source_provider(source_provider_data, path);
 
-    auto file = fopen(path.to_c_string(arena), "rb");
-
-    if(file == nullptr) {
-        error(u8""_S, 0, 0, "Unable to read source file at '%.*s'", STRING_PRINTF_ARGUMENTS(path));
-
-        leave_region();
-
-        return err();
+        if(result.status) {
+            found = true;
+            source = result.value;
+        }
     }
 
-    fseek(file, 0, SEEK_END);
+    if(!found) {
+        enter_region("read source file");
 
-    auto signed_length = ftell(file);
+        auto file = fopen(path.to_c_string(arena), "rb");
 
-    if(signed_length == -1) {
-        error(u8""_S, 0, 0, "Unable to determine length of source file at '%.*s'", STRING_PRINTF_ARGUMENTS(path));
-
-        leave_region();
-
-        return err();
-    }
-
-    auto length = (size_t)signed_length;
-
-    uint8_t* source;
-    if(length == 0) {
-        source = nullptr;
-    } else {
-        fseek(file, 0, SEEK_SET);
-
-        auto source = arena->allocate<uint8_t>(length);
-
-        if(fread(source, length, 1, file) != 1) {
+        if(file == nullptr) {
             error(u8""_S, 0, 0, "Unable to read source file at '%.*s'", STRING_PRINTF_ARGUMENTS(path));
 
             leave_region();
 
             return err();
         }
+
+        fseek(file, 0, SEEK_END);
+
+        auto signed_length = ftell(file);
+
+        if(signed_length == -1) {
+            error(u8""_S, 0, 0, "Unable to determine length of source file at '%.*s'", STRING_PRINTF_ARGUMENTS(path));
+
+            leave_region();
+
+            return err();
+        }
+
+        auto length = (size_t)signed_length;
+
+        uint8_t* bytes;
+        if(length == 0) {
+            bytes = nullptr;
+        } else {
+            fseek(file, 0, SEEK_SET);
+
+            bytes = arena->allocate<uint8_t>(length);
+
+            if(fread(bytes, length, 1, file) != 1) {
+                error(u8""_S, 0, 0, "Unable to read source file at '%.*s'", STRING_PRINTF_ARGUMENTS(path));
+
+                leave_region();
+
+                return err();
+            }
+        }
+
+        fclose(file);
+
+        source = Array(length, bytes);
+
+        leave_region();
     }
 
-    fclose(file);
-
-    leave_region();
-
-    return tokenize_source(arena, path, Array(length, source));
-}
-
-profiled_function(Result<Array<Token>>, tokenize_source, (Arena* arena, String path, Array<uint8_t> source), (path)) {
     Lexer lexer {};
     lexer.arena = arena;
     lexer.path = path;

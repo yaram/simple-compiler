@@ -98,6 +98,26 @@ struct SourceFile {
     Array<Error> errors;
 };
 
+struct SourceProviderState {
+    List<SourceFile>* source_files;
+};
+
+static Result<Array<uint8_t>> source_provider(void* data, String path) {
+    auto state = (SourceProviderState*)data;
+
+    for(auto file : *state->source_files) {
+        if(file.absolute_path == path) {
+            if(file.is_claimed) {
+                return ok(Array(file.source_text.length, (uint8_t*)file.source_text.elements));
+            }
+
+            break;
+        }
+    }
+
+    return err();
+}
+
 static Result<void> compile_source_file(GlobalInfo info, SourceFile* file) {
     file->needs_compilation = false;
 
@@ -122,8 +142,6 @@ static Result<void> compile_source_file(GlobalInfo info, SourceFile* file) {
         job.kind = JobKind::ParseFile;
         job.state = JobState::Working;
         job.parse_file.path = file->absolute_path;
-        job.parse_file.has_source = true;
-        job.parse_file.source = Array(file->source_text.length, (uint8_t*)file->source_text.elements);
 
         jobs.append(file->compilation_arena.heapify(job));
     }
@@ -146,30 +164,15 @@ static Result<void> compile_source_file(GlobalInfo info, SourceFile* file) {
                     case JobKind::ParseFile: {
                         auto parse_file = &job->parse_file;
 
-                        Array<Token> tokens;
-                        if(parse_file->has_source) {
-                            auto tokens_result = tokenize_source(&job->arena, parse_file->path, parse_file->source);
-                            if(!tokens_result.status) {
-                                file->jobs = jobs;
-                                file->errors = errors;
+                        auto tokens_result = tokenize_source(&job->arena, parse_file->path);
+                        if(!tokens_result.status) {
+                            file->jobs = jobs;
+                            file->errors = errors;
 
-                                return err();
-                            }
-
-                            tokens = tokens_result.value;
-                        } else {
-                            auto tokens_result = tokenize_source(&job->arena, parse_file->path);
-                            if(!tokens_result.status) {
-                                file->jobs = jobs;
-                                file->errors = errors;
-
-                                return err();
-                            }
-
-                            tokens = tokens_result.value;
+                            return err();
                         }
 
-                        auto statements_result = parse_tokens(&job->arena, parse_file->path, tokens);
+                        auto statements_result = parse_tokens(&job->arena, parse_file->path, tokens_result.value);
                         if(!statements_result.status) {
                             file->jobs = jobs;
                             file->errors = errors;
@@ -1834,6 +1837,11 @@ int main(int argument_count, const char* arguments[]) {
     cJSON_InitHooks(&cjson_hooks);
 
     List<SourceFile> source_files(&global_arena);
+
+    SourceProviderState source_provider_state {};
+    source_provider_state.source_files = &source_files;
+
+    register_source_provider(&source_provider, &source_provider_state);
 
     Arena request_arena {};
 
