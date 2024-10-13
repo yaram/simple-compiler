@@ -1053,7 +1053,6 @@ static void compile_and_send_diagnostics(Arena* request_arena, GlobalInfo info, 
         auto diagnostic = cJSON_CreateObject();
 
         if(error.path == file->absolute_path) {
-
             auto range = cJSON_CreateObject();
 
             auto start = cJSON_CreateObject();
@@ -1089,11 +1088,7 @@ static void compile_and_send_diagnostics(Arena* request_arena, GlobalInfo info, 
             cJSON_AddItemToObject(diagnostic, "range", range);
 
             cJSON_AddStringToObject(diagnostic, "message", error.text.to_c_string(request_arena));
-
-            cJSON_AddItemToArray(diagnostics, diagnostic);
         } else {
-            auto diagnostic = cJSON_CreateObject();
-
             auto range = cJSON_CreateObject();
 
             auto start = cJSON_CreateObject();
