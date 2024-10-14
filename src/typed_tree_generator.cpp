@@ -12,15 +12,6 @@
 #include "types.h"
 #include "jobs.h"
 
-void error(ConstantScope* scope, FileRange range, const char* format, ...) {
-    va_list arguments;
-    va_start(arguments, format);
-
-    error(scope->get_file_path(), range, format, arguments);
-
-    va_end(arguments);
-}
-
 static bool constant_values_equal(AnyConstantValue a, AnyConstantValue b) {
     if(a.kind != b.kind) {
         return false;
@@ -229,7 +220,7 @@ static Result<void> check_undetermined_integer_to_integer_coercion(
     return ok();
 }
 
-static Result<void> coerce_to_integer(
+static Result<AnyValue> coerce_to_integer(
     ConstantScope* scope,
     TypingContext* context,
     FileRange range,
@@ -242,22 +233,29 @@ static Result<void> coerce_to_integer(
         auto integer = type.integer;
 
         if(integer.size == target_type.size && integer.is_signed == target_type.is_signed) {
-            return ok();
+            return ok(value);
         }
     } else if(type.kind == TypeKind::UndeterminedInteger) {
         auto integer_value = value.unwrap_constant_value().unwrap_integer();
 
-        expect_void(check_undetermined_integer_to_integer_coercion(scope, context, range, target_type, (int64_t)integer_value, probing));
+        expect_void(check_undetermined_integer_to_integer_coercion(
+            scope,
+            context,
+            range,
+            target_type,
+            (int64_t)integer_value,
+            probing
+        ));
 
-        return ok();
+        return ok(value);
     } else if(type.kind == TypeKind::Enum) {
         auto enum_ = type.enum_;
 
         if(enum_.backing_type->is_signed == target_type.is_signed && enum_.backing_type->size == target_type.size) {
-            return ok();
+            return ok(value);
         }
     } else if(type.kind == TypeKind::Undef) {
-        return ok();
+        return ok(value);
     }
 
     if(!probing) {
@@ -273,6 +271,32 @@ static Result<void> coerce_to_integer(
     return err();
 }
 
+static Result<TypedExpression> coerce_to_integer(
+    ConstantScope* scope,
+    TypingContext* context,
+    TypedExpression expression,
+    Integer target_type,
+    bool probing
+) {
+    expect(result_value, coerce_to_integer(
+        scope,
+        context,
+        expression.range,
+        expression.type,
+        expression.value,
+        target_type,
+        probing
+    ));
+
+    TypedExpression typed_expression {};
+    typed_expression.kind = TypedExpressionKind::Coercion;
+    typed_expression.range = expression.range;
+    typed_expression.type = AnyType(target_type);
+    typed_expression.value = result_value;
+    typed_expression.coercion.original = context->arena->heapify(expression);
+
+    return ok(typed_expression);
+}
 
 static Result<AnyValue> coerce_to_float(
     ConstantScope* scope,
@@ -351,7 +375,34 @@ static Result<AnyValue> coerce_to_float(
     return err();
 }
 
-static Result<void> coerce_to_pointer(
+static Result<TypedExpression> coerce_to_float(
+    ConstantScope* scope,
+    TypingContext* context,
+    TypedExpression expression,
+    FloatType target_type,
+    bool probing
+) {
+    expect(result_value, coerce_to_float(
+        scope,
+        context,
+        expression.range,
+        expression.type,
+        expression.value,
+        target_type,
+        probing
+    ));
+
+    TypedExpression typed_expression {};
+    typed_expression.kind = TypedExpressionKind::Coercion;
+    typed_expression.range = expression.range;
+    typed_expression.type = AnyType(target_type);
+    typed_expression.value = result_value;
+    typed_expression.coercion.original = context->arena->heapify(expression);
+
+    return ok(typed_expression);
+}
+
+static Result<AnyValue> coerce_to_pointer(
     GlobalInfo info,
     ConstantScope* scope,
     TypingContext* context,
@@ -378,15 +429,15 @@ static Result<void> coerce_to_pointer(
             return err();
         }
 
-        return ok();
+        return ok(value);
     } else if(type.kind == TypeKind::Pointer) {
         auto pointer = type.pointer;
 
         if(*pointer.pointed_to_type == *target_type.pointed_to_type) {
-            return ok();
+            return ok(value);
         }
     } else if(type.kind == TypeKind::Undef) {
-        return ok();
+        return ok(value);
     }
 
     if (!probing) {
@@ -402,6 +453,35 @@ static Result<void> coerce_to_pointer(
     return err();
 }
 
+static Result<TypedExpression> coerce_to_pointer(
+    GlobalInfo info,
+    ConstantScope* scope,
+    TypingContext* context,
+    TypedExpression expression,
+    Pointer target_type,
+    bool probing
+) {
+    expect(result_value, coerce_to_pointer(
+        info,
+        scope,
+        context,
+        expression.range,
+        expression.type,
+        expression.value,
+        target_type,
+        probing
+    ));
+
+    TypedExpression typed_expression {};
+    typed_expression.kind = TypedExpressionKind::Coercion;
+    typed_expression.range = expression.range;
+    typed_expression.type = AnyType(target_type);
+    typed_expression.value = result_value;
+    typed_expression.coercion.original = context->arena->heapify(expression);
+
+    return ok(typed_expression);
+}
+
 static Result<AnyValue> coerce_to_type(
     GlobalInfo info,
     ConstantScope* scope,
@@ -415,7 +495,7 @@ static Result<AnyValue> coerce_to_type(
     if(target_type.kind == TypeKind::Integer) {
         auto integer = target_type.integer;
 
-        expect_void(coerce_to_integer(
+        return coerce_to_integer(
             scope,
             context,
             range,
@@ -423,19 +503,11 @@ static Result<AnyValue> coerce_to_type(
             value,
             integer,
             probing
-        ));
-
-        return ok(value);
-    } else if(target_type.kind == TypeKind::Boolean) {
-        if(type.kind == TypeKind::Boolean) {
-            return ok(value);
-        } else if(type.kind == TypeKind::Undef) {
-            return ok(value);
-        }
+        );
     } else if(target_type.kind == TypeKind::FloatType) {
         auto float_type = target_type.float_;
 
-        expect_void(coerce_to_float(
+        return coerce_to_float(
             scope,
             context,
             range,
@@ -443,13 +515,11 @@ static Result<AnyValue> coerce_to_type(
             value,
             float_type,
             probing
-        ));
-
-        return ok(value);
+        );
     } else if(target_type.kind == TypeKind::Pointer) {
         auto pointer = target_type.pointer;
 
-        expect_void(coerce_to_pointer(
+        return coerce_to_pointer(
             info,
             scope,
             context,
@@ -458,9 +528,13 @@ static Result<AnyValue> coerce_to_type(
             value,
             pointer,
             probing
-        ));
-
-        return ok(value);
+        );
+    } else if(target_type.kind == TypeKind::Boolean) {
+        if(type.kind == TypeKind::Boolean) {
+            return ok(value);
+        } else if(type.kind == TypeKind::Undef) {
+            return ok(value);
+        }
     } else if(target_type.kind == TypeKind::ArrayTypeType) {
         auto target_array = target_type.array;
 
@@ -512,7 +586,10 @@ static Result<AnyValue> coerce_to_type(
                 }
 
                 if(all_valid) {
-                    return ok(AnyValue(AnyConstantValue(AggregateConstant(Array(undetermined_array.elements.length, elements)))));
+                    return ok(AnyValue(AnyConstantValue(AggregateConstant(Array(
+                        undetermined_array.elements.length,
+                        elements
+                    )))));
                 }
             } else if(value.kind == ValueKind::UndeterminedAggregateValue) {
                 auto aggregate_value = value.unwrap_undetermined_aggregate_value();
@@ -567,6 +644,8 @@ static Result<AnyValue> coerce_to_type(
                     );
 
                     if(length_result.status) {
+                        assert(length_result.value.kind == ValueKind::ConstantValue);
+
                         auto pointer_result = coerce_to_pointer(
                             info,
                             scope,
@@ -579,7 +658,12 @@ static Result<AnyValue> coerce_to_type(
                         );
 
                         if(pointer_result.status) {
-                            return ok(AnyValue(AnyConstantValue(ArrayConstant())));
+                            assert(pointer_result.value.kind == ValueKind::ConstantValue);
+
+                            return ok(AnyValue(AnyConstantValue(ArrayConstant(
+                                context->arena->heapify(length_result.value.constant),
+                                context->arena->heapify(pointer_result.value.constant)
+                            ))));
                         }
                     }
                 } else if(value.kind == ValueKind::UndeterminedAggregateValue) {
@@ -960,6 +1044,35 @@ static Result<AnyValue> coerce_to_type(
     return err();
 }
 
+static Result<TypedExpression> coerce_to_type(
+    GlobalInfo info,
+    ConstantScope* scope,
+    TypingContext* context,
+    TypedExpression expression,
+    AnyType target_type,
+    bool probing
+) {
+    expect(result_value, coerce_to_type(
+        info,
+        scope,
+        context,
+        expression.range,
+        expression.type,
+        expression.value,
+        target_type,
+        probing
+    ));
+
+    TypedExpression typed_expression {};
+    typed_expression.kind = TypedExpressionKind::Coercion;
+    typed_expression.range = expression.range;
+    typed_expression.type = AnyType(target_type);
+    typed_expression.value = result_value;
+    typed_expression.coercion.original = context->arena->heapify(expression);
+
+    return ok(typed_expression);
+}
+
 static DelayedResult<TypedExpression> type_expression(
     GlobalInfo info,
     List<AnyJob*>* jobs,
@@ -1155,10 +1268,15 @@ static DelayedResult<TypedExpression> type_binary_operation(
 
     AnyType result_type;
     AnyValue result_value;
+    TypedExpression coerced_left;
+    TypedExpression coerced_right;
     if(type.kind == TypeKind::UndeterminedInteger) {
-        auto left_value = (int64_t)left.value.constant.unwrap_integer();
+        coerced_left = left;
+        coerced_right = right;
 
-        auto right_value = (int64_t)right.value.constant.unwrap_integer();
+        auto left_value = (int64_t)coerced_left.value.constant.unwrap_integer();
+
+        auto right_value = (int64_t)coerced_right.value.constant.unwrap_integer();
 
         auto is_arithmetic = true;
         int64_t value;
@@ -1239,25 +1357,25 @@ static DelayedResult<TypedExpression> type_binary_operation(
     } else if(type.kind == TypeKind::Integer) {
         auto integer = type.integer;
 
-        expect_void(coerce_to_integer(
+        expect(the_coerced_left, coerce_to_integer(
             scope,
             context,
-            left_expression->range,
-            left.type,
-            left.value,
+            left,
             integer,
             false
         ));
 
-        expect_void(coerce_to_integer(
+        coerced_left = the_coerced_left;
+
+        expect(the_coerced_right, coerce_to_integer(
             scope,
             context,
-            right_expression->range,
-            right.type,
-            right.value,
+            right,
             integer,
             false
         ));
+
+        coerced_right = the_coerced_right;
 
         auto is_arithmetic = true;
         switch(kind) {
@@ -1280,9 +1398,9 @@ static DelayedResult<TypedExpression> type_binary_operation(
             result_type = type;
 
             if(both_constant) {
-                auto left_value = left.value.constant.unwrap_integer();
+                auto left_value = coerced_left.value.constant.unwrap_integer();
 
-                auto right_value = right.value.constant.unwrap_integer();
+                auto right_value = coerced_right.value.constant.unwrap_integer();
 
                 uint64_t value;
                 switch(kind) {
@@ -1362,9 +1480,9 @@ static DelayedResult<TypedExpression> type_binary_operation(
             result_type = AnyType::create_boolean();
 
             if(both_constant) {
-                auto left_value = left.value.constant.unwrap_integer();
+                auto left_value = coerced_left.value.constant.unwrap_integer();
 
-                auto right_value = right.value.constant.unwrap_integer();
+                auto right_value = coerced_right.value.constant.unwrap_integer();
 
                 bool value;
                 switch(kind) {
@@ -1403,6 +1521,9 @@ static DelayedResult<TypedExpression> type_binary_operation(
     } else if(type.kind == TypeKind::Boolean) {
         result_type = AnyType::create_boolean();
 
+        coerced_left = left;
+        coerced_right = right;
+
         auto is_arithmetic = true;
         switch(kind) {
             case BinaryOperationKind::BooleanAnd:
@@ -1415,9 +1536,9 @@ static DelayedResult<TypedExpression> type_binary_operation(
 
         if(is_arithmetic) {
             if(both_constant) {
-                auto left_value = left.value.constant.unwrap_boolean();
+                auto left_value = coerced_left.value.constant.unwrap_boolean();
 
-                auto right_value = right.value.constant.unwrap_boolean();
+                auto right_value = coerced_right.value.constant.unwrap_boolean();
 
                 bool value;
                 switch(kind) {
@@ -1449,9 +1570,9 @@ static DelayedResult<TypedExpression> type_binary_operation(
             }
 
             if(both_constant) {
-                auto left_value = left.value.constant.unwrap_boolean();
+                auto left_value = coerced_left.value.constant.unwrap_boolean();
 
-                auto right_value = right.value.constant.unwrap_boolean();
+                auto right_value = coerced_right.value.constant.unwrap_boolean();
 
                 bool value;
                 switch(kind) {
@@ -1474,25 +1595,25 @@ static DelayedResult<TypedExpression> type_binary_operation(
     } else if(type.kind == TypeKind::FloatType) {
         auto float_ = type.float_;
 
-        expect_void(coerce_to_float(
+        expect(the_coerced_left, coerce_to_float(
             scope,
             context,
-            left_expression->range,
-            left.type,
-            left.value,
+            left,
             float_,
             false
         ));
 
-        expect_void(coerce_to_float(
+        coerced_left = the_coerced_left;
+
+        expect(the_coerced_right, coerce_to_float(
             scope,
             context,
-            right_expression->range,
-            right.type,
-            right.value,
+            right,
             float_,
             false
         ));
+
+        coerced_right = the_coerced_right;
 
         auto is_arithmetic = true;
         switch(kind) {
@@ -1515,9 +1636,9 @@ static DelayedResult<TypedExpression> type_binary_operation(
             result_type = type;
 
             if(both_constant) {
-                auto left_value = left.value.constant.unwrap_float();
+                auto left_value = coerced_left.value.constant.unwrap_float();
 
-                auto right_value = right.value.constant.unwrap_float();
+                auto right_value = coerced_right.value.constant.unwrap_float();
 
                 double value;
                 switch(kind) {
@@ -1565,9 +1686,9 @@ static DelayedResult<TypedExpression> type_binary_operation(
             result_type = AnyType::create_boolean();
 
             if(both_constant) {
-                auto left_value = left.value.constant.unwrap_float();
+                auto left_value = coerced_left.value.constant.unwrap_float();
 
-                auto right_value = right.value.constant.unwrap_float();
+                auto right_value = coerced_right.value.constant.unwrap_float();
 
                 bool value;
                 switch(kind) {
@@ -1600,27 +1721,27 @@ static DelayedResult<TypedExpression> type_binary_operation(
 
         result_type = AnyType::create_boolean();
 
-        expect_void(coerce_to_pointer(
+        expect(the_coerced_left, coerce_to_pointer(
             info,
             scope,
             context,
-            left_expression->range,
-            left.type,
-            left.value,
+            left,
             pointer,
             false
         ));
 
-        expect_void(coerce_to_pointer(
+        coerced_left = the_coerced_left;
+
+        expect(the_coerced_right, coerce_to_pointer(
             info,
             scope,
             context,
-            right_expression->range,
-            right.type,
-            right.value,
+            right,
             pointer,
             false
         ));
+
+        coerced_right = the_coerced_right;
 
         switch(kind) {
             case BinaryOperationKind::Equal:
@@ -1634,9 +1755,9 @@ static DelayedResult<TypedExpression> type_binary_operation(
         }
 
         if(both_constant) {
-            auto left_value = left.value.constant.unwrap_integer();
+            auto left_value = coerced_left.value.constant.unwrap_integer();
 
-            auto right_value = right.value.constant.unwrap_integer();
+            auto right_value = coerced_right.value.constant.unwrap_integer();
 
             bool value;
             switch(kind) {
@@ -1660,27 +1781,27 @@ static DelayedResult<TypedExpression> type_binary_operation(
 
         result_type = AnyType::create_boolean();
 
-        expect_void(coerce_to_type(
+        expect(the_coerced_left, coerce_to_type(
             info,
             scope,
             context,
-            left_expression->range,
-            left.type,
-            left.value,
+            left,
             type,
             false
         ));
 
-        expect_void(coerce_to_type(
+        coerced_left = the_coerced_left;
+
+        expect(the_coerced_right, coerce_to_type(
             info,
             scope,
             context,
-            right_expression->range,
-            right.type,
-            right.value,
+            right,
             type,
             false
         ));
+
+        coerced_right = the_coerced_right;
 
         switch(kind) {
             case BinaryOperationKind::Equal:
@@ -1694,9 +1815,9 @@ static DelayedResult<TypedExpression> type_binary_operation(
         }
 
         if(both_constant) {
-            auto left_value = left.value.constant.unwrap_integer();
+            auto left_value = coerced_left.value.constant.unwrap_integer();
 
-            auto right_value = right.value.constant.unwrap_integer();
+            auto right_value = coerced_right.value.constant.unwrap_integer();
 
             bool value;
             switch(kind) {
@@ -1725,8 +1846,8 @@ static DelayedResult<TypedExpression> type_binary_operation(
     typed_expression.type = result_type;
     typed_expression.value = result_value;
     typed_expression.binary_operation.kind = kind;
-    typed_expression.binary_operation.left = context->arena->heapify(left);
-    typed_expression.binary_operation.right = context->arena->heapify(right);
+    typed_expression.binary_operation.left = context->arena->heapify(coerced_left);
+    typed_expression.binary_operation.right = context->arena->heapify(coerced_right);
 
     return ok(typed_expression);
 }
@@ -1836,11 +1957,14 @@ static bool does_or_could_have_name(Statement* statement, String name, bool exte
 struct NameSearchResult {
     bool found;
 
+    ConstantScope* scope;
+
     AnyType type;
 
     bool is_static_variable;
     VariableDeclaration* static_variable_declaration;
 
+    FileRange constant_range;
     AnyConstantValue constant;
 };
 
@@ -1850,8 +1974,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
     ConstantScope* scope,
     TypingContext* context,
     String name,
-    ConstantScope* name_scope,
-    FileRange name_range,
     Array<Statement*> statements,
     bool external
 ), (
@@ -1860,8 +1982,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
     scope,
     context,
     name,
-    name_scope,
-    name_range,
     statements,
     declarations,
     external
@@ -1890,7 +2010,9 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                     if(parameter.is_constant || parameter.is_polymorphic_determiner) {
                         NameSearchResult result {};
                         result.found = true;
+                        result.scope = scope;
                         result.type = AnyType::create_polymorphic_function();
+                        result.constant_range = function_declaration->name.range;
                         result.constant = AnyConstantValue(PolymorphicFunctionConstant(
                             function_declaration,
                             scope
@@ -1912,7 +2034,9 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                             if(job->state == JobState::Done) {
                                 NameSearchResult result {};
                                 result.found = true;
+                                result.scope = scope;
                                 result.type = type_function_declaration.type;
+                                result.constant_range = function_declaration->name.range;
                                 result.constant = type_function_declaration.value;
 
                                 context->scope_search_stack.length -= 1;
@@ -1941,7 +2065,9 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                             if(job->state == JobState::Done) {
                                 NameSearchResult result {};
                                 result.found = true;
+                                result.scope = scope;
                                 result.type = type_constant_definition.value.type;
+                                result.constant_range = constant_definition->name.range;
                                 result.constant = type_constant_definition.value.value.constant;
 
                                 context->scope_search_stack.length -= 1;
@@ -1970,7 +2096,9 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                             if(job->state == JobState::Done) {
                                 NameSearchResult result {};
                                 result.found = true;
+                                result.scope = scope;
                                 result.type = AnyType::create_type_type();
+                                result.constant_range = struct_definition->name.range;
                                 result.constant = AnyConstantValue(type_struct_definition.type);
 
                                 context->scope_search_stack.length -= 1;
@@ -1999,7 +2127,9 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                             if(job->state == JobState::Done) {
                                 NameSearchResult result {};
                                 result.found = true;
+                                result.scope = scope;
                                 result.type = AnyType::create_type_type();
+                                result.constant_range = union_definition->name.range;
                                 result.constant = AnyConstantValue(type_union_definition.type);
 
                                 context->scope_search_stack.length -= 1;
@@ -2028,7 +2158,9 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                             if(job->state == JobState::Done) {
                                 NameSearchResult result {};
                                 result.found = true;
+                                result.scope = scope;
                                 result.type = AnyType::create_type_type();
+                                result.constant_range = enum_definition->name.range;
                                 result.constant = AnyConstantValue(AnyType(type_enum_definition.type));
 
                                 context->scope_search_stack.length -= 1;
@@ -2057,7 +2189,9 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                             if(job->state == JobState::Done) {
                                 NameSearchResult result {};
                                 result.found = true;
+                                result.scope = scope;
                                 result.type = AnyType::create_file_module();
+                                result.constant_range = import->range;
                                 result.constant = AnyConstantValue(FileModuleConstant(parse_file.scope));
 
                                 context->scope_search_stack.length -= 1;
@@ -2095,8 +2229,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                         file_module.scope,
                         context,
                         name,
-                        name_scope,
-                        name_range,
                         file_module.scope->statements,
                         true
                     ));
@@ -2116,7 +2248,9 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                             if(enum_.definition->variants[i].name.text == name) {
                                 NameSearchResult result {};
                                 result.found = true;
+                                result.scope = scope;
                                 result.type = AnyType(*enum_.backing_type);
+                                result.constant_range = enum_.definition[i].name.range;
                                 result.constant = AnyConstantValue(enum_.variant_values[i]);
 
                                 context->scope_search_stack.length -= 1;
@@ -2159,8 +2293,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                     scope,
                                     context,
                                     name,
-                                    name_scope,
-                                    name_range,
                                     static_if->statements,
                                     false
                                 ));
@@ -2196,6 +2328,7 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                 if(job->state == JobState::Done) {
                                     NameSearchResult result {};
                                     result.found = true;
+                                    result.scope = scope;
                                     result.type = type_static_variable.actual_type;
                                     result.is_static_variable = true;
                                     result.static_variable_declaration = variable_declaration;
@@ -2217,10 +2350,12 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
     }
 
     for(auto scope_constant : scope->scope_constants) {
-        if(scope_constant.name == name) {
+        if(scope_constant.name.text == name) {
             NameSearchResult result {};
             result.found = true;
+            result.scope = scope;
             result.type = scope_constant.type;
+            result.constant_range = scope_constant.name.range;
             result.constant = scope_constant.value;
 
             context->scope_search_stack.length -= 1;
@@ -2344,8 +2479,6 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 current_variable_scope->constant_scope,
                 context,
                 named_reference->name.text,
-                scope,
-                named_reference->name.range,
                 current_variable_scope->constant_scope->statements,
                 false
             ));
@@ -2386,8 +2519,6 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 current_scope,
                 context,
                 named_reference->name.text,
-                scope,
-                named_reference->name.range,
                 current_scope->statements,
                 false
             ));
@@ -2450,12 +2581,10 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
             return err();
         }
 
-        expect_void(coerce_to_integer(
+        expect(coerced_index, coerce_to_integer(
             scope,
             context,
-            index_reference->index->range,
-            index.type,
-            index.value,
+            index,
             Integer(info.architecture_sizes.address_size, false),
             false
         ));
@@ -2475,13 +2604,13 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 } else if(constant_value.kind == ConstantValueKind::AggregateConstant) {
                     auto aggregate_value = constant_value.aggregate;
 
-                    if(index.value.kind != ValueKind::ConstantValue) {
+                    if(coerced_index.value.kind != ValueKind::ConstantValue) {
                         error(scope, index_reference->index->range, "Cannot index constant array with non-constant index");
 
                         return err();
                     }
 
-                    auto index_integer = index.value.constant.unwrap_integer();
+                    auto index_integer = coerced_index.value.constant.unwrap_integer();
 
                     if(index_integer >= aggregate_value.values.length) {
                         error(scope, index_reference->index->range, "Array index %zu out of bounds", index_integer);
@@ -2500,13 +2629,13 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
             } else if(expression_value.value.kind == ValueKind::UndeterminedAggregateValue) {
                 auto aggregate_value = expression_value.value.undetermined_aggregate;
 
-                if(index.value.kind != ValueKind::ConstantValue) {
+                if(coerced_index.value.kind != ValueKind::ConstantValue) {
                     error(scope, index_reference->index->range, "Cannot index undetermined array with non-constant index");
 
                     return err();
                 }
 
-                auto index_integer = index.value.constant.unwrap_integer();
+                auto index_integer = coerced_index.value.constant.unwrap_integer();
 
                 if(index_integer >= aggregate_value.values.length) {
                     error(scope, index_reference->index->range, "Array index %zu out of bounds", index_integer);
@@ -2526,13 +2655,13 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
             if(expression_value.value.kind == ValueKind::ConstantValue) {
                 auto aggregate_value = expression_value.value.constant.unwrap_aggregate();
 
-                if(index.value.kind != ValueKind::ConstantValue) {
+                if(coerced_index.value.kind != ValueKind::ConstantValue) {
                     error(scope, index_reference->index->range, "Cannot index constant array with non-constant index");
 
                     return err();
                 }
 
-                auto index_integer = index.value.constant.unwrap_integer();
+                auto index_integer = coerced_index.value.constant.unwrap_integer();
 
                 if(index_integer >= aggregate_value.values.length) {
                     error(scope, index_reference->index->range, "Array index %zu out of bounds", index_integer);
@@ -2542,7 +2671,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
 
                 element_value = AnyValue(aggregate_value.values[index_integer]);
             } else if(expression_value.value.kind == ValueKind::AnonymousValue) {
-                if(index.value.kind != ValueKind::ConstantValue) {
+                if(coerced_index.value.kind != ValueKind::ConstantValue) {
                     error(scope, index_reference->index->range, "Cannot index anonymous array with non-constant index");
 
                     return err();
@@ -2566,7 +2695,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
         typed_expression.type = element_type;
         typed_expression.value = element_value;
         typed_expression.index_reference.value = context->arena->heapify(expression_value);
-        typed_expression.index_reference.index = context->arena->heapify(index);
+        typed_expression.index_reference.index = context->arena->heapify(coerced_index);
 
         return ok(typed_expression);
     } else if(expression->kind == ExpressionKind::MemberReference) {
@@ -2789,8 +2918,6 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 file_module_value.scope,
                 context,
                 member_reference->name.text,
-                scope,
-                member_reference->name.range,
                 file_module_value.scope->statements,
                 true
             ));
@@ -3054,13 +3181,11 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
         if(expression_value.type.kind == TypeKind::FunctionTypeType || expression_value.type.kind == TypeKind::PolymorphicFunction) {
             auto call_parameter_count = function_call->parameters.length;
 
-            auto parameters = context->arena->allocate<TypedExpression>(call_parameter_count + 1);
-            auto call_parameters = context->arena->allocate<TypedRuntimeValue>(call_parameter_count);
+            auto parameters = context->arena->allocate<TypedExpression>(call_parameter_count);
             for(size_t i = 0; i < call_parameter_count; i += 1) {
                 expect_delayed(parameter_value, type_expression(info, jobs, scope, context, function_call->parameters[i]));
 
                 parameters[i] = parameter_value;
-                call_parameters[i] = TypedRuntimeValue(parameter_value.type, parameter_value.value);
             }
 
             FunctionTypeType function_type;
@@ -3091,11 +3216,11 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                     auto declaration_parameter = declaration_parameters[i];
 
                     if(declaration_parameter.is_polymorphic_determiner) {
-                        polymorphic_parameters[i].type = call_parameters[i].type;
+                        polymorphic_parameters[i].type = parameters[i].type;
                     }
 
                     if(declaration_parameter.is_constant) {
-                        if(call_parameters[i].value.kind != ValueKind::ConstantValue) {
+                        if(parameters[i].value.kind != ValueKind::ConstantValue) {
                             error(
                                 scope,
                                 function_call->parameters[i]->range,
@@ -3107,8 +3232,8 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                         }
 
                         polymorphic_parameters[i] = TypedConstantValue(
-                            call_parameters[i].type,
-                            call_parameters[i].value.constant
+                            parameters[i].type,
+                            parameters[i].value.constant
                         );
                     }
                 }
@@ -3234,21 +3359,24 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 jobs->append(context->global_arena->heapify(job));
             }
 
+            auto coerced_parameters = context->arena->allocate<TypedExpression>(call_parameter_count);
             size_t runtime_parameter_index = 0;
             for(size_t i = 0; i < call_parameter_count; i += 1) {
                 if(!function_value.declaration->parameters[i].is_constant) {
-                    expect_void(coerce_to_type(
+                    expect(coerced_parameter, coerce_to_type(
                         info,
                         scope,
                         context,
-                        function_call->parameters[i]->range,
-                        call_parameters[i].type,
-                        call_parameters[i].value,
+                        parameters[i],
                         function_type.parameters[i],
                         false
                     ));
 
+                    coerced_parameters[i] = coerced_parameter;
+
                     runtime_parameter_index += 1;
+                } else {
+                    coerced_parameters[i] = parameters[i];
                 }
             }
 
@@ -3276,7 +3404,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
             typed_expression.type = return_type;
             typed_expression.value = value;
             typed_expression.function_call.value = context->arena->heapify(expression_value);
-            typed_expression.function_call.parameters = Array(call_parameter_count, parameters);
+            typed_expression.function_call.parameters = Array(call_parameter_count, coerced_parameters);
 
             return ok(typed_expression);
         } else if(expression_value.type.kind == TypeKind::BuiltinFunction) {
@@ -3363,20 +3491,16 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                     return err();
                 }
 
-                auto constant_value = parameter_value.value.constant;
-
                 expect(coerced_value, coerce_to_type(
                     info,
                     scope,
                     context,
-                    function_call->parameters[0]->range,
-                    parameter_value.type,
-                    AnyValue(constant_value),
+                    parameter_value,
                     determined_type,
                     false
                 ));
 
-                assert(coerced_value.kind == ValueKind::ConstantValue);
+                assert(coerced_value.value.kind == ValueKind::ConstantValue);
 
                 TypedExpression typed_expression {};
                 typed_expression.kind = TypedExpressionKind::FunctionCall;
@@ -3384,7 +3508,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 typed_expression.type = determined_type;
                 typed_expression.value = AnyValue::create_assignable_value();
                 typed_expression.function_call.value = context->arena->heapify(expression_value);
-                typed_expression.function_call.parameters = Array(1, context->arena->heapify(parameter_value));
+                typed_expression.function_call.parameters = Array(1, context->arena->heapify(coerced_value));
 
                 return ok(typed_expression);
             } else if(builtin_function_value.name == u8"stackify"_S) {
@@ -3404,20 +3528,16 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                     return err();
                 }
 
-                auto constant_value = parameter_value.value.constant;
-
                 expect(coerced_value, coerce_to_type(
                     info,
                     scope,
                     context,
-                    function_call->parameters[0]->range,
-                    parameter_value.type,
-                    AnyValue(constant_value),
+                    parameter_value,
                     determined_type,
                     false
                 ));
 
-                assert(coerced_value.kind == ValueKind::ConstantValue);
+                assert(coerced_value.value.kind == ValueKind::ConstantValue);
 
                 TypedExpression typed_expression {};
                 typed_expression.kind = TypedExpressionKind::FunctionCall;
@@ -3425,7 +3545,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 typed_expression.type = determined_type;
                 typed_expression.value = AnyValue::create_assignable_value();
                 typed_expression.function_call.value = context->arena->heapify(expression_value);
-                typed_expression.function_call.parameters = Array(1, context->arena->heapify(parameter_value));
+                typed_expression.function_call.parameters = Array(1, context->arena->heapify(coerced_value));
 
                 return ok(typed_expression);
             } else if(builtin_function_value.name == u8"sqrt"_S) {
@@ -3537,18 +3657,16 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
             for(size_t i = 0; i < parameter_count; i += 1) {
                 expect_delayed(parameter_value, type_expression(info, jobs, scope, context, function_call->parameters[i]));
 
-                expect_void(coerce_to_type(
+                expect(coerced_value, coerce_to_type(
                     info,
                     scope,
                     context,
-                    function_call->parameters[i]->range,
-                    parameter_value.type,
-                    parameter_value.value,
+                    parameter_value,
                     function_type.parameters[i],
                     false
                 ));
 
-                parameters[i] = parameter_value;
+                parameters[i] = coerced_value;
             }
 
             AnyType return_type;
@@ -3609,17 +3727,15 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                         info,
                         scope,
                         context,
-                        function_call->parameters[i]->range,
-                        parameter.typed_expression.type,
-                        AnyValue(parameter.value),
+                        parameter.typed_expression,
                         polymorphic_struct.parameter_types[i],
                         false
                     ));
 
-                    assert(parameter_value.kind == ValueKind::ConstantValue);
+                    assert(parameter_value.value.kind == ValueKind::ConstantValue);
 
                     parameters[i] = parameter.typed_expression;
-                    parameter_values[i] = parameter_value.constant;
+                    parameter_values[i] = parameter_value.value.constant;
                 }
 
                 for(size_t i = 0; i < jobs->length; i += 1) {
@@ -3694,17 +3810,15 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                         info,
                         scope,
                         context,
-                        function_call->parameters[i]->range,
-                        parameter.typed_expression.type,
-                        AnyValue(parameter.value),
+                        parameter.typed_expression,
                         polymorphic_union.parameter_types[i],
                         false
                     ));
 
-                    assert(parameter_value.kind == ValueKind::ConstantValue);
+                    assert(parameter_value.value.kind == ValueKind::ConstantValue);
 
                     parameters[i] = parameter.typed_expression;
-                    parameter_values[i] = parameter_value.constant;
+                    parameter_values[i] = parameter_value.value.constant;
                 }
 
                 for(size_t i = 0; i < jobs->length; i += 1) {
@@ -4018,9 +4132,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
             info,
             scope,
             context,
-            cast->range,
-            expression_value.type,
-            expression_value.value,
+            expression_value,
             target_type.type,
             true
         );
@@ -4029,7 +4141,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
         AnyValue result_value;
         if(coercion_result.status) {
             has_cast = true;
-            result_value = coercion_result.value;
+            result_value = coercion_result.value.value;
         } else if(target_type.type.kind == TypeKind::Integer) {
             auto target_integer = target_type.type.integer;
 
@@ -4794,12 +4906,10 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 array_type->length
             ));
 
-            expect_void(coerce_to_integer(
+            expect(coerced_length, coerce_to_integer(
                 scope,
                 context,
-                array_type->length->range,
-                length_value.typed_expression.type,
-                AnyValue(length_value.value),
+                length_value.typed_expression,
                 Integer(
                     info.architecture_sizes.address_size,
                     false
@@ -4807,15 +4917,17 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 false
             ));
 
-            if(length_value.value.kind == ConstantValueKind::UndefConstant) {
+            assert(coerced_length.value.kind == ValueKind::ConstantValue);
+
+            if(coerced_length.value.constant.kind == ConstantValueKind::UndefConstant) {
                 error(scope, array_type->length->range, "Length cannot be undefined");
 
                 return err();
             }
 
-            auto length_integer = length_value.value.unwrap_integer();
+            auto length_integer = coerced_length.value.constant.unwrap_integer();
 
-            length = context->arena->heapify(length_value.typed_expression);
+            length = context->arena->heapify(coerced_length);
 
             result_type = AnyType(StaticArray(
                 length_integer,
@@ -5041,6 +5153,15 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                     expect_delayed(initializer_value, type_expression(info, jobs, scope, context, variable_declaration->initializer));
 
+                    expect(coerced_initializer, coerce_to_type(
+                        info,
+                        scope,
+                        context,
+                        initializer_value,
+                        type,
+                        false
+                    ));
+
                     TypedStatement typed_statement {};
                     typed_statement.kind = TypedStatementKind::VariableDeclaration;
                     typed_statement.range = statement->range;
@@ -5048,7 +5169,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     typed_statement.variable_declaration.has_type = true;
                     typed_statement.variable_declaration.type = type_value.typed_expression;
                     typed_statement.variable_declaration.has_initializer = true;
-                    typed_statement.variable_declaration.initializer = initializer_value;
+                    typed_statement.variable_declaration.initializer = coerced_initializer;
                     typed_statement.variable_declaration.actual_type = type;
 
                     typed_statements.append(typed_statement);
@@ -5065,13 +5186,11 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                     type = actual_type;
 
-                    expect_void(coerce_to_type(
+                    expect(coerced_initializer, coerce_to_type(
                         info,
                         scope,
                         context,
-                        variable_declaration->range,
-                        initializer_value.type,
-                        initializer_value.value,
+                        initializer_value,
                         type,
                         false
                     ));
@@ -5081,7 +5200,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     typed_statement.range = statement->range;
                     typed_statement.variable_declaration.name = variable_declaration->name;
                     typed_statement.variable_declaration.has_initializer = true;
-                    typed_statement.variable_declaration.initializer = initializer_value;
+                    typed_statement.variable_declaration.initializer = coerced_initializer;
                     typed_statement.variable_declaration.actual_type = type;
 
                     typed_statements.append(typed_statement);
@@ -5164,13 +5283,11 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                 expect_delayed(value, type_expression(info, jobs, scope, context, assignment->value));
 
-                expect_void(coerce_to_type(
+                expect(coerced_value, coerce_to_type(
                     info,
                     scope,
                     context,
-                    assignment->range,
-                    value.type,
-                    value.value,
+                    value,
                     target.type,
                     false
                 ));
@@ -5179,7 +5296,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                 typed_statement.kind = TypedStatementKind::Assignment;
                 typed_statement.range = statement->range;
                 typed_statement.assignment.target = target;
-                typed_statement.assignment.value = value;
+                typed_statement.assignment.value = coerced_value;
 
                 typed_statements.append(typed_statement);
             } else if(statement->kind == StatementKind::MultiReturnAssignment) {
@@ -5219,6 +5336,8 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                         return err();
                     }
+
+                    TypedExpression fake_expression {};
 
                     expect_void(coerce_to_type(
                         info,
@@ -5264,13 +5383,11 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     binary_operation_assignment->binary_operator
                 ));
 
-                expect_void(coerce_to_type(
+                expect(coerced_value, coerce_to_type(
                     info,
                     scope,
                     context,
-                    binary_operation_assignment->range,
-                    result_value.type,
-                    result_value.value,
+                    result_value,
                     target.type,
                     false
                 ));
@@ -5278,7 +5395,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                 TypedStatement typed_statement {};
                 typed_statement.kind = TypedStatementKind::BinaryOperationAssignment;
                 typed_statement.range = statement->range;
-                typed_statement.binary_operation_assignment.operation = result_value;
+                typed_statement.binary_operation_assignment.operation = coerced_value;
 
                 typed_statements.append(typed_statement);
             } else if(statement->kind == StatementKind::IfStatement) {
@@ -5469,22 +5586,18 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     index_name.range = for_loop->range;
                 }
 
-                expect_void(coerce_to_integer(
+                expect(coerced_from_value, coerce_to_integer(
                     scope,
                     context,
-                    for_loop->from->range,
-                    from_value.type,
-                    from_value.value,
+                    from_value,
                     determined_index_type,
                     false
                 ));
 
-                expect_void(coerce_to_integer(
+                expect(coerced_to_value, coerce_to_integer(
                     scope,
                     context,
-                    for_loop->from->range,
-                    to_value.type,
-                    to_value.value,
+                    to_value,
                     determined_index_type,
                     false
                 ));
@@ -5520,8 +5633,8 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                 TypedStatement typed_statement {};
                 typed_statement.kind = TypedStatementKind::ForLoop;
                 typed_statement.range = statement->range;
-                typed_statement.for_loop.from = from_value;
-                typed_statement.for_loop.to = to_value;
+                typed_statement.for_loop.from = coerced_from_value;
+                typed_statement.for_loop.to = coerced_to_value;
                 typed_statement.for_loop.has_index_name = for_loop->has_index_name;
                 typed_statement.for_loop.index_name = typed_index_name;
                 typed_statement.for_loop.scope = for_variable_scope;
@@ -5552,18 +5665,16 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                 for(size_t i = 0; i < return_type_count; i += 1) {
                     expect_delayed(value, type_expression(info, jobs, scope, context, return_statement->values[i]));
 
-                    expect_void(coerce_to_type(
+                    expect(coerced_value, coerce_to_type(
                         info,
                         scope,
                         context,
-                        return_statement->values[i]->range,
-                        value.type,
-                        value.value,
+                        value,
                         context->return_types[i],
                         false
                     ));
 
-                    values[i] = value;
+                    values[i] = coerced_value;
                 }
 
                 TypedStatement typed_statement {};
@@ -5610,6 +5721,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                         binding.value
                     ));
 
+                    TypedExpression final_value;
                     if(binding.constraint[0] == '=') {
                         if(binding.constraint.length < 2) {
                             error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
@@ -5628,6 +5740,8 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                             return err();
                         }
+
+                        final_value = value;
                     } else if(binding.constraint[0] == '*') {
                         error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
 
@@ -5641,21 +5755,21 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                             return err();
                         }
 
-                        expect_void(coerce_to_type(
+                        expect(coerced_value, coerce_to_type(
                             info,
                             scope,
                             context,
-                            binding.value->range,
-                            value.type,
-                            value.value,
+                            value,
                             determined_value_type,
                             false
                         ));
+
+                        final_value = coerced_value;
                     }
 
                     TypedBinding typed_binding {};
                     typed_binding.constraint = binding.constraint;
-                    typed_binding.value = value;
+                    typed_binding.value = final_value;
 
                     bindings[i] = typed_binding;
                 }
@@ -5674,6 +5788,98 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
     }
 
     return ok((Array<TypedStatement>)typed_statements);
+}
+
+DelayedResult<SearchForMainResult> search_for_main(
+    GlobalInfo info,
+    List<AnyJob*>* jobs,
+    Arena* global_arena,
+    Arena* arena,
+    ConstantScope* scope
+) {
+    TypingContext context {};
+    context.arena = arena;
+    context.global_arena = global_arena;
+    context.scope_search_stack.arena = arena;
+
+    expect_delayed(search_result, search_for_name(
+        info,
+        jobs,
+        scope,
+        &context,
+        u8"main"_S,
+        scope->statements,
+        false
+    ));
+
+    if(!search_result.found) {
+        error(u8""_S, {}, "Error: Cannot find 'main'\n");
+
+        return err();
+    }
+
+    if(search_result.is_static_variable) {
+        error(
+            search_result.scope,
+            search_result.static_variable_declaration->name.range,
+            "'main' must be a constant. Got a variable of type '%.*s'",
+            STRING_PRINTF_ARGUMENTS(search_result.type.get_description(arena))
+        );
+
+        return err();
+    }
+
+    if(search_result.type.kind != TypeKind::FunctionTypeType) {
+        error(
+            search_result.scope,
+            search_result.constant_range,
+            "'main' must be a function. Got '%.*s'",
+            STRING_PRINTF_ARGUMENTS(search_result.type.get_description(arena))
+        );
+
+        return err();
+    }
+
+    auto function_type = search_result.type.function;
+
+    auto function_value = search_result.constant.unwrap_function();
+
+    if(function_type.parameters.length != 0) {
+        error(scope, function_value.declaration->range, "'main' must have zero parameters");
+
+        return err();
+    }
+
+    auto expected_main_return_integer = AnyType(Integer(RegisterSize::Size32, true));
+
+    if(function_type.return_types.length != 1) {
+        error(
+            function_value.body_scope,
+            function_value.declaration->range,
+            "Incorrect number of return types for 'main'. Expected 1, got %zu",
+            function_type.return_types.length
+        );
+
+        return err();
+    }
+
+    if(function_type.return_types[0] != expected_main_return_integer) {
+        error(
+            function_value.body_scope,
+            function_value.declaration->range,
+            "Incorrect 'main' return type. Expected '%.*s', got '%.*s'",
+            STRING_PRINTF_ARGUMENTS(expected_main_return_integer.get_description(arena)),
+            STRING_PRINTF_ARGUMENTS(function_type.return_types[0].get_description(arena))
+        );
+
+        return err();
+    }
+
+    SearchForMainResult result {};
+    result.type = function_type;
+    result.value = function_value;
+
+    return ok(result);
 }
 
 DelayedResult<TypeStaticIfResult> do_type_static_if(
@@ -6065,7 +6271,7 @@ profiled_function(DelayedResult<TypePolymorphicFunctionResult>, do_type_polymorp
             parameter_types[i] = type;
 
             ScopeConstant constant {};
-            constant.name = declaration->parameters[i].polymorphic_determiner.text;
+            constant.name = declaration->parameters[i].polymorphic_determiner;
             constant.type = AnyType::create_type_type();
             constant.value = AnyConstantValue(type);
 
@@ -6118,7 +6324,7 @@ profiled_function(DelayedResult<TypePolymorphicFunctionResult>, do_type_polymorp
             assert(coerced_value.kind == ValueKind::ConstantValue);
 
             ScopeConstant constant {};
-            constant.name = declaration_parameter.name.text;
+            constant.name = declaration_parameter.name;
             constant.type = parameter_types[i];
             constant.value = coerced_value.constant;
 
@@ -6409,7 +6615,7 @@ profiled_function(DelayedResult<StructType>, do_type_polymorphic_struct, (
         ));
 
         ScopeConstant constant {};
-        constant.name = struct_definition->parameters[i].name.text;
+        constant.name = struct_definition->parameters[i].name;
         constant.type = parameter_type.type;
         constant.value = parameters[i];
     }
@@ -6590,11 +6796,10 @@ profiled_function(DelayedResult<UnionType>, do_type_polymorphic_union, (
             union_definition->parameters[i].type
         ));
 
-        constant_parameters[i] = {
-            union_definition->parameters[i].name.text,
-            parameter_type.type,
-            parameters[i]
-        };
+        ScopeConstant scope_constant {};
+        scope_constant.name = union_definition->parameters[i].name;
+        scope_constant.type = parameter_type.type;
+        scope_constant.value = parameters[i];
     }
 
     ConstantScope member_scope;
@@ -6958,19 +7163,19 @@ profiled_function(DelayedResult<TypeEnumDefinitionResult>, do_type_enum_definiti
                 return err();
             }
 
-            expect_void(coerce_to_integer(
+            expect(coerced_value, coerce_to_integer(
                 &member_scope,
                 &context,
-                enum_definition->variants[i].value->range,
-                variant_value.typed_expression.type,
-                AnyValue(variant_value.value),
+                variant_value.typed_expression,
                 type_backing_type,
                 false
             ));
 
+            assert(coerced_value.value.kind == ValueKind::ConstantValue);
+
             variant.has_value = true;
-            variant.value = variant_value.typed_expression;
-            value = variant_value.value.unwrap_integer();
+            variant.value = coerced_value;
+            value = coerced_value.value.constant.unwrap_integer();
         } else {
             expect_void(check_undetermined_integer_to_integer_coercion(
                 scope,
@@ -7291,20 +7496,18 @@ profiled_function(DelayedResult<TypeStaticVariableResult>, do_type_static_variab
                 info,
                 scope,
                 &context,
-                declaration->initializer->range,
-                initial_value.typed_expression.type,
-                AnyValue(initial_value.value),
+                initial_value.typed_expression,
                 type.type,
                 false
             ));
 
-            assert(coerced_initial_value.kind == ValueKind::ConstantValue);
+            assert(coerced_initial_value.value.kind == ValueKind::ConstantValue);
 
             assert(context.scope_search_stack.length == 0);
 
             TypeStaticVariableResult result {};
             result.type = type.typed_expression;
-            result.initializer = initial_value.typed_expression;
+            result.initializer = coerced_initial_value;
             result.actual_type = type.type;
 
             return ok(result);
@@ -7325,23 +7528,21 @@ profiled_function(DelayedResult<TypeStaticVariableResult>, do_type_static_variab
                 return err();
             }
 
-            expect(coerced_value, coerce_to_type(
+            expect(coerced_initial_value, coerce_to_type(
                 info,
                 scope,
                 &context,
-                declaration->initializer->range,
-                initial_value.typed_expression.type,
-                AnyValue(initial_value.value),
+                initial_value.typed_expression,
                 determined_type,
                 false
             ));
 
-            assert(coerced_value.kind == ValueKind::ConstantValue);
+            assert(coerced_initial_value.value.kind == ValueKind::ConstantValue);
 
             assert(context.scope_search_stack.length == 0);
 
             TypeStaticVariableResult result {};
-            result.initializer = initial_value.typed_expression;
+            result.initializer = coerced_initial_value;
             result.actual_type = determined_type;
 
             return ok(result);

@@ -222,7 +222,7 @@ struct AnyConstantValue {
 };
 
 struct ScopeConstant {
-    String name;
+    Identifier name;
 
     AnyType type;
     AnyConstantValue value;
@@ -257,6 +257,20 @@ struct TypedConstantValue {
     AnyType type;
 
     AnyConstantValue value;
+};
+
+struct GlobalConstant {
+    String name;
+
+    AnyType type;
+
+    AnyConstantValue value;
+};
+
+struct GlobalInfo {
+    Array<GlobalConstant> global_constants;
+
+    ArchitectureSizes architecture_sizes;
 };
 
 struct AnyValue;
@@ -339,7 +353,8 @@ enum struct TypedExpressionKind {
     Cast,
     Bake,
     ArrayType,
-    FunctionType
+    FunctionType,
+    Coercion
 };
 
 enum struct BinaryOperationKind {
@@ -447,6 +462,10 @@ struct TypedExpression {
 
             Array<TypedExpression> return_types;
         } function_type;
+
+        struct {
+            TypedExpression* original;
+        } coercion;
     };
 };
 
@@ -603,3 +622,5 @@ struct TypedStatement {
         } inline_assembly;
     };
 };
+
+void error(ConstantScope* scope, FileRange range, const char* format, ...);

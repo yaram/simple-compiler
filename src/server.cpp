@@ -1315,6 +1315,12 @@ static RangeInfo get_expression_range_info(TypedExpression top_expression, unsig
             if(!found) {
                 break;
             }
+        } else if(current_expression.kind == TypedExpressionKind::Coercion) {
+            if(is_position_in_range(current_expression.coercion.original->range, line, column)) {
+                current_expression = *current_expression.coercion.original;
+            } else {
+                break;
+            }
         } else {
             abort();
         }

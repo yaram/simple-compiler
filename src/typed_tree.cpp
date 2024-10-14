@@ -76,3 +76,12 @@ String AnyConstantValue::get_description(Arena* arena) {
         abort();
     }
 }
+
+void error(ConstantScope* scope, FileRange range, const char* format, ...) {
+    va_list arguments;
+    va_start(arguments, format);
+
+    error(scope->get_file_path(), range, format, arguments);
+
+    va_end(arguments);
+}
