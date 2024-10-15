@@ -5822,7 +5822,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                         return err();
                     }
 
-                    expect(value, type_expression(
+                    expect_delayed(value, type_expression(
                         info,
                         jobs,
                         scope,
@@ -6582,7 +6582,7 @@ DelayedResult<TypedExpression> do_type_constant_definition(
     context.scope_search_stack.arena = arena;
     context.search_ignore_statement = definition;
 
-    expect(value, expect_constant_expression(
+    expect_delayed(value, expect_constant_expression(
         info,
         jobs,
         scope,
@@ -7229,7 +7229,7 @@ profiled_function(DelayedResult<TypeEnumDefinitionResult>, do_type_enum_definiti
     TypedExpression backing_type;
     Integer type_backing_type;
     if(enum_definition->backing_type != nullptr) {
-        expect(type, expect_type_expression(
+        expect_delayed(type, expect_type_expression(
             info,
             jobs,
             scope,
