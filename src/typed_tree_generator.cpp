@@ -6474,7 +6474,7 @@ profiled_function(DelayedResult<TypePolymorphicFunctionResult>, do_type_polymorp
                         STRING_PRINTF_ARGUMENTS(parameter_type.type.get_description(arena))
                     );
 
-                    error(call_scope, call_parameter_ranges[i], "Polymorphic function paremter here");
+                    error(call_scope, call_parameter_ranges[i], "Polymorphic function parameter here");
 
                     return err();
                 }
