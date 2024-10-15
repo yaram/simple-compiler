@@ -1274,9 +1274,9 @@ static DelayedResult<TypedExpression> type_binary_operation(
         coerced_left = left;
         coerced_right = right;
 
-        auto left_value = (int64_t)coerced_left.value.constant.unwrap_integer();
+        auto left_value = (int64_t)coerced_left.value.unwrap_constant_value().unwrap_integer();
 
-        auto right_value = (int64_t)coerced_right.value.constant.unwrap_integer();
+        auto right_value = (int64_t)coerced_right.value.unwrap_constant_value().unwrap_integer();
 
         auto is_arithmetic = true;
         int64_t value;
@@ -1591,6 +1591,74 @@ static DelayedResult<TypedExpression> type_binary_operation(
             } else {
                 result_value = AnyValue::create_anonymous_value();
             }
+        }
+    } else if(type.kind == TypeKind::UndeterminedFloat) {
+        coerced_left = left;
+        coerced_right = right;
+
+        auto left_value = coerced_left.value.unwrap_constant_value().unwrap_float();
+
+        auto right_value = coerced_right.value.unwrap_constant_value().unwrap_float();
+
+        auto is_arithmetic = true;
+        double value;
+        switch(kind) {
+            case BinaryOperationKind::Addition: {
+                value = left_value + right_value;
+            } break;
+
+            case BinaryOperationKind::Subtraction: {
+                value = left_value - right_value;
+            } break;
+
+            case BinaryOperationKind::Multiplication: {
+                value = left_value * right_value;
+            } break;
+
+            case BinaryOperationKind::Division: {
+                value = left_value / right_value;
+            } break;
+
+            case BinaryOperationKind::Modulus: {
+                value = fmod(left_value, right_value);
+            } break;
+
+            default: {
+                is_arithmetic = false;
+            } break;
+        }
+
+        if(is_arithmetic) {
+            result_type = type;
+            result_value = AnyValue(AnyConstantValue(value));
+        } else {
+            bool value;
+            switch(kind) {
+                case BinaryOperationKind::Equal: {
+                    value = left_value == right_value;
+                } break;
+
+                case BinaryOperationKind::NotEqual: {
+                    value = left_value != right_value;
+                } break;
+
+                case BinaryOperationKind::LessThan: {
+                    value = left_value < right_value;
+                } break;
+
+                case BinaryOperationKind::GreaterThan: {
+                    value = left_value > right_value;
+                } break;
+
+                default: {
+                    error(scope, range, "Cannot perform that operation on floats");
+
+                    return err();
+                } break;
+            }
+
+            result_type = AnyType::create_boolean();
+            result_value = AnyValue(AnyConstantValue(value));
         }
     } else if(type.kind == TypeKind::FloatType) {
         auto float_ = type.float_;
