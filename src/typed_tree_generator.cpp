@@ -5525,6 +5525,8 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                 if_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
 
+                context->variable_scope = parent_variable_scope;
+
                 auto else_ifs = context->arena->allocate<TypedElseIf>(if_statement->else_ifs.length);
 
                 for(size_t i = 0; i < if_statement->else_ifs.length; i += 1) {
@@ -5556,6 +5558,8 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     expect_delayed(else_if_statements, generate_runtime_statements(info, jobs, if_scope, context, if_statement->else_ifs[i].statements));
 
                     else_if_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
+
+                    context->variable_scope = parent_variable_scope;
 
                     TypedElseIf else_if {};
                     else_if.condition = condition;
