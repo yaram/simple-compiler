@@ -716,7 +716,7 @@ static Result<void> compile_source_file(GlobalInfo info, SourceFile* file) {
         file->jobs = jobs;
         file->errors = errors;
 
-        return ok();
+        return err();
     }
 
     file->jobs = jobs;
