@@ -3191,7 +3191,64 @@ int main(int argument_count, const char* arguments[]) {
                         if(range_info.type.kind == TypeKind::Type) {
                             buffer.append(range_info.value.constant.unwrap_type().get_description(&request_arena));
                         } else {
-                            buffer.append(range_info.value.constant.get_description(&request_arena));
+                            auto is_array_type = false;
+                            AnyType element_type;
+                            if(range_info.type.kind == TypeKind::StaticArray) {
+                                is_array_type = true;
+
+                                element_type = *range_info.type.static_array.element_type;
+
+                                assert(range_info.value.constant.aggregate.values.length == range_info.type.static_array.length);
+                            } else if(range_info.type.kind == TypeKind::ArrayTypeType) {
+                                is_array_type = true;
+
+                                element_type = *range_info.type.array.element_type;
+                            }
+
+                            auto is_string_type = false;
+                            if(
+                                is_array_type &&
+                                element_type.kind == TypeKind::Integer &&
+                                element_type.integer.size == RegisterSize::Size8
+                            ) {
+                                is_string_type = true;
+                            }
+
+                            auto is_valid_string = false;
+                            String string;
+                            if(is_string_type) {
+                                auto aggregate_value = range_info.value.constant.aggregate;
+
+                                auto data = request_arena.allocate<uint8_t>(aggregate_value.values.length);
+
+                                auto all_elements_defined = true;
+                                for(size_t i = 0; i < aggregate_value.values.length; i += 1) {
+                                    auto element_value = aggregate_value.values[i];
+
+                                    if(element_value.kind == ConstantValueKind::UndefConstant) {
+                                        all_elements_defined = false;
+                                        break;
+                                    }
+
+                                    data[i] = (uint8_t)element_value.unwrap_integer();
+                                }
+
+                                if(all_elements_defined && validate_utf8_string(data, aggregate_value.values.length).status) {
+                                    is_valid_string = true;
+                                    string = {};
+                                    string.length = aggregate_value.values.length;
+                                    string.elements = (char8_t*)data;
+                                }
+                            }
+
+                            if(is_valid_string) {
+                                buffer.append(u8"\""_S);
+                                buffer.append(string);
+                                buffer.append(u8"\""_S);
+                            } else {
+                                buffer.append(range_info.value.constant.get_description(&request_arena));
+                            }
+
                             buffer.append(u8" "_S);
                             buffer.append(range_info.type.get_description(&request_arena));
                         }
