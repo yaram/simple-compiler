@@ -253,6 +253,7 @@ static Result<void> compile_source_file(GlobalInfo info, SourceFile* file) {
                             job->state = JobState::Done;
                             job->type_function_declaration.parameters = result.value.parameters;
                             job->type_function_declaration.return_types = result.value.return_types;
+                            job->type_function_declaration.tag_parameters = result.value.tag_parameters;
                             job->type_function_declaration.type = result.value.type;
                             job->type_function_declaration.value = result.value.value;
 
@@ -1342,6 +1343,19 @@ static RangeInfo get_expression_range_info(TypedExpression top_expression, unsig
             for(auto return_type : current_expression.function_type.return_types) {
                 if(is_position_in_range(return_type.range, line, column)) {
                     current_expression = return_type;
+
+                    found = true;
+                    break;
+                }
+            }
+
+            if(!found) {
+                break;
+            }
+
+            for(auto tag_parameter : current_expression.function_type.tag_parameters) {
+                if(is_position_in_range(tag_parameter.range, line, column)) {
+                    current_expression = tag_parameter;
 
                     found = true;
                     break;
@@ -2785,6 +2799,8 @@ int main(int argument_count, const char* arguments[]) {
                                         actual_position.line,
                                         actual_position.column
                                     );
+
+                                    break;
                                 }
                             }
                         } else if(job->kind == JobKind::TypeFunctionDeclaration) {
@@ -2847,6 +2863,31 @@ int main(int argument_count, const char* arguments[]) {
 
                                         break;
                                     }
+                                }
+
+                                if(found_range) {
+                                    break;
+                                }
+
+                                for(auto tag_parameter : job->type_function_declaration.tag_parameters) {
+                                    if(is_position_in_range(
+                                        tag_parameter.range,
+                                        actual_position.line,
+                                        actual_position.column
+                                    )) {
+                                        found_range = true;
+                                        range_info = get_expression_range_info(
+                                            tag_parameter,
+                                            actual_position.line,
+                                            actual_position.column
+                                        );
+
+                                        break;
+                                    }
+                                }
+
+                                if(found_range) {
+                                    break;
                                 }
                             }
                         } else if(job->kind == JobKind::TypePolymorphicFunction) {

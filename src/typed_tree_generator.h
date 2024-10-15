@@ -36,6 +36,7 @@ DelayedResult<TypeStaticIfResult> do_type_static_if(
 struct TypeFunctionDeclarationResult {
     Array<TypedFunctionParameter> parameters;
     Array<TypedExpression> return_types;
+    Array<TypedExpression> tag_parameters;
 
     AnyType type;
     AnyConstantValue value;

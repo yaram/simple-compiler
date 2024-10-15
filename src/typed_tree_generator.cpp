@@ -5037,6 +5037,8 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
             return_types[i] = type_value.type;
         }
 
+        List<TypedExpression> tag_parameters(context->arena);
+
         auto is_calling_convention_specified = false;
         auto calling_convention = CallingConvention::Default;
         for(auto tag : function_type->tags) {
@@ -5071,6 +5073,8 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
 
                 expect(calling_convention_name, array_to_string(context->arena, scope, tag.parameters[0]->range, parameter.typed_expression.type, parameter.value));
 
+                tag_parameters.append(parameter.typed_expression);
+
                 if(calling_convention_name == u8"default"_S) {
                     calling_convention = CallingConvention::Default;
                 } else if(calling_convention_name == u8"stdcall"_S) {
@@ -5096,6 +5100,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
         ))));
         typed_expression.function_type.parameters = Array(parameter_count, parameters);
         typed_expression.function_type.return_types = Array(return_type_count, typed_return_types);
+        typed_expression.function_type.tag_parameters = tag_parameters;
 
         return ok(typed_expression);
     } else {
@@ -6043,6 +6048,8 @@ profiled_function(DelayedResult<TypeFunctionDeclarationResult>, do_type_function
         type_return_types[i] = type.type;
     }
 
+    List<TypedExpression> tag_parameters(context.arena);
+
     auto is_external = false;
     Array<String> external_libraries;
     auto is_no_mangle = false;
@@ -6124,6 +6131,8 @@ profiled_function(DelayedResult<TypeFunctionDeclarationResult>, do_type_function
 
                     return err();
                 }
+
+                tag_parameters.append(parameter.typed_expression);
             }
 
             is_external = true;
@@ -6156,6 +6165,8 @@ profiled_function(DelayedResult<TypeFunctionDeclarationResult>, do_type_function
                 &context,
                 tag.parameters[0]
             ));
+
+            tag_parameters.append(parameter.typed_expression);
 
             expect(calling_convention_name, array_to_string(arena, scope, tag.parameters[0]->range, parameter.typed_expression.type, parameter.value));
 
@@ -6240,6 +6251,7 @@ profiled_function(DelayedResult<TypeFunctionDeclarationResult>, do_type_function
         TypeFunctionDeclarationResult result {};
         result.parameters = Array(parameter_count, parameters);
         result.return_types = Array(return_type_count, return_types);
+        result.tag_parameters = tag_parameters;
         result.type = AnyType(FunctionTypeType(
             Array(parameter_count, parameter_types),
             Array(return_type_count, type_return_types),

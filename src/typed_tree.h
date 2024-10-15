@@ -461,6 +461,8 @@ struct TypedExpression {
             Array<TypedFunctionParameter> parameters;
 
             Array<TypedExpression> return_types;
+
+            Array<TypedExpression> tag_parameters;
         } function_type;
 
         struct {
