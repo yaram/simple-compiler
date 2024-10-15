@@ -639,13 +639,13 @@ static GetLLVMConstantResult get_llvm_constant(Arena* arena, ArchitectureSizes a
 
         result_type = LLVMArrayType2(element_llvm_type, static_array.length);
 
-        if(value.kind == IRConstantValueKind::StaticArrayConstant) {
-            assert(static_array.length == value.static_array.elements.length);
+        if(value.kind == IRConstantValueKind::AggregateConstant) {
+            assert(static_array.length == value.aggregate.values.length);
 
             auto elements = arena->allocate<LLVMValueRef>(static_array.length);
 
             for(size_t i = 0; i < static_array.length; i += 1) {
-                elements[i] = get_llvm_constant(arena, architecture_sizes, *static_array.element_type, value.static_array.elements[i]).value;
+                elements[i] = get_llvm_constant(arena, architecture_sizes, *static_array.element_type, value.aggregate.values[i]).value;
             }
 
             result_value = LLVMConstArray2(element_llvm_type, elements, type.static_array.length);
@@ -660,11 +660,11 @@ static GetLLVMConstantResult get_llvm_constant(Arena* arena, ArchitectureSizes a
         auto member_types = arena->allocate<LLVMTypeRef>(struct_.members.length);
         auto member_values = arena->allocate<LLVMValueRef>(struct_.members.length);
 
-        if(value.kind == IRConstantValueKind::StructConstant) {
-            assert(struct_.members.length == value.struct_.members.length);
+        if(value.kind == IRConstantValueKind::AggregateConstant) {
+            assert(struct_.members.length == value.aggregate.values.length);
 
             for(size_t i = 0; i < struct_.members.length; i += 1) {
-                auto result = get_llvm_constant(arena, architecture_sizes, struct_.members[i], value.struct_.members[i]);
+                auto result = get_llvm_constant(arena, architecture_sizes, struct_.members[i], value.aggregate.values[i]);
 
                 member_types[i] = result.llvm_type;
                 member_values[i] = result.value;
