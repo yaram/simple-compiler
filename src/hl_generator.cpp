@@ -11,7 +11,6 @@
 #include "util.h"
 #include "string.h"
 #include "types.h"
-#include "jobs.h"
 
 struct AnyRuntimeValue;
 
@@ -88,7 +87,7 @@ struct RuntimeVariable {
 };
 
 struct RuntimeVariableScope {
-    Array<RuntimeVariable> variables;
+    List<RuntimeVariable> variables;
 
     size_t debug_scope_index;
 };
@@ -104,7 +103,6 @@ struct GenerationContext {
     Block* break_end_block;
 
     List<RuntimeVariableScope> variable_scope_stack;
-    VariableScope* current_variable_scope;
 
     List<DebugScope> debug_scopes;
 
@@ -119,6 +117,23 @@ struct GenerationContext {
     Array<TypedFunction> functions;
     Array<TypedStaticVariable> static_variables;
 };
+
+static void add_new_variable(GenerationContext* context, Identifier name, AnyType type, AddressedValue value) {
+    assert(context->variable_scope_stack.length != 0);
+
+    auto variable_scope = &(context->variable_scope_stack[context->variable_scope_stack.length - 1]);
+
+    for(auto variable : variable_scope->variables) {
+        assert(variable.name.text != name.text);
+    }
+
+    RuntimeVariable variable {};
+    variable.name = name;
+    variable.type = type;
+    variable.value = value;
+
+    variable_scope->variables.append(variable);
+}
 
 struct TypedRuntimeValue {
     inline TypedRuntimeValue() = default;
@@ -1377,7 +1392,6 @@ static RegisterValue convert_to_type_register(
 
 static AnyRuntimeValue generate_expression(
     GlobalInfo info,
-    List<AnyJob*>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
     TypedExpression expression
@@ -1385,7 +1399,6 @@ static AnyRuntimeValue generate_expression(
 
 static RegisterValue generate_binary_operation(
     GlobalInfo info,
-    List<AnyJob*>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
     FileRange range,
@@ -1393,8 +1406,8 @@ static RegisterValue generate_binary_operation(
     TypedExpression left,
     TypedExpression right
 ) {
-    auto left_value = generate_expression(info, jobs, scope, context, left);
-    auto right_value = generate_expression(info, jobs, scope, context, right);
+    auto left_value = generate_expression(info, scope, context, left);
+    auto right_value = generate_expression(info, scope, context, right);
 
     assert(left.type == right.type);
 
@@ -1717,13 +1730,11 @@ static RegisterValue generate_binary_operation(
 
 static_profiled_function(AnyRuntimeValue, generate_expression, (
     GlobalInfo info,
-    List<AnyJob*>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
     TypedExpression expression
 ), (
     info,
-    jobs,
     scope,
     context,
     expression
@@ -1742,12 +1753,47 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
         return AnyRuntimeValue(RegisterValue(ir_type, register_index));
     }
 
-    if(expression.kind == TypedExpressionKind::IndexReference) {
+    if(expression.kind == TypedExpressionKind::VariableReference) {
+        auto variable_reference = expression.variable_reference;
+
+        for(size_t i = 0; i < context->variable_scope_stack.length; i += 1) {
+            auto index = context->variable_scope_stack.length - 1 - i;
+
+            for(auto variable : context->variable_scope_stack[index].variables) {
+                if(variable.name.text == variable_reference.name) {
+                    return AnyRuntimeValue(variable.value);
+                }
+            }
+        }
+
+        abort();
+    } else if(expression.kind == TypedExpressionKind::StaticVariableReference) {
+        auto static_variable_reference = expression.static_variable_reference;
+
+        for(auto static_variable : context->static_variables) {
+            if(
+                static_variable.scope == static_variable_reference.scope &&
+                static_variable.declaration == static_variable_reference.declaration
+            ) {
+                auto pointer_register = append_reference_static(
+                    context,
+                    expression.range,
+                    static_variable.static_variable
+                );
+
+                auto ir_type = get_ir_type(context->arena, info.architecture_sizes, static_variable.type);
+
+                return AnyRuntimeValue(AddressedValue(ir_type, pointer_register));
+            }
+        }
+
+        abort();
+    } else if(expression.kind == TypedExpressionKind::IndexReference) {
         auto index_reference = expression.index_reference;
 
-        auto expression_value = generate_expression(info, jobs, scope, context, *index_reference.value);
+        auto expression_value = generate_expression(info, scope, context, *index_reference.value);
 
-        auto index = generate_expression(info, jobs, scope, context, *index_reference.index);
+        auto index = generate_expression(info, scope, context, *index_reference.index);
 
         assert(index_reference.index->type.kind == TypeKind::Integer);
 
@@ -1827,7 +1873,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
     } else if(expression.kind == TypedExpressionKind::MemberReference) {
         auto member_reference = expression.member_reference;
 
-        auto expression_value = generate_expression(info, jobs, scope, context, *member_reference.value);
+        auto expression_value = generate_expression(info, scope, context, *member_reference.value);
 
         AnyType actual_type;
         AnyRuntimeValue actual_value;
@@ -2067,7 +2113,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
         auto element_values = context->arena->allocate<RegisterValue>(element_count);
 
         for(size_t i = 1; i < element_count; i += 1) {
-            auto element_value = generate_expression(info, jobs, scope, context, array_literal.elements[i]);
+            auto element_value = generate_expression(info, scope, context, array_literal.elements[i]);
 
             element_types[i] = array_literal.elements[i].type;
 
@@ -2093,7 +2139,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
         auto member_values = context->arena->allocate<RegisterValue>(member_count);
 
         for(size_t i = 1; i < member_count; i += 1) {
-            auto member_value = generate_expression(info, jobs, scope, context, struct_literal.members[i].member);
+            auto member_value = generate_expression(info, scope, context, struct_literal.members[i].member);
 
             StructTypeMember type_member {};
             type_member.name = struct_literal.members[i].name.text;
@@ -2124,7 +2170,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
 
             auto parameters = context->arena->allocate<FunctionCallInstruction::Parameter>(function_type.parameters.length);
             for(size_t i = 0; i < function_type.parameters.length; i += 1) {
-                auto parameter_value = generate_expression(info, jobs, scope, context, function_call.parameters[i]);
+                auto parameter_value = generate_expression(info, scope, context, function_call.parameters[i]);
 
                 auto ir_type = get_ir_type(context->arena, info.architecture_sizes, function_call.parameters[i].type);
 
@@ -2233,7 +2279,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
 
                 assert(function_call.parameters[0].type.is_runtime_type());
 
-                auto parameter_value = generate_expression(info, jobs, scope, context, function_call.parameters[0]);
+                auto parameter_value = generate_expression(info, scope, context, function_call.parameters[0]);
 
                 auto ir_type = get_ir_type(context->arena, info.architecture_sizes, function_call.parameters[0].type);
 
@@ -2258,7 +2304,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
 
                 assert(function_call.parameters[0].type.kind == TypeKind::FloatType);
 
-                auto parameter_value = generate_expression(info, jobs, scope, context, function_call.parameters[0]);
+                auto parameter_value = generate_expression(info, scope, context, function_call.parameters[0]);
 
                 auto ir_type = IRType::create_float(function_call.parameters[0].type.float_.size);
 
@@ -2293,7 +2339,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
 
             assert(pointer.pointed_to_type->kind == TypeKind::FunctionTypeType);
 
-            auto expression_value = generate_expression(info, jobs, scope, context, *function_call.value);
+            auto expression_value = generate_expression(info, scope, context, *function_call.value);
 
             auto function_type = pointer.pointed_to_type->function;
 
@@ -2310,7 +2356,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
 
             auto parameters = context->arena->allocate<FunctionCallInstruction::Parameter>(parameter_count);
             for(size_t i = 0; i < parameter_count; i += 1) {
-                auto parameter_value = generate_expression(info, jobs, scope, context, function_call.parameters[i]);
+                auto parameter_value = generate_expression(info, scope, context, function_call.parameters[i]);
 
                 auto ir_type = get_ir_type(context->arena, info.architecture_sizes, function_type.parameters[i]);
 
@@ -2373,7 +2419,6 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
 
         auto result = generate_binary_operation(
             info,
-            jobs,
             scope,
             context,
             expression.range,
@@ -2421,7 +2466,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
                         runtime_function
                     );
                 } else {
-                    auto expression_value = generate_expression(info, jobs, scope, context, *unary_operation.value);
+                    auto expression_value = generate_expression(info, scope, context, *unary_operation.value);
 
                     assert(expression_value.kind == RuntimeValueKind::AddressedValue);
 
@@ -2434,7 +2479,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
             } break;
 
             case UnaryOperationKind::PointerDereference: {
-                auto expression_value = generate_expression(info, jobs, scope, context, *unary_operation.value);
+                auto expression_value = generate_expression(info, scope, context, *unary_operation.value);
 
                 assert(unary_operation.value->type.kind == TypeKind::Pointer);
 
@@ -2455,7 +2500,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
             } break;
 
             case UnaryOperationKind::BooleanInvert: {
-                auto expression_value = generate_expression(info, jobs, scope, context, *unary_operation.value);
+                auto expression_value = generate_expression(info, scope, context, *unary_operation.value);
 
                 assert(unary_operation.value->type.kind == TypeKind::Boolean);
 
@@ -2483,7 +2528,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
             } break;
 
             case UnaryOperationKind::Negation: {
-                auto expression_value = generate_expression(info, jobs, scope, context, *unary_operation.value);
+                auto expression_value = generate_expression(info, scope, context, *unary_operation.value);
 
                 if(unary_operation.value->type.kind == TypeKind::Integer) {
                     auto integer = unary_operation.value->type.integer;
@@ -2569,7 +2614,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
     } else if(expression.kind == TypedExpressionKind::Cast) {
         auto cast = expression.cast;
 
-        auto expression_value = generate_expression(info, jobs, scope, context, *cast.value);
+        auto expression_value = generate_expression(info, scope, context, *cast.value);
 
         assert(cast.type->type.kind == TypeKind::Type);
 
@@ -2589,7 +2634,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
     } else if(expression.kind == TypedExpressionKind::Coercion) {
         auto coercion = expression.coercion;
 
-        auto expression_value = generate_expression(info, jobs, scope, context, *coercion.original);
+        auto expression_value = generate_expression(info, scope, context, *coercion.original);
 
         auto result_register = convert_to_type_register(
             info,
@@ -2654,397 +2699,257 @@ static void change_block(GenerationContext* context, FileRange range, Block* blo
     context->instructions = List<Instruction*>(context->arena);
 }
 
-static bool is_runtime_statement(Statement* statement) {
-    return !(
-        statement->kind == StatementKind::FunctionDeclaration ||
-        statement->kind == StatementKind::ConstantDefinition ||
-        statement->kind == StatementKind::StructDefinition ||
-        statement->kind == StatementKind::UnionDefinition ||
-        statement->kind == StatementKind::EnumDefinition ||
-        statement->kind == StatementKind::StaticIf
-    );
-}
-
-static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
+static_profiled_function(void, generate_statements, (
     GlobalInfo info,
-    List<AnyJob*>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
-    Array<Statement*> statements
+    Array<TypedStatement> statements
 ), (
     info,
-    jobs,
     scope,
     context,
     statements
 )) {
     auto unreachable = false;
     for(auto statement : statements) {
-        if(is_runtime_statement(statement)) {
-            if(unreachable) {
-                error(scope, statement->range, "Unreachable code");
+        assert(does_current_block_need_finisher(context));
 
-                return err();
+        if(statement.kind == TypedStatementKind::ExpressionStatement) {
+            auto expression_statement = statement.expression_statement;
+
+            generate_expression(info, scope, context, expression_statement.expression);
+        } else if(statement.kind == TypedStatementKind::VariableDeclaration) {
+            auto variable_declaration = statement.variable_declaration;
+
+            assert(variable_declaration.initializer.type == variable_declaration.actual_type);
+
+            assert(variable_declaration.actual_type.is_runtime_type());
+
+            auto initializer_value = generate_expression(info, scope, context, variable_declaration.initializer);
+
+            auto ir_type = get_ir_type(context->arena, info.architecture_sizes, variable_declaration.actual_type);
+
+            auto register_index = generate_in_register_value(context, variable_declaration.initializer.range, ir_type, initializer_value);
+
+            auto pointer_register = append_allocate_local(
+                context,
+                statement.range,
+                ir_type,
+                variable_declaration.name.text,
+                variable_declaration.initializer.type
+            );
+
+            append_store(
+                context,
+                statement.range,
+                register_index,
+                pointer_register
+            );
+
+            auto addressed_value = AddressedValue(ir_type, pointer_register);
+
+            add_new_variable(
+                context,
+                variable_declaration.name,
+                variable_declaration.actual_type,
+                addressed_value
+            );
+        } else if(statement.kind == TypedStatementKind::MultiReturnVariableDeclaration) {
+            auto variable_declaration = statement.multi_return_variable_declaration;
+
+            assert(variable_declaration.names.length > 1);
+
+            assert(variable_declaration.initializer.type.kind == TypeKind::MultiReturn);
+
+            auto initializer_value = generate_expression(info, scope, context, variable_declaration.initializer);
+
+            auto return_types = variable_declaration.initializer.type.multi_return.types;
+
+            assert(return_types.length == variable_declaration.names.length);
+
+            auto register_value = initializer_value.unwrap_register_value();
+
+            for(size_t i = 0; i < return_types.length; i += 1) {
+                auto ir_type = get_ir_type(context->arena, info.architecture_sizes, return_types[i]);
+
+                auto return_struct_register = append_read_struct_member(
+                    context,
+                    variable_declaration.names[i].name.range,
+                    i,
+                    register_value.register_index
+                );
+
+                auto pointer_register = append_allocate_local(
+                    context,
+                    variable_declaration.names[i].name.range,
+                    ir_type,
+                    variable_declaration.names[i].name.text,
+                    return_types[i]
+                );
+
+                append_store(
+                    context,
+                    variable_declaration.names[i].name.range,
+                    return_struct_register,
+                    pointer_register
+                );
+
+                add_new_variable(
+                    context,
+                    variable_declaration.names[i].name,
+                    return_types[i],
+                    AddressedValue(ir_type, pointer_register)
+                );
+            }
+        } else if(statement.kind == TypedStatementKind::Assignment) {
+            auto assignment = statement.assignment;
+
+            assert(assignment.target.type == assignment.value.type);
+
+            auto target = generate_expression(info, scope, context, assignment.target);
+
+            auto pointer_register = target.unwrap_addressed_value().pointer_register;
+
+            auto value = generate_expression(info, scope, context, assignment.value);
+
+            auto ir_type = get_ir_type(context->arena, info.architecture_sizes, assignment.value.type);
+
+            auto register_index = generate_in_register_value(context, assignment.value.range, ir_type, value);
+
+            append_store(
+                context,
+                statement.range,
+                register_index,
+                pointer_register
+            );
+        } else if(statement.kind == TypedStatementKind::MultiReturnAssignment) {
+            auto assignment = statement.multi_return_assignment;
+
+            assert(assignment.targets.length > 1);
+
+            assert(assignment.value.type.kind == TypeKind::MultiReturn);
+
+            auto value = generate_expression(info, scope, context, assignment.value);
+
+            auto return_types = assignment.value.type.multi_return.types;
+
+            assert(return_types.length == assignment.targets.length);
+
+            auto register_index = value.unwrap_register_value().register_index;
+
+            for(size_t i = 0; i < return_types.length; i += 1) {
+                auto ir_type = get_ir_type(context->arena, info.architecture_sizes, return_types[i]);
+
+                auto target = generate_expression(info, scope, context, assignment.targets[i]);
+
+                auto pointer_register = target.unwrap_addressed_value().pointer_register;
+
+                auto return_member_register = append_read_struct_member(
+                    context,
+                    assignment.targets[i].range,
+                    i,
+                    register_index
+                );
+
+                append_store(
+                    context,
+                    statement.range,
+                    return_member_register,
+                    pointer_register
+                );
+            }
+        } else if(statement.kind == TypedStatementKind::BinaryOperationAssignment) {
+            auto binary_operation_assignment = statement.binary_operation_assignment;
+
+            assert(binary_operation_assignment.operation.kind == TypedExpressionKind::BinaryOperation);
+
+            auto target = generate_expression(info, scope, context, *binary_operation_assignment.operation.binary_operation.left);
+
+            auto pointer_register = target.unwrap_addressed_value().pointer_register;
+
+            auto register_value = generate_binary_operation(
+                info,
+                scope,
+                context,
+                statement.range,
+                binary_operation_assignment.operation.binary_operation.kind,
+                *binary_operation_assignment.operation.binary_operation.left,
+                *binary_operation_assignment.operation.binary_operation.right
+            );
+
+            append_store(
+                context,
+                statement.range,
+                register_value.register_index,
+                pointer_register
+            );
+        } else if(statement.kind == TypedStatementKind::IfStatement) {
+            auto if_statement = statement.if_statement;
+
+            auto end_block = context->arena->allocate_and_construct<Block>();
+
+            Block* next_block;
+            if(if_statement.else_ifs.length == 0) {
+                next_block = end_block;
+            } else {
+                next_block = context->arena->allocate_and_construct<Block>();
             }
 
-            assert(does_current_block_need_finisher(context));
-
-            if(statement->kind == StatementKind::ExpressionStatement) {
-                auto expression_statement = (ExpressionStatement*)statement;
-
-                expect_delayed(value, generate_expression(info, jobs, scope, context, expression_statement->expression));
-            } else if(statement->kind == StatementKind::VariableDeclaration) {
-                auto variable_declaration = (VariableDeclaration*)statement;
-
-                for(auto tag : variable_declaration->tags) {
-                    if(tag.name.text == u8"extern"_S) {
-                        error(scope, variable_declaration->range, "Local variables cannot be external");
-
-                        return err();
-                    } else if(tag.name.text == u8"no_mangle"_S) {
-                        error(scope, variable_declaration->range, "Local variables cannot be no_mangle");
-
-                        return err();
-                    } else {
-                        error(scope, tag.name.range, "Unknown tag '%.*s'", STRING_PRINTF_ARGUMENTS(tag.name.text));
-
-                        return err();
-                    }
-                }
-
-                if(variable_declaration->initializer == nullptr) {
-                    error(scope, variable_declaration->range, "Variable must be initialized");
-
-                    return err();
-                }
-
-                AnyType type;
-                AddressedValue addressed_value;
-                if(variable_declaration->type != nullptr) {
-                    expect_delayed(type_value, evaluate_type_expression(info, jobs, scope, context, variable_declaration->type));
-
-                    if(!type_value.is_runtime_type()) {
-                        error(scope, variable_declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type_value.get_description(context->arena)));
-
-                        return err();
-                    }
-
-                    type = type_value;
-
-                    expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, variable_declaration->initializer));
-
-                    auto ir_type = get_ir_type(context->arena, info.architecture_sizes, type);
-
-                    auto pointer_register = append_allocate_local(
-                        context,
-                        variable_declaration->range,
-                        ir_type,
-                        variable_declaration->name.text,
-                        type
-                    );
-
-                    expect(register_value, coerce_to_type_register(
-                        info,
-                        scope,
-                        context,
-                        variable_declaration->range,
-                        initializer_value.type,
-                        initializer_value.value,
-                        type,
-                        false
-                    ));
-
-                    append_store(
-                        context,
-                        variable_declaration->range,
-                        register_value.register_index,
-                        pointer_register
-                    );
-
-                    addressed_value = AddressedValue(ir_type, pointer_register);
-                } else {
-                    expect_delayed(initializer_value, generate_expression(info, jobs, scope, context, variable_declaration->initializer));
-
-                    expect(actual_type, coerce_to_default_type(info, scope, variable_declaration->initializer->range, initializer_value.type));
-                    
-                    if(!actual_type.is_runtime_type()) {
-                        error(scope, variable_declaration->initializer->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(actual_type.get_description(context->arena)));
-
-                        return err();
-                    }
-
-                    type = actual_type;
-
-                    auto ir_type = get_ir_type(context->arena, info.architecture_sizes, type);
-
-                    auto pointer_register = append_allocate_local(
-                        context,
-                        variable_declaration->range,
-                        ir_type,
-                        variable_declaration->name.text,
-                        type
-                    );
-
-                    expect(register_value, coerce_to_type_register(
-                        info,
-                        scope,
-                        context,
-                        variable_declaration->range,
-                        initializer_value.type,
-                        initializer_value.value,
-                        type,
-                        false
-                    ));
-
-                    append_store(
-                        context,
-                        variable_declaration->range,
-                        register_value.register_index,
-                        pointer_register
-                    );
-
-                    addressed_value = AddressedValue(ir_type, pointer_register);
-                }
-
-                if(
-                    !add_new_variable(
-                        context,
-                        variable_declaration->name,
-                        type,
-                        addressed_value
-                    ).status
-                ) {
-                    return err();
-                }
-            } else if(statement->kind == StatementKind::MultiReturnVariableDeclaration) {
-                auto variable_declaration = (MultiReturnVariableDeclaration*)statement;
-
-                assert(variable_declaration->names.length > 1);
-
-                expect_delayed(initializer, generate_expression(info, jobs, scope, context, variable_declaration->initializer));
-
-                if(initializer.type.kind != TypeKind::MultiReturn) {
-                    error(scope, variable_declaration->initializer->range, "Expected multiple return values, got '%.*s'", STRING_PRINTF_ARGUMENTS(initializer.type.get_description(context->arena)));
-
-                    return err();
-                }
-
-                auto return_types = initializer.type.multi_return.types;
-
-                if(return_types.length != variable_declaration->names.length) {
-                    error(
-                        scope,
-                        variable_declaration->initializer->range,
-                        "Incorrect number of return values. Expected %zu, got %zu",
-                        variable_declaration->names.length,
-                        return_types.length
-                    );
-
-                    return err();
-                }
-
-                auto register_value = initializer.value.unwrap_register_value();
-
-                auto return_struct_member_ir_types = context->arena->allocate<IRType>(return_types.length);
-
-                for(size_t i = 0; i < return_types.length; i += 1) {
-                    return_struct_member_ir_types[i] = get_ir_type(context->arena, info.architecture_sizes, return_types[i]);
-                }
-
-                for(size_t i = 0; i < return_types.length; i += 1) {
-                    auto return_struct_register = append_read_struct_member(
-                        context,
-                        variable_declaration->names[i].range,
-                        i,
-                        register_value.register_index
-                    );
-
-                    auto pointer_register = append_allocate_local(
-                        context,
-                        variable_declaration->names[i].range,
-                        return_struct_member_ir_types[i],
-                        variable_declaration->names[i].text,
-                        return_types[i]
-                    );
-
-                    append_store(
-                        context,
-                        variable_declaration->names[i].range,
-                        return_struct_register,
-                        pointer_register
-                    );
-
-                    if(
-                        !add_new_variable(
-                            context,
-                            variable_declaration->names[i],
-                            return_types[i],
-                            AddressedValue(return_struct_member_ir_types[i], pointer_register)
-                        ).status
-                    ) {
-                        return err();
-                    }
-                }
-            } else if(statement->kind == StatementKind::Assignment) {
-                auto assignment = (Assignment*)statement;
-
-                expect_delayed(target, generate_expression(info, jobs, scope, context, assignment->target));
-
-                size_t pointer_register;
-                if(target.value.kind == RuntimeValueKind::AddressedValue){
-                    auto addressed_value = target.value.addressed;
-
-                    pointer_register = addressed_value.pointer_register;
-                } else {
-                    error(scope, assignment->target->range, "Value is not assignable");
-
-                    return err();
-                }
-
-                expect_delayed(value, generate_expression(info, jobs, scope, context, assignment->value));
-
-                expect(register_value, coerce_to_type_register(
-                    info,
-                    scope,
-                    context,
-                    assignment->range,
-                    value.type,
-                    value.value,
-                    target.type,
-                    false
-                ));
-
-                append_store(
-                    context,
-                    assignment->range,
-                    register_value.register_index,
-                    pointer_register
-                );
-            } else if(statement->kind == StatementKind::MultiReturnAssignment) {
-                auto assignment = (MultiReturnAssignment*)statement;
-
-                assert(assignment->targets.length > 1);
-
-                expect_delayed(value, generate_expression(info, jobs, scope, context, assignment->value));
-
-                if(value.type.kind != TypeKind::MultiReturn) {
-                    error(scope, assignment->value->range, "Expected multiple return values, got '%.*s'", STRING_PRINTF_ARGUMENTS(value.type.get_description(context->arena)));
-
-                    return err();
-                }
-
-                auto return_types = value.type.multi_return.types;
-
-                if(return_types.length != assignment->targets.length) {
-                    error(
-                        scope,
-                        assignment->value->range,
-                        "Incorrect number of return values. Expected %zu, got %zu",
-                        assignment->targets.length,
-                        return_types.length
-                    );
-
-                    return err();
-                }
-
-                auto register_value = value.value.unwrap_register_value();
-
-                auto return_struct_member_ir_types = context->arena->allocate<IRType>(return_types.length);
-
-                for(size_t i = 0; i < return_types.length; i += 1) {
-                    return_struct_member_ir_types[i] = get_ir_type(context->arena, info.architecture_sizes, return_types[i]);
-                }
-
-                for(size_t i = 0; i < return_types.length; i += 1) {
-                    expect_delayed(target, generate_expression(info, jobs, scope, context, assignment->targets[i]));
-
-                    size_t pointer_register;
-                    if(target.value.kind == RuntimeValueKind::AddressedValue){
-                        auto addressed_value = target.value.addressed;
-
-                        pointer_register = addressed_value.pointer_register;
-                    } else {
-                        error(scope, assignment->targets[i]->range, "Value is not assignable");
-
-                        return err();
-                    }
-
-                    auto return_struct_register = append_read_struct_member(
-                        context,
-                        assignment->targets[i]->range,
-                        i,
-                        register_value.register_index
-                    );
-
-                    expect(register_value, coerce_to_type_register(
-                        info,
-                        scope,
-                        context,
-                        assignment->range,
-                        return_types[i],
-                        AnyRuntimeValue(RegisterValue(return_struct_member_ir_types[i], return_struct_register)),
-                        target.type,
-                        false
-                    ));
-
-                    append_store(
-                        context,
-                        assignment->range,
-                        return_struct_register,
-                        pointer_register
-                    );
-                }
-            } else if(statement->kind == StatementKind::BinaryOperationAssignment) {
-                auto binary_operation_assignment = (BinaryOperationAssignment*)statement;
-
-                expect_delayed(target, generate_expression(info, jobs, scope, context, binary_operation_assignment->target));
-
-                size_t pointer_register;
-                if(target.value.kind == RuntimeValueKind::AddressedValue){
-                    auto addressed_value = target.value.addressed;
-
-                    pointer_register = addressed_value.pointer_register;
-                } else {
-                    error(scope, binary_operation_assignment->target->range, "Value is not assignable");
-
-                    return err();
-                }
-
-                expect_delayed(value, generate_binary_operation(
-                    info,
-                    jobs,
-                    scope,
-                    context,
-                    binary_operation_assignment->range,
-                    binary_operation_assignment->target,
-                    binary_operation_assignment->value,
-                    binary_operation_assignment->kind
-                ));
-
-                expect(register_value, coerce_to_type_register(
-                    info,
-                    scope,
-                    context,
-                    binary_operation_assignment->range,
-                    value.type,
-                    value.value,
-                    target.type,
-                    false
-                ));
-
-                append_store(
-                    context,
-                    binary_operation_assignment->range,
-                    register_value.register_index,
-                    pointer_register
-                );
-            } else if(statement->kind == StatementKind::IfStatement) {
-                auto if_statement = (IfStatement*)statement;
-
-                auto end_block = context->arena->allocate_and_construct<Block>();
-
-                Block* next_block;
-                if(if_statement->else_ifs.length == 0 && if_statement->else_statements.length == 0) {
+            auto body_block = context->arena->allocate_and_construct<Block>();
+
+            assert(if_statement.condition.type.kind == TypeKind::Boolean);
+
+            auto condition = generate_expression(info, scope, context, if_statement.condition);
+
+            auto condition_register = generate_in_register_value(
+                context,
+                if_statement.condition.range,
+                IRType::create_boolean(),
+                condition
+            );
+
+            append_branch(
+                context,
+                if_statement.condition.range,
+                condition_register,
+                body_block,
+                next_block
+            );
+
+            change_block(context, statement.range, body_block);
+
+            auto if_scope = context->child_scopes[context->next_child_scope_index];
+            context->next_child_scope_index += 1;
+            assert(context->next_child_scope_index <= context->child_scopes.length);
+
+            assert(context->variable_scope_stack.length != 0);
+            auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
+            DebugScope debug_scope {};
+            debug_scope.has_parent = true;
+            debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+            debug_scope.range = statement.range;
+
+            auto debug_scope_index = context->debug_scopes.append(debug_scope);
+
+            RuntimeVariableScope if_variable_scope {};
+            if_variable_scope.variables.arena = context->arena;
+            if_variable_scope.debug_scope_index = debug_scope_index;
+
+            context->variable_scope_stack.append(if_variable_scope);
+
+            generate_statements(info, if_scope, context, if_statement.statements);
+
+            context->variable_scope_stack.length -= 1;
+
+            if(does_current_block_need_finisher(context)) {
+                append_jump(context, statement.range, end_block);
+            }
+
+            for(size_t i = 0; i < if_statement.else_ifs.length; i += 1) {
+                change_block(context, statement.range, next_block);
+
+                if(i == if_statement.else_ifs.length - 1) {
                     next_block = end_block;
                 } else {
                     next_block = context->arena->allocate_and_construct<Block>();
@@ -3052,603 +2957,425 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
                 auto body_block = context->arena->allocate_and_construct<Block>();
 
-                expect_delayed(condition, generate_expression(info, jobs, scope, context, if_statement->condition));
+                assert(if_statement.else_ifs[i].condition.type.kind == TypeKind::Boolean);
 
-                if(condition.type.kind != TypeKind::Boolean) {
-                    error(scope, if_statement->condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description(context->arena)));
-
-                    return err();
-                }
+                auto condition = generate_expression(info, scope, context, if_statement.else_ifs[i].condition);
 
                 auto condition_register = generate_in_register_value(
                     context,
-                    if_statement->condition->range,
+                    if_statement.else_ifs[i].condition.range,
                     IRType::create_boolean(),
-                    condition.value
+                    condition
                 );
 
                 append_branch(
                     context,
-                    if_statement->condition->range,
+                    if_statement.else_ifs[i].condition.range,
                     condition_register,
                     body_block,
                     next_block
                 );
 
-                change_block(context, if_statement->range, body_block);
+                change_block(context, statement.range, body_block);
 
-                auto if_scope = context->child_scopes[context->next_child_scope_index];
+                auto else_if_scope = context->child_scopes[context->next_child_scope_index];
                 context->next_child_scope_index += 1;
                 assert(context->next_child_scope_index <= context->child_scopes.length);
-
-                assert(context->variable_scope_stack.length != 0);
-                auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
                 DebugScope debug_scope {};
                 debug_scope.has_parent = true;
                 debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
-                debug_scope.range = if_statement->range;
+                debug_scope.range = statement.range;
 
                 auto debug_scope_index = context->debug_scopes.append(debug_scope);
 
-                VariableScope if_variable_scope {};
-                if_variable_scope.constant_scope = if_scope;
-                if_variable_scope.debug_scope_index = debug_scope_index;
-                if_variable_scope.variables.arena = context->arena;
+                RuntimeVariableScope else_if_variable_scope {};
+                else_if_variable_scope.variables.arena = context->arena;
+                else_if_variable_scope.debug_scope_index = debug_scope_index;
 
-                context->variable_scope_stack.append(if_variable_scope);
+                context->variable_scope_stack.append(else_if_variable_scope);
 
-                expect_delayed_void(generate_runtime_statements(info, jobs, if_scope, context, if_statement->statements));
+                generate_statements(info, if_scope, context, if_statement.else_ifs[i].statements);
 
                 context->variable_scope_stack.length -= 1;
 
                 if(does_current_block_need_finisher(context)) {
-                    append_jump(context, if_statement->range, end_block);
+                    append_jump(context, statement.range, end_block);
                 }
-
-                for(size_t i = 0; i < if_statement->else_ifs.length; i += 1) {
-                    change_block(context, if_statement->range, next_block);
-
-                    if(i == if_statement->else_ifs.length - 1 && if_statement->else_statements.length == 0) {
-                        next_block = end_block;
-                    } else {
-                        next_block = context->arena->allocate_and_construct<Block>();
-                    }
-
-                    auto body_block = context->arena->allocate_and_construct<Block>();
-
-                    expect_delayed(condition, generate_expression(info, jobs, scope, context, if_statement->else_ifs[i].condition));
-
-                    if(condition.type.kind != TypeKind::Boolean) {
-                        error(scope, if_statement->else_ifs[i].condition->range, "Non-boolean if statement condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description(context->arena)));
-
-                        return err();
-                    }
-
-                    auto condition_register = generate_in_register_value(
-                        context,
-                        if_statement->else_ifs[i].condition->range,
-                        IRType::create_boolean(),
-                        condition.value
-                    );
-
-                    append_branch(
-                        context,
-                        if_statement->else_ifs[i].condition->range,
-                        condition_register,
-                        body_block,
-                        next_block
-                    );
-
-                    change_block(context, if_statement->range, body_block);
-
-                    auto else_if_scope = context->child_scopes[context->next_child_scope_index];
-                    context->next_child_scope_index += 1;
-                    assert(context->next_child_scope_index <= context->child_scopes.length);
-
-                    DebugScope debug_scope {};
-                    debug_scope.has_parent = true;
-                    debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
-                    debug_scope.range = if_statement->range;
-
-                    auto debug_scope_index = context->debug_scopes.append(debug_scope);
-
-                    VariableScope else_if_variable_scope {};
-                    else_if_variable_scope.constant_scope = else_if_scope;
-                    else_if_variable_scope.debug_scope_index = debug_scope_index;
-                    else_if_variable_scope.variables.arena = context->arena;
-
-                    context->variable_scope_stack.append(else_if_variable_scope);
-
-                    expect_delayed_void(generate_runtime_statements(info, jobs, if_scope, context, if_statement->else_ifs[i].statements));
-
-                    context->variable_scope_stack.length -= 1;
-
-                    if(does_current_block_need_finisher(context)) {
-                        append_jump(context, if_statement->range, end_block);
-                    }
-                }
-
-                if(if_statement->else_statements.length != 0) {
-                    change_block(context, if_statement->range, next_block);
-
-                    auto else_scope = context->child_scopes[context->next_child_scope_index];
-                    context->next_child_scope_index += 1;
-                    assert(context->next_child_scope_index <= context->child_scopes.length);
-
-                    DebugScope debug_scope {};
-                    debug_scope.has_parent = true;
-                    debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
-                    debug_scope.range = if_statement->range;
-
-                    auto debug_scope_index = context->debug_scopes.append(debug_scope);
-
-                    VariableScope else_variable_scope {};
-                    else_variable_scope.constant_scope = else_scope;
-                    else_variable_scope.debug_scope_index = debug_scope_index;
-                    else_variable_scope.variables.arena = context->arena;
-
-                    context->variable_scope_stack.append(else_variable_scope);
-
-                    expect_delayed_void(generate_runtime_statements(info, jobs, else_scope, context, if_statement->else_statements));
-
-                    context->variable_scope_stack.length -= 1;
-
-                    if(does_current_block_need_finisher(context)) {
-                        append_jump(context, if_statement->range, end_block);
-                    }
-                }
-
-                change_block(context, if_statement->range, end_block);
-            } else if(statement->kind == StatementKind::WhileLoop) {
-                auto while_loop = (WhileLoop*)statement;
-
-                auto end_block = context->arena->allocate_and_construct<Block>();
-
-                auto body_block = context->arena->allocate_and_construct<Block>();
-
-                enter_new_block(context, while_loop->condition->range);
-
-                auto condition_block = context->current_block;
-
-                expect_delayed(condition, generate_expression(info, jobs, scope, context, while_loop->condition));
-
-                if(condition.type.kind != TypeKind::Boolean) {
-                    error(scope, while_loop->condition->range, "Non-boolean while loop condition. Got %.*s", STRING_PRINTF_ARGUMENTS(condition.type.get_description(context->arena)));
-
-                    return err();
-                }
-
-                auto condition_register = generate_in_register_value(
-                    context,
-                    while_loop->condition->range,
-                    IRType::create_boolean(),
-                    condition.value
-                );
-
-                append_branch(
-                    context,
-                    while_loop->condition->range,
-                    condition_register,
-                    body_block,
-                    end_block
-                );
-
-                change_block(context, while_loop->range, body_block);
-
-                auto while_scope = context->child_scopes[context->next_child_scope_index];
-                context->next_child_scope_index += 1;
-                assert(context->next_child_scope_index <= context->child_scopes.length);
-
-                assert(context->variable_scope_stack.length != 0);
-                auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
-
-                DebugScope debug_scope {};
-                debug_scope.has_parent = true;
-                debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
-                debug_scope.range = while_loop->range;
-
-                auto debug_scope_index = context->debug_scopes.append(debug_scope);
-
-                VariableScope while_variable_scope {};
-                while_variable_scope.constant_scope = while_scope;
-                while_variable_scope.debug_scope_index = debug_scope_index;
-                while_variable_scope.variables.arena = context->arena;
-
-                context->variable_scope_stack.append(while_variable_scope);
-
-                auto old_in_breakable_scope = context->in_breakable_scope;
-                auto old_break_end_block = context->break_end_block;
-
-                context->in_breakable_scope = true;
-                context->break_end_block = end_block;
-
-                expect_delayed_void(generate_runtime_statements(info, jobs, while_scope, context, while_loop->statements));
-
-                context->in_breakable_scope = old_in_breakable_scope;
-                context->break_end_block = old_break_end_block;
-
-                context->variable_scope_stack.length -= 1;
-
-                if(does_current_block_need_finisher(context)) {
-                    append_jump(context, while_loop->range, condition_block);
-                }
-
-                change_block(context, while_loop->range, end_block);
-            } else if(statement->kind == StatementKind::ForLoop) {
-                auto for_loop = (ForLoop*)statement;
-
-                Identifier index_name {};
-                if(for_loop->has_index_name) {
-                    index_name = for_loop->index_name;
-                } else {
-                    index_name.text = u8"it"_S;
-                    index_name.range = for_loop->range;
-                }
-
-                expect_delayed(from_value, generate_expression(info, jobs, scope, context, for_loop->from));
-
-                expect_delayed(to_value, generate_expression(info, jobs, scope, context, for_loop->to));
-
-                Integer determined_index_type;
-                if(from_value.type.kind == TypeKind::UndeterminedInteger && to_value.type.kind == TypeKind::UndeterminedInteger) {
-                    determined_index_type = Integer(
-                        info.architecture_sizes.default_integer_size,
-                        true
-                    );
-                } else if(from_value.type.kind == TypeKind::Integer) {
-                    determined_index_type = from_value.type.integer;
-                } else if(to_value.type.kind == TypeKind::Integer) {
-                    determined_index_type = to_value.type.integer;
-                } else {
-                    error(scope, for_loop->range, "For loop index/range must be an integer. Got '%.*s'", STRING_PRINTF_ARGUMENTS(from_value.type.get_description(context->arena)));
-
-                    return err();
-                }
-
-                expect(from_register_value, coerce_to_integer_register_value(
-                    scope,
-                    context,
-                    for_loop->from->range,
-                    from_value.type,
-                    from_value.value,
-                    determined_index_type,
-                    false
-                ));
-
-                expect(to_register_value, coerce_to_integer_register_value(
-                    scope,
-                    context,
-                    for_loop->from->range,
-                    to_value.type,
-                    to_value.value,
-                    determined_index_type,
-                    false
-                ));
-
-                auto determined_index_ir_type = IRType::create_integer(determined_index_type.size);
-
-                auto index_pointer_register = append_allocate_local(
-                    context,
-                    for_loop->range,
-                    determined_index_ir_type,
-                    index_name.text,
-                    AnyType(determined_index_type)
-                );
-
-                append_store(
-                    context,
-                    for_loop->range,
-                    from_register_value.register_index,
-                    index_pointer_register
-                );
-
-                auto end_block = context->arena->allocate_and_construct<Block>();
-
-                auto body_block = context->arena->allocate_and_construct<Block>();
-
-                enter_new_block(context, for_loop->range);
-
-                auto condition_block = context->current_block;
-
-                auto current_index_register = append_load(
-                    context,
-                    for_loop->range,
-                    index_pointer_register,
-                    determined_index_ir_type
-                );
-
-                IntegerComparisonOperation::Operation operation;
-                if(determined_index_type.is_signed) {
-                    operation = IntegerComparisonOperation::Operation::SignedGreaterThan;
-                } else {
-                    operation = IntegerComparisonOperation::Operation::UnsignedGreaterThan;
-                }
-
-                auto condition_register = append_integer_comparison_operation(
-                    context,
-                    for_loop->range,
-                    operation,
-                    current_index_register,
-                    to_register_value.register_index
-                );
-
-                append_branch(
-                    context,
-                    for_loop->range,
-                    condition_register,
-                    end_block,
-                    body_block
-                );
-
-                change_block(context, for_loop->range, body_block);
-
-                auto for_scope = context->child_scopes[context->next_child_scope_index];
-                context->next_child_scope_index += 1;
-                assert(context->next_child_scope_index <= context->child_scopes.length);
-
-                assert(context->variable_scope_stack.length != 0);
-                auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
-
-                DebugScope debug_scope {};
-                debug_scope.has_parent = true;
-                debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
-                debug_scope.range = for_loop->range;
-
-                auto debug_scope_index = context->debug_scopes.append(debug_scope);
-
-                VariableScope for_variable_scope {};
-                for_variable_scope.constant_scope = for_scope;
-                for_variable_scope.debug_scope_index = debug_scope_index;
-                for_variable_scope.variables.arena = context->arena;
-
-                context->variable_scope_stack.append(for_variable_scope);
-
-                auto old_in_breakable_scope = context->in_breakable_scope;
-                auto old_break_end_block = context->break_end_block;
-
-                context->in_breakable_scope = true;
-                context->break_end_block = end_block;
-
-                expect_void(add_new_variable(
-                    context,
-                    index_name,
-                    AnyType(determined_index_type),
-                    AddressedValue(determined_index_ir_type, index_pointer_register)
-                ));
-
-                expect_delayed_void(generate_runtime_statements(info, jobs, for_scope, context, for_loop->statements));
-
-                context->in_breakable_scope = old_in_breakable_scope;
-                context->break_end_block = old_break_end_block;
-
-                context->variable_scope_stack.length -= 1;
-
-                auto one_register = append_literal(
-                    context,
-                    for_loop->range,
-                    determined_index_ir_type,
-                    IRConstantValue::create_integer(1)
-                );
-
-                auto next_index_register = append_integer_arithmetic_operation(
-                    context,
-                    for_loop->range,
-                    IntegerArithmeticOperation::Operation::Add,
-                    current_index_register,
-                    one_register
-                );
-
-                append_store(context, for_loop->range, next_index_register, index_pointer_register);
-
-                if(does_current_block_need_finisher(context)) {
-                    append_jump(context, for_loop->range, condition_block);
-                }
-
-                change_block(context, for_loop->range, end_block);
-            } else if(statement->kind == StatementKind::ReturnStatement) {
-                auto return_statement = (ReturnStatement*)statement;
-
-                unreachable = true;
-
-                assert(context->variable_scope_stack.length != 0);
-                auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
-
-                auto return_instruction = context->arena->allocate_and_construct<ReturnInstruction>();
-                return_instruction->range = return_statement->range;
-                return_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
-
-                if(return_statement->values.length != context->return_types.length) {
-                    error(
-                        scope,
-                        return_statement->range,
-                        "Incorrect number of returns, expected %zu, got %zu",
-                        context->return_types.length,
-                        return_statement->values.length
-                    );
-
-                    return err();
-                }
-
-                auto return_type_count = context->return_types.length;
-
-                if(return_type_count == 1) {
-                    expect_delayed(value, generate_expression(info, jobs, scope, context, return_statement->values[0]));
-
-                    expect(register_value, coerce_to_type_register(
-                        info,
-                        scope,
-                        context,
-                        return_statement->values[0]->range,
-                        value.type,
-                        value.value,
-                        context->return_types[0],
-                        false
-                    ));
-
-                    return_instruction->value_register = register_value.register_index;
-                } else if(return_type_count > 1) {
-                    auto return_struct_members = context->arena->allocate<size_t>(return_type_count);
-
-                    for(size_t i = 0; i < return_type_count; i += 1) {
-                        expect_delayed(value, generate_expression(info, jobs, scope, context, return_statement->values[i]));
-
-                        expect(register_value, coerce_to_type_register(
-                            info,
-                            scope,
-                            context,
-                            return_statement->values[i]->range,
-                            value.type,
-                            value.value,
-                            context->return_types[i],
-                            false
-                        ));
-
-                        return_struct_members[i] = register_value.register_index;
-                    }
-
-                    return_instruction->value_register = append_assemble_struct(
-                        context,
-                        return_statement->range,
-                        Array(return_type_count, return_struct_members)
-                    );
-                }
-
-                context->instructions.append(return_instruction);
-            } else if(statement->kind == StatementKind::BreakStatement) {
-                auto break_statement = (BreakStatement*)statement;
-
-                unreachable = true;
-
-                if(!context->in_breakable_scope) {
-                    error(scope, break_statement->range, "Not in a break-able scope");
-
-                    return err();
-                }
-
-                append_jump(context, break_statement->range, context->break_end_block);
-            } else if(statement->kind == StatementKind::InlineAssembly) {
-                auto inline_assembly = (InlineAssembly*)statement;
-
-                auto bindings = context->arena->allocate<AssemblyInstruction::Binding>(inline_assembly->bindings.length);
-
-                for(size_t i = 0; i < inline_assembly->bindings.length; i += 1) {
-                    auto binding = inline_assembly->bindings[i];
-
-                    if(binding.constraint.length < 1) {
-                        error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
-
-                        return err();
-                    }
-
-                    expect(value, generate_expression(
-                        info,
-                        jobs,
-                        scope,
-                        context,
-                        binding.value
-                    ));
-
-                    if(binding.constraint[0] == '=') {
-                        if(binding.constraint.length < 2) {
-                            error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
-
-                            return err();
-                        }
-
-                        if(binding.constraint[1] == '*') {
-                            error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
-
-                            return err();
-                        }
-
-                        if(value.value.kind != RuntimeValueKind::AddressedValue) {
-                            error(scope, binding.value->range, "Output binding value must be assignable");
-
-                            return err();
-                        }
-
-                        auto pointer_register = value.value.addressed.pointer_register;
-
-                        AssemblyInstruction::Binding instruction_binding {};
-                        instruction_binding.constraint = binding.constraint;
-                        instruction_binding.pointed_to_type = value.value.addressed.pointed_to_type;
-                        instruction_binding.register_index = pointer_register;
-
-                        bindings[i] = instruction_binding;
-                    } else if(binding.constraint[0] == '*') {
-                        error(scope, inline_assembly->range, "Binding \"%.*s\" is in an invalid form", STRING_PRINTF_ARGUMENTS(binding.constraint));
-
-                        return err();
-                    } else {
-                        expect(determined_value_type, coerce_to_default_type(info, scope, binding.value->range, value.type));
-
-                        if(!determined_value_type.is_runtime_type()) {
-                            error(scope, binding.value->range, "Value of type '%.*s' cannot be used as a binding", STRING_PRINTF_ARGUMENTS(determined_value_type.get_description(context->arena)));
-
-                            return err();
-                        }
-
-                        expect(value_register, coerce_to_type_register(
-                            info,
-                            scope,
-                            context,
-                            binding.value->range,
-                            value.type,
-                            value.value,
-                            determined_value_type,
-                            false
-                        ));
-
-                        AssemblyInstruction::Binding instruction_binding {};
-                        instruction_binding.constraint = binding.constraint;
-                        instruction_binding.register_index = value_register.register_index;
-
-                        bindings[i] = instruction_binding;
-                    }
-                }
-
-                assert(context->variable_scope_stack.length != 0);
-                auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
-
-                auto assembly_instruction = context->arena->allocate_and_construct<AssemblyInstruction>();
-                assembly_instruction->range = inline_assembly->range;
-                assembly_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
-                assembly_instruction->assembly = inline_assembly->assembly;
-                assembly_instruction->bindings = Array(inline_assembly->bindings.length, bindings);
-
-                context->instructions.append(assembly_instruction);
-            } else {
-                abort();
             }
+
+            {
+                change_block(context, statement.range, next_block);
+
+                auto else_scope = context->child_scopes[context->next_child_scope_index];
+                context->next_child_scope_index += 1;
+                assert(context->next_child_scope_index <= context->child_scopes.length);
+
+                DebugScope debug_scope {};
+                debug_scope.has_parent = true;
+                debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+                debug_scope.range = statement.range;
+
+                auto debug_scope_index = context->debug_scopes.append(debug_scope);
+
+                RuntimeVariableScope else_variable_scope {};
+                else_variable_scope.variables.arena = context->arena;
+                else_variable_scope.debug_scope_index = debug_scope_index;
+
+                context->variable_scope_stack.append(else_variable_scope);
+
+                generate_statements(info, else_scope, context, if_statement.else_statements);
+
+                context->variable_scope_stack.length -= 1;
+
+                if(does_current_block_need_finisher(context)) {
+                    append_jump(context, statement.range, end_block);
+                }
+            }
+
+            change_block(context, statement.range, end_block);
+        } else if(statement.kind == TypedStatementKind::WhileLoop) {
+            auto while_loop = statement.while_loop;
+
+            auto end_block = context->arena->allocate_and_construct<Block>();
+
+            auto body_block = context->arena->allocate_and_construct<Block>();
+
+            enter_new_block(context, while_loop.condition.range);
+
+            auto condition_block = context->current_block;
+
+            assert(while_loop.condition.type.kind == TypeKind::Boolean);
+
+            auto condition = generate_expression(info, scope, context, while_loop.condition);
+
+            auto condition_register = generate_in_register_value(
+                context,
+                while_loop.condition.range,
+                IRType::create_boolean(),
+                condition
+            );
+
+            append_branch(
+                context,
+                while_loop.condition.range,
+                condition_register,
+                body_block,
+                end_block
+            );
+
+            change_block(context, statement.range, body_block);
+
+            auto while_scope = context->child_scopes[context->next_child_scope_index];
+            context->next_child_scope_index += 1;
+            assert(context->next_child_scope_index <= context->child_scopes.length);
+
+            assert(context->variable_scope_stack.length != 0);
+            auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
+            DebugScope debug_scope {};
+            debug_scope.has_parent = true;
+            debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+            debug_scope.range = statement.range;
+
+            auto debug_scope_index = context->debug_scopes.append(debug_scope);
+
+            RuntimeVariableScope while_variable_scope {};
+            while_variable_scope.variables.arena = context->arena;
+            while_variable_scope.debug_scope_index = debug_scope_index;
+
+            context->variable_scope_stack.append(while_variable_scope);
+
+            auto old_break_end_block = context->break_end_block;
+
+            context->break_end_block = end_block;
+
+            generate_statements(info, while_scope, context, while_loop.statements);
+
+            context->break_end_block = old_break_end_block;
+
+            context->variable_scope_stack.length -= 1;
+
+            if(does_current_block_need_finisher(context)) {
+                append_jump(context, statement.range, condition_block);
+            }
+
+            change_block(context, statement.range, end_block);
+        } else if(statement.kind == TypedStatementKind::ForLoop) {
+            auto for_loop = statement.for_loop;
+
+            assert(for_loop.from.type == for_loop.to.type);
+
+            Identifier index_name {};
+            if(for_loop.has_index_name) {
+                index_name = for_loop.index_name.name;
+
+                assert(for_loop.index_name.type == for_loop.from.type);
+            } else {
+                index_name.text = u8"it"_S;
+                index_name.range = statement.range;
+            }
+
+            assert(for_loop.from.type.kind == TypeKind::Integer);
+
+            auto index_type = for_loop.from.type.integer;
+
+            auto index_ir_type = IRType::create_integer(index_type.size);
+
+            auto from_value = generate_expression(info, scope, context, for_loop.from);
+
+            auto from_register = generate_in_register_value(context, for_loop.from.range, index_ir_type, from_value);
+
+            auto to_value = generate_expression(info, scope, context, for_loop.to);
+
+            auto to_register = generate_in_register_value(context, for_loop.to.range, index_ir_type, to_value);
+
+            auto index_pointer_register = append_allocate_local(
+                context,
+                statement.range,
+                index_ir_type,
+                index_name.text,
+                AnyType(index_type)
+            );
+
+            append_store(
+                context,
+                statement.range,
+                from_register,
+                index_pointer_register
+            );
+
+            auto end_block = context->arena->allocate_and_construct<Block>();
+
+            auto body_block = context->arena->allocate_and_construct<Block>();
+
+            enter_new_block(context, statement.range);
+
+            auto condition_block = context->current_block;
+
+            auto current_index_register = append_load(
+                context,
+                statement.range,
+                index_pointer_register,
+                index_ir_type
+            );
+
+            IntegerComparisonOperation::Operation operation;
+            if(index_type.is_signed) {
+                operation = IntegerComparisonOperation::Operation::SignedGreaterThan;
+            } else {
+                operation = IntegerComparisonOperation::Operation::UnsignedGreaterThan;
+            }
+
+            auto condition_register = append_integer_comparison_operation(
+                context,
+                statement.range,
+                operation,
+                current_index_register,
+                to_register
+            );
+
+            append_branch(
+                context,
+                statement.range,
+                condition_register,
+                end_block,
+                body_block
+            );
+
+            change_block(context, statement.range, body_block);
+
+            auto for_scope = context->child_scopes[context->next_child_scope_index];
+            context->next_child_scope_index += 1;
+            assert(context->next_child_scope_index <= context->child_scopes.length);
+
+            assert(context->variable_scope_stack.length != 0);
+            auto parent_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
+            DebugScope debug_scope {};
+            debug_scope.has_parent = true;
+            debug_scope.parent_scope_index = parent_variable_scope.debug_scope_index;
+            debug_scope.range = statement.range;
+
+            auto debug_scope_index = context->debug_scopes.append(debug_scope);
+
+            RuntimeVariableScope for_variable_scope {};
+            for_variable_scope.variables.arena = context->arena;
+            for_variable_scope.debug_scope_index = debug_scope_index;
+
+            context->variable_scope_stack.append(for_variable_scope);
+
+            auto old_break_end_block = context->break_end_block;
+
+            context->break_end_block = end_block;
+
+            add_new_variable(
+                context,
+                index_name,
+                AnyType(index_type),
+                AddressedValue(index_ir_type, index_pointer_register)
+            );
+
+            generate_statements(info, for_scope, context, for_loop.statements);
+
+            context->break_end_block = old_break_end_block;
+
+            context->variable_scope_stack.length -= 1;
+
+            auto one_register = append_literal(
+                context,
+                statement.range,
+                index_ir_type,
+                IRConstantValue::create_integer(1)
+            );
+
+            auto next_index_register = append_integer_arithmetic_operation(
+                context,
+                statement.range,
+                IntegerArithmeticOperation::Operation::Add,
+                current_index_register,
+                one_register
+            );
+
+            append_store(context, statement.range, next_index_register, index_pointer_register);
+
+            if(does_current_block_need_finisher(context)) {
+                append_jump(context, statement.range, condition_block);
+            }
+
+            change_block(context, statement.range, end_block);
+        } else if(statement.kind == TypedStatementKind::Return) {
+            auto return_statement = statement.return_;
+
+            unreachable = true;
+
+            assert(context->variable_scope_stack.length != 0);
+            auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
+            auto return_instruction = context->arena->allocate_and_construct<ReturnInstruction>();
+            return_instruction->range = statement.range;
+            return_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
+
+            assert(return_statement.values.length == context->return_types.length);
+
+            auto return_type_count = context->return_types.length;
+
+            if(return_type_count == 1) {
+                auto ir_type = get_ir_type(context->arena, info.architecture_sizes, return_statement.values[0].type);
+
+                auto value = generate_expression(info, scope, context, return_statement.values[0]);
+
+                auto register_index = generate_in_register_value(context, return_statement.values[0].range, ir_type, value);
+
+                return_instruction->value_register = register_index;
+            } else if(return_type_count > 1) {
+                auto return_struct_members = context->arena->allocate<size_t>(return_type_count);
+
+                for(size_t i = 0; i < return_type_count; i += 1) {
+                    auto ir_type = get_ir_type(context->arena, info.architecture_sizes, return_statement.values[i].type);
+
+                    auto value = generate_expression(info, scope, context, return_statement.values[i]);
+
+                    auto register_index = generate_in_register_value(context, return_statement.values[i].range, ir_type, value);
+
+                    return_struct_members[i] = register_index;
+                }
+
+                return_instruction->value_register = append_assemble_struct(
+                    context,
+                    statement.range,
+                    Array(return_type_count, return_struct_members)
+                );
+            }
+
+            context->instructions.append(return_instruction);
+        } else if(statement.kind == TypedStatementKind::Break) {
+            unreachable = true;
+
+            assert(context->break_end_block != nullptr);
+
+            append_jump(context, statement.range, context->break_end_block);
+        } else if(statement.kind == TypedStatementKind::InlineAssembly) {
+            auto inline_assembly = statement.inline_assembly;
+
+            auto bindings = context->arena->allocate<AssemblyInstruction::Binding>(inline_assembly.bindings.length);
+
+            for(size_t i = 0; i < inline_assembly.bindings.length; i += 1) {
+                auto binding = inline_assembly.bindings[i];
+
+                assert(binding.constraint.length < 1);
+
+                auto value = generate_expression(
+                    info,
+                    scope,
+                    context,
+                    binding.value
+                );
+
+                auto ir_type = get_ir_type(context->arena, info.architecture_sizes, binding.value.type);
+
+                if(binding.constraint[0] == '=') {
+                    auto pointer_register = value.unwrap_addressed_value().pointer_register;
+
+                    AssemblyInstruction::Binding instruction_binding {};
+                    instruction_binding.constraint = binding.constraint;
+                    instruction_binding.pointed_to_type = ir_type;
+                    instruction_binding.register_index = pointer_register;
+
+                    bindings[i] = instruction_binding;
+                } else if(binding.constraint[0] == '*') {
+                    abort();
+                } else {
+                    auto register_index = generate_in_register_value(context, binding.value.range, ir_type, value);
+
+                    AssemblyInstruction::Binding instruction_binding {};
+                    instruction_binding.constraint = binding.constraint;
+                    instruction_binding.register_index = register_index;
+
+                    bindings[i] = instruction_binding;
+                }
+            }
+
+            assert(context->variable_scope_stack.length != 0);
+            auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
+
+            auto assembly_instruction = context->arena->allocate_and_construct<AssemblyInstruction>();
+            assembly_instruction->range = statement.range;
+            assembly_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
+            assembly_instruction->assembly = inline_assembly.assembly;
+            assembly_instruction->bindings = Array(inline_assembly.bindings.length, bindings);
+
+            context->instructions.append(assembly_instruction);
+        } else {
+            abort();
         }
     }
-
-    return ok();
 }
 
-profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
+profiled_function(Array<StaticConstant*>, do_generate_function, (
     GlobalInfo info,
-    List<AnyJob*>* jobs,
-    Arena* arena,
     Array<TypedFunction> functions,
     Array<TypedStaticVariable> static_variables,
+    Arena* arena,
     FunctionTypeType type,
     FunctionConstant value,
+    Array<TypedStatement> statements,
     Function* function
 ), (
     info,
-    jobs,
+    functions.
+    static_variables,
     arena,
     type,
     value,
+    statements,
     function
 )) {
     auto declaration = value.declaration;
 
     auto declaration_parameter_count = declaration->parameters.length;
 
-    auto file_path = get_scope_file_path(*value.body_scope);
+    auto file_path = value.body_scope->get_file_path();
 
     auto runtime_parameter_count = type.parameters.length;
 
@@ -3687,7 +3414,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
     function->name = declaration->name.text;
     function->range = declaration->range;
-    function->path = get_scope_file_path(*value.body_scope);
+    function->path = value.body_scope->get_file_path();
     function->parameters = Array(runtime_parameter_count, ir_parameters);
     function->has_return = has_ir_return;
     function->return_type = return_ir_type;
@@ -3699,7 +3426,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         function->is_no_mangle = true;
         function->libraries = value.external_libraries;
 
-        return ok(Array<StaticConstant*>::empty());
+        return Array<StaticConstant*>::empty();
     } else {
         function->is_external = false;
         function->is_no_mangle = value.is_no_mangle;
@@ -3711,7 +3438,6 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         context.blocks.arena = arena;
         context.instructions.arena = arena;
         context.static_constants.arena = arena;
-        context.scope_search_stack.arena = arena;
 
         context.functions = functions;
         context.static_variables = static_variables;
@@ -3725,10 +3451,9 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
         auto debug_scope_index = context.debug_scopes.append(debug_scope);
 
-        VariableScope body_variable_scope {};
-        body_variable_scope.constant_scope = value.body_scope;
-        body_variable_scope.debug_scope_index = debug_scope_index;
+        RuntimeVariableScope body_variable_scope {};
         body_variable_scope.variables.arena = context.arena;
+        body_variable_scope.debug_scope_index = debug_scope_index;
 
         context.variable_scope_stack.append(body_variable_scope);
 
@@ -3771,13 +3496,12 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
         assert(runtime_parameter_index == runtime_parameter_count);
 
-        expect_delayed_void(generate_runtime_statements(
+        generate_statements(
             info,
-            jobs,
             value.body_scope,
             &context,
-            declaration->statements
-        ));
+            statements
+        );
 
         assert(context.next_child_scope_index == value.child_scopes.length);
 
@@ -3791,17 +3515,13 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         }
 
         if(!has_return_at_end) {
-            if(type.return_types.length > 0) {
-                error(value.body_scope, declaration->range, "Function '%.*s' must end with a return", STRING_PRINTF_ARGUMENTS(declaration->name.text));
+            assert(type.return_types.length == 0);
 
-                return err();
-            } else {
-                auto return_instruction = arena->allocate_and_construct<ReturnInstruction>();
-                return_instruction->range = declaration->range;
-                return_instruction->debug_scope_index = debug_scope_index;
+            auto return_instruction = arena->allocate_and_construct<ReturnInstruction>();
+            return_instruction->range = declaration->range;
+            return_instruction->debug_scope_index = debug_scope_index;
 
-                context.instructions.append(return_instruction);
-            }
+            context.instructions.append(return_instruction);
         }
 
         function->debug_scopes = context.debug_scopes;
@@ -3811,269 +3531,75 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
         function->blocks = context.blocks;
 
-        return ok((Array<StaticConstant*>)context.static_constants);
+        return context.static_constants;
     }
 }
 
-profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variable, (
+profiled_function(StaticVariable*, do_generate_static_variable, (
     GlobalInfo info,
-    List<AnyJob*>* jobs,
+    Array<TypedFunction> functions,
+    Array<TypedStaticVariable> static_variables,
     Arena* arena,
     VariableDeclaration* declaration,
-    ConstantScope* scope
+    ConstantScope* scope,
+    bool is_external,
+    bool is_no_mangle,
+    TypedExpression type,
+    TypedExpression initializer,
+    AnyType actual_type,
+    Array<String> external_libraries
 ), (
     info,
-    jobs,
+    functions,
+    static_variables,
     arena,
     declaration,
-    scope
+    scope,
+    is_external,
+    is_no_mangle,
+    type,
+    initializer,
+    actual_type,
+    external_libraries
 )) {
-    List<ConstantScope*> scope_search_stack(arena);
+    assert(!(is_external && is_no_mangle));
 
-    auto is_external = false;
-    Array<String> external_libraries;
-    auto is_no_mangle = false;
-    for(auto tag : declaration->tags) {
-        if(tag.name.text == u8"extern"_S) {
-            if(is_external) {
-                error(scope, tag.range, "Duplicate 'extern' tag");
+    assert(actual_type.is_runtime_type());
 
-                return err();
-            }
-
-            List<String> libraries(arena);
-
-            for(size_t i = 0; i < tag.parameters.length; i += 1) {
-                expect_delayed(parameter, evaluate_constant_expression(
-                    arena,
-                    info,
-                    jobs,
-                    scope,
-                    nullptr,
-                    tag.parameters[i],
-                    &scope_search_stack
-                ));
-
-                if(parameter.type.kind == TypeKind::ArrayTypeType) {
-                    auto array = parameter.type.array;
-
-                    if(
-                        array.element_type->kind == TypeKind::ArrayTypeType ||
-                        array.element_type->kind == TypeKind::StaticArray
-                    ) {
-                        if(parameter.value.kind == ConstantValueKind::ArrayConstant) {
-                            error(scope, tag.parameters[i]->range, "Cannot use an array with non-constant elements in a constant context");
-
-                            return err();
-                        } else {
-                            auto static_array_value = parameter.value.unwrap_static_array();
-
-                            for(auto element : static_array_value.elements) {
-                                expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, *array.element_type, element));
-
-                                libraries.append(library_path);
-                            }
-                        }
-                    } else {
-                        expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, parameter.type, parameter.value));
-
-                        libraries.append(library_path);
-                    }
-                } else if(parameter.type.kind == TypeKind::StaticArray) {
-                    auto static_array = parameter.type.static_array;
-
-                    if(
-                        static_array.element_type->kind == TypeKind::ArrayTypeType ||
-                        static_array.element_type->kind == TypeKind::StaticArray
-                    ) {
-                        auto static_array_value = parameter.value.unwrap_static_array();
-
-                        assert(static_array.length == static_array_value.elements.length);
-
-                        for(auto element : static_array_value.elements) {
-                            expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, *static_array.element_type, element));
-
-                            libraries.append(library_path);
-                        }
-                    } else {
-                        expect(library_path, array_to_string(arena, scope, tag.parameters[i]->range, parameter.type, parameter.value));
-
-                        libraries.append(library_path);
-                    }
-                } else {
-                    error(scope, tag.parameters[i]->range, "Expected a string or array of strings, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter.type.get_description(arena)));
-
-                    return err();
-                }
-            }
-
-            is_external = true;
-            external_libraries = libraries;
-        } else if(tag.name.text == u8"no_mangle"_S) {
-            if(is_no_mangle) {
-                error(scope, tag.range, "Duplicate 'no_mangle' tag");
-
-                return err();
-            }
-
-            is_no_mangle = true;
-        } else {
-            error(scope, tag.name.range, "Unknown tag '%.*s'", STRING_PRINTF_ARGUMENTS(tag.name.text));
-
-            return err();
-        }
-    }
-
-    if(is_external && is_no_mangle) {
-        error(scope, declaration->range, "External variables cannot be no_mangle");
-
-        return err();
-    }
+    auto ir_type = get_ir_type(arena, info.architecture_sizes, actual_type);
 
     if(is_external) {
-        if(declaration->initializer != nullptr) {
-            error(scope, declaration->range, "External variables cannot have initializers");
-
-            return err();
-        }
-
-        expect_delayed(type, evaluate_type_expression(
-            arena,
-            info,
-            jobs,
-            scope,
-            nullptr,
-            declaration->type,
-            &scope_search_stack
-        ));
-
-        if(!type.is_runtime_type()) {
-            error(scope, declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
-
-            return err();
-        }
-
-        assert(scope_search_stack.length == 0);
+        assert(declaration->initializer == nullptr);
 
         auto static_variable = arena->allocate_and_construct<StaticVariable>();
         static_variable->name = declaration->name.text;
         static_variable->is_no_mangle = true;
-        static_variable->path = get_scope_file_path(*scope);
+        static_variable->path = scope->get_file_path();
         static_variable->range = declaration->range;
-        static_variable->type = get_ir_type(arena, info.architecture_sizes, type);
+        static_variable->type = ir_type;
         static_variable->is_external = true;
         static_variable->libraries = external_libraries;
-        static_variable->debug_type = type;
+        static_variable->debug_type = actual_type;
 
-        StaticVariableResult result {};
-        result.static_variable = static_variable;
-        result.type = type;
-
-        return ok(result);
+        return static_variable;
     } else {
-        if(declaration->initializer == nullptr) {
-            error(scope, declaration->range, "Variable must be initialized");
+        assert(declaration->initializer != nullptr);
 
-            return err();
-        }
+        auto initial_value = initializer.value.unwrap_constant_value();
 
-        if(declaration->type != nullptr) {
-            expect_delayed(type, evaluate_type_expression(
-                arena,
-                info,
-                jobs,
-                scope,
-                nullptr,
-                declaration->type,
-                &scope_search_stack
-            ));
+        auto ir_initial_value = get_runtime_ir_constant_value(arena, initial_value);
 
-            if(!type.is_runtime_type()) {
-                error(scope, declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
+        auto static_variable = arena->allocate_and_construct<StaticVariable>();
+        static_variable->name = declaration->name.text;
+        static_variable->path = scope->get_file_path();
+        static_variable->range = declaration->range;
+        static_variable->type = ir_type;
+        static_variable->is_no_mangle = is_no_mangle;
+        static_variable->is_external = false;
+        static_variable->has_initial_value = true;
+        static_variable->initial_value = ir_initial_value;
+        static_variable->debug_type = actual_type;
 
-                return err();
-            }
-
-            expect_delayed(initial_value, evaluate_constant_expression(
-                arena,
-                info,
-                jobs,
-                scope,
-                nullptr,
-                declaration->initializer,
-                &scope_search_stack
-            ));
-
-            expect(coerced_initial_value, coerce_constant_to_type(
-                arena,
-                info,
-                scope,
-                declaration->initializer->range,
-                initial_value.type,
-                initial_value.value,
-                type,
-                false
-            ));
-
-            assert(scope_search_stack.length == 0);
-
-            auto ir_initial_value = get_runtime_ir_constant_value(arena, coerced_initial_value);
-
-            auto static_variable = arena->allocate_and_construct<StaticVariable>();
-            static_variable->name = declaration->name.text;
-            static_variable->is_no_mangle = is_no_mangle;
-            static_variable->path = get_scope_file_path(*scope);
-            static_variable->range = declaration->range;
-            static_variable->type = get_ir_type(arena, info.architecture_sizes, type);
-            static_variable->is_external = false;
-            static_variable->has_initial_value = true;
-            static_variable->initial_value = ir_initial_value;
-            static_variable->debug_type = type;
-
-            StaticVariableResult result {};
-            result.static_variable = static_variable;
-            result.type = type;
-
-            return ok(result);
-        } else {
-            expect_delayed(initial_value, evaluate_constant_expression(
-                arena,
-                info,
-                jobs,
-                scope,
-                nullptr,
-                declaration->initializer,
-                &scope_search_stack
-            ));
-
-            expect(type, coerce_to_default_type(info, scope, declaration->initializer->range, initial_value.type));
-
-            if(!type.is_runtime_type()) {
-                error(scope, declaration->initializer->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
-
-                return err();
-            }
-
-            assert(scope_search_stack.length == 0);
-
-            auto ir_initial_value = get_runtime_ir_constant_value(arena, initial_value.value);
-
-            auto static_variable = arena->allocate_and_construct<StaticVariable>();
-            static_variable->name = declaration->name.text;
-            static_variable->path = get_scope_file_path(*scope);
-            static_variable->range = declaration->range;
-            static_variable->type = get_ir_type(arena, info.architecture_sizes, type);
-            static_variable->is_no_mangle = is_no_mangle;
-            static_variable->is_external = false;
-            static_variable->has_initial_value = true;
-            static_variable->initial_value = ir_initial_value;
-            static_variable->debug_type = type;
-
-            StaticVariableResult result {};
-            result.static_variable = static_variable;
-            result.type = type;
-
-            return ok(result);
-        }
+        return static_variable;
     }
 }

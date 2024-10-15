@@ -110,30 +110,18 @@ void IRConstantValue::print() {
         } else {
             printf("false");
         }
-    } else if(kind == IRConstantValueKind::StaticArrayConstant) {
+    } else if(kind == IRConstantValueKind::AggregateConstant) {
         printf("[ ");
 
-        for(size_t i = 0; i < static_array.elements.length; i += 1) {
-            static_array.elements[i].print();
+        for(size_t i = 0; i < aggregate.values.length; i += 1) {
+            aggregate.values[i].print();
 
-            if(i != static_array.elements.length - 1) {
+            if(i != aggregate.values.length - 1) {
                 printf(", ");
             }
         }
 
         printf(" ]");
-    } else if(kind == IRConstantValueKind::StructConstant) {
-        printf("{ ");
-
-        for(size_t i = 0; i < struct_.members.length; i += 1) {
-            struct_.members[i].print();
-
-            if(i != struct_.members.length - 1) {
-                printf(", ");
-            }
-        }
-
-        printf(" }");
     } else if(kind == IRConstantValueKind::UndefConstant) {
         printf("undef");
     } else {

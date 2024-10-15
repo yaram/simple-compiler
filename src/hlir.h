@@ -107,8 +107,7 @@ enum struct IRConstantValueKind {
     IntegerConstant,
     FloatConstant,
     BooleanConstant,
-    StaticArrayConstant,
-    StructConstant,
+    AggregateConstant,
     UndefConstant
 };
 
@@ -132,12 +131,8 @@ struct IRConstantValue {
         bool boolean;
 
         struct {
-            Array<IRConstantValue> elements;
-        } static_array;
-
-        struct {
-            Array<IRConstantValue> members;
-        } struct_;
+            Array<IRConstantValue> values;
+        } aggregate;
     };
 
     static inline IRConstantValue create_function(FunctionDeclaration* declaration, bool is_external, Array<String> external_libraries, bool is_no_mangle) {
@@ -175,18 +170,10 @@ struct IRConstantValue {
         return result;
     }
 
-    static inline IRConstantValue create_static_array(Array<IRConstantValue> elements) {
+    static inline IRConstantValue create_aggregate(Array<IRConstantValue> values) {
         IRConstantValue result;
-        result.kind = IRConstantValueKind::StaticArrayConstant;
-        result.static_array.elements = elements;
-
-        return result;
-    }
-
-    static inline IRConstantValue create_struct(Array<IRConstantValue> members) {
-        IRConstantValue result;
-        result.kind = IRConstantValueKind::StructConstant;
-        result.struct_.members = members;
+        result.kind = IRConstantValueKind::AggregateConstant;
+        result.aggregate.values = values;
 
         return result;
     }

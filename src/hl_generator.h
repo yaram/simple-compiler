@@ -1,30 +1,48 @@
 #pragma once
 
 #include "ast.h"
+#include "typed_tree.h"
 #include "hlir.h"
-#include "constant.h"
+
+struct TypedFunction {
+    FunctionTypeType type;
+    FunctionConstant constant;
+
+    Function* function;
+};
+
+struct TypedStaticVariable {
+    AnyType type;
+    ConstantScope* scope;
+    VariableDeclaration* declaration;
+
+    StaticVariable* static_variable;
+};
 
 struct AnyJob;
 
-DelayedResult<Array<StaticConstant*>> do_generate_function(
+Array<StaticConstant*> do_generate_function(
     GlobalInfo info,
-    List<AnyJob>* jobs,
+    Array<TypedFunction> functions,
+    Array<TypedStaticVariable> static_variables,
     Arena* arena,
     FunctionTypeType type,
     FunctionConstant value,
+    Array<TypedStatement> statements,
     Function* function
 );
 
-struct StaticVariableResult {
-    StaticVariable* static_variable;
-
-    AnyType type;
-};
-
-DelayedResult<StaticVariableResult> do_generate_static_variable(
+StaticVariable* do_generate_static_variable(
     GlobalInfo info,
-    List<AnyJob>* jobs,
+    Array<TypedFunction> functions,
+    Array<TypedStaticVariable> static_variables,
     Arena* arena,
     VariableDeclaration* declaration,
-    ConstantScope* scope
+    ConstantScope* scope,
+    bool is_external,
+    bool is_no_mangle,
+    TypedExpression type,
+    TypedExpression initializer,
+    AnyType actual_type,
+    Array<String> external_libraries
 );

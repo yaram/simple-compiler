@@ -337,8 +337,6 @@ struct TypedValue {
     AnyValue value;
 };
 
-struct TypedVariable;
-
 enum struct TypedExpressionKind {
     VariableReference,
     StaticVariableReference,
@@ -395,10 +393,12 @@ struct TypedExpression {
 
     union {
         struct {
-            TypedVariable* variable;
+            String name;
         } variable_reference;
 
         struct {
+            ConstantScope* scope;
+
             VariableDeclaration* declaration;
         } static_variable_reference;
 
@@ -496,13 +496,6 @@ struct TypedVariable {
     AnyType type;
 };
 
-struct VariableScope {
-    VariableScope* parent;
-    ConstantScope* constant_scope;
-
-    Array<TypedVariable*> variables;
-};
-
 enum struct TypedStatementKind {
     ExpressionStatement,
     VariableDeclaration,
@@ -529,7 +522,7 @@ struct TypedStatement;
 struct TypedElseIf {
     TypedExpression condition;
 
-    VariableScope* scope;
+    ConstantScope* scope;
     Array<TypedStatement> statements;
 };
 
@@ -555,7 +548,6 @@ struct TypedStatement {
             bool has_type;
             TypedExpression type;
 
-            bool has_initializer;
             TypedExpression initializer;
 
             AnyType actual_type;
@@ -586,19 +578,19 @@ struct TypedStatement {
         struct {
             TypedExpression condition;
 
-            VariableScope* scope;
+            ConstantScope* scope;
             Array<TypedStatement> statements;
 
             Array<TypedElseIf> else_ifs;
 
-            VariableScope* else_scope;
+            ConstantScope* else_scope;
             Array<TypedStatement> else_statements;
         } if_statement;
 
         struct {
             TypedExpression condition;
 
-            VariableScope* scope;
+            ConstantScope* scope;
             Array<TypedStatement> statements;
         } while_loop;
 
@@ -609,7 +601,7 @@ struct TypedStatement {
             bool has_index_name;
             TypedName index_name;
 
-            VariableScope* scope;
+            ConstantScope* scope;
             Array<TypedStatement> statements;
         } for_loop;
 

@@ -93,7 +93,6 @@ struct TypeFunctionBody {
     FunctionTypeType type;
     FunctionConstant value;
 
-    VariableScope* scope;
     Array<TypedStatement> statements;
 };
 

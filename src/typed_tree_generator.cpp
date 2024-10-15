@@ -77,6 +77,8 @@ static bool constant_values_equal(AnyConstantValue a, AnyConstantValue b) {
 }
 
 struct InProgressVariableScope {
+    ConstantScope* constant_scope;
+
     List<TypedVariable*> variables;
 };
 
@@ -91,8 +93,6 @@ struct TypingContext {
 
     bool in_breakable_scope;
 
-    VariableScope* variable_scope;
-
     List<InProgressVariableScope> in_progress_variable_scope_stack;
 
     List<ConstantScope*> scope_search_stack;
@@ -102,15 +102,14 @@ struct TypingContext {
 };
 
 static Result<TypedVariable*> add_new_variable(TypingContext* context, Identifier name, AnyType type) {
-    assert(context->variable_scope != nullptr);
     assert(context->in_progress_variable_scope_stack.length != 0);
 
     auto in_progress_variable_scope = &(context->in_progress_variable_scope_stack[context->in_progress_variable_scope_stack.length - 1]);
 
     for(auto variable : in_progress_variable_scope->variables) {
         if(variable->name.text == name.text) {
-            error(context->variable_scope->constant_scope, name.range, "Duplicate variable name %.*s", STRING_PRINTF_ARGUMENTS(name.text));
-            error(context->variable_scope->constant_scope, variable->name.range, "Original declared here");
+            error(in_progress_variable_scope->constant_scope, name.range, "Duplicate variable name %.*s", STRING_PRINTF_ARGUMENTS(name.text));
+            error(in_progress_variable_scope->constant_scope, variable->name.range, "Original declared here");
 
             return err();
         }
@@ -2532,62 +2531,61 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
     if(expression->kind == ExpressionKind::NamedReference) {
         auto named_reference = (NamedReference*)expression;
 
-        VariableScope* previous_variable_scope = nullptr;
-        auto current_variable_scope = context->variable_scope;
-        auto index = context->in_progress_variable_scope_stack.length - 1;
-        while(current_variable_scope != nullptr) {
-            auto in_progress_scope = context->in_progress_variable_scope_stack[index];
+        auto current_scope = scope;
+        if(context->in_progress_variable_scope_stack.length != 0) {
+            auto index = context->in_progress_variable_scope_stack.length - 1;
+            while(true) {
+                auto in_progress_scope = context->in_progress_variable_scope_stack[index];
 
-            for(auto variable : in_progress_scope.variables) {
-                if(variable->name.text == named_reference->name.text) {
+                current_scope = in_progress_scope.constant_scope;
+
+                for(auto variable : in_progress_scope.variables) {
+                    if(variable->name.text == named_reference->name.text) {
+                        TypedExpression typed_expression {};
+                        typed_expression.kind = TypedExpressionKind::VariableReference;
+                        typed_expression.range = named_reference->range;
+                        typed_expression.type = variable->type;
+                        typed_expression.value = AnyValue::create_assignable_value();
+                        typed_expression.variable_reference.name = named_reference->name.text;
+
+                        return ok(typed_expression);
+                    }
+                }
+
+                expect_delayed(search_value, search_for_name(
+                    info,
+                    jobs,
+                    current_scope,
+                    context,
+                    named_reference->name.text,
+                    current_scope->statements,
+                    false
+                ));
+
+                if(search_value.found) {
                     TypedExpression typed_expression {};
-                    typed_expression.kind = TypedExpressionKind::VariableReference;
                     typed_expression.range = named_reference->range;
-                    typed_expression.type = variable->type;
-                    typed_expression.value = AnyValue::create_assignable_value();
-                    typed_expression.variable_reference.variable = variable;
+                    typed_expression.type = search_value.type;
+
+                    if(search_value.is_static_variable) {
+                        typed_expression.kind = TypedExpressionKind::StaticVariableReference;
+                        typed_expression.value = AnyValue::create_assignable_value();
+                        typed_expression.static_variable_reference.scope = search_value.scope;
+                        typed_expression.static_variable_reference.declaration = search_value.static_variable_declaration;
+                    } else {
+                        typed_expression.kind = TypedExpressionKind::ConstantLiteral;
+                        typed_expression.value = AnyValue(search_value.constant);
+                    }
 
                     return ok(typed_expression);
                 }
-            }
 
-            expect_delayed(search_value, search_for_name(
-                info,
-                jobs,
-                current_variable_scope->constant_scope,
-                context,
-                named_reference->name.text,
-                current_variable_scope->constant_scope->statements,
-                false
-            ));
-
-            if(search_value.found) {
-                TypedExpression typed_expression {};
-                typed_expression.range = named_reference->range;
-                typed_expression.type = search_value.type;
-
-                if(search_value.is_static_variable) {
-                    typed_expression.kind = TypedExpressionKind::StaticVariableReference;
-                    typed_expression.value = AnyValue::create_assignable_value();
-                    typed_expression.static_variable_reference.declaration = search_value.static_variable_declaration;
-                } else {
-                    typed_expression.kind = TypedExpressionKind::ConstantLiteral;
-                    typed_expression.value = AnyValue(search_value.constant);
+                if(index == 0) {
+                    break;
                 }
 
-                return ok(typed_expression);
+                index -= 1;
             }
-
-            previous_variable_scope = current_variable_scope;
-            current_variable_scope = current_variable_scope->parent;
-            index -= 1;
-        }
-
-        ConstantScope* current_scope;
-        if(previous_variable_scope == nullptr) {
-            current_scope = scope;
-        } else {
-            current_scope = previous_variable_scope->constant_scope->parent;
         }
 
         while(true) {
@@ -5261,7 +5259,6 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     typed_statement.variable_declaration.name = variable_declaration->name;
                     typed_statement.variable_declaration.has_type = true;
                     typed_statement.variable_declaration.type = type_value.typed_expression;
-                    typed_statement.variable_declaration.has_initializer = true;
                     typed_statement.variable_declaration.initializer = coerced_initializer;
                     typed_statement.variable_declaration.actual_type = type;
 
@@ -5292,7 +5289,6 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     typed_statement.kind = TypedStatementKind::VariableDeclaration;
                     typed_statement.range = statement->range;
                     typed_statement.variable_declaration.name = variable_declaration->name;
-                    typed_statement.variable_declaration.has_initializer = true;
                     typed_statement.variable_declaration.initializer = coerced_initializer;
                     typed_statement.variable_declaration.actual_type = type;
 
@@ -5502,20 +5498,13 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     return err();
                 }
 
-                auto parent_variable_scope = context->variable_scope;
-
                 auto if_scope = context->child_scopes[context->next_child_scope_index];
                 context->next_child_scope_index += 1;
                 assert(context->next_child_scope_index <= context->child_scopes.length);
 
-                auto if_variable_scope = context->arena->allocate_and_construct<VariableScope>();
-                if_variable_scope->parent = parent_variable_scope;
-                if_variable_scope->constant_scope = if_scope;
-
-                context->variable_scope = if_variable_scope;
-
                 {
                     InProgressVariableScope scope {};
+                    scope.constant_scope = if_scope;
                     scope.variables.arena = context->arena;
 
                     context->in_progress_variable_scope_stack.append(scope);
@@ -5523,9 +5512,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                 expect_delayed(statements, generate_runtime_statements(info, jobs, if_scope, context, if_statement->statements));
 
-                if_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
-
-                context->variable_scope = parent_variable_scope;
+                context->in_progress_variable_scope_stack.take_last();
 
                 auto else_ifs = context->arena->allocate<TypedElseIf>(if_statement->else_ifs.length);
 
@@ -5542,14 +5529,9 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     context->next_child_scope_index += 1;
                     assert(context->next_child_scope_index <= context->child_scopes.length);
 
-                    auto else_if_variable_scope = context->arena->allocate_and_construct<VariableScope>();
-                    else_if_variable_scope->parent = parent_variable_scope;
-                    else_if_variable_scope->constant_scope = else_if_scope;
-
-                    context->variable_scope = else_if_variable_scope;
-
                     {
                         InProgressVariableScope scope {};
+                        scope.constant_scope = else_if_scope;
                         scope.variables.arena = context->arena;
 
                         context->in_progress_variable_scope_stack.append(scope);
@@ -5557,13 +5539,11 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                     expect_delayed(else_if_statements, generate_runtime_statements(info, jobs, if_scope, context, if_statement->else_ifs[i].statements));
 
-                    else_if_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
-
-                    context->variable_scope = parent_variable_scope;
+                    context->in_progress_variable_scope_stack.take_last();
 
                     TypedElseIf else_if {};
                     else_if.condition = condition;
-                    else_if.scope = else_if_variable_scope;
+                    else_if.scope = else_if_scope;
                     else_if.statements = else_if_statements;
 
                     else_ifs[i] = else_if;
@@ -5573,14 +5553,9 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                 context->next_child_scope_index += 1;
                 assert(context->next_child_scope_index <= context->child_scopes.length);
 
-                auto else_variable_scope = context->arena->allocate_and_construct<VariableScope>();
-                else_variable_scope->parent = parent_variable_scope;
-                else_variable_scope->constant_scope = else_scope;
-
-                context->variable_scope = else_variable_scope;
-
                 {
                     InProgressVariableScope scope {};
+                    scope.constant_scope = else_scope;
                     scope.variables.arena = context->arena;
 
                     context->in_progress_variable_scope_stack.append(scope);
@@ -5588,18 +5563,16 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                 expect_delayed(else_statements, generate_runtime_statements(info, jobs, else_scope, context, if_statement->else_statements));
 
-                else_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
-
-                context->variable_scope = parent_variable_scope;
+                context->in_progress_variable_scope_stack.take_last();
 
                 TypedStatement typed_statement {};
                 typed_statement.kind = TypedStatementKind::IfStatement;
                 typed_statement.range = statement->range;
                 typed_statement.if_statement.condition = condition;
-                typed_statement.if_statement.scope = if_variable_scope;
+                typed_statement.if_statement.scope = if_scope;
                 typed_statement.if_statement.statements = statements;
                 typed_statement.if_statement.else_ifs = Array(if_statement->else_ifs.length, else_ifs);
-                typed_statement.if_statement.else_scope = else_variable_scope;
+                typed_statement.if_statement.else_scope = else_scope;
                 typed_statement.if_statement.else_statements = else_statements;
 
                 typed_statements.append(typed_statement);
@@ -5614,20 +5587,13 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     return err();
                 }
 
-                auto parent_variable_scope = context->variable_scope;
-
                 auto while_scope = context->child_scopes[context->next_child_scope_index];
                 context->next_child_scope_index += 1;
                 assert(context->next_child_scope_index <= context->child_scopes.length);
 
-                auto while_variable_scope = context->arena->allocate_and_construct<VariableScope>();
-                while_variable_scope->parent = parent_variable_scope;
-                while_variable_scope->constant_scope = while_scope;
-
-                context->variable_scope = while_variable_scope;
-
                 {
                     InProgressVariableScope scope {};
+                    scope.constant_scope = while_scope;
                     scope.variables.arena = context->arena;
 
                     context->in_progress_variable_scope_stack.append(scope);
@@ -5641,15 +5607,13 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                 context->in_breakable_scope = old_in_breakable_scope;
 
-                while_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
-
-                context->variable_scope = parent_variable_scope;
+                context->in_progress_variable_scope_stack.take_last();
 
                 TypedStatement typed_statement {};
                 typed_statement.kind = TypedStatementKind::WhileLoop;
                 typed_statement.range = statement->range;
                 typed_statement.while_loop.condition = condition;
-                typed_statement.while_loop.scope = while_variable_scope;
+                typed_statement.while_loop.scope = while_scope;
                 typed_statement.while_loop.statements = statements;
 
                 typed_statements.append(typed_statement);
@@ -5706,20 +5670,13 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     false
                 ));
 
-                auto parent_variable_scope = context->variable_scope;
-
                 auto for_scope = context->child_scopes[context->next_child_scope_index];
                 context->next_child_scope_index += 1;
                 assert(context->next_child_scope_index <= context->child_scopes.length);
 
-                auto for_variable_scope = context->arena->allocate_and_construct<VariableScope>();
-                for_variable_scope->parent = parent_variable_scope;
-                for_variable_scope->constant_scope = for_scope;
-
-                context->variable_scope = for_variable_scope;
-
                 {
                     InProgressVariableScope scope {};
+                    scope.constant_scope = for_scope;
                     scope.variables.arena = context->arena;
 
                     context->in_progress_variable_scope_stack.append(scope);
@@ -5739,9 +5696,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                 context->in_breakable_scope = old_in_breakable_scope;
 
-                for_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
-
-                context->variable_scope = parent_variable_scope;
+                context->in_progress_variable_scope_stack.take_last();
 
                 TypedStatement typed_statement {};
                 typed_statement.kind = TypedStatementKind::ForLoop;
@@ -5750,7 +5705,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                 typed_statement.for_loop.to = coerced_to_value;
                 typed_statement.for_loop.has_index_name = for_loop->has_index_name;
                 typed_statement.for_loop.index_name = typed_index_name;
-                typed_statement.for_loop.scope = for_variable_scope;
+                typed_statement.for_loop.scope = for_scope;
                 typed_statement.for_loop.statements = statements;
 
                 typed_statements.append(typed_statement);
@@ -7338,7 +7293,7 @@ profiled_function(DelayedResult<TypeEnumDefinitionResult>, do_type_enum_definiti
     return ok(result);
 }
 
-profiled_function(DelayedResult<TypeFunctionBodyResult>, do_type_function_body, (
+profiled_function(DelayedResult<Array<TypedStatement>>, do_type_function_body, (
     GlobalInfo info,
     List<AnyJob*>* jobs,
     Arena* arena,
@@ -7362,9 +7317,7 @@ profiled_function(DelayedResult<TypeFunctionBodyResult>, do_type_function_body, 
     auto runtime_parameter_count = type.parameters.length;
 
     if(value.is_external) {
-        TypeFunctionBodyResult result {};
-
-        return ok(result);
+        return {};
     } else {
         TypingContext context {};
         context.arena = arena;
@@ -7374,14 +7327,9 @@ profiled_function(DelayedResult<TypeFunctionBodyResult>, do_type_function_body, 
 
         context.return_types = type.return_types;
 
-        auto body_variable_scope = arena->allocate_and_construct<VariableScope>();
-        body_variable_scope->parent = nullptr;
-        body_variable_scope->constant_scope = value.body_scope;
-
-        context.variable_scope = body_variable_scope;
-
         {
             InProgressVariableScope scope {};
+            scope.constant_scope = value.body_scope;
             scope.variables.arena = arena;
 
             context.in_progress_variable_scope_stack.append(scope);
@@ -7416,7 +7364,7 @@ profiled_function(DelayedResult<TypeFunctionBodyResult>, do_type_function_body, 
 
         assert(context.in_progress_variable_scope_stack.length == 1);
 
-        body_variable_scope->variables = context.in_progress_variable_scope_stack.take_last().variables;
+        context.in_progress_variable_scope_stack.take_last();
 
         assert(context.next_child_scope_index == value.child_scopes.length);
 
@@ -7437,11 +7385,7 @@ profiled_function(DelayedResult<TypeFunctionBodyResult>, do_type_function_body, 
             }
         }
 
-        TypeFunctionBodyResult result {};
-        result.scope = body_variable_scope;
-        result.statements = statements;
-
-        return ok(result);
+        return ok(statements);
     }
 }
 
@@ -7635,6 +7579,7 @@ profiled_function(DelayedResult<TypeStaticVariableResult>, do_type_static_variab
             assert(context.scope_search_stack.length == 0);
 
             TypeStaticVariableResult result {};
+            result.is_no_mangle = is_no_mangle;
             result.type = type.typed_expression;
             result.initializer = coerced_initial_value;
             result.actual_type = type.type;
@@ -7671,6 +7616,7 @@ profiled_function(DelayedResult<TypeStaticVariableResult>, do_type_static_variab
             assert(context.scope_search_stack.length == 0);
 
             TypeStaticVariableResult result {};
+            result.is_no_mangle = is_no_mangle;
             result.initializer = coerced_initial_value;
             result.actual_type = determined_type;
 

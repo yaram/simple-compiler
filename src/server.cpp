@@ -528,8 +528,7 @@ static Result<void> compile_source_file(GlobalInfo info, SourceFile* file) {
                             }
 
                             job->state = JobState::Done;
-                            job->type_function_body.scope = result.value.scope;
-                            job->type_function_body.statements = result.value.statements;
+                            job->type_function_body.statements = result.value;
                         } else {
                             job->state = JobState::Waiting;
                             job->waiting_for = result.waiting_for;

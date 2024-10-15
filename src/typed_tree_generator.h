@@ -144,12 +144,7 @@ DelayedResult<TypeEnumDefinitionResult> do_type_enum_definition(
     ConstantScope* scope
 );
 
-struct TypeFunctionBodyResult {
-    VariableScope* scope;
-    Array<TypedStatement> statements;
-};
-
-DelayedResult<TypeFunctionBodyResult> do_type_function_body(
+DelayedResult<Array<TypedStatement>> do_type_function_body(
     GlobalInfo info,
     List<AnyJob*>* jobs,
     Arena* global_arena,
@@ -160,6 +155,7 @@ DelayedResult<TypeFunctionBodyResult> do_type_function_body(
 
 struct TypeStaticVariableResult {
     bool is_external;
+    bool is_no_mangle;
 
     TypedExpression type;
     TypedExpression initializer;
