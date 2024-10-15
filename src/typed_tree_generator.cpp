@@ -2544,7 +2544,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
         if(previous_variable_scope == nullptr) {
             current_scope = scope;
         } else {
-            auto current_scope = previous_variable_scope->constant_scope->parent;
+            current_scope = previous_variable_scope->constant_scope->parent;
         }
 
         while(true) {
@@ -2576,6 +2576,8 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
             }
 
             if(current_scope->is_top_level) {
+                assert(current_scope->parent == nullptr);
+
                 break;
             } else {
                 current_scope = current_scope->parent;
@@ -5449,12 +5451,14 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     return err();
                 }
 
+                auto parent_variable_scope = context->variable_scope;
+
                 auto if_scope = context->child_scopes[context->next_child_scope_index];
                 context->next_child_scope_index += 1;
                 assert(context->next_child_scope_index <= context->child_scopes.length);
 
                 auto if_variable_scope = context->arena->allocate_and_construct<VariableScope>();
-                if_variable_scope->parent = context->variable_scope;
+                if_variable_scope->parent = parent_variable_scope;
                 if_variable_scope->constant_scope = if_scope;
 
                 context->variable_scope = if_variable_scope;
@@ -5469,8 +5473,6 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                 expect_delayed(statements, generate_runtime_statements(info, jobs, if_scope, context, if_statement->statements));
 
                 if_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
-
-                context->in_progress_variable_scope_stack.length -= 1;
 
                 auto else_ifs = context->arena->allocate<TypedElseIf>(if_statement->else_ifs.length);
 
@@ -5488,7 +5490,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     assert(context->next_child_scope_index <= context->child_scopes.length);
 
                     auto else_if_variable_scope = context->arena->allocate_and_construct<VariableScope>();
-                    else_if_variable_scope->parent = context->variable_scope;
+                    else_if_variable_scope->parent = parent_variable_scope;
                     else_if_variable_scope->constant_scope = else_if_scope;
 
                     context->variable_scope = else_if_variable_scope;
@@ -5504,8 +5506,6 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                     else_if_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
 
-                    context->in_progress_variable_scope_stack.length -= 1;
-
                     TypedElseIf else_if {};
                     else_if.condition = condition;
                     else_if.scope = else_if_variable_scope;
@@ -5519,7 +5519,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                 assert(context->next_child_scope_index <= context->child_scopes.length);
 
                 auto else_variable_scope = context->arena->allocate_and_construct<VariableScope>();
-                else_variable_scope->parent = context->variable_scope;
+                else_variable_scope->parent = parent_variable_scope;
                 else_variable_scope->constant_scope = else_scope;
 
                 context->variable_scope = else_variable_scope;
@@ -5535,7 +5535,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                 else_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
 
-                context->in_progress_variable_scope_stack.length -= 1;
+                context->variable_scope = parent_variable_scope;
 
                 TypedStatement typed_statement {};
                 typed_statement.kind = TypedStatementKind::IfStatement;
@@ -5559,15 +5559,24 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     return err();
                 }
 
+                auto parent_variable_scope = context->variable_scope;
+
                 auto while_scope = context->child_scopes[context->next_child_scope_index];
                 context->next_child_scope_index += 1;
                 assert(context->next_child_scope_index <= context->child_scopes.length);
 
                 auto while_variable_scope = context->arena->allocate_and_construct<VariableScope>();
-                while_variable_scope->parent = context->variable_scope;
+                while_variable_scope->parent = parent_variable_scope;
                 while_variable_scope->constant_scope = while_scope;
 
                 context->variable_scope = while_variable_scope;
+
+                {
+                    InProgressVariableScope scope {};
+                    scope.variables.arena = context->arena;
+
+                    context->in_progress_variable_scope_stack.append(scope);
+                }
 
                 auto old_in_breakable_scope = context->in_breakable_scope;
 
@@ -5579,7 +5588,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                 while_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
 
-                context->in_progress_variable_scope_stack.length -= 1;
+                context->variable_scope = parent_variable_scope;
 
                 TypedStatement typed_statement {};
                 typed_statement.kind = TypedStatementKind::WhileLoop;
@@ -5642,15 +5651,24 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
                     false
                 ));
 
+                auto parent_variable_scope = context->variable_scope;
+
                 auto for_scope = context->child_scopes[context->next_child_scope_index];
                 context->next_child_scope_index += 1;
                 assert(context->next_child_scope_index <= context->child_scopes.length);
 
                 auto for_variable_scope = context->arena->allocate_and_construct<VariableScope>();
-                for_variable_scope->parent = context->variable_scope;
+                for_variable_scope->parent = parent_variable_scope;
                 for_variable_scope->constant_scope = for_scope;
 
                 context->variable_scope = for_variable_scope;
+
+                {
+                    InProgressVariableScope scope {};
+                    scope.variables.arena = context->arena;
+
+                    context->in_progress_variable_scope_stack.append(scope);
+                }
 
                 auto old_in_breakable_scope = context->in_breakable_scope;
 
@@ -5668,7 +5686,7 @@ static_profiled_function(DelayedResult<Array<TypedStatement>>, generate_runtime_
 
                 for_variable_scope->variables = context->in_progress_variable_scope_stack.take_last().variables;
 
-                context->in_progress_variable_scope_stack.length -= 1;
+                context->variable_scope = parent_variable_scope;
 
                 TypedStatement typed_statement {};
                 typed_statement.kind = TypedStatementKind::ForLoop;
@@ -7021,17 +7039,15 @@ profiled_function(Result<void>, process_scope, (
                     expect_void(process_scope(global_arena, jobs, else_if_scope, else_if.statements, child_scopes, false));
                 }
 
-                if(if_statement->else_statements.length != 0) {
-                    auto else_scope = global_arena->allocate_and_construct<ConstantScope>();
-                    else_scope->statements = if_statement->else_statements;
-                    else_scope->scope_constants = {};
-                    else_scope->is_top_level = false;
-                    else_scope->parent = scope;
+                auto else_scope = global_arena->allocate_and_construct<ConstantScope>();
+                else_scope->statements = if_statement->else_statements;
+                else_scope->scope_constants = {};
+                else_scope->is_top_level = false;
+                else_scope->parent = scope;
 
-                    child_scopes->append(else_scope);
+                child_scopes->append(else_scope);
 
-                    expect_void(process_scope(global_arena, jobs, else_scope, if_statement->else_statements, child_scopes, false));
-                }
+                expect_void(process_scope(global_arena, jobs, else_scope, if_statement->else_statements, child_scopes, false));
             } break;
 
             case StatementKind::WhileLoop: {
