@@ -320,20 +320,6 @@ static Result<AnyValue> coerce_to_float(
             abort();
         }
 
-        if((int64_t)float_value != integer_value) {
-            if(!probing) {
-                error(
-                    scope,
-                    range,
-                    "Constant '" PRIi64 "' cannot be represented by '%.*s'. You must cast explicitly",
-                    integer_value,
-                    STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description(context->arena))
-                );
-            }
-
-            return err();
-        }
-
         return ok(AnyValue(AnyConstantValue(float_value)));
     } else if(type.kind == TypeKind::FloatType) {
         auto float_type = type.float_;
@@ -342,22 +328,6 @@ static Result<AnyValue> coerce_to_float(
             return ok(value);
         }
     } else if(type.kind == TypeKind::UndeterminedFloat) {
-        auto float_value = value.unwrap_constant_value().unwrap_float();
-
-        if(target_type.size == RegisterSize::Size32 && (double)(float)float_value != float_value) {
-            if(!probing) {
-                error(
-                    scope,
-                    range,
-                    "Constant '%f' cannot be represented by '%.*s'. You must cast explicitly",
-                    float_value,
-                    STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description(context->arena))
-                );
-            }
-
-            return err();
-        }
-
         return ok(value);
     } else if(type.kind == TypeKind::Undef) {
         return ok(value);
