@@ -32,10 +32,8 @@ Array<StaticConstant*> do_generate_function(
     Function* function
 );
 
-StaticVariable* do_generate_static_variable(
+void do_generate_static_variable(
     GlobalInfo info,
-    Array<TypedFunction> functions,
-    Array<TypedStaticVariable> static_variables,
     Arena* arena,
     VariableDeclaration* declaration,
     ConstantScope* scope,
@@ -44,5 +42,6 @@ StaticVariable* do_generate_static_variable(
     TypedExpression type,
     TypedExpression initializer,
     AnyType actual_type,
-    Array<String> external_libraries
+    Array<String> external_libraries,
+    StaticVariable* static_variable
 );

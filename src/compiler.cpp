@@ -1,7 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "constant.h"
 #include "timing.h"
 #include "profiler.h"
 #include "lexer.h"
@@ -12,6 +11,7 @@
 #include "path.h"
 #include "list.h"
 #include "jobs.h"
+#include "typed_tree_generator.h"
 #include "hl_generator.h"
 #include "types.h"
 
@@ -485,7 +485,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         architecture_sizes
     };
 
-    List<AnyJob> jobs(&global_arena);
+    List<AnyJob*> jobs(&global_arena);
 
     size_t main_file_parse_job_index;
     {
@@ -493,22 +493,9 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         job.kind = JobKind::ParseFile;
         job.state = JobState::Working;
         job.parse_file.path = absolute_source_file_path;
-        job.parse_file.has_source = false;
 
-        main_file_parse_job_index = jobs.append(job);
+        main_file_parse_job_index = jobs.append(global_arena.heapify(job));
     }
-
-    List<RuntimeStatic*> runtime_statics(&global_arena);
-    List<String> libraries(&global_arena);
-
-    if(os == u8"windows"_S || os == u8"mingw"_S) {
-        libraries.append(u8"kernel32"_S);
-    }
-
-    auto main_function_state = JobState::Waiting;
-    auto main_function_waiting_for = main_file_parse_job_index;
-    Arena main_function_arena {};
-    Function* main_function;
 
     uint64_t total_parser_time = 0;
     uint64_t total_generator_time = 0;
@@ -516,11 +503,11 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
     while(true) {
         auto did_work = false;
         for(size_t job_index = 0; job_index < jobs.length; job_index += 1) {
-            auto job = &jobs[job_index];
+            auto job = jobs[job_index];
 
             if(job->state != JobState::Done) {
                 if(job->state == JobState::Waiting) {
-                    if(jobs[job->waiting_for].state != JobState::Done) {
+                    if(jobs[job->waiting_for]->state != JobState::Done) {
                         continue;
                     }
 
@@ -533,22 +520,12 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
                         auto start_time = get_timer_counts();
 
-                        Array<Token> tokens;
-                        if(parse_file->has_source) {
-                            expect(the_tokens, tokenize_source(&job->arena, parse_file->path, parse_file->source));
-
-                            tokens = the_tokens;
-                        } else {
-                            expect(the_tokens, tokenize_source(&job->arena, parse_file->path));
-
-                            tokens = the_tokens;
-                        }
+                        expect(tokens, tokenize_source(&job->arena, parse_file->path));
 
                         expect(statements, parse_tokens(&job->arena, parse_file->path, tokens));
 
                         auto scope = global_arena.allocate_and_construct<ConstantScope>();
                         scope->statements = statements;
-                        scope->declarations = create_declaration_hash_table(&global_arena, statements);
                         scope->scope_constants = {};
                         scope->is_top_level = true;
                         scope->file_path = parse_file->path;
@@ -562,10 +539,10 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
                         total_parser_time += end_time - start_time;
 
-                        auto job_after = jobs[job_index];
+                        auto job = jobs[job_index];
 
                         if(print_ast) {
-                            printf("%.*s:\n", STRING_PRINTF_ARGUMENTS(job_after.parse_file.path));
+                            printf("%.*s:\n", STRING_PRINTF_ARGUMENTS(job->parse_file.path));
 
                             for(auto statement : statements) {
                                 statement->print();
@@ -574,79 +551,69 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                         }
                     } break;
 
-                    case JobKind::ResolveStaticIf: {
-                        auto resolve_static_if = job->resolve_static_if;
+                    case JobKind::TypeStaticIf: {
+                        auto type_static_if = job->type_static_if;
 
-                        auto start_time = get_timer_counts();
-
-                        auto result = do_resolve_static_if(
+                        auto result = do_type_static_if(
                             info,
                             &jobs,
                             &global_arena,
                             &job->arena,
-                            resolve_static_if.static_if,
-                            resolve_static_if.scope
+                            type_static_if.static_if,
+                            type_static_if.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_static_if.condition = result.value.condition;
-                            job_after->resolve_static_if.declarations = result.value.declarations;
+                            job->state = JobState::Done;
+                            job->type_static_if.condition = result.value.condition;
+                            job->type_static_if.condition_value = result.value.condition_value;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
                     } break;
 
-                    case JobKind::ResolveFunctionDeclaration: {
-                        auto resolve_function_declaration = job->resolve_function_declaration;
+                    case JobKind::TypeFunctionDeclaration: {
+                        auto type_function_declaration = job->type_function_declaration;
 
-                        auto start_time = get_timer_counts();
-
-                        auto result = do_resolve_function_declaration(
+                        auto result = do_type_function_declaration(
                             info,
                             &jobs,
                             &global_arena,
                             &job->arena,
-                            resolve_function_declaration.declaration,
-                            resolve_function_declaration.scope
+                            type_function_declaration.declaration,
+                            type_function_declaration.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_function_declaration.type = result.value.type;
-                            job_after->resolve_function_declaration.value = result.value.value;
+                            job->state = JobState::Done;
+                            job->type_function_declaration.parameters = result.value.parameters;
+                            job->type_function_declaration.return_types = result.value.return_types;
+                            job->type_function_declaration.type = result.value.type;
+                            job->type_function_declaration.value = result.value.value;
 
-                            if(job_after->resolve_function_declaration.type.kind == TypeKind::FunctionTypeType) {
-                                auto function_type = job_after->resolve_function_declaration.type.function;
+                            if(job->type_function_declaration.type.kind == TypeKind::FunctionTypeType) {
+                                auto function_type = job->type_function_declaration.type.function;
 
-                                auto function_value = job_after->resolve_function_declaration.value.unwrap_function();
+                                auto function_value = job->type_function_declaration.value.unwrap_function();
 
                                 auto found = false;
                                 for(auto job : jobs) {
-                                    if(job.kind == JobKind::GenerateFunction) {
-                                        auto generate_function = job.generate_function;
+                                    if(job->kind == JobKind::TypeFunctionBody) {
+                                        auto type_function_body = job->type_function_body;
 
                                         if(
-                                            generate_function.value.declaration == function_value.declaration &&
-                                            generate_function.value.body_scope == function_value.body_scope
+                                            type_function_body.value.declaration == function_value.declaration &&
+                                            type_function_body.value.body_scope == function_value.body_scope
                                         ) {
                                             found = true;
                                             break;
@@ -655,383 +622,268 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
                                 }
 
                                 if(!found) {
-                                    AnyJob job {};
-                                    job.kind = JobKind::GenerateFunction;
-                                    job.state = JobState::Working;
-                                    job.generate_function.type = function_type;
-                                    job.generate_function.value = function_value;
-                                    job.generate_function.function = global_arena.allocate_and_construct<Function>();
+                                    AnyJob new_job {};
+                                    new_job.kind = JobKind::TypeFunctionBody;
+                                    new_job.state = JobState::Working;
+                                    new_job.type_function_body.type = function_type;
+                                    new_job.type_function_body.value = function_value;
 
-                                    jobs.append(job);
+                                    jobs.append(global_arena.heapify(new_job));
                                 }
                             }
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
                     } break;
 
-                    case JobKind::ResolvePolymorphicFunction: {
-                        auto resolve_polymorphic_function = job->resolve_polymorphic_function;
+                    case JobKind::TypePolymorphicFunction: {
+                        auto type_polymorphic_function = job->type_polymorphic_function;
 
-                        auto start_time = get_timer_counts();
-
-                        auto result = do_resolve_polymorphic_function(
+                        auto result = do_type_polymorphic_function(
                             info,
                             &jobs,
                             &global_arena,
                             &job->arena,
-                            resolve_polymorphic_function.declaration,
-                            resolve_polymorphic_function.parameters,
-                            resolve_polymorphic_function.scope,
-                            resolve_polymorphic_function.call_scope,
-                            resolve_polymorphic_function.call_parameter_ranges
+                            type_polymorphic_function.declaration,
+                            type_polymorphic_function.parameters,
+                            type_polymorphic_function.scope,
+                            type_polymorphic_function.call_scope,
+                            type_polymorphic_function.call_parameter_ranges
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->resolve_polymorphic_function.type = result.value.type;
-                            job_after->resolve_polymorphic_function.value = result.value.value;
+                            job->state = JobState::Done;
+                            job->type_polymorphic_function.type = result.value.type;
+                            job->type_polymorphic_function.value = result.value.value;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::ResolveConstantDefinition: {
-                        auto resolve_constant_definition = job->resolve_constant_definition;
-
-                        auto start_time = get_timer_counts();
-
-                        auto result = evaluate_constant_expression(
-                            &job->arena,
-                            info,
-                            &jobs,
-                            resolve_constant_definition.scope,
-                            nullptr,
-                            resolve_constant_definition.definition->expression
-                        );
-
-                        auto job_after = &jobs[job_index];
-
-                        if(result.has_value) {
-                            if(!result.status) {
-                                return err();
-                            }
-
-                            job_after->state = JobState::Done;
-                            job_after->resolve_constant_definition.type = result.value.type;
-                            job_after->resolve_constant_definition.value = result.value.value;
-                        } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::ResolveStructDefinition: {
-                        auto resolve_struct_definition = job->resolve_struct_definition;
-
-                        auto start_time = get_timer_counts();
-
-                        auto result = do_resolve_struct_definition(
-                            info,
-                            &jobs,
-                            &job->arena,
-                            resolve_struct_definition.definition,
-                            resolve_struct_definition.scope
-                        );
-
-                        auto job_after = &jobs[job_index];
-
-                        if(result.has_value) {
-                            if(!result.status) {
-                                return err();
-                            }
-
-                            job_after->state = JobState::Done;
-                            job_after->resolve_struct_definition.type = result.value;
-                        } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::ResolvePolymorphicStruct: {
-                        auto resolve_polymorphic_struct = job->resolve_polymorphic_struct;
-
-                        auto start_time = get_timer_counts();
-
-                        auto result = do_resolve_polymorphic_struct(
-                            info,
-                            &jobs,
-                            &job->arena,
-                            resolve_polymorphic_struct.definition,
-                            resolve_polymorphic_struct.parameters,
-                            resolve_polymorphic_struct.scope
-                        );
-
-                        auto job_after = &jobs[job_index];
-
-                        if(result.has_value) {
-                            if(!result.status) {
-                                return err();
-                            }
-
-                            job_after->state = JobState::Done;
-                            job_after->resolve_polymorphic_struct.type = result.value;
-                        } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::ResolveUnionDefinition: {
-                        auto resolve_union_definition = job->resolve_union_definition;
-
-                        auto start_time = get_timer_counts();
-
-                        auto result = do_resolve_union_definition(
-                            info,
-                            &jobs,
-                            &job->arena,
-                            resolve_union_definition.definition,
-                            resolve_union_definition.scope
-                        );
-
-                        auto job_after = &jobs[job_index];
-
-                        if(result.has_value) {
-                            if(!result.status) {
-                                return err();
-                            }
-
-                            job_after->state = JobState::Done;
-                            job_after->resolve_union_definition.type = result.value;
-                        } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::ResolvePolymorphicUnion: {
-                        auto resolve_polymorphic_union = job->resolve_polymorphic_union;
-
-                        auto start_time = get_timer_counts();
-
-                        auto result = do_resolve_polymorphic_union(
-                            info,
-                            &jobs,
-                            &job->arena,
-                            resolve_polymorphic_union.definition,
-                            resolve_polymorphic_union.parameters,
-                            resolve_polymorphic_union.scope
-                        );
-
-                        auto job_after = &jobs[job_index];
-
-                        if(result.has_value) {
-                            if(!result.status) {
-                                return err();
-                            }
-
-                            job_after->state = JobState::Done;
-                            job_after->resolve_polymorphic_union.type = result.value;
-                        } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::ResolveEnumDefinition: {
-                        auto resolve_enum_definition = job->resolve_enum_definition;
-
-                        auto start_time = get_timer_counts();
-
-                        auto result = do_resolve_enum_definition(
-                            info,
-                            &jobs,
-                            &job->arena,
-                            resolve_enum_definition.definition,
-                            resolve_enum_definition.scope
-                        );
-
-                        auto job_after = &jobs[job_index];
-
-                        if(result.has_value) {
-                            if(!result.status) {
-                                return err();
-                            }
-
-                            job_after->state = JobState::Done;
-                            job_after->resolve_enum_definition.type = result.value;
-                        } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-                    } break;
-
-                    case JobKind::GenerateFunction: {
-                        auto generate_function = job->generate_function;
-
-                        auto start_time = get_timer_counts();
-
-                        auto result = do_generate_function(
-                            info,
-                            &jobs,
-                            &job->arena,
-                            generate_function.type,
-                            generate_function.value,
-                            generate_function.function
-                        );
-
-                        auto job_after = &jobs[job_index];
-
-                        if(result.has_value) {
-                            if(!result.status) {
-                                return err();
-                            }
-
-                            job_after->state = JobState::Done;
-
-                            runtime_statics.append(job_after->generate_function.function);
-
-                            if(job_after->generate_function.function->is_external) {
-                                for(auto library : job_after->generate_function.function->libraries) {
-                                    auto already_registered = false;
-                                    for(auto registered_library : libraries) {
-                                        if(registered_library == library) {
-                                            already_registered = true;
-                                            break;
-                                        }
-                                    }
-
-                                    if(!already_registered) {
-                                        libraries.append(library);
-                                    }
-                                }
-                            }
-
-                            for(auto static_constant : result.value) {
-                                runtime_statics.append(static_constant);
-                            }
-                        } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
-                        }
-
-                        auto end_time = get_timer_counts();
-
-                        total_generator_time += end_time - start_time;
-
-                        if(job_after->state == JobState::Done && print_ir) {
-                            printf("%.*s:\n", STRING_PRINTF_ARGUMENTS(job_after->generate_function.function->path));
-                            job_after->generate_function.function->print();
-                            printf("\n");
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
-                    case JobKind::GenerateStaticVariable: {
-                        auto generate_static_variable = job->generate_static_variable;
+                    case JobKind::TypeConstantDefinition: {
+                        auto type_constant_definition = job->type_constant_definition;
 
-                        auto start_time = get_timer_counts();
-
-                        auto result = do_generate_static_variable(
+                        auto result = do_type_constant_definition(
                             info,
                             &jobs,
+                            &global_arena,
                             &job->arena,
-                            generate_static_variable.declaration,
-                            generate_static_variable.scope
+                            type_constant_definition.definition,
+                            type_constant_definition.scope
                         );
-
-                        auto job_after = &jobs[job_index];
 
                         if(result.has_value) {
                             if(!result.status) {
                                 return err();
                             }
 
-                            job_after->state = JobState::Done;
-                            job_after->generate_static_variable.static_variable = result.value.static_variable;
-                            job_after->generate_static_variable.type = result.value.type;
-
-                            runtime_statics.append((RuntimeStatic*)result.value.static_variable);
-
-                            if(job_after->generate_static_variable.static_variable->is_external) {
-                                for(auto library : job_after->generate_static_variable.static_variable->libraries) {
-                                    auto already_registered = false;
-                                    for(auto registered_library : libraries) {
-                                        if(registered_library == library) {
-                                            already_registered = true;
-                                            break;
-                                        }
-                                    }
-
-                                    if(!already_registered) {
-                                        libraries.append(library);
-                                    }
-                                }
-                            }
+                            job->state = JobState::Done;
+                            job->type_constant_definition.value = result.value;
                         } else {
-                            job_after->state = JobState::Waiting;
-                            job_after->waiting_for = result.waiting_for;
-                            job_after->arena.reset();
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
+                    } break;
 
-                        auto end_time = get_timer_counts();
+                    case JobKind::TypeStructDefinition: {
+                        auto type_struct_definition = job->type_struct_definition;
 
-                        total_generator_time += end_time - start_time;
+                        auto result = do_type_struct_definition(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            &global_arena,
+                            type_struct_definition.definition,
+                            type_struct_definition.scope
+                        );
 
-                        if(job_after->state == JobState::Done &&print_ir) {
-                            printf("%.*s:\n", STRING_PRINTF_ARGUMENTS(get_scope_file_path(*job_after->generate_static_variable.scope)));
-                            result.value.static_variable->print();
-                            printf("\n");
+                        if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
+                            job->state = JobState::Done;
+                            job->type_struct_definition.members = result.value.members;
+                            job->type_struct_definition.type = result.value.type;
+                        } else {
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::TypePolymorphicStruct: {
+                        auto type_polymorphic_struct = job->type_polymorphic_struct;
+
+                        auto result = do_type_polymorphic_struct(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            &global_arena,
+                            type_polymorphic_struct.definition,
+                            type_polymorphic_struct.parameters,
+                            type_polymorphic_struct.scope
+                        );
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
+                            job->state = JobState::Done;
+                            job->type_polymorphic_struct.type = result.value;
+                        } else {
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::TypeUnionDefinition: {
+                        auto type_union_definition = job->type_union_definition;
+
+                        auto result = do_type_union_definition(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            &global_arena,
+                            type_union_definition.definition,
+                            type_union_definition.scope
+                        );
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
+                            job->state = JobState::Done;
+                            job->type_union_definition.members = result.value.members;
+                            job->type_union_definition.type = result.value.type;
+                        } else {
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::TypePolymorphicUnion: {
+                        auto type_polymorphic_union = job->type_polymorphic_union;
+
+                        auto result = do_type_polymorphic_union(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            &global_arena,
+                            type_polymorphic_union.definition,
+                            type_polymorphic_union.parameters,
+                            type_polymorphic_union.scope
+                        );
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
+                            job->state = JobState::Done;
+                            job->type_polymorphic_union.type = result.value;
+                        } else {
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::TypeEnumDefinition: {
+                        auto type_enum_definition = job->type_enum_definition;
+
+                        auto result = do_type_enum_definition(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            &global_arena,
+                            type_enum_definition.definition,
+                            type_enum_definition.scope
+                        );
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
+                            job->state = JobState::Done;
+                            job->type_enum_definition.backing_type = result.value.backing_type;
+                            job->type_enum_definition.variants = result.value.variants;
+                            job->type_enum_definition.type = result.value.type;
+                        } else {
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::TypeFunctionBody: {
+                        auto type_function_body = job->type_function_body;
+
+                        auto result = do_type_function_body(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            &global_arena,
+                            type_function_body.type,
+                            type_function_body.value
+                        );
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
+                            job->state = JobState::Done;
+                            job->type_function_body.statements = result.value;
+                        } else {
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
+                        }
+                    } break;
+
+                    case JobKind::TypeStaticVariable: {
+                        auto type_static_variable = job->type_static_variable;
+
+                        auto result = do_type_static_variable(
+                            info,
+                            &jobs,
+                            &job->arena,
+                            &global_arena,
+                            type_static_variable.declaration,
+                            type_static_variable.scope
+                        );
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                return err();
+                            }
+
+                            job->state = JobState::Done;
+                            job->type_static_variable.is_external = result.value.is_external;
+                            job->type_static_variable.is_no_mangle = result.value.is_no_mangle;
+                            job->type_static_variable.type = result.value.type;
+                            job->type_static_variable.initializer = result.value.initializer;
+                            job->type_static_variable.actual_type = result.value.actual_type;
+                            job->type_static_variable.external_libraries = result.value.external_libraries;
+                        } else {
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
                         }
                     } break;
 
@@ -1043,112 +895,6 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             }
         }
 
-        if(main_function_state != JobState::Done) {
-            if(main_function_state == JobState::Waiting) {
-                if(jobs[main_function_waiting_for].state == JobState::Done) {
-                    main_function_state = JobState::Working;
-                }
-            }
-
-            if(main_function_state == JobState::Working) {
-                auto scope = jobs[main_file_parse_job_index].parse_file.scope;
-
-                did_work = true;
-
-                auto result = search_for_name(
-                    &main_function_arena,
-                    info,
-                    &jobs,
-                    u8"main"_S,
-                    calculate_string_hash(u8"main"_S),
-                    scope,
-                    scope->statements,
-                    scope->declarations,
-                    false,
-                    nullptr
-                );
-
-                if(!result.has_value) {
-                    main_function_state = JobState::Waiting;
-                    main_function_waiting_for = result.waiting_for;
-                    main_function_arena.reset();
-                } else {
-                    if(!result.status) {
-                        return err();
-                    }
-
-                    main_function_state = JobState::Done;
-
-                    if(!result.value.found) {
-                        fprintf(stderr, "Error: Cannot find 'main'\n");
-
-                        return err();
-                    }
-
-                    if(result.value.type.kind != TypeKind::FunctionTypeType) {
-                        fprintf(stderr, "Error: 'main' must be a function. Got '%.*s'\n", STRING_PRINTF_ARGUMENTS(result.value.type.get_description(&main_function_arena)));
-
-                        return err();
-                    }
-
-                    auto function_type = result.value.type.function;
-
-                    auto function_value = result.value.value.unwrap_function();
-
-                    if(function_type.parameters.length != 0) {
-                        error(scope, function_value.declaration->range, "'main' must have zero parameters");
-
-                        return err();
-                    }
-
-                    auto expected_main_return_integer = AnyType(Integer(RegisterSize::Size32, true));
-
-                    if(function_type.return_types.length != 1) {
-                        error(
-                            scope,
-                            function_value.declaration->range,
-                            "Incorrect number of return types for 'main'. Expected 1, got %zu",
-                            function_type.return_types.length
-                        );
-
-                        return err();
-                    }
-
-                    if(function_type.return_types[0] != expected_main_return_integer) {
-                        error(
-                            scope,
-                            function_value.declaration->range,
-                            "Incorrect 'main' return type. Expected '%.*s', got '%.*s'",
-                            STRING_PRINTF_ARGUMENTS(expected_main_return_integer.get_description(&main_function_arena)),
-                            STRING_PRINTF_ARGUMENTS(function_type.return_types[0].get_description(&main_function_arena))
-                        );
-
-                        return err();
-                    }
-
-                    auto found = false;
-                    for(auto job : jobs) {
-                        if(job.kind == JobKind::GenerateFunction) {
-                            auto generate_function = job.generate_function;
-
-                            if(
-                                AnyType(generate_function.type) == AnyType(function_type) &&
-                                generate_function.value.declaration == function_value.declaration &&
-                                generate_function.value.body_scope == function_value.body_scope
-                            ) {
-                                found = true;
-
-                                main_function = generate_function.function;
-
-                                break;
-                            }
-                        }
-                    }
-                    assert(found);
-                }
-            }
-        }
-
         if(!did_work) {
             break;
         }
@@ -1156,92 +902,92 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
 
     auto all_jobs_done = true;
     for(auto job : jobs) {
-        if(job.state != JobState::Done) {
+        if(job->state != JobState::Done) {
             all_jobs_done = false;
         }
     }
 
-    if(!all_jobs_done || main_function == nullptr) {
+    if(!all_jobs_done) {
         fprintf(stderr, "Error: Circular dependency detected!\n");
         fprintf(stderr, "Error: The following areas depend on eathother:\n");
 
         for(auto job : jobs) {
-            if(job.state != JobState::Done) {
+            if(job->state != JobState::Done) {
                 ConstantScope* scope;
                 FileRange range;
-                switch(job.kind) {
+                switch(job->kind) {
                     case JobKind::ParseFile: {
                         abort();
                     } break;
 
-                    case JobKind::ResolveStaticIf: {
-                        auto resolve_static_if = job.resolve_static_if;
+                    case JobKind::TypeStaticIf: {
+                        auto type_static_if = job->type_static_if;
 
-                        scope = resolve_static_if.scope;
-                        range = resolve_static_if.static_if->range;
+                        scope = type_static_if.scope;
+                        range = type_static_if.static_if->range;
                     } break;
 
-                    case JobKind::ResolveFunctionDeclaration: {
-                        auto resolve_function_declaration = job.resolve_function_declaration;
+                    case JobKind::TypeFunctionDeclaration: {
+                        auto type_function_declaration = job->type_function_declaration;
 
-                        scope = resolve_function_declaration.scope;
-                        range = resolve_function_declaration.declaration->range;
+                        scope = type_function_declaration.scope;
+                        range = type_function_declaration.declaration->range;
                     } break;
 
-                    case JobKind::ResolvePolymorphicFunction: {
-                        auto resolve_polymorphic_function = job.resolve_polymorphic_function;
+                    case JobKind::TypePolymorphicFunction: {
+                        auto type_polymorphic_function = job->type_polymorphic_function;
 
-                        scope = resolve_polymorphic_function.scope;
-                        range = resolve_polymorphic_function.declaration->range;
+                        scope = type_polymorphic_function.scope;
+                        range = type_polymorphic_function.declaration->range;
                     } break;
 
-                    case JobKind::ResolveConstantDefinition: {
-                        auto resolve_constant_definition = job.resolve_constant_definition;
+                    case JobKind::TypeConstantDefinition: {
+                        auto type_constant_definition = job->type_constant_definition;
 
-                        scope = resolve_constant_definition.scope;
-                        range = resolve_constant_definition.definition->range;
+                        scope = type_constant_definition.scope;
+                        range = type_constant_definition.definition->range;
                     } break;
 
-                    case JobKind::ResolveStructDefinition: {
-                        auto resolve_struct_definition = job.resolve_struct_definition;
+                    case JobKind::TypeStructDefinition: {
+                        auto type_struct_definition = job->type_struct_definition;
 
-                        scope = resolve_struct_definition.scope;
-                        range = resolve_struct_definition.definition->range;
+                        scope = type_struct_definition.scope;
+                        range = type_struct_definition.definition->range;
                     } break;
 
-                    case JobKind::ResolvePolymorphicStruct: {
-                        auto resolve_polymorphic_struct = job.resolve_polymorphic_struct;
+                    case JobKind::TypePolymorphicStruct: {
+                        auto type_polymorphic_struct = job->type_polymorphic_struct;
 
-                        scope = resolve_polymorphic_struct.scope;
-                        range = resolve_polymorphic_struct.definition->range;
+                        scope = type_polymorphic_struct.scope;
+                        range = type_polymorphic_struct.definition->range;
                     } break;
 
-                    case JobKind::ResolveUnionDefinition: {
-                        auto resolve_union_definition = job.resolve_union_definition;
+                    case JobKind::TypeUnionDefinition: {
+                        auto type_union_definition = job->type_union_definition;
 
-                        scope = resolve_union_definition.scope;
-                        range = resolve_union_definition.definition->range;
+                        scope = type_union_definition.scope;
+                        range = type_union_definition.definition->range;
                     } break;
 
-                    case JobKind::ResolvePolymorphicUnion: {
-                        auto resolve_polymorphic_union = job.resolve_polymorphic_union;
+                    case JobKind::TypePolymorphicUnion: {
+                        auto type_polymorphic_union = job->type_polymorphic_union;
 
-                        scope = resolve_polymorphic_union.scope;
-                        range = resolve_polymorphic_union.definition->range;
+                        scope = type_polymorphic_union.scope;
+                        range = type_polymorphic_union.definition->range;
                     } break;
 
-                    case JobKind::GenerateFunction: {
-                        auto generate_function = job.generate_function;
+                    case JobKind::TypeFunctionBody: {
+                        auto type_function_body = job->type_function_body;
 
-                        scope = generate_function.value.body_scope->parent;
-                        range = generate_function.value.declaration->range;
+                        scope = type_function_body.value.body_scope->parent;
+                        range = type_function_body.value.declaration->range;
                     } break;
 
-                    case JobKind::GenerateStaticVariable: {
-                        auto generate_static_variable = job.generate_static_variable;
+                    case JobKind::TypeStaticVariable: {
+                        auto type_static_variable = job->type_static_variable;
 
-                        scope = generate_static_variable.scope;
-                        range = generate_static_variable.declaration->range;
+                        scope = type_static_variable.scope;
+                        range = type_static_variable.declaration->range;
                     } break;
 
                     default: abort();
@@ -1252,6 +998,209 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
         }
 
         return err();
+    }
+
+    auto main_search_result = search_for_main(
+        info,
+        &jobs,
+        &global_arena,
+        &global_arena,
+        jobs[main_file_parse_job_index]->parse_file.scope
+    );
+
+    assert(main_search_result.has_value);
+
+    if(!main_search_result.status) {
+        return err();
+    }
+
+    List<TypedFunction> typed_functions(&global_arena);
+    List<TypedStaticVariable> typed_static_variables(&global_arena);
+    for(auto job : jobs) {
+        if(job->kind == JobKind::TypeFunctionDeclaration) {
+            if(job->type_function_declaration.type.kind == TypeKind::FunctionTypeType) {
+                TypedFunction typed_function {};
+                typed_function.type = job->type_function_declaration.type.function;
+                typed_function.constant = job->type_function_declaration.value.unwrap_function();
+
+                typed_function.function = global_arena.allocate_and_construct<Function>();
+
+                typed_functions.append(typed_function);
+            }
+        } else if(job->kind == JobKind::TypePolymorphicFunction) {
+            TypedFunction typed_function {};
+            typed_function.type = job->type_polymorphic_function.type;
+            typed_function.constant = job->type_polymorphic_function.value;
+
+            typed_function.function = global_arena.allocate_and_construct<Function>();
+
+            typed_functions.append(typed_function);
+        } else if(job->kind == JobKind::TypeStaticVariable) {
+            TypedStaticVariable typed_static_variable {};
+            typed_static_variable.type = job->type_static_variable.actual_type;
+            typed_static_variable.scope = job->type_static_variable.scope;
+            typed_static_variable.declaration = job->type_static_variable.declaration;
+
+            typed_static_variable.static_variable = global_arena.allocate_and_construct<StaticVariable>();
+
+            typed_static_variables.append(typed_static_variable);
+        }
+    }
+
+    List<RuntimeStatic*> runtime_statics(&global_arena);
+    List<String> libraries(&global_arena);
+
+    if(os == u8"windows"_S || os == u8"mingw"_S) {
+        libraries.append(u8"kernel32"_S);
+    }
+
+    auto found_main_function = false;
+    Function* main_function;
+    for(auto typed_function : typed_functions) {
+        auto start_time = get_timer_counts();
+
+        if(
+            AnyType(typed_function.type) == AnyType(main_search_result.value.type) &&
+            typed_function.constant.body_scope == main_search_result.value.value.body_scope &&
+            typed_function.constant.declaration == main_search_result.value.value.declaration
+        ) {
+            found_main_function = true;
+            main_function = typed_function.function;
+        }
+
+        auto found = false;
+        Array<TypedStatement> statements;
+        for(auto job : jobs) {
+            if(
+                job->kind == JobKind::TypeFunctionBody &&
+                AnyType(typed_function.type) == AnyType(job->type_function_body.type) &&
+                typed_function.constant.body_scope == job->type_function_body.value.body_scope &&
+                typed_function.constant.declaration == job->type_function_body.value.declaration
+            ) {
+                found = true;
+                statements = job->type_function_body.statements;
+                break;
+            }
+        }
+
+        assert(found);
+
+        auto static_constants = do_generate_function(
+            info,
+            typed_functions,
+            typed_static_variables,
+            &global_arena,
+            typed_function.type,
+            typed_function.constant,
+            statements,
+            typed_function.function
+        );
+
+        runtime_statics.append(typed_function.function);
+
+        if(typed_function.function->is_external) {
+            for(auto library : typed_function.function->libraries) {
+                auto already_registered = false;
+                for(auto registered_library : libraries) {
+                    if(registered_library == library) {
+                        already_registered = true;
+                        break;
+                    }
+                }
+
+                if(!already_registered) {
+                    libraries.append(library);
+                }
+            }
+        }
+
+        for(auto static_constant : static_constants) {
+            runtime_statics.append(static_constant);
+        }
+
+        auto end_time = get_timer_counts();
+
+        total_generator_time += end_time - start_time;
+
+        if(print_ir) {
+            printf("%.*s:\n", STRING_PRINTF_ARGUMENTS(typed_function.function->path));
+            typed_function.function->print();
+            printf("\n");
+        }
+    }
+
+    assert(found_main_function);
+
+    for(auto typed_static_variable : typed_static_variables) {
+        auto start_time = get_timer_counts();
+
+        auto found = false;
+        bool is_external;
+        bool is_no_mangle;
+        TypedExpression type;
+        TypedExpression initializer;
+        AnyType actual_type;
+        Array<String> external_libraries;
+        for(auto job : jobs) {
+            if(
+                job->kind == JobKind::TypeStaticVariable &&
+                typed_static_variable.scope == job->type_static_variable.scope &&
+                typed_static_variable.declaration == job->type_static_variable.declaration
+            ) {
+                found = true;
+                is_external = job->type_static_variable.is_external;
+                is_no_mangle = job->type_static_variable.is_no_mangle;
+                type = job->type_static_variable.type;
+                initializer = job->type_static_variable.initializer;
+                actual_type = job->type_static_variable.actual_type;
+                external_libraries = job->type_static_variable.external_libraries;
+                break;
+            }
+        }
+
+        assert(found);
+
+        do_generate_static_variable(
+            info,
+            &global_arena,
+            typed_static_variable.declaration,
+            typed_static_variable.scope,
+            is_external,
+            is_no_mangle,
+            type,
+            initializer,
+            actual_type,
+            external_libraries,
+            typed_static_variable.static_variable
+        );
+
+        runtime_statics.append(typed_static_variable.static_variable);
+
+        if(typed_static_variable.static_variable->is_external) {
+            for(auto library : typed_static_variable.static_variable->libraries) {
+                auto already_registered = false;
+                for(auto registered_library : libraries) {
+                    if(registered_library == library) {
+                        already_registered = true;
+                        break;
+                    }
+                }
+
+                if(!already_registered) {
+                    libraries.append(library);
+                }
+            }
+        }
+
+        auto end_time = get_timer_counts();
+
+        total_generator_time += end_time - start_time;
+
+        if(print_ir) {
+            printf("%.*s:\n", STRING_PRINTF_ARGUMENTS(typed_static_variable.scope->get_file_path()));
+            typed_static_variable.static_variable->print();
+            printf("\n");
+        }
     }
 
     expect(output_file_directory, path_get_directory_component(&global_arena, output_file_path));

@@ -89,8 +89,11 @@ set(compiler_sources
     src/types.h
     src/types.cpp
 
-    src/constant.h
-    src/constant.cpp
+    src/typed_tree.h
+    src/typed_tree.cpp
+
+    src/typed_tree_generator.h
+    src/typed_tree_generator.cpp
 
     src/hl_generator.h
     src/hl_generator.cpp

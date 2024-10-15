@@ -101,6 +101,7 @@ struct TypeStaticVariable {
     ConstantScope* scope;
 
     bool is_external;
+    bool is_no_mangle;
     TypedExpression type;
     TypedExpression initializer;
     AnyType actual_type;

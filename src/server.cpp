@@ -558,6 +558,7 @@ static Result<void> compile_source_file(GlobalInfo info, SourceFile* file) {
 
                             job->state = JobState::Done;
                             job->type_static_variable.is_external = result.value.is_external;
+                            job->type_static_variable.is_no_mangle = result.value.is_no_mangle;
                             job->type_static_variable.type = result.value.type;
                             job->type_static_variable.initializer = result.value.initializer;
                             job->type_static_variable.actual_type = result.value.actual_type;
@@ -1418,14 +1419,11 @@ static Result<RangeInfo> get_statement_range_info(TypedStatement top_statement, 
                 ));
             }
 
-            if(
-                current_statement.variable_declaration.has_initializer &&
-                is_position_in_range(
-                    current_statement.variable_declaration.initializer.range,
-                    line,
-                    column
-                )
-            ) {
+            if(is_position_in_range(
+                current_statement.variable_declaration.initializer.range,
+                line,
+                column
+            )) {
                 return ok(get_expression_range_info(
                     current_statement.variable_declaration.initializer,
                     line,

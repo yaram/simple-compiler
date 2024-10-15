@@ -3535,10 +3535,8 @@ profiled_function(Array<StaticConstant*>, do_generate_function, (
     }
 }
 
-profiled_function(StaticVariable*, do_generate_static_variable, (
+profiled_function(void, do_generate_static_variable, (
     GlobalInfo info,
-    Array<TypedFunction> functions,
-    Array<TypedStaticVariable> static_variables,
     Arena* arena,
     VariableDeclaration* declaration,
     ConstantScope* scope,
@@ -3547,11 +3545,10 @@ profiled_function(StaticVariable*, do_generate_static_variable, (
     TypedExpression type,
     TypedExpression initializer,
     AnyType actual_type,
-    Array<String> external_libraries
+    Array<String> external_libraries,
+    StaticVariable* static_variable
 ), (
     info,
-    functions,
-    static_variables,
     arena,
     declaration,
     scope,
@@ -3560,7 +3557,8 @@ profiled_function(StaticVariable*, do_generate_static_variable, (
     type,
     initializer,
     actual_type,
-    external_libraries
+    external_libraries,
+    static_variable
 )) {
     assert(!(is_external && is_no_mangle));
 
@@ -3571,7 +3569,6 @@ profiled_function(StaticVariable*, do_generate_static_variable, (
     if(is_external) {
         assert(declaration->initializer == nullptr);
 
-        auto static_variable = arena->allocate_and_construct<StaticVariable>();
         static_variable->name = declaration->name.text;
         static_variable->is_no_mangle = true;
         static_variable->path = scope->get_file_path();
@@ -3580,8 +3577,6 @@ profiled_function(StaticVariable*, do_generate_static_variable, (
         static_variable->is_external = true;
         static_variable->libraries = external_libraries;
         static_variable->debug_type = actual_type;
-
-        return static_variable;
     } else {
         assert(declaration->initializer != nullptr);
 
@@ -3589,7 +3584,6 @@ profiled_function(StaticVariable*, do_generate_static_variable, (
 
         auto ir_initial_value = get_runtime_ir_constant_value(arena, initial_value);
 
-        auto static_variable = arena->allocate_and_construct<StaticVariable>();
         static_variable->name = declaration->name.text;
         static_variable->path = scope->get_file_path();
         static_variable->range = declaration->range;
@@ -3599,7 +3593,5 @@ profiled_function(StaticVariable*, do_generate_static_variable, (
         static_variable->has_initial_value = true;
         static_variable->initial_value = ir_initial_value;
         static_variable->debug_type = actual_type;
-
-        return static_variable;
     }
 }
