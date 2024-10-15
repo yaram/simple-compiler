@@ -1,4 +1,5 @@
 #include "typed_tree.h"
+#include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <inttypes.h>
@@ -16,7 +17,8 @@ String AnyConstantValue::get_description(Arena* arena) {
 
         String string {};
         string.length = (size_t)length;
-        string.elements = (char8_t*)buffer;
+        string.elements = arena->allocate<char8_t>((size_t)length);
+        memcpy(string.elements, buffer, (size_t)length);
 
         return string;
     } else if(kind == ConstantValueKind::FloatConstant) {
@@ -25,7 +27,8 @@ String AnyConstantValue::get_description(Arena* arena) {
 
         String string {};
         string.length = (size_t)length;
-        string.elements = (char8_t*)buffer;
+        string.elements = arena->allocate<char8_t>((size_t)length);
+        memcpy(string.elements, buffer, (size_t)length);
 
         return string;
     } else if(kind == ConstantValueKind::BooleanConstant) {
