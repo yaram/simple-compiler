@@ -10,7 +10,6 @@
 #include "list.h"
 #include "util.h"
 #include "string.h"
-#include "constant.h"
 #include "types.h"
 #include "jobs.h"
 
@@ -34,41 +33,32 @@ struct AddressedValue {
     size_t pointer_register;
 };
 
-struct UndeterminedStructValue {
-    inline UndeterminedStructValue() = default;
-    explicit inline UndeterminedStructValue(Array<AnyRuntimeValue> members) : members(members) {}
+struct RuntimeUndeterminedAggregateValue {
+    inline RuntimeUndeterminedAggregateValue() = default;
+    explicit inline RuntimeUndeterminedAggregateValue(Array<RegisterValue> values) : values(values) {}
 
-    Array<AnyRuntimeValue> members;
+    Array<RegisterValue> values;
 };
 
 enum struct RuntimeValueKind {
-    ConstantValue,
     RegisterValue,
     AddressedValue,
-    UndeterminedStructValue
+    RuntimeUndeterminedAggregateValue
 };
 
 struct AnyRuntimeValue {
     RuntimeValueKind kind;
 
     union {
-        AnyConstantValue constant;
         RegisterValue register_;
         AddressedValue addressed;
-        UndeterminedStructValue undetermined_struct;
+        RuntimeUndeterminedAggregateValue undetermined_aggregate;
     };
 
     inline AnyRuntimeValue() = default;
-    explicit inline AnyRuntimeValue(AnyConstantValue constant) : kind(RuntimeValueKind::ConstantValue), constant(constant) {}
     explicit inline AnyRuntimeValue(RegisterValue register_) : kind(RuntimeValueKind::RegisterValue), register_(register_) {}
     explicit inline AnyRuntimeValue(AddressedValue addressed) : kind(RuntimeValueKind::AddressedValue), addressed(addressed) {}
-    explicit inline AnyRuntimeValue(UndeterminedStructValue undetermined_struct) : kind(RuntimeValueKind::UndeterminedStructValue), undetermined_struct(undetermined_struct) {}
-
-    inline AnyConstantValue unwrap_constant_value() {
-        assert(kind == RuntimeValueKind::ConstantValue);
-
-        return constant;
-    }
+    explicit inline AnyRuntimeValue(RuntimeUndeterminedAggregateValue undetermined_aggregate) : kind(RuntimeValueKind::RuntimeUndeterminedAggregateValue), undetermined_aggregate(undetermined_aggregate) {}
 
     inline RegisterValue unwrap_register_value() {
         assert(kind == RuntimeValueKind::RegisterValue);
@@ -82,14 +72,14 @@ struct AnyRuntimeValue {
         return addressed;
     }
 
-    inline UndeterminedStructValue unwrap_undetermined_struct_value() {
-        assert(kind == RuntimeValueKind::UndeterminedStructValue);
+    inline RuntimeUndeterminedAggregateValue unwrap_undetermined_aggregate_value() {
+        assert(kind == RuntimeValueKind::RuntimeUndeterminedAggregateValue);
 
-        return undetermined_struct;
+        return undetermined_aggregate;
     }
 };
 
-struct Variable {
+struct RuntimeVariable {
     Identifier name;
 
     AnyType type;
@@ -97,10 +87,8 @@ struct Variable {
     AddressedValue value;
 };
 
-struct VariableScope {
-    ConstantScope* constant_scope;
-
-    List<Variable> variables;
+struct RuntimeVariableScope {
+    Array<RuntimeVariable> variables;
 
     size_t debug_scope_index;
 };
@@ -113,10 +101,10 @@ struct GenerationContext {
     Array<ConstantScope*> child_scopes;
     size_t next_child_scope_index;
 
-    bool in_breakable_scope;
     Block* break_end_block;
 
-    List<VariableScope> variable_scope_stack;
+    List<RuntimeVariableScope> variable_scope_stack;
+    VariableScope* current_variable_scope;
 
     List<DebugScope> debug_scopes;
 
@@ -127,30 +115,10 @@ struct GenerationContext {
     size_t next_register;
 
     List<StaticConstant*> static_constants;
+
+    Array<TypedFunction> functions;
+    Array<TypedStaticVariable> static_variables;
 };
-
-static Result<void> add_new_variable(GenerationContext* context, Identifier name, AnyType type, AddressedValue value) {
-    assert(context->variable_scope_stack.length != 0);
-    auto variable_scope = &(context->variable_scope_stack[context->variable_scope_stack.length - 1]);
-
-    for(auto variable : variable_scope->variables) {
-        if(variable.name.text == name.text) {
-            error(variable_scope->constant_scope, name.range, "Duplicate variable name %.*s", STRING_PRINTF_ARGUMENTS(name.text));
-            error(variable_scope->constant_scope, variable.name.range, "Original declared here");
-
-            return err();
-        }
-    }
-
-    Variable variable {};
-    variable.name = name;
-    variable.type = type;
-    variable.value = value;
-
-    variable_scope->variables.append(variable);
-
-    return ok();
-}
 
 struct TypedRuntimeValue {
     inline TypedRuntimeValue() = default;
@@ -887,27 +855,17 @@ inline IRConstantValue get_array_ir_constant_value(Arena* arena, ArrayConstant a
 
     members[1] = get_runtime_ir_constant_value(arena, *array.pointer);
 
-    return IRConstantValue::create_struct(Array(2, members));
+    return IRConstantValue::create_aggregate(Array(2, members));
 }
 
-inline IRConstantValue get_static_array_ir_constant_value(Arena* arena, StaticArrayConstant static_array) {
-    auto elements = arena->allocate<IRConstantValue>(static_array.elements.length);
+inline IRConstantValue get_aggregate_ir_constant_value(Arena* arena, AggregateConstant aggregate) {
+    auto values = arena->allocate<IRConstantValue>(aggregate.values.length);
 
-    for(size_t i = 0; i < static_array.elements.length; i += 1) {
-        elements[i] = get_runtime_ir_constant_value(arena, static_array.elements[i]);
+    for(size_t i = 0; i < aggregate.values.length; i += 1) {
+        values[i] = get_runtime_ir_constant_value(arena, aggregate.values[i]);
     }
 
-    return IRConstantValue::create_static_array(Array(static_array.elements.length, elements));
-}
-
-inline IRConstantValue get_struct_ir_constant_value(Arena* arena, StructConstant struct_) {
-    auto members = arena->allocate<IRConstantValue>(struct_.members.length);
-
-    for(size_t i = 0; i < struct_.members.length; i += 1) {
-        members[i] = get_runtime_ir_constant_value(arena, struct_.members[i]);
-    }
-
-    return IRConstantValue::create_struct(Array(struct_.members.length, members));
+    return IRConstantValue::create_aggregate(Array(aggregate.values.length, values));
 }
 
 static IRConstantValue get_runtime_ir_constant_value(Arena* arena, AnyConstantValue value) {
@@ -919,10 +877,8 @@ static IRConstantValue get_runtime_ir_constant_value(Arena* arena, AnyConstantVa
         return IRConstantValue::create_boolean(value.boolean);
     } else if(value.kind == ConstantValueKind::ArrayConstant) {
         return get_array_ir_constant_value(arena, value.array);
-    } else if(value.kind == ConstantValueKind::StaticArrayConstant) {
-        return get_static_array_ir_constant_value(arena, value.static_array);
-    } else if(value.kind == ConstantValueKind::StructConstant) {
-        return get_struct_ir_constant_value(arena, value.struct_);
+    } else if(value.kind == ConstantValueKind::AggregateConstant) {
+        return get_aggregate_ir_constant_value(arena, value.aggregate);
     } else if(value.kind == ConstantValueKind::UndefConstant) {
         return IRConstantValue::create_undef();
     } else {
@@ -944,7 +900,7 @@ static StaticConstant* register_static_constant(
     auto constant = context->arena->allocate_and_construct<StaticConstant>();
     constant->name = u8"static_constant"_S;
     constant->is_no_mangle = false;
-    constant->path = get_scope_file_path(*scope);
+    constant->path = scope->get_file_path();
     constant->range = range;
     constant->debug_type = type;
     constant->type = ir_type;
@@ -961,13 +917,7 @@ static size_t generate_in_register_value(
     IRType type,
     AnyRuntimeValue value
 ) {
-    if(value.kind == RuntimeValueKind::ConstantValue) {
-        auto constant_value = value.constant;
-
-        auto ir_constant_value = get_runtime_ir_constant_value(context->arena, constant_value);
-
-        return append_literal(context, range, type, ir_constant_value);
-    } else if(value.kind == RuntimeValueKind::RegisterValue) {
+    if(value.kind == RuntimeValueKind::RegisterValue) {
         auto register_value = value.register_;
 
         assert(register_value.type == type);
@@ -984,833 +934,498 @@ static size_t generate_in_register_value(
     }
 }
 
-static Result<RegisterValue> coerce_to_integer_register_value(
-    ConstantScope* scope,
-    GenerationContext* context,
-    FileRange range,
-    AnyType type,
-    AnyRuntimeValue value,
-    Integer target_type,
-    bool probing
-) {
-    auto ir_type = IRType::create_integer(target_type.size);
-
-    if(type.kind == TypeKind::Integer) {
-        auto integer = type.integer;
-
-        if(integer.size == target_type.size && integer.is_signed == target_type.is_signed) {
-            auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-            return ok(RegisterValue(ir_type, register_index));
-        }
-    } else if(type.kind == TypeKind::UndeterminedInteger) {
-        auto integer_value = value.unwrap_constant_value().unwrap_integer();
-
-        expect_void(check_undetermined_integer_to_integer_coercion(context->arena, scope, range, target_type, (int64_t)integer_value, probing));
-
-        auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_integer(integer_value));
-
-        return ok(RegisterValue(ir_type, register_index));
-    } else if(type.kind == TypeKind::Enum) {
-        auto enum_ = type.enum_;
-
-        if(enum_.backing_type->is_signed == target_type.is_signed && enum_.backing_type->size == target_type.size) {
-            auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-            return ok(RegisterValue(ir_type, register_index));
-        }
-    } else if(type.kind == TypeKind::Undef) {
-        auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-        return ok(RegisterValue(ir_type, register_index));
-    }
-
-    if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description(context->arena)));
-    }
-
-    return err();
-}
-
-static Result<RegisterValue> coerce_to_float_register_value(
-    ConstantScope* scope,
-    GenerationContext* context,
-    FileRange range,
-    AnyType type,
-    AnyRuntimeValue value,
-    FloatType target_type,
-    bool probing
-) {
-    auto ir_type = IRType::create_float(target_type.size);
-
-    if(type.kind == TypeKind::UndeterminedInteger) {
-        auto integer_value = value.unwrap_constant_value().unwrap_integer();
-
-        auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_float((double)integer_value));
-
-        return ok(RegisterValue(ir_type, register_index));
-    } else if(type.kind == TypeKind::FloatType) {
-        auto float_type = type.float_;
-
-        if(target_type.size == float_type.size) {
-            auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-            return ok(RegisterValue(ir_type, register_index));
-        }
-    } else if(type.kind == TypeKind::UndeterminedFloat) {
-        auto float_value = value.unwrap_constant_value().unwrap_float();
-
-        auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_float(float_value));
-
-        return ok(RegisterValue(ir_type, register_index));
-    } else if(type.kind == TypeKind::Undef) {
-        auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-        return ok(RegisterValue(ir_type, register_index));
-    }
-
-    if(!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description(context->arena)));
-    }
-
-    return err();
-}
-
-static Result<RegisterValue> coerce_to_pointer_register_value(
+static RegisterValue convert_to_type_register(
     GlobalInfo info,
     ConstantScope* scope,
     GenerationContext* context,
     FileRange range,
     AnyType type,
     AnyRuntimeValue value,
-    Pointer target_type,
-    bool probing
+    AnyType target_type
 ) {
-    auto ir_type = IRType::create_pointer();
-
-    if(type.kind == TypeKind::UndeterminedInteger) {
-        auto integer_value = value.unwrap_constant_value().unwrap_integer();
-
-        auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_integer(integer_value));
-
-        return ok(RegisterValue(ir_type, register_index));
-    } else if(type.kind == TypeKind::Pointer) {
-        auto pointer = type.pointer;
-
-        if(*pointer.pointed_to_type == *target_type.pointed_to_type) {
-            auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-            return ok(RegisterValue(ir_type, register_index));
-        }
-    } else if(type.kind == TypeKind::Undef) {
-        auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-        return ok(RegisterValue(ir_type, register_index));
-    }
-
-    if (!probing) {
-        error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(AnyType(target_type).get_description(context->arena)));
-    }
-
-    return err();
-}
-
-
-static Result<RegisterValue> coerce_to_type_register(
-    GlobalInfo info,
-    ConstantScope* scope,
-    GenerationContext* context,
-    FileRange range,
-    AnyType type,
-    AnyRuntimeValue value,
-    AnyType target_type,
-    bool probing
-) {
+    IRType target_ir_type;
+    size_t register_index;
     if(target_type.kind == TypeKind::Integer) {
-        auto integer = target_type.integer;
+        auto target_integer = target_type.integer;
 
-        expect(register_value, coerce_to_integer_register_value(
-            scope,
-            context,
-            range,
-            type,
-            value,
-            integer,
-            probing
-        ));
-
-        return ok(register_value);
-    } else if(target_type.kind == TypeKind::Boolean) {
-        auto ir_type = IRType::create_boolean();
-
-        if(type.kind == TypeKind::Boolean) {
-            auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-            return ok(RegisterValue(ir_type, register_index));
-        } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-            return ok(RegisterValue(ir_type, register_index));
-        }
-    } else if(target_type.kind == TypeKind::FloatType) {
-        auto float_type = target_type.float_;
-
-        expect(register_index, coerce_to_float_register_value(
-            scope,
-            context,
-            range,
-            type,
-            value,
-            float_type,
-            probing
-        ));
-
-        return ok(register_index);
-    } else if(target_type.kind == TypeKind::Pointer) {
-        auto pointer = target_type.pointer;
-
-        expect(register_index, coerce_to_pointer_register_value(
-            info,
-            scope,
-            context,
-            range,
-            type,
-            value,
-            pointer,
-            probing
-        ));
-
-        return ok(register_index);
-    } else if(target_type.kind == TypeKind::ArrayTypeType) {
-        auto target_array = target_type.array;
-
-        auto ir_type = get_array_ir_type(context->arena, info.architecture_sizes, target_type.array);
-
-        if(type.kind == TypeKind::ArrayTypeType) {
-            auto array_type = type.array;
-            if(*target_array.element_type == *array_type.element_type) {
-                if(value.kind == RuntimeValueKind::ConstantValue) {
-                    if(value.constant.kind == ConstantValueKind::ArrayConstant) {
-                        auto array_value = value.constant.array;
-
-                        auto ir_value = get_array_ir_constant_value(context->arena, array_value);
-
-                        auto register_index = append_literal(context, range, ir_type, ir_value);
-
-                        return ok(RegisterValue(ir_type, register_index));
-                    }
-                } else if(value.kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = value.register_;
-
-                    auto register_index = register_value.register_index;
-
-                    return ok(RegisterValue(ir_type, register_index));
-                } else if(value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = value.addressed;
-
-                    auto register_index = append_load(context, range, addressed_value.pointer_register, ir_type);
-
-                    return ok(RegisterValue(ir_type, register_index));
-                } else {
-                    abort();
-                }
-            }
-        } else if(type.kind == TypeKind::StaticArray) {
-            auto static_array = type.static_array;
-
-            if(*target_array.element_type == *static_array.element_type) {
-                if(value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = value.addressed;
-
-                    auto length_register = append_literal(
-                        context,
-                        range,
-                        IRType::create_integer(info.architecture_sizes.address_size),
-                        IRConstantValue::create_integer(static_array.length)
-                    );
-
-                    auto element_ir_type = get_ir_type(context->arena, info.architecture_sizes, *target_array.element_type);
-
-                    auto member_registers = context->arena->allocate<size_t>(2);
-
-                    member_registers[0] = length_register;
-                    member_registers[1] = addressed_value.pointer_register;
-
-                    auto register_index = append_assemble_struct(context, range, Array(2, member_registers));
-
-                    return ok(RegisterValue(ir_type, register_index));
-                }
-            }
-        } else if(type.kind == TypeKind::UndeterminedStruct) {
-            auto undetermined_struct = type.undetermined_struct;
-
-            if(
-                undetermined_struct.members.length == 2 &&
-                undetermined_struct.members[0].name == u8"length"_S &&
-                undetermined_struct.members[1].name == u8"pointer"_S
-            ) {
-                if(value.kind == RuntimeValueKind::ConstantValue) {
-                    auto constant_value = value.constant;
-
-                    auto undetermined_struct_value = constant_value.unwrap_struct();
-
-                    auto length_result = coerce_to_integer_register_value(
-                        scope,
-                        context,
-                        range,
-                        undetermined_struct.members[0].type,
-                        AnyRuntimeValue(undetermined_struct_value.members[0]),
-                        Integer(
-                            info.architecture_sizes.address_size,
-                            false
-                        ),
-                        true
-                    );
-
-                    if(length_result.status) {
-                        auto pointer_result = coerce_to_pointer_register_value(
-                            info,
-                            scope,
-                            context,
-                            range,
-                            undetermined_struct.members[1].type,
-                            AnyRuntimeValue(undetermined_struct_value.members[1]),
-                            Pointer(target_array.element_type),
-                            true
-                        );
-
-                        if(pointer_result.status) {
-                            auto member_registers = context->arena->allocate<size_t>(2);
-
-                            member_registers[0] = length_result.value.register_index;
-                            member_registers[1] = pointer_result.value.register_index;
-
-                            auto register_index = append_assemble_struct(context, range, Array(2, member_registers));
-
-                            return ok(RegisterValue(ir_type, register_index));
-                        }
-                    }
-                } else if(value.kind == RuntimeValueKind::UndeterminedStructValue) {
-                    auto undetermined_struct_value = value.undetermined_struct;
-
-                    auto length_result = coerce_to_integer_register_value(
-                        scope,
-                        context,
-                        range,
-                        undetermined_struct.members[0].type,
-                        undetermined_struct_value.members[0],
-                        Integer(
-                            info.architecture_sizes.address_size,
-                            false
-                        ),
-                        true
-                    );
-
-                    if(length_result.status) {
-                        auto pointer_result = coerce_to_pointer_register_value(
-                            info,
-                            scope,
-                            context,
-                            range,
-                            undetermined_struct.members[1].type,
-                            undetermined_struct_value.members[1],
-                            Pointer(target_array.element_type),
-                            true
-                        );
-
-                        if(pointer_result.status) {
-                            auto member_registers = context->arena->allocate<size_t>(2);
-
-                            member_registers[0] = length_result.value.register_index;
-                            member_registers[1] = pointer_result.value.register_index;
-
-                            auto register_index = append_assemble_struct(context, range, Array(2, member_registers));
-
-                            return ok(RegisterValue(ir_type, register_index));
-                        }
-                    }
-                } else {
-                    abort();
-                }
-            }
-        } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-            return ok(RegisterValue(ir_type, register_index));
-        }
-    } else if(target_type.kind == TypeKind::StaticArray) {
-        auto target_static_array = target_type.static_array;
-
-        auto ir_type = get_static_array_ir_type(context->arena, info.architecture_sizes, target_static_array);
-
-        if(type.kind == TypeKind::StaticArray) {
-            auto static_array = type.static_array;
-
-            if(*target_static_array.element_type == *static_array.element_type && target_static_array.length == static_array.length) {
-                size_t register_index;
-                if(value.kind == RuntimeValueKind::ConstantValue) {
-                    auto constant_value = value.constant;
-
-                    auto ir_constant_value = get_runtime_ir_constant_value(context->arena, constant_value);
-
-                    register_index = append_literal(
-                        context,
-                        range,
-                        ir_type,
-                        ir_constant_value
-                    );
-                } else if(value.kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = value.register_;
-
-                    register_index = register_value.register_index;
-                } else if(value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = value.addressed;
-
-                    register_index = append_load(context, range, addressed_value.pointer_register, ir_type);
-                } else {
-                    abort();
-                }
-
-                return ok(RegisterValue(ir_type, register_index));
-            }
-        } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-            return ok(RegisterValue(ir_type, register_index));
-        }
-    } else if(target_type.kind == TypeKind::StructType) {
-        auto target_struct_type = target_type.struct_;
-
-        auto ir_type = get_struct_ir_type(context->arena, info.architecture_sizes, target_struct_type);
-
-        if(type.kind == TypeKind::StructType) {
-            auto struct_type = type.struct_;
-
-            if(target_struct_type.definition == struct_type.definition && target_struct_type.members.length == struct_type.members.length) {
-                auto same_members = true;
-                for(size_t i = 0; i < struct_type.members.length; i += 1) {
-                    if(
-                        target_struct_type.members[i].name != struct_type.members[i].name ||
-                        target_struct_type.members[i].type != struct_type.members[i].type
-                    ) {
-                        same_members = false;
-
-                        break;
-                    }
-                }
-
-                if(same_members) {
-                    size_t register_index;
-                    if(value.kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = value.register_;
-
-                        register_index = register_value.register_index;
-                    } else if(value.kind == RuntimeValueKind::AddressedValue) {
-                        auto addressed_value = value.addressed;
-
-                        register_index = append_load(context, range, addressed_value.pointer_register, ir_type);
-                    } else {
-                        abort();
-                    }
-
-                    return ok(RegisterValue(ir_type, register_index));
-                }
-            }
-        } else if(type.kind == TypeKind::UndeterminedStruct) {
-            auto undetermined_struct = type.undetermined_struct;
-
-            if(value.kind == RuntimeValueKind::ConstantValue) {
-                auto constant_value = value.constant;
-
-                auto undetermined_struct_value = constant_value.unwrap_struct();
-
-                if(target_struct_type.members.length == undetermined_struct.members.length) {
-                    auto same_members = true;
-                    for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
-                        if(target_struct_type.members[i].name != undetermined_struct.members[i].name) {
-                            same_members = false;
-
-                            break;
-                        }
-                    }
-
-                    if(same_members) {
-                        auto member_registers = context->arena->allocate<size_t>(undetermined_struct.members.length);
-
-                        auto success = true;
-                        for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
-                            auto result = coerce_to_type_register(
-                                info,
-                                scope,
-                                context,
-                                range,
-                                undetermined_struct.members[i].type,
-                                AnyRuntimeValue(undetermined_struct_value.members[i]),
-                                target_struct_type.members[i].type,
-                                true
-                            );
-
-                            if(!result.status) {
-                                success = false;
-
-                                break;
-                            }
-
-                            member_registers[i] = result.value.register_index;
-                        }
-
-                        if(success) {
-                            auto register_index = append_assemble_struct(
-                                context,
-                                range,
-                                Array(undetermined_struct.members.length, member_registers)
-                            );
-
-                            return ok(RegisterValue(ir_type, register_index));
-                        }
-                    }
-                }
-            } else if(value.kind == RuntimeValueKind::UndeterminedStructValue) {
-                auto undetermined_struct_value = value.undetermined_struct;
-
-                if(target_struct_type.members.length == undetermined_struct.members.length) {
-                    auto same_members = true;
-                    for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
-                        if(target_struct_type.members[i].name != undetermined_struct.members[i].name) {
-                            same_members = false;
-
-                            break;
-                        }
-                    }
-
-                    if(same_members) {
-                        auto member_registers = context->arena->allocate<size_t>(undetermined_struct.members.length);
-
-                        auto success = true;
-                        for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
-                            auto result = coerce_to_type_register(
-                                info,
-                                scope,
-                                context,
-                                range,
-                                undetermined_struct.members[i].type,
-                                undetermined_struct_value.members[i],
-                                target_struct_type.members[i].type,
-                                true
-                            );
-
-                            if(!result.status) {
-                                success = false;
-
-                                break;
-                            }
-
-                            member_registers[i] = result.value.register_index;
-                        }
-
-                        if(success) {
-                            auto register_index = append_assemble_struct(
-                                context,
-                                range,
-                                Array(undetermined_struct.members.length, member_registers)
-                            );
-
-                            return ok(RegisterValue(ir_type, register_index));
-                        }
-                    }
-                }
-            } else {
-                abort();
-            }
-        } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-            return ok(RegisterValue(ir_type, register_index));
-        }
-    } else if(target_type.kind == TypeKind::UnionType) {
-        auto target_union_type = target_type.union_;
-
-        auto ir_type = get_union_ir_type(context->arena, info.architecture_sizes, target_union_type);
-
-        if(type.kind == TypeKind::UnionType) {
-            auto union_type = type.union_;
-
-            if(target_union_type.definition == union_type.definition && target_union_type.members.length == union_type.members.length) {
-                auto same_members = true;
-                for(size_t i = 0; i < union_type.members.length; i += 1) {
-                    if(
-                        target_union_type.members[i].name != union_type.members[i].name ||
-                        target_union_type.members[i].type != union_type.members[i].type
-                    ) {
-                        same_members = false;
-
-                        break;
-                    }
-                }
-
-                if(same_members) {
-                    size_t register_index;
-                    if(value.kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = value.register_;
-
-                        register_index = register_value.register_index;
-                    } else if(value.kind == RuntimeValueKind::AddressedValue) {
-                        auto addressed_value = value.addressed;
-
-                        register_index = append_load(context, range, addressed_value.pointer_register, ir_type);
-                    } else {
-                        abort();
-                    }
-
-                    return ok(RegisterValue(ir_type, register_index));
-                }
-            }
-        } else if(type.kind == TypeKind::UndeterminedStruct) {
-            auto undetermined_struct = type.undetermined_struct;
-
-            if(value.kind == RuntimeValueKind::ConstantValue) {
-                auto constant_value = value.constant;
-
-                auto undetermined_struct_value = constant_value.unwrap_struct();
-
-                if(undetermined_struct.members.length == 1) {
-                    for(size_t i = 0; i < target_union_type.members.length; i += 1) {
-                        if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
-                            auto pointer_register = append_allocate_local(
-                                context,
-                                range,
-                                ir_type
-                            );
-
-                            auto result = coerce_to_type_register(
-                                info,
-                                scope,
-                                context,
-                                range,
-                                undetermined_struct.members[0].type,
-                                AnyRuntimeValue(undetermined_struct_value.members[0]),
-                                target_union_type.members[i].type,
-                                true
-                            );
-
-                            if(result.status) {
-                                append_store(context, range, result.value.register_index, pointer_register);
-
-                                auto register_index = append_load(context, range, pointer_register, ir_type);
-
-                                return ok(RegisterValue(ir_type, register_index));
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                }
-            } else if(value.kind == RuntimeValueKind::UndeterminedStructValue) {
-                auto undetermined_struct_value = value.undetermined_struct;
-
-                if(undetermined_struct.members.length == 1) {
-                    for(size_t i = 0; i < target_union_type.members.length; i += 1) {
-                        if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
-                            auto pointer_register = append_allocate_local(
-                                context,
-                                range,
-                                ir_type
-                            );
-
-                            auto result = coerce_to_type_register(
-                                info,
-                                scope,
-                                context,
-                                range,
-                                undetermined_struct.members[0].type,
-                                undetermined_struct_value.members[0],
-                                target_union_type.members[i].type,
-                                true
-                            );
-
-                            if(result.status) {
-                                append_store(context, range, result.value.register_index, pointer_register);
-
-                                auto register_index = append_load(context, range, pointer_register, ir_type);
-
-                                return ok(RegisterValue(ir_type, register_index));
-                            } else {
-                                break;
-                            }
-                        }
-                    }
-                }
-            } else {
-                abort();
-            }
-        } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, range, ir_type, value);
-
-            return ok(RegisterValue(ir_type, register_index));
-        }
-    } else if(target_type.kind == TypeKind::Enum) {
-        auto target_enum = target_type.enum_;
-
-        auto ir_type = IRType::create_integer(target_enum.backing_type->size);
+        target_ir_type = IRType::create_integer(target_integer.size);
 
         if(type.kind == TypeKind::Integer) {
             auto integer = type.integer;
 
-            if(integer.size == target_enum.backing_type->size && integer.is_signed == target_enum.backing_type->is_signed) {
-                auto register_index = generate_in_register_value(context, range, ir_type, value);
+            auto ir_type = IRType::create_integer(integer.size);
 
-                return ok(RegisterValue(ir_type, register_index));
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            if(target_integer.size > integer.size) {
+                register_index = append_integer_extension(
+                    context,
+                    range,
+                    integer.is_signed,
+                    target_integer.size,
+                    value_register
+                );
+            } else if(target_integer.size < integer.size) {
+                register_index = append_integer_truncation(
+                    context,
+                    range,
+                    target_integer.size,
+                    value_register
+                );
+            } else {
+                register_index = value_register;
             }
-        } else if(type.kind == TypeKind::UndeterminedInteger) {
-            auto integer_value = value.unwrap_constant_value().unwrap_integer();
+        } else if(type.kind == TypeKind::FloatType) {
+            auto float_type = type.float_;
 
-            expect_void(check_undetermined_integer_to_integer_coercion(
-                context->arena,
-                scope,
+            auto ir_type = IRType::create_float(float_type.size);
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            register_index = append_integer_from_float(
+                context,
                 range,
-                *target_enum.backing_type,
-                (int64_t)integer_value, probing
-            ));
+                target_integer.is_signed,
+                target_integer.size,
+                value_register
+            );
+        } else if(type.kind == TypeKind::Pointer) {
+            auto pointer = type.pointer;
 
-            auto register_index = append_literal(context, range, ir_type, IRConstantValue::create_integer(integer_value));
+            auto ir_type = IRType::create_pointer();
 
-            return ok(RegisterValue(ir_type, register_index));
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            register_index = append_integer_from_pointer(
+                context,
+                range,
+                target_integer.size,
+                value_register
+            );
         } else if(type.kind == TypeKind::Enum) {
             auto enum_ = type.enum_;
 
-            if(target_enum.definition == enum_.definition) {
-                auto register_index = generate_in_register_value(context, range, ir_type, value);
+            auto ir_type = IRType::create_integer(enum_.backing_type->size);
 
-                return ok(RegisterValue(ir_type, register_index));
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            if(target_integer.size > enum_.backing_type->size) {
+                register_index = append_integer_extension(
+                    context,
+                    range,
+                    enum_.backing_type->is_signed,
+                    target_integer.size,
+                    value_register
+                );
+            } else if(target_integer.size < enum_.backing_type->size) {
+                register_index = append_integer_truncation(
+                    context,
+                    range,
+                    target_integer.size,
+                    value_register
+                );
+            } else {
+                register_index = value_register;
             }
-        } else if(type.kind == TypeKind::Undef) {
-            auto register_index = generate_in_register_value(context, range, ir_type, value);
+        } else {
+            abort();
+        }
+    } else if(target_type.kind == TypeKind::Boolean) {
+        target_ir_type = IRType::create_boolean();
 
-            return ok(RegisterValue(ir_type, register_index));
+        if(type.kind == TypeKind::Boolean) {
+            auto ir_type = IRType::create_boolean();
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            register_index = value_register;
+        } else {
+            abort();
+        }
+    } else if(target_type.kind == TypeKind::FloatType) {
+        auto target_float_type = target_type.float_;
+
+        target_ir_type = IRType::create_float(target_float_type.size);
+
+        if(type.kind == TypeKind::Integer) {
+            auto integer = type.integer;
+
+            auto ir_type = IRType::create_integer(integer.size);
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            register_index = append_float_from_integer(
+                context,
+                range,
+                integer.is_signed,
+                target_float_type.size,
+                value_register
+            );
+        } else if(type.kind == TypeKind::FloatType) {
+            auto float_type = type.float_;
+
+            auto ir_type = IRType::create_float(float_type.size);
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            if(target_float_type.size != float_type.size) {
+                register_index = append_float_conversion(
+                    context,
+                    range,
+                    target_float_type.size,
+                    value_register
+                );
+            } else {
+                register_index = value_register;
+            }
+        } else {
+            abort();
+        }
+    } else if(target_type.kind == TypeKind::Pointer) {
+        auto target_pointer = target_type.pointer;
+
+        target_ir_type = IRType::create_pointer();
+
+        if(type.kind == TypeKind::Integer) {
+            auto integer = type.integer;
+
+            auto ir_type = IRType::create_integer(integer.size);
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            register_index = append_pointer_from_integer(
+                context,
+                range,
+                value_register
+            );
+        } else if(type.kind == TypeKind::Pointer) {
+            auto pointer = type.pointer;
+
+            auto ir_type = IRType::create_pointer();
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            register_index = value_register;
+        }
+    } else if(target_type.kind == TypeKind::ArrayTypeType) {
+        auto target_array = target_type.array;
+
+        target_ir_type = get_array_ir_type(context->arena, info.architecture_sizes, target_array);
+
+        if(type.kind == TypeKind::ArrayTypeType) {
+            auto array_type = type.array;
+
+            assert(*target_array.element_type == *array_type.element_type);
+
+            auto ir_type = get_array_ir_type(context->arena, info.architecture_sizes, array_type);
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            register_index = value_register;
+        } else if(type.kind == TypeKind::StaticArray) {
+            auto static_array = type.static_array;
+
+            assert(*target_array.element_type == *static_array.element_type);
+            assert(value.kind == RuntimeValueKind::AddressedValue);
+
+            auto addressed_value = value.addressed;
+
+            auto length_register = append_literal(
+                context,
+                range,
+                IRType::create_integer(info.architecture_sizes.address_size),
+                IRConstantValue::create_integer(static_array.length)
+            );
+
+            auto element_ir_type = get_ir_type(context->arena, info.architecture_sizes, *target_array.element_type);
+
+            auto member_registers = context->arena->allocate<size_t>(2);
+
+            member_registers[0] = length_register;
+            member_registers[1] = addressed_value.pointer_register;
+
+            register_index = append_assemble_struct(context, range, Array(2, member_registers));
+        } else if(type.kind == TypeKind::UndeterminedStruct) {
+            auto undetermined_struct = type.undetermined_struct;
+
+            assert(undetermined_struct.members.length == 2);
+
+            assert(undetermined_struct.members[0].name == u8"length"_S);
+            assert(undetermined_struct.members[0].type.kind == TypeKind::Integer);
+            assert(undetermined_struct.members[0].type.integer.size == info.architecture_sizes.address_size);
+            assert(undetermined_struct.members[0].type.integer.is_signed == false);
+
+            assert(undetermined_struct.members[1].name == u8"pointer"_S);
+            assert(undetermined_struct.members[1].type.kind == TypeKind::Pointer);
+            assert(*undetermined_struct.members[1].type.pointer.pointed_to_type == *target_array.element_type);
+
+            assert(value.kind == RuntimeValueKind::RuntimeUndeterminedAggregateValue);
+
+            auto undetermined_aggregate_value = value.undetermined_aggregate;
+
+            auto length_ir_type = IRType::create_integer(info.architecture_sizes.address_size);
+
+            auto pointer_ir_type = IRType::create_pointer();
+
+            auto member_registers = context->arena->allocate<size_t>(2);
+
+            member_registers[0] = undetermined_aggregate_value.values[0].register_index;
+            member_registers[1] = undetermined_aggregate_value.values[1].register_index;
+
+            register_index = append_assemble_struct(context, range, Array(2, member_registers));
+        } else {
+            abort();
+        }
+    } else if(target_type.kind == TypeKind::StaticArray) {
+        auto target_static_array = target_type.static_array;
+
+        target_ir_type = get_static_array_ir_type(context->arena, info.architecture_sizes, target_static_array);
+
+        if(type.kind == TypeKind::StaticArray) {
+            auto static_array = type.static_array;
+
+            assert(*target_static_array.element_type == *static_array.element_type);
+            assert(target_static_array.length == static_array.length);
+
+            auto ir_type = get_static_array_ir_type(context->arena, info.architecture_sizes, static_array);
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            register_index = value_register;
+        } else {
+            abort();
+        }
+    } else if(target_type.kind == TypeKind::StructType) {
+        auto target_struct_type = target_type.struct_;
+
+        target_ir_type = get_struct_ir_type(context->arena, info.architecture_sizes, target_struct_type);
+
+        if(type.kind == TypeKind::StructType) {
+            auto struct_type = type.struct_;
+
+            assert(target_struct_type.definition == struct_type.definition);
+            assert(target_struct_type.members.length == struct_type.members.length);
+
+            auto same_members = true;
+            for(size_t i = 0; i < struct_type.members.length; i += 1) {
+                if(
+                    target_struct_type.members[i].name != struct_type.members[i].name ||
+                    target_struct_type.members[i].type != struct_type.members[i].type
+                ) {
+                    same_members = false;
+
+                    break;
+                }
+            }
+
+            assert(same_members);
+
+            auto ir_type = get_struct_ir_type(context->arena, info.architecture_sizes, struct_type);
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            register_index = value_register;
+        } else if(type.kind == TypeKind::UndeterminedStruct) {
+            auto undetermined_struct = type.undetermined_struct;
+
+            assert(value.kind == RuntimeValueKind::RuntimeUndeterminedAggregateValue);
+
+            auto undetermined_aggregate_value = value.undetermined_aggregate;
+
+            assert(target_struct_type.members.length == undetermined_struct.members.length);
+
+            auto same_members = true;
+            for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
+                if(target_struct_type.members[i].name != undetermined_struct.members[i].name) {
+                    same_members = false;
+
+                    break;
+                }
+            }
+
+            assert(same_members);
+
+            auto member_registers = context->arena->allocate<size_t>(undetermined_struct.members.length);
+
+            for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
+                member_registers[i] = undetermined_aggregate_value.values[i].register_index;
+            }
+
+            register_index = append_assemble_struct(
+                context,
+                range,
+                Array(undetermined_struct.members.length, member_registers)
+            );
+        } else {
+            abort();
+        }
+    } else if(target_type.kind == TypeKind::UnionType) {
+        auto target_union_type = target_type.union_;
+
+        target_ir_type = get_union_ir_type(context->arena, info.architecture_sizes, target_union_type);
+
+        if(type.kind == TypeKind::UnionType) {
+            auto union_type = type.union_;
+
+            assert(target_union_type.definition == union_type.definition);
+            assert(target_union_type.members.length == union_type.members.length);
+
+            auto same_members = true;
+            for(size_t i = 0; i < union_type.members.length; i += 1) {
+                if(
+                    target_union_type.members[i].name != union_type.members[i].name ||
+                    target_union_type.members[i].type != union_type.members[i].type
+                ) {
+                    same_members = false;
+
+                    break;
+                }
+            }
+
+            assert(same_members);
+
+            auto ir_type = get_union_ir_type(context->arena, info.architecture_sizes, union_type);
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            register_index = value_register;
+        } else if(type.kind == TypeKind::UndeterminedStruct) {
+            auto undetermined_struct = type.undetermined_struct;
+
+            assert(value.kind == RuntimeValueKind::RuntimeUndeterminedAggregateValue);
+            auto undetermined_aggregate_value = value.undetermined_aggregate;
+
+            assert(undetermined_struct.members.length == 1);
+
+            auto found = false;
+            for(size_t i = 0; i < target_union_type.members.length; i += 1) {
+                if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
+                    assert(target_union_type.members[i].type == undetermined_struct.members[0].type);
+
+                    auto pointer_register = append_allocate_local(
+                        context,
+                        range,
+                        target_ir_type
+                    );
+
+                    auto member_ir_type = get_ir_type(context->arena, info.architecture_sizes, target_union_type.members[i].type);
+
+                    auto value_register = generate_in_register_value(context, range, member_ir_type, value);
+
+                    append_store(context, range, value_register, pointer_register);
+
+                    register_index = append_load(context, range, pointer_register, target_ir_type);
+
+                    found = true;
+                    break;
+                }
+            }
+
+            assert(found);
+        } else {
+            abort();
+        }
+    } else if(target_type.kind == TypeKind::Enum) {
+        auto target_enum = target_type.enum_;
+
+        target_ir_type = IRType::create_integer(target_enum.backing_type->size);
+
+        if(type.kind == TypeKind::Integer) {
+            auto integer = type.integer;
+
+            auto ir_type = IRType::create_integer(integer.size);
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            if(target_enum.backing_type->size > integer.size) {
+                register_index = append_integer_extension(
+                    context,
+                    range,
+                    integer.is_signed,
+                    target_enum.backing_type->size,
+                    value_register
+                );
+            } else if(target_enum.backing_type->size < integer.size) {
+                register_index = append_integer_truncation(
+                    context,
+                    range,
+                    target_enum.backing_type->size,
+                    value_register
+                );
+            } else {
+                register_index = value_register;
+            }
+        } if(type.kind == TypeKind::Enum) {
+            auto enum_ = type.enum_;
+
+            assert(target_enum.definition == enum_.definition);
+
+            auto ir_type = IRType::create_integer(enum_.backing_type->size);
+
+            auto value_register = generate_in_register_value(context, range, ir_type, value);
+
+            register_index = value_register;
+        } else {
+            abort();
         }
     } else {
         abort();
     }
 
-    if(!probing) {
-        if(value.kind == RuntimeValueKind::ConstantValue) {
-            error(scope, range, "Cannot implicitly convert constant '%.*s' (%.*s) to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(value.constant.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(target_type.get_description(context->arena)));
-        } else if(value.kind == RuntimeValueKind::RegisterValue) {
-            error(scope, range, "Cannot implicitly convert anonymous '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(target_type.get_description(context->arena)));
-        } else {
-            error(scope, range, "Cannot implicitly convert '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(target_type.get_description(context->arena)));
-        }
-    }
-
-    return err();
+    return RegisterValue(target_ir_type, register_index);
 }
 
-static DelayedResult<TypedRuntimeValue> generate_expression(
+static AnyRuntimeValue generate_expression(
     GlobalInfo info,
-    List<AnyJob>* jobs,
+    List<AnyJob*>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
-    Expression* expression
+    TypedExpression expression
 );
 
-static DelayedResult<AnyType> evaluate_type_expression(
+static RegisterValue generate_binary_operation(
     GlobalInfo info,
-    List<AnyJob>* jobs,
-    ConstantScope* scope,
-    GenerationContext* context,
-    Expression* expression
-) {
-    expect_delayed(expression_value, generate_expression(info, jobs, scope, context, expression));
-
-    if(expression_value.type.kind == TypeKind::Type) {
-        auto constant_value = expression_value.value.unwrap_constant_value();
-
-        return ok(constant_value.unwrap_type());
-    } else {
-        error(scope, expression->range, "Expected a type, got %.*s", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
-
-        return err();
-    }
-}
-
-static DelayedResult<TypedRuntimeValue> generate_binary_operation(
-    GlobalInfo info,
-    List<AnyJob>* jobs,
+    List<AnyJob*>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
     FileRange range,
-    Expression* left_expression,
-    Expression* right_expression,
-    BinaryOperation::Operator binary_operator
+    BinaryOperationKind kind,
+    TypedExpression left,
+    TypedExpression right
 ) {
-    expect_delayed(left, generate_expression(info, jobs, scope, context, left_expression));
+    auto left_value = generate_expression(info, jobs, scope, context, left);
+    auto right_value = generate_expression(info, jobs, scope, context, right);
 
-    expect_delayed(right, generate_expression(info, jobs, scope, context, right_expression));
+    assert(left.type == right.type);
 
-    if(left.value.kind == RuntimeValueKind::ConstantValue && right.value.kind == RuntimeValueKind::ConstantValue) {
-        expect(constant, evaluate_constant_binary_operation(
-            context->arena,
-            info,
-            scope,
-            range,
-            binary_operator,
-            left_expression->range,
-            left.type,
-            left.value.constant,
-            right_expression->range,
-            right.type,
-            right.value.constant
-        ));
+    auto input_type = left.type;
 
-        return ok(TypedRuntimeValue(
-            constant.type,
-            AnyRuntimeValue(constant.value)
-        ));
-    }
+    auto input_ir_type = get_ir_type(context->arena, info.architecture_sizes, input_type);
 
-    expect(type, determine_binary_operation_type(context->arena, scope, range, left.type, right.type));
+    auto left_register = generate_in_register_value(context, left.range, input_ir_type, left_value);
+    auto right_register = generate_in_register_value(context, left.range, input_ir_type, right_value);
 
-    expect(determined_type, coerce_to_default_type(info, scope, range, type));
-
-    if(determined_type.kind == TypeKind::Integer) {
-        auto integer = determined_type.integer;
-
-        expect(left_register, coerce_to_integer_register_value(
-            scope,
-            context,
-            left_expression->range,
-            left.type,
-            left.value,
-            integer,
-            false
-        ));
-
-        expect(right_register, coerce_to_integer_register_value(
-            scope,
-            context,
-            right_expression->range,
-            right.type,
-            right.value,
-            integer,
-            false
-        ));
+    IRType result_ir_type;
+    size_t register_index;
+    if(input_type.kind == TypeKind::Integer) {
+        auto integer = input_type.integer;
 
         auto is_arithmetic = true;
         IntegerArithmeticOperation::Operation arithmetic_operation;
-        switch(binary_operator) {
-            case BinaryOperation::Operator::Addition: {
+        switch(kind) {
+            case BinaryOperationKind::Addition: {
                 arithmetic_operation = IntegerArithmeticOperation::Operation::Add;
             } break;
 
-            case BinaryOperation::Operator::Subtraction: {
+            case BinaryOperationKind::Subtraction: {
                 arithmetic_operation = IntegerArithmeticOperation::Operation::Subtract;
             } break;
 
-            case BinaryOperation::Operator::Multiplication: {
+            case BinaryOperationKind::Multiplication: {
                 arithmetic_operation = IntegerArithmeticOperation::Operation::Multiply;
             } break;
 
-            case BinaryOperation::Operator::Division: {
+            case BinaryOperationKind::Division: {
                 if(integer.is_signed) {
                     arithmetic_operation = IntegerArithmeticOperation::Operation::SignedDivide;
                 } else {
@@ -1818,7 +1433,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 }
             } break;
 
-            case BinaryOperation::Operator::Modulo: {
+            case BinaryOperationKind::Modulus: {
                 if(integer.is_signed) {
                     arithmetic_operation = IntegerArithmeticOperation::Operation::SignedModulus;
                 } else {
@@ -1826,19 +1441,19 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                 }
             } break;
 
-            case BinaryOperation::Operator::BitwiseAnd: {
+            case BinaryOperationKind::BitwiseAnd: {
                 arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseAnd;
             } break;
 
-            case BinaryOperation::Operator::BitwiseOr: {
+            case BinaryOperationKind::BitwiseOr: {
                 arithmetic_operation = IntegerArithmeticOperation::Operation::BitwiseOr;
             } break;
 
-            case BinaryOperation::Operator::LeftShift: {
+            case BinaryOperationKind::LeftShift: {
                 arithmetic_operation = IntegerArithmeticOperation::Operation::LeftShift;
             } break;
 
-            case BinaryOperation::Operator::RightShift: {
+            case BinaryOperationKind::RightShift: {
                 if(integer.is_signed) {
                     arithmetic_operation = IntegerArithmeticOperation::Operation::RightArithmeticShift;
                 } else {
@@ -1851,32 +1466,30 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             } break;
         }
 
-        size_t result_register;
-        AnyType result_type;
-        if(is_arithmetic) {
-            result_register = append_integer_arithmetic_operation(
+        if(!is_arithmetic) {
+            result_ir_type = IRType::create_integer(integer.size);
+
+            register_index = append_integer_arithmetic_operation(
                 context,
                 range,
                 arithmetic_operation,
-                left_register.register_index,
-                right_register.register_index
+                left_register,
+                right_register
             );
-
-            result_type = AnyType(integer);
         } else {
             IntegerComparisonOperation::Operation comparison_operation;
             auto invert = false;
-            switch(binary_operator) {
-                case BinaryOperation::Operator::Equal: {
+            switch(kind) {
+                case BinaryOperationKind::Equal: {
                     comparison_operation = IntegerComparisonOperation::Operation::Equal;
                 } break;
 
-                case BinaryOperation::Operator::NotEqual: {
+                case BinaryOperationKind::NotEqual: {
                     comparison_operation = IntegerComparisonOperation::Operation::Equal;
                     invert = true;
                 } break;
 
-                case BinaryOperation::Operator::LessThan: {
+                case BinaryOperationKind::LessThan: {
                     if(integer.is_signed) {
                         comparison_operation = IntegerComparisonOperation::Operation::SignedLessThan;
                     } else {
@@ -1884,7 +1497,7 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                     }
                 } break;
 
-                case BinaryOperation::Operator::GreaterThan: {
+                case BinaryOperationKind::GreaterThan: {
                     if(integer.is_signed) {
                         comparison_operation = IntegerComparisonOperation::Operation::SignedGreaterThan;
                     } else {
@@ -1892,61 +1505,34 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
                     }
                 } break;
 
-                default: {
-                    error(scope, range, "Cannot perform that operation on integers");
-
-                    return err();
-                } break;
+                default: abort();
             }
 
-            result_register = append_integer_comparison_operation(
+            result_ir_type = IRType::create_boolean();
+
+            register_index = append_integer_comparison_operation(
                 context,
                 range,
                 comparison_operation,
-                left_register.register_index,
-                right_register.register_index
+                left_register,
+                right_register
             );
 
             if(invert) {
-                result_register = append_boolean_inversion(context, range, result_register);
+                register_index = append_boolean_inversion(context, range, register_index);
             }
-
-            result_type = AnyType::create_boolean();
         }
-
-        auto result_ir_type = get_ir_type(context->arena, info.architecture_sizes, result_type);
-
-        return ok(TypedRuntimeValue(
-            result_type,
-            AnyRuntimeValue(RegisterValue(result_ir_type, result_register))
-        ));
-    } else if(determined_type.kind == TypeKind::Boolean) {
-        if(left.type.kind != TypeKind::Boolean) {
-            error(scope, left_expression->range, "Expected 'bool', got '%.*s'", STRING_PRINTF_ARGUMENTS(left.type.get_description(context->arena)));
-
-            return err();
-        }
-
-        auto ir_type = IRType::create_boolean();
-
-        auto left_register = generate_in_register_value(context, left_expression->range, ir_type, left.value);
-
-        if(right.type.kind != TypeKind::Boolean) {
-            error(scope, right_expression->range, "Expected 'bool', got '%.*s'", STRING_PRINTF_ARGUMENTS(right.type.get_description(context->arena)));
-
-            return err();
-        }
-
-        auto right_register = generate_in_register_value(context, right_expression->range, ir_type, right.value);
+    } else if(input_type.kind == TypeKind::Boolean) {
+        result_ir_type = IRType::create_boolean();
 
         auto is_arithmetic = true;
         BooleanArithmeticOperation::Operation arithmetic_operation;
-        switch(binary_operator) {
-            case BinaryOperation::Operator::BooleanAnd: {
+        switch(kind) {
+            case BinaryOperationKind::BooleanAnd: {
                 arithmetic_operation = BooleanArithmeticOperation::Operation::BooleanAnd;
             } break;
 
-            case BinaryOperation::Operator::BooleanOr: {
+            case BinaryOperationKind::BooleanOr: {
                 arithmetic_operation = BooleanArithmeticOperation::Operation::BooleanOr;
             } break;
 
@@ -1955,9 +1541,8 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             } break;
         }
 
-        size_t result_register;
         if(is_arithmetic) {
-            result_register = append_boolean_arithmetic_operation(
+            register_index = append_boolean_arithmetic_operation(
                 context,
                 range,
                 arithmetic_operation,
@@ -1966,21 +1551,17 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             );
         } else {
             auto invert = false;
-            switch(binary_operator) {
-                case BinaryOperation::Operator::Equal: {} break;
+            switch(kind) {
+                case BinaryOperationKind::Equal: {} break;
 
-                case BinaryOperation::Operator::NotEqual: {
+                case BinaryOperationKind::NotEqual: {
                     invert = true;
                 } break;
 
-                default: {
-                    error(scope, range, "Cannot perform that operation on 'bool'");
-
-                    return err();
-                } break;
+                default: abort();
             }
 
-            result_register = append_boolean_equality(
+            register_index = append_boolean_equality(
                 context,
                 range,
                 left_register,
@@ -1988,57 +1569,32 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             );
 
             if(invert) {
-                result_register = append_boolean_inversion(context, range, result_register);
+                register_index = append_boolean_inversion(context, range, register_index);
             }
         }
-
-        return ok(TypedRuntimeValue(
-            AnyType::create_boolean(),
-            AnyRuntimeValue(RegisterValue(ir_type, result_register))
-        ));
-    } else if(determined_type.kind == TypeKind::FloatType) {
-        auto float_type = determined_type.float_;
-
-        expect(left_register, coerce_to_float_register_value(
-            scope,
-            context,
-            left_expression->range,
-            left.type,
-            left.value,
-            float_type,
-            false
-        ));
-
-        expect(right_register, coerce_to_float_register_value(
-            scope,
-            context,
-            right_expression->range,
-            right.type,
-            right.value,
-            float_type,
-            false
-        ));
+    } else if(input_type.kind == TypeKind::FloatType) {
+        auto float_type = input_type.float_;
 
         auto is_arithmetic = true;
         FloatArithmeticOperation::Operation arithmetic_operation;
-        switch(binary_operator) {
-            case BinaryOperation::Operator::Addition: {
+        switch(kind) {
+            case BinaryOperationKind::Addition: {
                 arithmetic_operation = FloatArithmeticOperation::Operation::Add;
             } break;
 
-            case BinaryOperation::Operator::Subtraction: {
+            case BinaryOperationKind::Subtraction: {
                 arithmetic_operation = FloatArithmeticOperation::Operation::Subtract;
             } break;
 
-            case BinaryOperation::Operator::Multiplication: {
+            case BinaryOperationKind::Multiplication: {
                 arithmetic_operation = FloatArithmeticOperation::Operation::Multiply;
             } break;
 
-            case BinaryOperation::Operator::Division: {
+            case BinaryOperationKind::Division: {
                 arithmetic_operation = FloatArithmeticOperation::Operation::Divide;
             } break;
 
-            case BinaryOperation::Operator::Modulo: {
+            case BinaryOperationKind::Modulus: {
                 arithmetic_operation = FloatArithmeticOperation::Operation::Modulus;
             } break;
 
@@ -2047,426 +1603,124 @@ static DelayedResult<TypedRuntimeValue> generate_binary_operation(
             } break;
         }
 
-        size_t result_register;
-        AnyType result_type;
         if(is_arithmetic) {
-            result_register = append_float_arithmetic_operation(
+            result_ir_type = IRType::create_float(float_type.size);
+
+            register_index = append_float_arithmetic_operation(
                 context,
                 range,
                 arithmetic_operation,
-                left_register.register_index,
-                right_register.register_index
+                left_register,
+                right_register
             );
-
-            result_type = AnyType(float_type);
         } else {
             FloatComparisonOperation::Operation comparison_operation;
             auto invert = false;
-            switch(binary_operator) {
-                case BinaryOperation::Operator::Equal: {
+            switch(kind) {
+                case BinaryOperationKind::Equal: {
                     comparison_operation = FloatComparisonOperation::Operation::Equal;
                 } break;
 
-                case BinaryOperation::Operator::NotEqual: {
+                case BinaryOperationKind::NotEqual: {
                     comparison_operation = FloatComparisonOperation::Operation::Equal;
                     invert = true;
                 } break;
 
-                case BinaryOperation::Operator::LessThan: {
+                case BinaryOperationKind::LessThan: {
                     comparison_operation = FloatComparisonOperation::Operation::LessThan;
                 } break;
 
-                case BinaryOperation::Operator::GreaterThan: {
+                case BinaryOperationKind::GreaterThan: {
                     comparison_operation = FloatComparisonOperation::Operation::GreaterThan;
                 } break;
 
-                default: {
-                    error(scope, range, "Cannot perform that operation on floats");
-
-                    return err();
-                } break;
+                default: abort();
             }
 
-            result_register = append_float_comparison_operation(
+            result_ir_type = IRType::create_boolean();
+
+            register_index = append_float_comparison_operation(
                 context,
                 range,
                 comparison_operation,
-                left_register.register_index,
-                right_register.register_index
+                left_register,
+                right_register
             );
 
             if(invert) {
-                result_register = append_boolean_inversion(context, range, result_register);
+                register_index = append_boolean_inversion(context, range, register_index);
             }
-
-            result_type = AnyType::create_boolean();
         }
-
-        auto result_ir_type = get_ir_type(context->arena, info.architecture_sizes, result_type);
-
-        return ok(TypedRuntimeValue(
-            result_type,
-            AnyRuntimeValue(RegisterValue(result_ir_type, result_register))
-        ));
-    } else if(determined_type.kind == TypeKind::Pointer) {
-        auto pointer = determined_type.pointer;
-
-        expect(left_register, coerce_to_pointer_register_value(
-            info,
-            scope,
-            context,
-            left_expression->range,
-            left.type,
-            left.value,
-            pointer,
-            false
-        ));
-
-        expect(right_register, coerce_to_pointer_register_value(
-            info,
-            scope,
-            context,
-            right_expression->range,
-            right.type,
-            right.value,
-            pointer,
-            false
-        ));
+    } else if(input_type.kind == TypeKind::Pointer) {
+        auto pointer = input_type.pointer;
 
         auto invert = false;
-        switch(binary_operator) {
-            case BinaryOperation::Operator::Equal: {} break;
+        switch(kind) {
+            case BinaryOperationKind::Equal: {} break;
 
-            case BinaryOperation::Operator::NotEqual: {
+            case BinaryOperationKind::NotEqual: {
                 invert = true;
             } break;
 
-            default: {
-                error(scope, range, "Cannot perform that operation on '%.*s'", STRING_PRINTF_ARGUMENTS(AnyType(pointer).get_description(context->arena)));
-
-                return err();
-            } break;
+            default: abort();
         }
 
-        auto result_register = append_pointer_equality(
+        result_ir_type = IRType::create_boolean();
+
+        register_index = append_pointer_equality(
             context,
             range,
-            left_register.register_index,
-            right_register.register_index
+            left_register,
+            right_register
         );
 
         if(invert) {
-            result_register = append_boolean_inversion(context, range, result_register);
+            register_index = append_boolean_inversion(context, range, register_index);
         }
-
-        return ok(TypedRuntimeValue(
-            AnyType::create_boolean(),
-            AnyRuntimeValue(RegisterValue(IRType::create_boolean(), result_register))
-        ));
-    } else if(determined_type.kind == TypeKind::Enum) {
-        auto pointer = determined_type.pointer;
-
-        expect(left_register, coerce_to_type_register(
-            info,
-            scope,
-            context,
-            left_expression->range,
-            left.type,
-            left.value,
-            determined_type,
-            false
-        ));
-
-        expect(right_register, coerce_to_type_register(
-            info,
-            scope,
-            context,
-            right_expression->range,
-            right.type,
-            right.value,
-            determined_type,
-            false
-        ));
+    } else if(input_type.kind == TypeKind::Enum) {
+        auto pointer = input_type.pointer;
 
         auto invert = false;
         IntegerComparisonOperation::Operation operation;
-        switch(binary_operator) {
-            case BinaryOperation::Operator::Equal: {
+        switch(kind) {
+            case BinaryOperationKind::Equal: {
                 operation = IntegerComparisonOperation::Operation::Equal;
             } break;
 
-            case BinaryOperation::Operator::NotEqual: {
+            case BinaryOperationKind::NotEqual: {
                 operation = IntegerComparisonOperation::Operation::Equal;
                 invert = true;
             } break;
 
-            default: {
-                error(scope, range, "Cannot perform that operation on '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
-
-                return err();
-            } break;
+            default: abort();
         }
 
-        auto result_register = append_integer_comparison_operation(
+        result_ir_type = IRType::create_boolean();
+
+        register_index = append_integer_comparison_operation(
             context,
             range,
             operation,
-            left_register.register_index,
-            right_register.register_index
+            left_register,
+            right_register
         );
 
         if(invert) {
-            result_register = append_boolean_inversion(context, range, result_register);
+            register_index = append_boolean_inversion(context, range, register_index);
         }
-
-        return ok(TypedRuntimeValue(
-            AnyType::create_boolean(),
-            AnyRuntimeValue(RegisterValue(IRType::create_boolean(), result_register))
-        ));
     } else {
         abort();
     }
+
+    return RegisterValue(result_ir_type, register_index);
 }
 
-struct RuntimeNameSearchResult {
-    bool found;
-
-    AnyType type;
-    AnyRuntimeValue value;
-};
-
-static_profiled_function(DelayedResult<RuntimeNameSearchResult>, search_for_name, (
+static_profiled_function(AnyRuntimeValue, generate_expression, (
     GlobalInfo info,
-    List<AnyJob>* jobs,
+    List<AnyJob*>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
-    String name,
-    uint32_t name_hash,
-    ConstantScope* name_scope,
-    FileRange name_range,
-    Array<Statement*> statements,
-    DeclarationHashTable declarations,
-    bool external
-), (
-    info,
-    jobs,
-    scope,
-    context,
-    name,
-    name_hash,
-    name_scope,
-    name_range,
-    statements,
-    declarations,
-    external
-)) {
-    auto declaration = search_in_declaration_hash_table(declarations, name_hash, name);
-
-    if(declaration != nullptr) {
-        if(external && !is_declaration_public(declaration)) {
-            RuntimeNameSearchResult result {};
-            result.found = false;
-
-            return ok(result);
-        }
-
-        expect_delayed(value, get_simple_resolved_declaration(info, jobs, scope, declaration));
-
-        RuntimeNameSearchResult result {};
-        result.found = true;
-        result.type = value.type;
-        result.value = AnyRuntimeValue(value.value);
-
-        return ok(result);
-    }
-
-    for(auto statement : statements) {
-        if(statement->kind == StatementKind::UsingStatement) {
-            auto using_statement = (UsingStatement*)statement;
-
-            if(!external || using_statement->export_) {
-                expect_delayed(expression_value, evaluate_constant_expression(
-                    context->arena,
-                    info,
-                    jobs,
-                    scope,
-                    nullptr,
-                    using_statement->value
-                ));
-
-                if(expression_value.type.kind == TypeKind::FileModule) {
-                    auto file_module = expression_value.value.unwrap_file_module();
-
-                    expect_delayed(search_value, search_for_name(
-                        info,
-                        jobs,
-                        file_module.scope,
-                        context,
-                        name,
-                        name_hash,
-                        name_scope,
-                        name_range,
-                        file_module.scope->statements,
-                        file_module.scope->declarations,
-                        true
-                    ));
-
-                    if(search_value.found) {
-                        RuntimeNameSearchResult result {};
-                        result.found = true;
-                        result.type = search_value.type;
-                        result.value = search_value.value;
-
-                        return ok(result);
-                    }
-                } else if(expression_value.type.kind == TypeKind::Type) {
-                    auto type = expression_value.value.unwrap_type();
-
-                    if(type.kind == TypeKind::Enum) {
-                        auto enum_ = type.enum_;
-
-                        for(size_t i = 0; i < enum_.variant_values.length; i += 1) {
-                            if(enum_.definition->variants[i].name.text == name) {
-                                RuntimeNameSearchResult result {};
-                                result.found = true;
-                                result.type = AnyType(*enum_.backing_type);
-                                result.value = AnyRuntimeValue(AnyConstantValue(enum_.variant_values[i]));
-
-                                return ok(result);
-                            }
-                        }
-                    } else {
-                        error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
-
-                        return err();
-                    }
-                } else {
-                    error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
-
-                    return err();
-                }
-            }
-        } else if(statement->kind == StatementKind::StaticIf) {
-            auto static_if = (StaticIf*)statement;
-
-            auto found = false;
-            for(size_t i = 0; i < jobs->length; i += 1) {
-                auto job = (*jobs)[i];
-
-                if(job.kind == JobKind::ResolveStaticIf) {
-                    auto resolve_static_if = job.resolve_static_if;
-
-                    if(
-                        resolve_static_if.static_if == static_if &&
-                        resolve_static_if.scope == scope
-                    ) {
-                        found = true;
-
-                        if(job.state == JobState::Done) {
-                            if(resolve_static_if.condition) {
-                                expect_delayed(search_value, search_for_name(
-                                    info,
-                                    jobs,
-                                    scope,
-                                    context,
-                                    name,
-                                    name_hash,
-                                    name_scope,
-                                    name_range,
-                                    static_if->statements,
-                                    resolve_static_if.declarations,
-                                    false
-                                ));
-
-                                if(search_value.found) {
-                                    RuntimeNameSearchResult result {};
-                                    result.found = true;
-                                    result.type = search_value.type;
-                                    result.value = search_value.value;
-
-                                    return ok(result);
-                                }
-                            }
-                        } else {
-                            bool could_have_declaration;
-                            if(external) {
-                                could_have_declaration = does_or_could_have_public_name(static_if, name);
-                            } else {
-                                could_have_declaration = does_or_could_have_name(static_if, name);
-                            }
-
-                            if(could_have_declaration) {
-                                return wait(i);
-                            }
-                        }
-                    }
-                }
-            }
-
-            assert(found);
-        } else if(statement->kind == StatementKind::VariableDeclaration) {
-            if(scope->is_top_level) {
-                auto variable_declaration = (VariableDeclaration*)statement;
-
-                if(variable_declaration->name.text == name) {
-                    for(size_t i = 0; i < jobs->length; i += 1) {
-                        auto job = (*jobs)[i];
-
-                        if(job.kind == JobKind::GenerateStaticVariable) {
-                            auto generate_static_variable = job.generate_static_variable;
-
-                            if(generate_static_variable.declaration == variable_declaration) {
-                                if(job.state == JobState::Done) {
-                                    auto pointer_register = append_reference_static(
-                                        context,
-                                        name_range,
-                                        generate_static_variable.static_variable
-                                    );
-
-                                    auto ir_type = get_ir_type(context->arena, info.architecture_sizes, generate_static_variable.type);
-
-                                    RuntimeNameSearchResult result {};
-                                    result.found = true;
-                                    result.type = generate_static_variable.type;
-                                    result.value = AnyRuntimeValue(AddressedValue(ir_type, pointer_register));
-
-                                    return ok(result);
-                                } else {
-                                    return wait(i);
-                                }
-                            }
-                        }
-                    }
-
-                    abort();
-                }
-            }
-        }
-    }
-
-    for(auto scope_constant : scope->scope_constants) {
-        if(scope_constant.name == name) {
-            RuntimeNameSearchResult result {};
-            result.found = true;
-            result.type = scope_constant.type;
-            result.value = AnyRuntimeValue(scope_constant.value);
-
-            return ok(result);
-        }
-    }
-
-    RuntimeNameSearchResult result {};
-    result.found = false;
-
-    return ok(result);
-}
-
-static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, (
-    GlobalInfo info,
-    List<AnyJob>* jobs,
-    ConstantScope* scope,
-    GenerationContext* context,
-    Expression* expression
+    TypedExpression expression
 ), (
     info,
     jobs,
@@ -2474,170 +1728,59 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
     context,
     expression
 )) {
-    if(expression->kind == ExpressionKind::NamedReference) {
-        auto named_reference = (NamedReference*)expression;
-
-        auto name_hash = calculate_string_hash(named_reference->name.text);
-
-        assert(context->variable_scope_stack.length > 0);
-
-        for(size_t i = 0; i < context->variable_scope_stack.length; i += 1) {
-            auto current_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1 - i];
-
-            for(auto variable : current_scope.variables) {
-                if(variable.name.text == named_reference->name.text) {
-                    return ok(TypedRuntimeValue(
-                        variable.type,
-                        AnyRuntimeValue(variable.value)
-                    ));
-                }
-            }
-
-            expect_delayed(search_value, search_for_name(
-                info,
-                jobs,
-                current_scope.constant_scope,
-                context,
-                named_reference->name.text,
-                name_hash,
-                scope,
-                named_reference->name.range,
-                current_scope.constant_scope->statements,
-                current_scope.constant_scope->declarations,
-                false
-            ));
-
-            if(search_value.found) {
-                return ok(TypedRuntimeValue(
-                    search_value.type,
-                    search_value.value
-                ));
-            }
-        }
-
-        assert(!context->variable_scope_stack[0].constant_scope->is_top_level);
-
-        auto current_scope = context->variable_scope_stack[0].constant_scope->parent;
-        while(true) {
-            expect_delayed(search_value, search_for_name(
-                info,
-                jobs,
-                current_scope,
-                context,
-                named_reference->name.text,
-                name_hash,
-                scope,
-                named_reference->name.range,
-                current_scope->statements,
-                current_scope->declarations,
-                false
-            ));
-
-            if(search_value.found) {
-                return ok(TypedRuntimeValue(
-                    search_value.type,
-                    search_value.value
-                ));
-            }
-
-            if(current_scope->is_top_level) {
-                break;
-            } else {
-                current_scope = current_scope->parent;
-            }
-        }
-
-        for(auto global_constant : info.global_constants) {
-            if(named_reference->name.text == global_constant.name) {
-                return ok(TypedRuntimeValue(
-                    global_constant.type,
-                    AnyRuntimeValue(global_constant.value)
-                ));
-            }
-        }
-
-        error(scope, named_reference->name.range, "Cannot find named reference %.*s", STRING_PRINTF_ARGUMENTS(named_reference->name.text));
-
-        return err();
-    } else if(expression->kind == ExpressionKind::IndexReference) {
-        auto index_reference = (IndexReference*)expression;
-
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, index_reference->expression));
-
-        expect_delayed(index, generate_expression(info, jobs, scope, context, index_reference->index));
-
-        if(expression_value.value.kind == RuntimeValueKind::ConstantValue && index.value.kind == RuntimeValueKind::ConstantValue) {
-             expect(constant, evaluate_constant_index(
-                context->arena,
-                info,
-                scope,
-                expression_value.type,
-                expression_value.value.constant,
-                index_reference->expression->range,
-                index.type,
-                index.value.constant,
-                index_reference->index->range
-            ));
-
-            return ok(TypedRuntimeValue(
-                constant.type,
-                AnyRuntimeValue(constant.value)
-            ));
-        }
-
-        expect(index_register, coerce_to_integer_register_value(
-            scope,
+    if(expression.value.kind == ValueKind::ConstantValue) {
+        auto ir_type = get_ir_type(context->arena, info.architecture_sizes, expression.type);
+        auto ir_constant_value = get_runtime_ir_constant_value(context->arena, expression.value.constant);
+        
+        auto register_index = append_literal(
             context,
-            index_reference->index->range,
-            index.type,
-            index.value,
-            Integer(
-                info.architecture_sizes.address_size,
-                false
-            ),
-            false
-        ));
+            expression.range,
+            ir_type,
+            ir_constant_value
+        );        
+
+        return AnyRuntimeValue(RegisterValue(ir_type, register_index));
+    }
+
+    if(expression.kind == TypedExpressionKind::IndexReference) {
+        auto index_reference = expression.index_reference;
+
+        auto expression_value = generate_expression(info, jobs, scope, context, *index_reference.value);
+
+        auto index = generate_expression(info, jobs, scope, context, *index_reference.index);
+
+        assert(index_reference.index->type.kind == TypeKind::Integer);
+
+        auto index_ir_type = IRType::create_integer(index_reference.index->type.integer.size);
+
+        auto index_register = generate_in_register_value(context, index_reference.index->range, index_ir_type, index);
 
         AnyType element_type;
         IRType element_ir_type;
         size_t base_pointer_register;
-        if(expression_value.type.kind == TypeKind::ArrayTypeType) {
-            auto array_type = expression_value.type.array;
+        if(index_reference.value->type.kind == TypeKind::ArrayTypeType) {
+            auto array_type = index_reference.value->type.array;
+
             element_type = *array_type.element_type;
 
             auto ir_type = get_array_ir_type(context->arena, info.architecture_sizes, array_type);
             element_ir_type = get_ir_type(context->arena, info.architecture_sizes, element_type);
 
-            if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                if(expression_value.value.constant.kind == ConstantValueKind::ArrayConstant) {
-                    auto array_value = expression_value.value.constant.array;
-
-                    base_pointer_register = append_literal(
-                        context,
-                        index_reference->expression->range,
-                        IRType::create_pointer(),
-                        get_runtime_ir_constant_value(context->arena, *array_value.pointer)
-                    );
-                } else {
-                    error(scope, index_reference->expression->range, "Cannot index array constant at runtime");
-
-                    return err();
-                }
-            } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                auto register_value = expression_value.value.register_;
+            if(expression_value.kind == RuntimeValueKind::RegisterValue) {
+                auto register_value = expression_value.register_;
 
                 base_pointer_register = append_read_struct_member(
                     context,
-                    index_reference->expression->range,
+                    index_reference.value->range,
                     1,
                     register_value.register_index
                 );
-            } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                auto addressed_value = expression_value.value.addressed;
+            } else if(expression_value.kind == RuntimeValueKind::AddressedValue) {
+                auto addressed_value = expression_value.addressed;
 
                 auto member_pointer = append_struct_member_pointer(
                     context,
-                    index_reference->expression->range,
+                    index_reference.value->range,
                     ir_type.struct_.members,
                     1,
                     addressed_value.pointer_register
@@ -2645,101 +1788,69 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                 base_pointer_register = append_load(
                     context,
-                    index_reference->expression->range,
+                    index_reference.value->range,
                     member_pointer,
                     IRType::create_pointer()
                 );
             } else {
                 abort();
             }
-        } else if(expression_value.type.kind == TypeKind::StaticArray) {
-            auto static_array = expression_value.type.static_array;
+        } else if(index_reference.value->type.kind == TypeKind::StaticArray) {
+            auto static_array = index_reference.value->type.static_array;
+
             element_type = *static_array.element_type;
 
             auto ir_type = get_static_array_ir_type(context->arena, info.architecture_sizes, static_array);
             element_ir_type = get_ir_type(context->arena, info.architecture_sizes, element_type);
 
-            if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                error(scope, index_reference->expression->range, "Cannot index static array constant at runtime");
+            assert(expression_value.kind == RuntimeValueKind::AddressedValue);
 
-                return err();
-            } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                error(scope, index_reference->expression->range, "Cannot index anonymous static array");
+            auto addressed_value = expression_value.addressed;
 
-                return err();
-            } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                auto addressed_value = expression_value.value.addressed;
-
-                base_pointer_register = addressed_value.pointer_register;
-            } else {
-                abort();
-            }
+            base_pointer_register = addressed_value.pointer_register;
         } else {
-            error(scope, index_reference->expression->range, "Cannot index '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
-
-            return err();
+            abort();
         }
+
+        assert(element_type == expression.type);
+        assert(expression.value.kind == ValueKind::AssignableValue);
 
         auto pointer_register = append_pointer_index(
             context,
-            index_reference->range,
-            index_register.register_index,
+            expression.range,
+            index_register,
             element_ir_type,
             base_pointer_register
         );
 
-        return ok(TypedRuntimeValue(
-            element_type,
-            AnyRuntimeValue(AddressedValue(element_ir_type, pointer_register))
-        ));
-    } else if(expression->kind == ExpressionKind::MemberReference) {
-        auto member_reference = (MemberReference*)expression;
+        return AnyRuntimeValue(AddressedValue(element_ir_type, pointer_register));
+    } else if(expression.kind == TypedExpressionKind::MemberReference) {
+        auto member_reference = expression.member_reference;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, member_reference->expression));
+        auto expression_value = generate_expression(info, jobs, scope, context, *member_reference.value);
 
         AnyType actual_type;
         AnyRuntimeValue actual_value;
-        if(expression_value.type.kind == TypeKind::Pointer) {
-            auto pointer = expression_value.type.pointer;
+        if(member_reference.value->type.kind == TypeKind::Pointer) {
+            auto pointer = member_reference.value->type.pointer;
+
             actual_type = *pointer.pointed_to_type;
 
-            if(!actual_type.is_runtime_type()) {
-                error(scope, member_reference->expression->range, "Cannot access members of '%.*s'", STRING_PRINTF_ARGUMENTS(actual_type.get_description(context->arena)));
-
-                return err();
-            }
+            assert(actual_type.is_runtime_type());
 
             auto actual_ir_type = get_ir_type(context->arena, info.architecture_sizes, actual_type);
 
-            size_t pointer_register;
-            if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                pointer_register = append_literal(
-                    context,
-                    member_reference->expression->range,
-                    IRType::create_pointer(),
-                    get_runtime_ir_constant_value(context->arena, expression_value.value.constant)
-                );
-            } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                auto register_value = expression_value.value.register_;
-
-                pointer_register = register_value.register_index;
-            } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                auto addressed_value = expression_value.value.addressed;
-
-                pointer_register = append_load(
-                    context,
-                    member_reference->expression->range,
-                    addressed_value.pointer_register,
-                    IRType::create_pointer()
-                );
-            } else {
-                abort();
-            }
+            auto pointer_register = generate_in_register_value(
+                context,
+                member_reference.value->range,
+                IRType::create_pointer(),
+                expression_value
+            );
 
             actual_value = AnyRuntimeValue(AddressedValue(actual_ir_type, pointer_register));
         } else {
-            actual_type = expression_value.type;
-            actual_value = expression_value.value;
+            actual_type = member_reference.value->type;
+            actual_value = expression_value;
         }
 
         if(actual_type.kind == TypeKind::ArrayTypeType) {
@@ -2747,35 +1858,19 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
             auto array_ir_type = get_array_ir_type(context->arena, info.architecture_sizes, array_type);
 
-            if(member_reference->name.text == u8"length"_S) {
-                AnyRuntimeValue value;
-                if(actual_value.kind == RuntimeValueKind::ConstantValue) {
-                    if(expression_value.value.constant.kind == ConstantValueKind::ArrayConstant) {
-                        auto array_value = expression_value.value.constant.unwrap_array();
-
-                        value = AnyRuntimeValue(AnyConstantValue(array_value.length));
-                    } else if(expression_value.value.constant.kind == ConstantValueKind::StaticArrayConstant) {
-                        auto static_array_value = expression_value.value.constant.unwrap_static_array();
-
-                        value = AnyRuntimeValue(AnyConstantValue(static_array_value.elements.length));
-                    } else {
-                        assert(expression_value.value.constant.kind == ConstantValueKind::UndefConstant);
-
-                        error(scope, member_reference->range, "Cannot get length of undefined array constant");
-
-                        return err();
-                    }
-                } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
+            if(member_reference.name.text == u8"length"_S) {
+                AnyRuntimeValue result_value;
+                if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = actual_value.register_;
 
                     auto length_register = append_read_struct_member(
                         context,
-                        member_reference->range,
+                        expression.range,
                         0,
                         register_value.register_index
                     );
 
-                    value = AnyRuntimeValue(RegisterValue(
+                    result_value = AnyRuntimeValue(RegisterValue(
                         IRType::create_integer(info.architecture_sizes.address_size),
                         length_register
                     ));
@@ -2784,13 +1879,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto pointer_register = append_struct_member_pointer(
                         context,
-                        member_reference->range,
+                        expression.range,
                         array_ir_type.struct_.members,
                         0,
                         addressed_value.pointer_register
                     );
 
-                    value = AnyRuntimeValue(AddressedValue(
+                    result_value = AnyRuntimeValue(AddressedValue(
                         IRType::create_integer(info.architecture_sizes.address_size),
                         pointer_register
                     ));
@@ -2798,38 +1893,22 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     abort();
                 }
 
-                return ok(TypedRuntimeValue(
-                    AnyType(Integer(
-                        info.architecture_sizes.address_size,
-                        false
-                    )),
-                    value
-                ));
-            } else if(member_reference->name.text == u8"pointer"_S) {
+                return result_value;
+            } else if(member_reference.name.text == u8"pointer"_S) {
                 auto element_ir_type = get_ir_type(context->arena, info.architecture_sizes, *array_type.element_type);
 
-                AnyRuntimeValue value;
-                if(actual_value.kind == RuntimeValueKind::ConstantValue) {
-                    if(expression_value.value.constant.kind == ConstantValueKind::ArrayConstant) {
-                        auto array_value = expression_value.value.constant.unwrap_array();
-
-                        value = AnyRuntimeValue(AnyConstantValue(array_value.pointer));
-                    } else {
-                        error(scope, member_reference->range, "Cannot take pointer to contents of constant array");
-
-                        return err();
-                    }
-                } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
+                AnyRuntimeValue result_value;
+                if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                     auto register_value = actual_value.register_;
 
                     auto pointer_register = append_read_struct_member(
                         context,
-                        member_reference->range,
+                        expression.range,
                         1,
                         register_value.register_index
                     );
 
-                    value = AnyRuntimeValue(RegisterValue(
+                    result_value = AnyRuntimeValue(RegisterValue(
                         IRType::create_pointer(),
                         pointer_register
                     ));
@@ -2838,13 +1917,13 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto pointer_register = append_struct_member_pointer(
                         context,
-                        member_reference->range,
+                        expression.range,
                         array_ir_type.struct_.members,
                         1,
                         addressed_value.pointer_register
                     );
 
-                    value = AnyRuntimeValue(AddressedValue(
+                    result_value = AnyRuntimeValue(AddressedValue(
                         element_ir_type,
                         pointer_register
                     ));
@@ -2852,57 +1931,26 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                     abort();
                 }
 
-                return ok(TypedRuntimeValue(
-                    AnyType(Pointer(array_type.element_type)),
-                    value
-                ));
+                return result_value;
             } else {
-                error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
-
-                return err();
+                abort();
             }
         } else if(actual_type.kind == TypeKind::StaticArray) {
             auto static_array = actual_type.static_array;
 
             auto element_ir_type = get_ir_type(context->arena, info.architecture_sizes, *static_array.element_type);
 
-            if(member_reference->name.text == u8"length"_S) {
-                return ok(TypedRuntimeValue(
-                    AnyType(Integer(
-                        info.architecture_sizes.address_size,
-                        false
-                    )),
-                    AnyRuntimeValue(AnyConstantValue(static_array.length))
-                ));
-            } else if(member_reference->name.text == u8"pointer"_S) {
-                size_t pointer_register;
-                if(actual_value.kind == RuntimeValueKind::ConstantValue) {
-                    error(scope, member_reference->range, "Cannot take pointer to contents of constant static array");
+            if(member_reference.name.text == u8"pointer"_S) {
+                assert(actual_value.kind == RuntimeValueKind::AddressedValue);
 
-                    return err();
-                } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
-                    error(scope, member_reference->range, "Cannot take pointer to contents of r-value static array");
+                auto pointer_register = actual_value.addressed.pointer_register;
 
-                    return err();
-                } else if(actual_value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = actual_value.addressed;
-
-                    pointer_register = addressed_value.pointer_register;
-                } else {
-                    abort();
-                }
-
-                return ok(TypedRuntimeValue(
-                    AnyType(Pointer(static_array.element_type)),
-                    AnyRuntimeValue(RegisterValue(
-                        IRType::create_pointer(),
-                        pointer_register
-                    ))
+                return AnyRuntimeValue(RegisterValue(
+                    IRType::create_pointer(),
+                    pointer_register
                 ));
             } else {
-                error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
-
-                return err();
+                abort();
             }
         } else if(actual_type.kind == TypeKind::StructType) {
             auto struct_type = actual_type.struct_;
@@ -2910,68 +1958,45 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto struct_ir_type = get_struct_ir_type(context->arena, info.architecture_sizes, struct_type);
 
             for(size_t i = 0; i < struct_type.members.length; i += 1) {
-                if(struct_type.members[i].name == member_reference->name.text) {
+                if(struct_type.members[i].name == member_reference.name.text) {
                     auto member_type = struct_type.members[i].type;
                     auto member_ir_type = get_ir_type(context->arena, info.architecture_sizes, member_type);
 
-                    if(actual_value.kind == RuntimeValueKind::ConstantValue) {
-                        if(expression_value.value.constant.kind == ConstantValueKind::StructConstant) {
-                            auto struct_value = expression_value.value.constant.unwrap_struct();
-
-                            return ok(TypedRuntimeValue(
-                                member_type,
-                                AnyRuntimeValue(struct_value.members[i])
-                            ));
-                        } else {
-                            assert(expression_value.value.constant.kind == ConstantValueKind::UndefConstant);
-
-                            error(scope, member_reference->range, "Cannot access members of undefined array constant");
-
-                            return err();
-                        }
-                    } else if(actual_value.kind == RuntimeValueKind::RegisterValue) {
+                    if(actual_value.kind == RuntimeValueKind::RegisterValue) {
                         auto register_value = actual_value.register_;
 
                         auto register_index = append_read_struct_member(
                             context,
-                            member_reference->range,
+                            expression.range,
                             i,
                             register_value.register_index
                         );
 
-                        return ok(TypedRuntimeValue(
-                            member_type,
-                            AnyRuntimeValue(RegisterValue(member_ir_type, register_index))
-                        ));
+                        return AnyRuntimeValue(RegisterValue(member_ir_type, register_index));
                     } else if(actual_value.kind == RuntimeValueKind::AddressedValue) {
                         auto addressed_value = actual_value.addressed;
 
                         auto pointer_register = append_struct_member_pointer(
                             context,
-                            member_reference->range,
+                            expression.range,
                             struct_ir_type.struct_.members,
                             i,
                             addressed_value.pointer_register
                         );
 
-                        return ok(TypedRuntimeValue(
-                            member_type,
-                            AnyRuntimeValue(AddressedValue(member_ir_type, pointer_register))
-                        ));
+                        return AnyRuntimeValue(AddressedValue(member_ir_type, pointer_register));
                     } else {
                         abort();
                     }
                 }
             }
 
-            error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
-
-            return err();
+            abort();
         } else if(actual_type.kind == TypeKind::UnionType) {
             auto union_type = actual_type.union_;
 
             for(size_t i = 0; i < union_type.members.length; i += 1) {
-                if(union_type.members[i].name == member_reference->name.text) {
+                if(union_type.members[i].name == member_reference.name.text) {
                     auto member_type = union_type.members[i].type;
                     auto member_ir_type = get_ir_type(context->arena, info.architecture_sizes, member_type);
 
@@ -2982,580 +2007,161 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                         auto pointer_register = append_allocate_local(
                             context,
-                            member_reference->range,
+                            expression.range,
                             union_ir_type
                         );
 
                         append_store(
                             context,
-                            member_reference->range,
+                            expression.range,
                             register_value.register_index,
                             pointer_register
                         );
 
                         auto register_index = append_load(
                             context,
-                            member_reference->range,
+                            expression.range,
                             pointer_register,
                             member_ir_type
                         );
 
-                        return ok(TypedRuntimeValue(
-                            member_type,
-                            AnyRuntimeValue(RegisterValue(member_ir_type, register_index))
-                        ));
+                        return AnyRuntimeValue(RegisterValue(member_ir_type, register_index));
                     } else if(actual_value.kind == RuntimeValueKind::AddressedValue) {
                         auto addressed_value = actual_value.addressed;
 
                         auto pointer_register = addressed_value.pointer_register;
 
-                        return ok(TypedRuntimeValue(
-                            member_type,
-                            AnyRuntimeValue(AddressedValue(member_ir_type, pointer_register))
-                        ));
+                        return AnyRuntimeValue(AddressedValue(member_ir_type, pointer_register));
                     } else {
                         abort();
                     }
                 }
             }
 
-            error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
-
-            return err();
+            abort();
         } else if(actual_type.kind == TypeKind::UndeterminedStruct) {
             auto undetermined_struct = actual_type.undetermined_struct;
 
-            if(actual_value.kind == RuntimeValueKind::ConstantValue) {
-                auto constant_value = actual_value.constant;
+            assert(actual_value.kind == RuntimeValueKind::RuntimeUndeterminedAggregateValue);
 
-                auto undetermined_struct_value = constant_value.unwrap_struct();
+            auto undetermined_aggregate_value = actual_value.undetermined_aggregate;
 
-                for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
-                    if(undetermined_struct.members[i].name == member_reference->name.text) {
-                        return ok(TypedRuntimeValue(
-                            undetermined_struct.members[i].type,
-                            AnyRuntimeValue(undetermined_struct_value.members[i])
-                        ));
-                    }
+            for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
+                if(undetermined_struct.members[i].name == member_reference.name.text) {
+                    return AnyRuntimeValue(undetermined_aggregate_value.values[i]);
                 }
-
-                error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
-
-                return err();
-            } else if(actual_value.kind == RuntimeValueKind::UndeterminedStructValue) {
-                auto undetermined_struct_value = actual_value.undetermined_struct;
-
-                for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
-                    if(undetermined_struct.members[i].name == member_reference->name.text) {
-                        return ok(TypedRuntimeValue(
-                            undetermined_struct.members[i].type,
-                            undetermined_struct_value.members[i]
-                        ));
-                    }
-                }
-
-                error(scope, member_reference->name.range, "No member with name %.*s", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
-
-                return err();
-            } else {
-                abort();
-            }
-        } else if(actual_type.kind == TypeKind::FileModule) {
-            auto file_module_value = expression_value.value.constant.unwrap_file_module();
-
-            expect_delayed(search_value, search_for_name(
-                info,
-                jobs,
-                file_module_value.scope,
-                context,
-                member_reference->name.text,
-                calculate_string_hash(member_reference->name.text),
-                scope,
-                member_reference->name.range,
-                file_module_value.scope->statements,
-                file_module_value.scope->declarations,
-                true
-            ));
-
-            if(search_value.found) {
-                return ok(TypedRuntimeValue(
-                    search_value.type,
-                    search_value.value
-                ));
             }
 
-            error(scope, member_reference->name.range, "No member with name '%.*s'", STRING_PRINTF_ARGUMENTS(member_reference->name.text));
-
-            return err();
-        } else if(expression_value.type.kind == TypeKind::Type) {
-            auto constant_value = expression_value.value.unwrap_constant_value();
-
-            auto type = constant_value.type;
-
-            if(type.kind == TypeKind::Enum) {
-                auto enum_ = type.enum_;
-
-                for(size_t i = 0; i < enum_.variant_values.length; i += 1) {
-                    if(enum_.definition->variants[i].name.text == member_reference->name.text) {
-                        return ok(TypedRuntimeValue(
-                            type,
-                            AnyRuntimeValue(AnyConstantValue(enum_.variant_values[i]))
-                        ));
-                    }
-                }
-
-                error(
-                    scope,
-                    member_reference->name.range,
-                    "Enum '%.*s' has no variant with name '%.*s'",
-                    STRING_PRINTF_ARGUMENTS(enum_.definition->name.text),
-                    STRING_PRINTF_ARGUMENTS(member_reference->name.text)
-                );
-
-                return err();
-            } else {
-                error(
-                    scope,
-                    member_reference->expression->range,
-                    "Type '%.*s' has no members",
-                    STRING_PRINTF_ARGUMENTS(type.get_description(context->arena))
-                );
-
-                return err();
-            }
+            abort();
         } else {
-            error(scope, member_reference->expression->range, "Type %.*s has no members", STRING_PRINTF_ARGUMENTS(actual_type.get_description(context->arena)));
-
-            return err();
+            abort();
         }
-    } else if(expression->kind == ExpressionKind::IntegerLiteral) {
-        auto integer_literal = (IntegerLiteral*)expression;
+    } else if(expression.kind == TypedExpressionKind::ArrayLiteral) {
+        auto array_literal = expression.array_literal;
 
-        return ok(TypedRuntimeValue(
-            AnyType::create_undetermined_integer(),
-            AnyRuntimeValue(AnyConstantValue(integer_literal->value))
-        ));
-    } else if(expression->kind == ExpressionKind::FloatLiteral) {
-        auto float_literal = (FloatLiteral*)expression;
+        auto element_count = array_literal.elements.length;
 
-        return ok(TypedRuntimeValue(
-            AnyType::create_undetermined_float(),
-            AnyRuntimeValue(AnyConstantValue(float_literal->value))
-        ));
-    } else if(expression->kind == ExpressionKind::StringLiteral) {
-        auto string_literal = (StringLiteral*)expression;
+        assert(element_count != 0);
 
-        auto character_count = string_literal->characters.length;
+        auto element_types = context->arena->allocate<AnyType>(element_count);
+        auto element_values = context->arena->allocate<RegisterValue>(element_count);
 
-        auto characters = context->arena->allocate<AnyConstantValue>(character_count);
-
-        for(size_t i = 0; i < character_count; i += 1) {
-            characters[i] = AnyConstantValue((uint64_t)string_literal->characters[i]);
-        }
-
-        return ok(TypedRuntimeValue(
-            AnyType(StaticArray(
-                character_count,
-                context->arena->heapify(AnyType(Integer(
-                    RegisterSize::Size8,
-                    false
-                )))
-            )),
-            AnyRuntimeValue(AnyConstantValue(StaticArrayConstant(
-                Array(character_count, characters)
-            )))
-        ));
-    } else if(expression->kind == ExpressionKind::ArrayLiteral) {
-        auto array_literal = (ArrayLiteral*)expression;
-
-        auto element_count = array_literal->elements.length;
-
-        if(element_count == 0) {
-            error(scope, array_literal->range, "Empty array literal");
-
-            return err();
-        }
-
-        expect_delayed(first_element, generate_expression(info, jobs, scope, context, array_literal->elements[0]));
-
-        expect(determined_element_type, coerce_to_default_type(info, scope, array_literal->elements[0]->range, first_element.type));
-
-        if(!determined_element_type.is_runtime_type()) {
-            error(scope, array_literal->range, "Arrays cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(determined_element_type.get_description(context->arena)));
-
-            return err();
-        }
-
-        auto elements = context->arena->allocate<TypedRuntimeValue>(element_count);
-        elements[0] = first_element;
-
-        auto all_constant = first_element.value.kind == RuntimeValueKind::ConstantValue;
         for(size_t i = 1; i < element_count; i += 1) {
-            expect_delayed(element, generate_expression(info, jobs, scope, context, array_literal->elements[i]));
+            auto element_value = generate_expression(info, jobs, scope, context, array_literal.elements[i]);
 
-            elements[i] = element;
+            element_types[i] = array_literal.elements[i].type;
 
-            if(element.value.kind != RuntimeValueKind::ConstantValue) {
-                all_constant = false;
-            }
+            auto ir_type = get_ir_type(context->arena, info.architecture_sizes, array_literal.elements[i].type);
+
+            auto register_index = generate_in_register_value(context, array_literal.elements[i].range, ir_type, element_value);
+
+            element_values[i] = RegisterValue(ir_type, register_index);
         }
 
-        AnyRuntimeValue value;
-        if(all_constant) {
-            auto element_values = context->arena->allocate<AnyConstantValue>(element_count);
+        return AnyRuntimeValue(RuntimeUndeterminedAggregateValue(Array(
+            element_count,
+            element_values
+        )));
+    } else if(expression.kind == TypedExpressionKind::StructLiteral) {
+        auto struct_literal = expression.struct_literal;
 
-            for(size_t i = 0; i < element_count; i += 1) {
-                expect(coerced_constant_value, coerce_constant_to_type(
-                    context->arena,
-                    info,
-                    scope,
-                    array_literal->elements[i]->range,
-                    elements[i].type,
-                    elements[i].value.constant,
-                    determined_element_type,
-                    false
-                ));
+        auto member_count = struct_literal.members.length;
 
-                element_values[i] = coerced_constant_value;
-            }
-
-            value = AnyRuntimeValue(AnyConstantValue(StaticArrayConstant(
-                Array(element_count, element_values)
-            )));
-        } else {
-            auto element_ir_type = get_ir_type(context->arena, info.architecture_sizes, determined_element_type);
-
-            auto element_registers = context->arena->allocate<size_t>(element_count);
-
-            for(size_t i = 0; i < element_count; i += 1) {
-                expect(register_value, coerce_to_type_register(
-                    info,
-                    scope,
-                    context,
-                    array_literal->elements[i]->range,
-                    elements[i].type,
-                    elements[i].value,
-                    determined_element_type,
-                    false
-                ));
-
-                element_registers[i] = register_value.register_index;
-            }
-
-            auto register_index = append_assemble_static_array(
-                context,
-                array_literal->range,
-                Array(element_count, element_registers)
-            );
-
-            value = AnyRuntimeValue(RegisterValue(
-                IRType::create_static_array(element_count, context->arena->heapify(element_ir_type)),
-                register_index
-            ));
-        }
-
-        return ok(TypedRuntimeValue(
-            AnyType(StaticArray(
-                element_count,
-                context->arena->heapify(determined_element_type)
-            )),
-            value
-        ));
-    } else if(expression->kind == ExpressionKind::StructLiteral) {
-        auto struct_literal = (StructLiteral*)expression;
-
-        if(struct_literal->members.length == 0) {
-            error(scope, struct_literal->range, "Empty struct literal");
-
-            return err();
-        }
-
-        auto member_count = struct_literal->members.length;
+        assert(member_count != 0);
 
         auto type_members = context->arena->allocate<StructTypeMember>(member_count);
-        auto member_values = context->arena->allocate<AnyRuntimeValue>(member_count);
-        auto all_constant = true;
+        auto member_values = context->arena->allocate<RegisterValue>(member_count);
 
-        for(size_t i = 0; i < member_count; i += 1) {
-            for(size_t j = 0; j < i; j += 1) {
-                if(struct_literal->members[i].name.text == type_members[j].name) {
-                    error(scope, struct_literal->members[i].name.range, "Duplicate struct member %.*s", STRING_PRINTF_ARGUMENTS(struct_literal->members[i].name.text));
+        for(size_t i = 1; i < member_count; i += 1) {
+            auto member_value = generate_expression(info, jobs, scope, context, struct_literal.members[i].member);
 
-                    return err();
-                }
-            }
+            StructTypeMember type_member {};
+            type_member.name = struct_literal.members[i].name.text;
+            type_member.type = struct_literal.members[i].member.type;
 
-            expect_delayed(member, generate_expression(info, jobs, scope, context, struct_literal->members[i].value));
+            type_members[i] = type_member;
 
-            type_members[i] = {
-                struct_literal->members[i].name.text,
-                member.type
-            };
+            auto ir_type = get_ir_type(context->arena, info.architecture_sizes, struct_literal.members[i].member.type);
 
-            member_values[i] = member.value;
+            auto register_index = generate_in_register_value(context, struct_literal.members[i].member.range, ir_type, member_value);
 
-            if(member.value.kind != RuntimeValueKind::ConstantValue) {
-                all_constant = false;
-            }
+            member_values[i] = RegisterValue(ir_type, register_index);
         }
 
-        AnyRuntimeValue value;
-        if(all_constant) {
-            auto constant_member_values = context->arena->allocate<AnyConstantValue>(member_count);
+        return AnyRuntimeValue(RuntimeUndeterminedAggregateValue(Array(
+            member_count,
+            member_values
+        )));
+    } else if(expression.kind == TypedExpressionKind::FunctionCall) {
+        auto function_call = expression.function_call;
 
-            for(size_t i = 0; i < member_count; i += 1) {
-                constant_member_values[i] = member_values[i].constant;
-            }
+        if(function_call.value->type.kind == TypeKind::FunctionTypeType) {
+            auto function_type = function_call.value->type.function;
 
-            value = AnyRuntimeValue(AnyConstantValue(StructConstant(
-                Array(member_count, constant_member_values)
-            )));
-        } else {
-            value = AnyRuntimeValue(UndeterminedStructValue(
-                Array(member_count, member_values)
-            ));
-        }
+            auto function_value = function_call.value->value.unwrap_constant_value().unwrap_function();
 
-        return ok(TypedRuntimeValue(
-            AnyType(UndeterminedStruct(
-                Array(member_count, type_members)
-            )),
-            value
-        ));
-    } else if(expression->kind == ExpressionKind::FunctionCall) {
-        auto function_call = (FunctionCall*)expression;
+            assert(function_type.parameters.length == function_call.parameters.length);
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, function_call->expression));
+            auto parameters = context->arena->allocate<FunctionCallInstruction::Parameter>(function_type.parameters.length);
+            for(size_t i = 0; i < function_type.parameters.length; i += 1) {
+                auto parameter_value = generate_expression(info, jobs, scope, context, function_call.parameters[i]);
 
-        if(expression_value.type.kind == TypeKind::FunctionTypeType || expression_value.type.kind == TypeKind::PolymorphicFunction) {
-            auto call_parameter_count = function_call->parameters.length;
+                auto ir_type = get_ir_type(context->arena, info.architecture_sizes, function_call.parameters[i].type);
 
-            auto call_parameters = context->arena->allocate<TypedRuntimeValue>(call_parameter_count);
-            for(size_t i = 0; i < call_parameter_count; i += 1) {
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[i]));
+                auto register_index = generate_in_register_value(context, function_call.parameters[i].range, ir_type, parameter_value);
 
-                call_parameters[i] = parameter_value;
-            }
+                FunctionCallInstruction::Parameter parameter {};
+                parameter.type = ir_type;
+                parameter.register_index = register_index;
 
-            FunctionTypeType function_type;
-            FunctionConstant function_value;
-            if(expression_value.type.kind == TypeKind::PolymorphicFunction) {
-                auto constant_value = expression_value.value.unwrap_constant_value();
-
-                auto polymorphic_function_value = constant_value.unwrap_polymorphic_function();
-
-                auto declaration_parameters = polymorphic_function_value.declaration->parameters;
-                auto declaration_parameter_count = declaration_parameters.length;
-
-                if(call_parameter_count != declaration_parameter_count) {
-                    error(
-                        scope,
-                        function_call->range,
-                        "Incorrect number of parameters. Expected %zu, got %zu",
-                        declaration_parameter_count,
-                        call_parameter_count
-                    );
-
-                    return err();
-                }
-
-                auto polymorphic_parameters = context->arena->allocate<TypedConstantValue>(declaration_parameter_count);
-
-                for(size_t i = 0; i < declaration_parameter_count; i += 1) {
-                    auto declaration_parameter = declaration_parameters[i];
-
-                    if(declaration_parameter.is_polymorphic_determiner) {
-                        polymorphic_parameters[i].type = call_parameters[i].type;
-                    }
-
-                    if(declaration_parameter.is_constant) {
-                        if(call_parameters[i].value.kind != RuntimeValueKind::ConstantValue) {
-                            error(
-                                scope,
-                                function_call->parameters[i]->range,
-                                "Non-constant value provided for constant parameter '%.*s'",
-                                STRING_PRINTF_ARGUMENTS(declaration_parameter.name.text)
-                            );
-
-                            return err();
-                        }
-
-                        polymorphic_parameters[i] = TypedConstantValue(
-                            call_parameters[i].type,
-                            call_parameters[i].value.constant
-                        );
-                    }
-                }
-
-                auto found = false;
-                for(size_t i = 0; i < jobs->length; i += 1) {
-                    auto job = (*jobs)[i];
-
-                    if(job.kind == JobKind::ResolvePolymorphicFunction) {
-                        auto resolve_polymorphic_function = job.resolve_polymorphic_function;
-
-                        if(
-                            resolve_polymorphic_function.declaration == polymorphic_function_value.declaration &&
-                            resolve_polymorphic_function.scope == polymorphic_function_value.scope
-                        ) {
-                            auto matching_polymorphic_parameters = true;
-                            for(size_t i = 0; i < declaration_parameter_count; i += 1) {
-                                auto declaration_parameter = declaration_parameters[i];
-                                auto call_parameter = polymorphic_parameters[i];
-                                auto job_parameter = resolve_polymorphic_function.parameters[i];
-
-                                if(
-                                    (declaration_parameter.is_polymorphic_determiner || declaration_parameter.is_constant) &&
-                                    job_parameter.type != call_parameter.type
-                                ) {
-                                    matching_polymorphic_parameters = false;
-                                    break;
-                                }
-
-                                if(
-                                    declaration_parameter.is_constant &&
-                                    !constant_values_equal(call_parameter.value, job_parameter.value)
-                                ) {
-                                    matching_polymorphic_parameters = false;
-                                    break;
-                                }
-                            }
-
-                            if(!matching_polymorphic_parameters) {
-                                continue;
-                            }
-
-                            if(job.state == JobState::Done) {
-                                found = true;
-
-                                function_type = resolve_polymorphic_function.type;
-                                function_value = resolve_polymorphic_function.value;
-
-                                break;
-                            } else {
-                                return wait(i);
-                            }  
-                        }
-                    }
-                }
-
-                if(!found) {
-                    auto call_parameter_ranges = context->arena->allocate<FileRange>(declaration_parameter_count);
-
-                    for(size_t i = 0; i < declaration_parameter_count; i += 1) {
-                        call_parameter_ranges[i] = function_call->parameters[i]->range;
-                    }
-
-                    AnyJob job {};
-                    job.kind = JobKind::ResolvePolymorphicFunction;
-                    job.state = JobState::Working;
-                    job.resolve_polymorphic_function.declaration = polymorphic_function_value.declaration;
-                    job.resolve_polymorphic_function.parameters = polymorphic_parameters;
-                    job.resolve_polymorphic_function.scope = polymorphic_function_value.scope;
-                    job.resolve_polymorphic_function.call_scope = scope;
-                    job.resolve_polymorphic_function.call_parameter_ranges = call_parameter_ranges;
-
-                    auto job_index = jobs->append(job);
-
-                    return wait(job_index);
-                }
-            } else {
-                function_type = expression_value.type.function;
-
-                auto constant_value = expression_value.value.unwrap_constant_value();
-
-                function_value = constant_value.unwrap_function();
-
-                if(call_parameter_count != function_type.parameters.length) {
-                    error(
-                        scope,
-                        function_call->range,
-                        "Incorrect number of parameters. Expected %zu, got %zu",
-                        function_type.parameters.length,
-                        call_parameter_count
-                    );
-
-                    return err();
-                }
+                parameters[i] = parameter;
             }
 
             auto found = false;
             Function* runtime_function;
-            for(size_t i = 0; i < jobs->length; i += 1) {
-                auto job = (*jobs)[i];
+            for(auto typed_function : context->functions) {
+                if(
+                    AnyType(typed_function.type) == AnyType(function_type) &&
+                    typed_function.constant.declaration == function_value.declaration &&
+                    typed_function.constant.body_scope == function_value.body_scope
+                ) {
+                    found = true;
+                    runtime_function = typed_function.function;
 
-                if(job.kind == JobKind::GenerateFunction) {
-                    auto generate_function = job.generate_function;
-
-                    if(
-                        AnyType(generate_function.type) == AnyType(function_type) &&
-                        generate_function.value.declaration == function_value.declaration &&
-                        generate_function.value.body_scope == function_value.body_scope
-                    ) {
-                        found = true;
-
-                        runtime_function = generate_function.function;
-
-                        break;
-                    }
+                    break;
                 }
             }
 
-            if(!found) {
-                runtime_function = context->arena->allocate_and_construct<Function>();
+            assert(found);
 
-                AnyJob job {};
-                job.kind = JobKind::GenerateFunction;
-                job.state = JobState::Working;
-                job.generate_function.type = function_type;
-                job.generate_function.value = function_value;
-                job.generate_function.function = runtime_function;
-
-                jobs->append(job);
-            }
-
-            auto instruction_parameters = context->arena->allocate<FunctionCallInstruction::Parameter>(function_type.parameters.length);
-
-            size_t runtime_parameter_index = 0;
-            for(size_t i = 0; i < call_parameter_count; i += 1) {
-                if(!function_value.declaration->parameters[i].is_constant) {
-                    expect(parameter_register, coerce_to_type_register(
-                        info,
-                        scope,
-                        context,
-                        function_call->parameters[i]->range,
-                        call_parameters[i].type,
-                        call_parameters[i].value,
-                        function_type.parameters[i],
-                        false
-                    ));
-
-                    auto ir_type = get_ir_type(context->arena, info.architecture_sizes, function_type.parameters[i]);
-
-                    instruction_parameters[i] = {
-                        ir_type,
-                        parameter_register.register_index
-                    };
-
-                    runtime_parameter_index += 1;
-                }
-            }
-
-            assert(runtime_parameter_index == function_type.parameters.length);
-
-            AnyType return_type;
             bool has_ir_return;
             IRType return_ir_type;
             if(function_type.return_types.length == 0) {
-                return_type = AnyType::create_void();
                 has_ir_return = false;
             } else if(function_type.return_types.length == 1) {
-                return_type = function_type.return_types[0];
                 has_ir_return = true;
-                return_ir_type = get_ir_type(context->arena, info.architecture_sizes, return_type);
+                return_ir_type = get_ir_type(context->arena, info.architecture_sizes, function_type.return_types[0]);
             } else {
-                return_type = AnyType(MultiReturn(function_type.return_types));
-
                 auto member_ir_types = context->arena->allocate<IRType>(function_type.return_types.length);
 
                 for(size_t i = 0; i < function_type.return_types.length; i += 1) {
@@ -3566,384 +2172,165 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
                 return_ir_type = IRType::create_struct(Array(function_type.return_types.length, member_ir_types));
             }
 
-            auto pointer_register = append_reference_static(context, function_call->range, runtime_function);
+            auto pointer_register = append_reference_static(context, expression.range, runtime_function);
 
             assert(context->variable_scope_stack.length != 0);
             auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
             auto function_call_instruction = context->arena->allocate_and_construct<FunctionCallInstruction>();
-            function_call_instruction->range = function_call->range;
+            function_call_instruction->range = expression.range;
             function_call_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
             function_call_instruction->pointer_register = pointer_register;
-            function_call_instruction->parameters = Array(function_type.parameters.length, instruction_parameters);
+            function_call_instruction->parameters = Array(function_type.parameters.length, parameters);
             function_call_instruction->has_return = has_ir_return;
             function_call_instruction->return_type = return_ir_type;
             function_call_instruction->calling_convention = function_type.calling_convention;
 
             AnyRuntimeValue value;
-            if(return_type.kind != TypeKind::Void) {
+            if(has_ir_return) {
                 auto return_register = allocate_register(context);
 
                 function_call_instruction->return_register = return_register;
 
                 value = AnyRuntimeValue(RegisterValue(return_ir_type, return_register));
-            } else {
-                value = AnyRuntimeValue(AnyConstantValue::create_void());
             }
 
             context->instructions.append(function_call_instruction);
 
-            return ok(TypedRuntimeValue(
-                return_type,
-                value
-            ));
-        } else if(expression_value.type.kind == TypeKind::BuiltinFunction) {
-            auto constant_value = expression_value.value.unwrap_constant_value();
+            return value;
+        } else if(function_call.value->type.kind == TypeKind::BuiltinFunction) {
+            auto constant_value = function_call.value->value.unwrap_constant_value();
 
             auto builtin_function_value = constant_value.unwrap_builtin_function();
 
-            if(builtin_function_value.name == u8"size_of"_S) {
-                if(function_call->parameters.length != 1) {
-                    error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.length);
+            if(builtin_function_value.name == u8"globalify"_S) {
+                assert(function_call.parameters.length == 1);
 
-                    return err();
-                }
+                assert(function_call.parameters[0].type.is_runtime_type());
 
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[0]));
+                assert(function_call.parameters[0].value.kind != ValueKind::ConstantValue);
 
-                AnyType type;
-                if(parameter_value.type.kind == TypeKind::Type) {
-                    auto constant_value = parameter_value.value.unwrap_constant_value();
-
-                    type = constant_value.unwrap_type();
-                } else {
-                    type = parameter_value.type;
-                }
-
-                if(!type.is_runtime_type()) {
-                    error(scope, function_call->parameters[0]->range, "'%.*s'' has no size", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description(context->arena)));
-
-                    return err();
-                }
-
-                auto size = type.get_size(info.architecture_sizes);
-
-                return ok(TypedRuntimeValue(
-                    AnyType(Integer(
-                        info.architecture_sizes.address_size,
-                        false
-                    )),
-                    AnyRuntimeValue(AnyConstantValue(size))
-                ));
-            } else if(builtin_function_value.name == u8"type_of"_S) {
-                if(function_call->parameters.length != 1) {
-                    error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.length);
-
-                    return err();
-                }
-
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[0]));
-
-                return ok(TypedRuntimeValue(
-                    AnyType::AnyType::create_type_type(),
-                    AnyRuntimeValue(AnyConstantValue(parameter_value.type))
-                ));
-            } else if(builtin_function_value.name == u8"globalify"_S) {
-                if(function_call->parameters.length != 1) {
-                    error(scope, function_call->range, "Incorrect parameter count. Expected 1, got %zu", function_call->parameters.length);
-
-                    return err();
-                }
-
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[0]));
-
-                expect(determined_type, coerce_to_default_type(info, scope, function_call->parameters[0]->range, parameter_value.type));
-
-                if(!determined_type.is_runtime_type()) {
-                    error(scope, function_call->parameters[0]->range, "Type '%.*s' cannot exist at runtime", STRING_PRINTF_ARGUMENTS(determined_type.get_description(context->arena)));
-
-                    return err();
-                }
-
-                if(parameter_value.value.kind != RuntimeValueKind::ConstantValue) {
-                    error(scope, function_call->parameters[0]->range, "Cannot globalify a non-constant value");
-
-                    return err();
-                }
-
-                auto constant_value = parameter_value.value.constant;
-
-                expect(coerced_value, coerce_constant_to_type(
-                    context->arena,
-                    info,
-                    scope,
-                    function_call->parameters[0]->range,
-                    parameter_value.type,
-                    constant_value,
-                    determined_type,
-                    false
-                ));
+                auto constant_value = function_call.parameters[0].value.constant;
 
                 auto static_constant = register_static_constant(
                     info,
                     scope,
                     context,
-                    function_call->range,
-                    determined_type,
-                    coerced_value
+                    expression.range,
+                    function_call.parameters[0].type,
+                    constant_value
                 );
 
                 auto pointer_register = append_reference_static(
                     context,
-                    function_call->range,
+                    expression.range,
                     static_constant
                 );
 
-                return ok(TypedRuntimeValue(
-                    determined_type,
-                    AnyRuntimeValue(AddressedValue(static_constant->type, pointer_register))
-                ));
+                return AnyRuntimeValue(AddressedValue(static_constant->type, pointer_register));
             } else if(builtin_function_value.name == u8"stackify"_S) {
-                if(function_call->parameters.length != 1) {
-                    error(scope, function_call->range, "Incorrect parameter count. Expected 1, got %zu", function_call->parameters.length);
+                assert(function_call.parameters.length == 1);
 
-                    return err();
-                }
+                assert(function_call.parameters[0].type.is_runtime_type());
 
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[0]));
+                auto parameter_value = generate_expression(info, jobs, scope, context, function_call.parameters[0]);
 
-                expect(determined_type, coerce_to_default_type(info, scope, function_call->parameters[0]->range, parameter_value.type));
+                auto ir_type = get_ir_type(context->arena, info.architecture_sizes, function_call.parameters[0].type);
 
-                if(!determined_type.is_runtime_type()) {
-                    error(scope, function_call->parameters[0]->range, "Type '%.*s' cannot exist at runtime", STRING_PRINTF_ARGUMENTS(determined_type.get_description(context->arena)));
-
-                    return err();
-                }
-
-                if(parameter_value.value.kind != RuntimeValueKind::ConstantValue) {
-                    error(scope, function_call->parameters[0]->range, "Cannot stackify a non-constant value");
-
-                    return err();
-                }
-
-                auto constant_value = parameter_value.value.constant;
-
-                expect(coerced_value, coerce_constant_to_type(
-                    context->arena,
-                    info,
-                    scope,
-                    function_call->parameters[0]->range,
-                    parameter_value.type,
-                    constant_value,
-                    determined_type,
-                    false
-                ));
-
-                auto ir_constant_value = get_runtime_ir_constant_value(context->arena, coerced_value);
-
-                auto ir_type = get_ir_type(context->arena, info.architecture_sizes, determined_type);
+                auto register_index = generate_in_register_value(context, function_call.parameters[0].range, ir_type, parameter_value);
 
                 auto pointer_register = append_allocate_local(
                     context,
-                    function_call->range,
+                    expression.range,
                     ir_type
-                );
-
-                auto literal_register = append_literal(
-                    context,
-                    function_call->range,
-                    ir_type,
-                    ir_constant_value
                 );
 
                 append_store(
                     context,
-                    function_call->range,
-                    literal_register,
+                    expression.range,
+                    register_index,
                     pointer_register
                 );
 
-                return ok(TypedRuntimeValue(
-                    determined_type,
-                    AnyRuntimeValue(AddressedValue(ir_type, pointer_register))
-                ));
+                return AnyRuntimeValue(AddressedValue(ir_type, pointer_register));
             } else if(builtin_function_value.name == u8"sqrt"_S) {
-                if(function_call->parameters.length != 1) {
-                    error(scope, function_call->range, "Incorrect parameter count. Expected 1 got %zu", function_call->parameters.length);
+                assert(function_call.parameters.length == 1);
 
-                    return err();
-                }
+                assert(function_call.parameters[0].type.kind == TypeKind::FloatType);
 
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[0]));
+                auto parameter_value = generate_expression(info, jobs, scope, context, function_call.parameters[0]);
 
-                if(parameter_value.value.kind == RuntimeValueKind::ConstantValue) {
-                    auto constant_value = parameter_value.value.unwrap_constant_value();
+                auto ir_type = IRType::create_float(function_call.parameters[0].type.float_.size);
 
-                    RegisterSize result_size;
-                    double value;
-                    if(parameter_value.type.kind == TypeKind::UndeterminedInteger) {
-                        if(constant_value.kind == ConstantValueKind::UndefConstant) {
-                            error(scope, function_call->parameters[0]->range, "Value is undefined");
+                auto register_index = generate_in_register_value(context, function_call.parameters[0].range, ir_type, parameter_value);
 
-                            return err();
-                        }
+                auto return_register = allocate_register(context);
 
-                        auto integer_value = constant_value.unwrap_integer();
+                IntrinsicCallInstruction::Parameter ir_parameter;
+                ir_parameter.type = ir_type;
+                ir_parameter.register_index = register_index;
 
-                        result_size = info.architecture_sizes.default_float_size;
-                        value = (double)integer_value;
-                    } else if(parameter_value.type.kind == TypeKind::UndeterminedFloat) {
-                        if(constant_value.kind == ConstantValueKind::UndefConstant) {
-                            error(scope, function_call->parameters[0]->range, "Value is undefined");
+                assert(context->variable_scope_stack.length != 0);
+                auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
-                            return err();
-                        }
+                auto intrinsic_call_instruction = context->arena->allocate_and_construct<IntrinsicCallInstruction>();
+                intrinsic_call_instruction->range = expression.range;
+                intrinsic_call_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
+                intrinsic_call_instruction->intrinsic = IntrinsicCallInstruction::Intrinsic::Sqrt;
+                intrinsic_call_instruction->parameters = Array(1, context->arena->heapify(ir_parameter));
+                intrinsic_call_instruction->has_return = true;
+                intrinsic_call_instruction->return_type = ir_type;
+                intrinsic_call_instruction->return_register = return_register;
 
-                        result_size = info.architecture_sizes.default_float_size;
-                        value = constant_value.unwrap_float();
-                    } else if(parameter_value.type.kind == TypeKind::FloatType) {
-                        if(constant_value.kind == ConstantValueKind::UndefConstant) {
-                            error(scope, function_call->parameters[0]->range, "Value is undefined");
+                context->instructions.append(intrinsic_call_instruction);
 
-                            return err();
-                        }
-
-                        result_size = parameter_value.type.float_.size;
-                        value = constant_value.unwrap_float();
-                    } else {
-                        error(scope, function_call->parameters[0]->range, "Expected a float type, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description(context->arena)));
-
-                        return err();
-                    }
-
-                    auto result = sqrt(value);
-
-                    return ok(TypedRuntimeValue(
-                        AnyType(FloatType(result_size)),
-                        AnyRuntimeValue(AnyConstantValue(result))
-                    ));
-                } else {
-                    if(parameter_value.type.kind != TypeKind::FloatType) {
-                        error(scope, function_call->parameters[0]->range, "Expected a float type, got '%.*s'", STRING_PRINTF_ARGUMENTS(parameter_value.type.get_description(context->arena)));
-
-                        return err();
-                    }
-
-                    auto ir_type = IRType::create_float(parameter_value.type.float_.size);
-
-                    size_t register_index;
-                    if(parameter_value.value.kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = parameter_value.value.register_;
-
-                        register_index = register_value.register_index;
-                    } else {
-                        auto addressed_value = parameter_value.value.unwrap_addressed_value();
-
-                        register_index = append_load(
-                            context,
-                            function_call->parameters[0]->range,
-                            addressed_value.pointer_register,
-                            ir_type
-                        );
-                    }
-
-                    auto return_register = allocate_register(context);
-
-                    IntrinsicCallInstruction::Parameter ir_parameter;
-                    ir_parameter.type = ir_type;
-                    ir_parameter.register_index = register_index;
-
-                    assert(context->variable_scope_stack.length != 0);
-                    auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
-
-                    auto intrinsic_call_instruction = context->arena->allocate_and_construct<IntrinsicCallInstruction>();
-                    intrinsic_call_instruction->range = function_call->range;
-                    intrinsic_call_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
-                    intrinsic_call_instruction->intrinsic = IntrinsicCallInstruction::Intrinsic::Sqrt;
-                    intrinsic_call_instruction->parameters = Array(1, context->arena->heapify(ir_parameter));
-                    intrinsic_call_instruction->has_return = true;
-                    intrinsic_call_instruction->return_type = ir_type;
-                    intrinsic_call_instruction->return_register = return_register;
-
-                    context->instructions.append(intrinsic_call_instruction);
-
-                    return ok(TypedRuntimeValue(
-                        parameter_value.type,
-                        AnyRuntimeValue(RegisterValue(ir_type, return_register))
-                    ));
-                }
+                return AnyRuntimeValue(RegisterValue(ir_type, return_register));
             } else {
                 abort();
             }
-        } else if(expression_value.type.kind == TypeKind::Pointer) {
-            auto pointer = expression_value.type.pointer;
+        } else if(function_call.value->type.kind == TypeKind::Pointer) {
+            auto pointer = function_call.value->type.pointer;
 
-            if(pointer.pointed_to_type->kind != TypeKind::FunctionTypeType) {
-                error(scope, function_call->expression->range, "Cannot call '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
+            assert(pointer.pointed_to_type->kind == TypeKind::FunctionTypeType);
 
-                return err();
-            }
+            auto expression_value = generate_expression(info, jobs, scope, context, *function_call.value);
 
             auto function_type = pointer.pointed_to_type->function;
 
             auto pointer_register = generate_in_register_value(
                 context,
-                function_call->expression->range,
+                function_call.value->range,
                 IRType::create_pointer(),
-                expression_value.value
+                expression_value
             );
 
             auto parameter_count = function_type.parameters.length;
 
-            if(function_call->parameters.length != parameter_count) {
-                error(
-                    scope,
-                    function_call->range,
-                    "Incorrect number of parameters. Expected %zu, got %zu",
-                    parameter_count,
-                    function_call->parameters.length
-                );
+            assert(function_call.parameters.length == parameter_count);
 
-                return err();
-            }
-
-            auto instruction_parameters = context->arena->allocate<FunctionCallInstruction::Parameter>(parameter_count);
-
+            auto parameters = context->arena->allocate<FunctionCallInstruction::Parameter>(parameter_count);
             for(size_t i = 0; i < parameter_count; i += 1) {
-                expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[i]));
+                auto parameter_value = generate_expression(info, jobs, scope, context, function_call.parameters[i]);
 
-                expect(parameter_register, coerce_to_type_register(
-                    info,
-                    scope,
-                    context,
-                    function_call->parameters[i]->range,
-                    parameter_value.type,
-                    parameter_value.value,
-                    function_type.parameters[i],
-                    false
-                ));
+                auto ir_type = get_ir_type(context->arena, info.architecture_sizes, function_type.parameters[i]);
 
-                auto parameter_ir_type = get_ir_type(context->arena, info.architecture_sizes, function_type.parameters[i]);
+                auto register_index = generate_in_register_value(context, function_call.parameters[i].range, ir_type, parameter_value);
 
-                instruction_parameters[i] = {
-                    parameter_ir_type,
-                    parameter_register.register_index
-                };
+                FunctionCallInstruction::Parameter parameter {};
+                parameter.type = ir_type;
+                parameter.register_index = register_index;
+
+                parameters[i] = parameter;
             }
 
-            AnyType return_type;
             bool has_ir_return;
             IRType return_ir_type;
             if(function_type.return_types.length == 0) {
-                return_type = AnyType::create_void();
                 has_ir_return = false;
             } else if(function_type.return_types.length == 1) {
-                return_type = function_type.return_types[0];
                 has_ir_return = true;
-                return_ir_type = get_ir_type(context->arena, info.architecture_sizes, return_type);
+                return_ir_type = get_ir_type(context->arena, info.architecture_sizes, function_type.return_types[0]);
             } else {
-                return_type = AnyType(MultiReturn(function_type.return_types));
-
                 auto member_ir_types = context->arena->allocate<IRType>(function_type.return_types.length);
 
                 for(size_t i = 0; i < function_type.return_types.length; i += 1) {
@@ -3958,417 +2345,162 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
             auto current_variable_scope = context->variable_scope_stack[context->variable_scope_stack.length - 1];
 
             auto function_call_instruction = context->arena->allocate_and_construct<FunctionCallInstruction>();
-            function_call_instruction->range = function_call->range;
+            function_call_instruction->range = expression.range;
             function_call_instruction->debug_scope_index = current_variable_scope.debug_scope_index;
             function_call_instruction->pointer_register = pointer_register;
-            function_call_instruction->parameters = Array(parameter_count, instruction_parameters);
+            function_call_instruction->parameters = Array(parameter_count, parameters);
             function_call_instruction->has_return = has_ir_return;
             function_call_instruction->return_type = return_ir_type;
             function_call_instruction->calling_convention = function_type.calling_convention;
 
             AnyRuntimeValue value;
-            if(return_type.kind != TypeKind::Void) {
+            if(has_ir_return) {
                 auto return_register = allocate_register(context);
 
                 function_call_instruction->return_register = return_register;
 
                 value = AnyRuntimeValue(RegisterValue(return_ir_type, return_register));
-            } else {
-                value = AnyRuntimeValue(AnyConstantValue::create_void());
             }
 
             context->instructions.append(function_call_instruction);
 
-            return ok(TypedRuntimeValue(
-                return_type,
-                value
-            ));
-        } else if(expression_value.type.kind == TypeKind::Type) {
-            auto constant_value = expression_value.value.unwrap_constant_value();
-
-            auto type = constant_value.unwrap_type();
-
-            if(type.kind == TypeKind::PolymorphicStruct) {
-                auto polymorphic_struct = type.polymorphic_struct;
-                auto definition = polymorphic_struct.definition;
-
-                auto parameter_count = definition->parameters.length;
-
-                if(function_call->parameters.length != parameter_count) {
-                    error(scope, function_call->range, "Incorrect struct parameter count: expected %zu, got %zu", parameter_count, function_call->parameters.length);
-
-                    return err();
-                }
-
-                auto parameters = context->arena->allocate<AnyConstantValue>(parameter_count);
-
-                for(size_t i = 0; i < parameter_count; i += 1) {
-                    expect_delayed(parameter, evaluate_constant_expression(context->arena, info, jobs, scope, nullptr, function_call->parameters[i]));
-
-                    expect(parameter_value, coerce_constant_to_type(
-                        context->arena,
-                        info,
-                        scope,
-                        function_call->parameters[i]->range,
-                        parameter.type,
-                        parameter.value,
-                        polymorphic_struct.parameter_types[i],
-                        false
-                    ));
-
-                    parameters[i] = {
-                        parameter_value
-                    };
-                }
-
-                for(size_t i = 0; i < jobs->length; i += 1) {
-                    auto job = (*jobs)[i];
-
-                    if(job.kind == JobKind::ResolvePolymorphicStruct) {
-                        auto resolve_polymorphic_struct = job.resolve_polymorphic_struct;
-
-                        if(resolve_polymorphic_struct.definition == definition && resolve_polymorphic_struct.parameters != nullptr) {
-                            auto same_parameters = true;
-                            for(size_t i = 0; i < parameter_count; i += 1) {
-                                if(!constant_values_equal(parameters[i], resolve_polymorphic_struct.parameters[i])) {
-                                    same_parameters = false;
-                                    break;
-                                }
-                            }
-
-                            if(same_parameters) {
-                                if(job.state == JobState::Done) {
-                                    return ok(TypedRuntimeValue(
-                                        AnyType::AnyType::create_type_type(),
-                                        AnyRuntimeValue(AnyConstantValue(resolve_polymorphic_struct.type))
-                                    ));
-                                } else {
-                                    return wait(i);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                AnyJob job {};
-                job.kind = JobKind::ResolvePolymorphicStruct;
-                job.state = JobState::Working;
-                job.resolve_polymorphic_struct.definition = definition;
-                job.resolve_polymorphic_struct.parameters = parameters;
-                job.resolve_polymorphic_struct.scope = polymorphic_struct.parent;
-
-                auto job_index = jobs->append(job);
-
-                return wait(job_index);
-            } else if(type.kind == TypeKind::PolymorphicUnion) {
-                auto polymorphic_union = type.polymorphic_union;
-                auto definition = polymorphic_union.definition;
-
-                auto parameter_count = definition->parameters.length;
-
-                if(function_call->parameters.length != parameter_count) {
-                    error(scope, function_call->range, "Incorrect union parameter count: expected %zu, got %zu", parameter_count, function_call->parameters.length);
-
-                    return err();
-                }
-
-                auto parameters = context->arena->allocate<AnyConstantValue>(parameter_count);
-
-                for(size_t i = 0; i < parameter_count; i += 1) {
-                    expect_delayed(parameter, evaluate_constant_expression(context->arena, info, jobs, scope, nullptr, function_call->parameters[i]));
-
-                    expect(parameter_value, coerce_constant_to_type(
-                        context->arena,
-                        info,
-                        scope,
-                        function_call->parameters[i]->range,
-                        parameter.type,
-                        parameter.value,
-                        polymorphic_union.parameter_types[i],
-                        false
-                    ));
-
-                    parameters[i] = {
-                        parameter_value
-                    };
-                }
-
-                for(size_t i = 0; i < jobs->length; i += 1) {
-                    auto job = (*jobs)[i];
-
-                    if(job.kind == JobKind::ResolvePolymorphicUnion) {
-                        auto resolve_polymorphic_union = job.resolve_polymorphic_union;
-
-                        if(resolve_polymorphic_union.definition == definition && resolve_polymorphic_union.parameters != nullptr) {
-                            auto same_parameters = true;
-                            for(size_t i = 0; i < parameter_count; i += 1) {
-                                if(!constant_values_equal(parameters[i], resolve_polymorphic_union.parameters[i])) {
-                                    same_parameters = false;
-                                    break;
-                                }
-                            }
-
-                            if(same_parameters) {
-                                if(job.state == JobState::Done) {
-                                    return ok(TypedRuntimeValue(
-                                        AnyType::AnyType::create_type_type(),
-                                        AnyRuntimeValue(AnyConstantValue(resolve_polymorphic_union.type))
-                                    ));
-                                } else {
-                                    return wait(i);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                AnyJob job {};
-                job.kind = JobKind::ResolvePolymorphicUnion;
-                job.state = JobState::Working;
-                job.resolve_polymorphic_union.definition = definition;
-                job.resolve_polymorphic_union.parameters = parameters;
-                job.resolve_polymorphic_union.scope = polymorphic_union.parent;
-
-                auto job_index = jobs->append(job);
-
-                return wait(job_index);
-            } else {
-                error(scope, function_call->expression->range, "Type '%.*s' is not polymorphic", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
-
-                return err();
-            }
+            return value;
         } else {
-            error(scope, function_call->expression->range, "Cannot call '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
-
-            return err();
+            abort();
         }
-    } else if(expression->kind == ExpressionKind::BinaryOperation) {
-        auto binary_operation = (BinaryOperation*)expression;
+    } else if(expression.kind == TypedExpressionKind::BinaryOperation) {
+        auto binary_operation = expression.binary_operation;
 
-        expect_delayed(result_value, generate_binary_operation(
+        auto result = generate_binary_operation(
             info,
             jobs,
             scope,
             context,
-            binary_operation->range,
-            binary_operation->left,
-            binary_operation->right,
-            binary_operation->binary_operator
-        ));
+            expression.range,
+            binary_operation.kind,
+            *binary_operation.left,
+            *binary_operation.right
+        );
 
-        return ok(result_value);
-    } else if(expression->kind == ExpressionKind::UnaryOperation) {
-        auto unary_operation = (UnaryOperation*)expression;
+        return AnyRuntimeValue(result);
+    } else if(expression.kind == TypedExpressionKind::UnaryOperation) {
+        auto unary_operation = expression.unary_operation;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, unary_operation->expression));
-
-        switch(unary_operation->unary_operator) {
-            case UnaryOperation::Operator::Pointer: {
+        switch(unary_operation.kind) {
+            case UnaryOperationKind::Pointer: {
                 size_t pointer_register;
-                if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                    auto constant_value = expression_value.value.constant;
+                if(unary_operation.value->value.kind == ValueKind::ConstantValue) {
+                    auto constant_value = unary_operation.value->value.constant;
 
-                    if(expression_value.type.kind == TypeKind::FunctionTypeType) {
-                        auto function = expression_value.type.function;
+                    assert(unary_operation.value->type.kind == TypeKind::FunctionTypeType);
 
-                        auto function_value = constant_value.unwrap_function();
+                    auto function = unary_operation.value->type.function;
 
-                        auto found = false;
-                        Function* runtime_function;
-                        for(size_t i = 0; i < jobs->length; i += 1) {
-                            auto job = (*jobs)[i];
+                    auto function_value = constant_value.unwrap_function();
 
-                            if(job.kind == JobKind::GenerateFunction) {
-                                auto generate_function = job.generate_function;
+                    auto found = false;
+                    Function* runtime_function;
+                    for(auto typed_function : context->functions) {
+                        if(
+                            AnyType(typed_function.type) == AnyType(function) &&
+                            typed_function.constant.declaration == function_value.declaration &&
+                            typed_function.constant.body_scope == function_value.body_scope
+                        ) {
+                            found = true;
+                            runtime_function = typed_function.function;
 
-                                if(
-                                    AnyType(generate_function.type) == AnyType(function) &&
-                                    generate_function.value.declaration == function_value.declaration &&
-                                    generate_function.value.body_scope == function_value.body_scope
-                                ) {
-                                    found = true;
-
-                                    runtime_function = generate_function.function;
-
-                                    break;
-                                }
-                            }
+                            break;
                         }
-
-                        if(!found) {
-                            runtime_function = context->arena->allocate_and_construct<Function>();
-
-                            AnyJob job {};
-                            job.kind = JobKind::GenerateFunction;
-                            job.state = JobState::Working;
-                            job.generate_function.type = function;
-                            job.generate_function.value = function_value;
-                            job.generate_function.function = runtime_function;
-
-                            jobs->append(job);
-                        }
-
-                        pointer_register = append_reference_static(
-                            context,
-                            unary_operation->range,
-                            runtime_function
-                        );
-                    } else if(expression_value.type.kind == TypeKind::Type) {
-                        auto type = constant_value.unwrap_type();
-
-                        if(!type.is_pointable_type()) {
-                            error(scope, unary_operation->expression->range, "Cannot create pointers to type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
-
-                            return err();
-                        }
-
-                        return ok(TypedRuntimeValue(
-                            AnyType::AnyType::create_type_type(),
-                            AnyRuntimeValue(AnyConstantValue(AnyType(Pointer(context->arena->heapify(type)))))
-                        ));
-                    } else {
-                        error(scope, unary_operation->expression->range, "Cannot take pointers to constants of type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
-
-                        return err();
                     }
-                } else if(
-                    expression_value.value.kind == RuntimeValueKind::RegisterValue ||
-                    expression_value.value.kind == RuntimeValueKind::UndeterminedStructValue
-                ) {
-                    error(scope, unary_operation->expression->range, "Cannot take pointers to anonymous values");
 
-                    return err();
-                } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = expression_value.value.addressed;
+                    assert(found);
+
+                    pointer_register = append_reference_static(
+                        context,
+                        expression.range,
+                        runtime_function
+                    );
+                } else {
+                    auto expression_value = generate_expression(info, jobs, scope, context, *unary_operation.value);
+
+                    assert(expression_value.kind == RuntimeValueKind::AddressedValue);
+
+                    auto addressed_value = expression_value.addressed;
 
                     pointer_register = addressed_value.pointer_register;
-                } else {
-                    abort();
                 }
 
-                return ok(TypedRuntimeValue(
-                    AnyType(Pointer(context->arena->heapify(expression_value.type))),
-                    AnyRuntimeValue(RegisterValue(IRType::create_pointer(), pointer_register))
-                ));
+                return AnyRuntimeValue(RegisterValue(IRType::create_pointer(), pointer_register));
             } break;
 
-            case UnaryOperation::Operator::PointerDereference: {
-                if(expression_value.type.kind != TypeKind::Pointer) {
-                    error(scope, unary_operation->expression->range, "Expected a pointer, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
+            case UnaryOperationKind::PointerDereference: {
+                auto expression_value = generate_expression(info, jobs, scope, context, *unary_operation.value);
 
-                    return err();
-                }
+                assert(unary_operation.value->type.kind == TypeKind::Pointer);
 
-                auto pointed_to_type = *expression_value.type.pointer.pointed_to_type;
+                auto pointed_to_type = *unary_operation.value->type.pointer.pointed_to_type;
 
-                if(!pointed_to_type.is_runtime_type()) {
-                    error(scope, unary_operation->expression->range, "Cannot dereference pointers to type '%.*s'", STRING_PRINTF_ARGUMENTS(pointed_to_type.get_description(context->arena)));
-
-                    return err();
-                }
+                assert(pointed_to_type.is_runtime_type());
 
                 auto pointed_to_ir_type = get_ir_type(context->arena, info.architecture_sizes, pointed_to_type);
 
                 auto pointer_register = generate_in_register_value(
                     context,
-                    unary_operation->expression->range,
+                    unary_operation.value->range,
                     IRType::create_pointer(),
-                    expression_value.value
+                    expression_value
                 );
 
-                return ok(TypedRuntimeValue(
-                    pointed_to_type,
-                    AnyRuntimeValue(AddressedValue(pointed_to_ir_type, pointer_register))
-                ));
+                return AnyRuntimeValue(AddressedValue(pointed_to_ir_type, pointer_register));
             } break;
 
-            case UnaryOperation::Operator::BooleanInvert: {
-                if(expression_value.type.kind != TypeKind::Boolean) {
-                    error(scope, unary_operation->expression->range, "Expected bool, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
+            case UnaryOperationKind::BooleanInvert: {
+                auto expression_value = generate_expression(info, jobs, scope, context, *unary_operation.value);
 
-                    return err();
-                }
+                assert(unary_operation.value->type.kind == TypeKind::Boolean);
 
                 size_t register_index;
-                if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                    if(expression_value.value.constant.kind == ConstantValueKind::BooleanConstant) {
-                        auto boolean_value = expression_value.value.constant.unwrap_boolean();
-
-                        return ok(TypedRuntimeValue(
-                            AnyType::create_boolean(),
-                            AnyRuntimeValue(AnyConstantValue(!boolean_value))
-                        ));
-                    } else {
-                        assert(expression_value.value.constant.kind == ConstantValueKind::UndefConstant);
-
-                        error(scope, unary_operation->expression->range, "Cannot invert an undefined boolean constant");
-
-                        return err();
-                    }
-                } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = expression_value.value.register_;
+                if(expression_value.kind == RuntimeValueKind::RegisterValue) {
+                    auto register_value = expression_value.register_;
 
                     register_index = register_value.register_index;
-                } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = expression_value.value.addressed;
+                } else if(expression_value.kind == RuntimeValueKind::AddressedValue) {
+                    auto addressed_value = expression_value.addressed;
 
                     register_index = append_load(
                         context,
-                        unary_operation->expression->range,
+                        unary_operation.value->range,
                         addressed_value.pointer_register,
                         IRType::create_boolean()
                     );
+                } else {
+                    abort();
                 }
 
-                auto result_register = append_boolean_inversion(context, unary_operation->expression->range, register_index);
+                auto result_register = append_boolean_inversion(context, expression.range, register_index);
 
-                return ok(TypedRuntimeValue(
-                    AnyType::create_boolean(),
-                    AnyRuntimeValue(RegisterValue(IRType::create_boolean(), result_register))
-                ));
+                return AnyRuntimeValue(RegisterValue(IRType::create_boolean(), result_register));
             } break;
 
-            case UnaryOperation::Operator::Negation: {
-                if(expression_value.type.kind == TypeKind::UndeterminedInteger) {
-                    auto constant_value = expression_value.value.unwrap_constant_value();
+            case UnaryOperationKind::Negation: {
+                auto expression_value = generate_expression(info, jobs, scope, context, *unary_operation.value);
 
-                    auto integer_value = constant_value.unwrap_integer();
-
-                    return ok(TypedRuntimeValue(
-                        AnyType::create_undetermined_integer(),
-                        AnyRuntimeValue(AnyConstantValue((uint64_t)-(int64_t)integer_value))
-                    ));
-                } else if(expression_value.type.kind == TypeKind::Integer) {
-                    auto integer = expression_value.type.integer;
+                if(unary_operation.value->type.kind == TypeKind::Integer) {
+                    auto integer = unary_operation.value->type.integer;
 
                     auto ir_type = IRType::create_integer(integer.size);
 
                     size_t register_index;
-                    if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                        if(expression_value.value.constant.kind == ConstantValueKind::IntegerConstant) {
-                            auto integer_value = expression_value.value.constant.unwrap_integer();
-
-                            return ok(TypedRuntimeValue(
-                                AnyType::create_undetermined_integer(),
-                                AnyRuntimeValue(AnyConstantValue((uint64_t)-(int64_t)integer_value))
-                            ));
-                        } else {
-                            assert(expression_value.value.constant.kind == ConstantValueKind::UndefConstant);
-
-                            error(scope, unary_operation->expression->range, "Cannot negate an undefined integer constant");
-
-                            return err();
-                        }
-                    } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = expression_value.value.register_;
+                    if(expression_value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = expression_value.register_;
 
                         register_index = register_value.register_index;
-                    } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                        auto addressed_value = expression_value.value.addressed;
+                    } else if(expression_value.kind == RuntimeValueKind::AddressedValue) {
+                        auto addressed_value = expression_value.addressed;
 
                         register_index = append_load(
                             context,
-                            unary_operation->expression->range,
+                            unary_operation.value->range,
                             addressed_value.pointer_register,
                             ir_type
                         );
@@ -4376,54 +2508,36 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto zero_register = append_literal(
                         context,
-                        unary_operation->range,
+                        expression.range,
                         ir_type,
                         IRConstantValue::create_integer(0)
                     );
 
                     auto result_register = append_integer_arithmetic_operation(
                         context,
-                        unary_operation->range,
+                        expression.range,
                         IntegerArithmeticOperation::Operation::Subtract,
                         zero_register,
                         register_index
                     );
 
-                    return ok(TypedRuntimeValue(
-                        AnyType(integer),
-                        AnyRuntimeValue(RegisterValue(ir_type, result_register))
-                    ));
-                } else if(expression_value.type.kind == TypeKind::FloatType) {
-                    auto float_type = expression_value.type.float_;
+                    return AnyRuntimeValue(RegisterValue(ir_type, result_register));
+                } else if(unary_operation.value->type.kind == TypeKind::FloatType) {
+                    auto float_type = unary_operation.value->type.float_;
 
                     auto ir_type = IRType::create_float(float_type.size);
 
                     size_t register_index;
-                    if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-                        if(expression_value.value.constant.kind == ConstantValueKind::FloatConstant) {
-                            auto float_value = expression_value.value.constant.unwrap_float();
-
-                            return ok(TypedRuntimeValue(
-                                AnyType(float_type),
-                                AnyRuntimeValue(AnyConstantValue(-float_value))
-                            ));
-                        } else {
-                            assert(expression_value.value.constant.kind == ConstantValueKind::UndefConstant);
-
-                            error(scope, unary_operation->expression->range, "Cannot negate an undefined float constant");
-
-                            return err();
-                        }
-                    } else if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = expression_value.value.register_;
+                    if(expression_value.kind == RuntimeValueKind::RegisterValue) {
+                        auto register_value = expression_value.register_;
 
                         register_index = register_value.register_index;
-                    } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                        auto addressed_value = expression_value.value.addressed;
+                    } else if(expression_value.kind == RuntimeValueKind::AddressedValue) {
+                        auto addressed_value = expression_value.addressed;
 
                         register_index = append_load(
                             context,
-                            unary_operation->expression->range,
+                            unary_operation.value->range,
                             addressed_value.pointer_register,
                             ir_type
                         );
@@ -4431,674 +2545,68 @@ static_profiled_function(DelayedResult<TypedRuntimeValue>, generate_expression, 
 
                     auto zero_register = append_literal(
                         context,
-                        unary_operation->range,
+                        expression.range,
                         ir_type,
                         IRConstantValue::create_float(0.0)
                     );
 
                     auto result_register = append_float_arithmetic_operation(
                         context,
-                        unary_operation->range,
+                        expression.range,
                         FloatArithmeticOperation::Operation::Subtract,
                         zero_register,
                         register_index
                     );
 
-                    return ok(TypedRuntimeValue(
-                        AnyType(float_type),
-                        AnyRuntimeValue(RegisterValue(ir_type, result_register))
-                    ));
-                } else if(expression_value.type.kind == TypeKind::UndeterminedFloat) {
-                    auto constant_value = expression_value.value.unwrap_constant_value();
-
-                    auto float_value = constant_value.unwrap_float();
-
-                    return ok(TypedRuntimeValue(
-                        AnyType::create_undetermined_float(),
-                        AnyRuntimeValue(AnyConstantValue(-float_value))
-                    ));
+                    return AnyRuntimeValue(RegisterValue(ir_type, result_register));
                 } else {
-                    error(scope, unary_operation->expression->range, "Cannot negate '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
-
-                    return err();
+                    abort();
                 }
             } break;
 
-            default: {
-                abort();
-            } break;
+            default: abort();
         }
-    } else if(expression->kind == ExpressionKind::Cast) {
-        auto cast = (Cast*)expression;
+    } else if(expression.kind == TypedExpressionKind::Cast) {
+        auto cast = expression.cast;
 
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, cast->expression));
+        auto expression_value = generate_expression(info, jobs, scope, context, *cast.value);
 
-        expect_delayed(target_type, evaluate_type_expression(info, jobs, scope, context, cast->type));
+        assert(cast.type->type.kind == TypeKind::Type);
 
-        if(expression_value.value.kind == RuntimeValueKind::ConstantValue) {
-            auto constant_cast_result = evaluate_constant_cast(
-                context->arena,
-                info,
-                scope,
-                expression_value.type,
-                expression_value.value.constant,
-                cast->expression->range,
-                target_type,
-                cast->type->range,
-                true
-            );
+        auto target_type = cast.type->value.unwrap_constant_value().unwrap_type();
 
-            if(constant_cast_result.status) {
-                return ok(TypedRuntimeValue(
-                    target_type,
-                    AnyRuntimeValue(constant_cast_result.value)
-                ));
-            }
-        }
-
-        auto coercion_result = coerce_to_type_register(
+        auto result_register = convert_to_type_register(
             info,
             scope,
             context,
-            cast->range,
-            expression_value.type,
-            expression_value.value,
-            target_type,
-            true
+            expression.range,
+            cast.value->type,
+            expression_value,
+            target_type
         );
 
-        auto has_cast = false;
-        size_t register_index;
-        if(coercion_result.status) {
-            has_cast = true;
-            register_index = coercion_result.value.register_index;
-        } else if(target_type.kind == TypeKind::Integer) {
-            auto target_integer = target_type.integer;
-
-            if(expression_value.type.kind == TypeKind::Integer) {
-                auto integer = expression_value.type.integer;
-
-                size_t value_register;
-                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = expression_value.value.register_;
-
-                    value_register = register_value.register_index;
-                } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = expression_value.value.addressed;
-
-                    value_register = append_load(
-                        context,
-                        cast->expression->range,
-                        addressed_value.pointer_register,
-                        addressed_value.pointed_to_type
-                    );
-                } else {
-                    abort();
-                }
-
-                has_cast = true;
-
-                if(target_integer.size > integer.size) {
-                    register_index = append_integer_extension(
-                        context,
-                        cast->range,
-                        integer.is_signed,
-                        target_integer.size,
-                        value_register
-                    );
-                } else if(target_integer.size < integer.size) {
-                    register_index = append_integer_truncation(
-                        context,
-                        cast->range,
-                        target_integer.size,
-                        value_register
-                    );
-                } else {
-                    register_index = value_register;
-                }
-            } else if(expression_value.type.kind == TypeKind::FloatType) {
-                auto float_type = expression_value.type.float_;
-                size_t value_register;
-                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = expression_value.value.register_;
-
-                    value_register = register_value.register_index;
-                } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = expression_value.value.addressed;
-
-                    value_register = append_load(
-                        context,
-                        cast->expression->range,
-                        addressed_value.pointer_register,
-                        addressed_value.pointed_to_type
-                    );
-                } else {
-                    abort();
-                }
-
-                has_cast = true;
-                register_index = append_integer_from_float(
-                    context,
-                    cast->range,
-                    target_integer.is_signed,
-                    target_integer.size,
-                    value_register
-                );
-            } else if(expression_value.type.kind == TypeKind::Pointer) {
-                auto pointer = expression_value.type.pointer;
-                if(target_integer.size == info.architecture_sizes.address_size && !target_integer.is_signed) {
-                    has_cast = true;
-
-                    size_t value_register;
-                    if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = expression_value.value.register_;
-
-                        value_register = register_value.register_index;
-                    } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                        auto addressed_value = expression_value.value.addressed;
-
-                        value_register = append_load(
-                            context,
-                            cast->expression->range,
-                            addressed_value.pointer_register,
-                            addressed_value.pointed_to_type
-                        );
-                    } else {
-                        abort();
-                    }
-
-                    register_index = append_integer_from_pointer(
-                        context,
-                        cast->range,
-                        target_integer.size,
-                        value_register
-                    );
-                }
-            }
-        } else if(target_type.kind == TypeKind::FloatType) {
-            auto target_float_type = target_type.float_;
-
-            if(expression_value.type.kind == TypeKind::Integer) {
-                auto integer = expression_value.type.integer;
-
-                size_t value_register;
-                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = expression_value.value.register_;
-
-                    value_register = register_value.register_index;
-                } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = expression_value.value.addressed;
-
-                    value_register = append_load(
-                        context,
-                        cast->expression->range,
-                        addressed_value.pointer_register,
-                        addressed_value.pointed_to_type
-                    );
-                } else {
-                    abort();
-                }
-
-                has_cast = true;
-                register_index = append_float_from_integer(
-                    context,
-                    cast->range,
-                    integer.is_signed,
-                    target_float_type.size,
-                    value_register
-                );
-            } else if(expression_value.type.kind == TypeKind::FloatType) {
-                auto float_type = expression_value.type.float_;
-                size_t value_register;
-                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = expression_value.value.register_;
-
-                    value_register = register_value.register_index;
-                } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = expression_value.value.addressed;
-
-                    value_register = append_load(
-                        context,
-                        cast->expression->range,
-                        addressed_value.pointer_register,
-                        addressed_value.pointed_to_type
-                    );
-                } else {
-                    abort();
-                }
-
-                has_cast = true;
-                register_index = append_float_conversion(
-                    context,
-                    cast->range,
-                    target_float_type.size,
-                    value_register
-                );
-            }
-        } else if(target_type.kind == TypeKind::Pointer) {
-            auto target_pointer = target_type.pointer;
-
-            if(expression_value.type.kind == TypeKind::Integer) {
-                auto integer = expression_value.type.integer;
-
-                if(integer.size == info.architecture_sizes.address_size && !integer.is_signed) {
-                    has_cast = true;
-
-                    size_t value_register;
-                    if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                        auto register_value = expression_value.value.register_;
-
-                        value_register = register_value.register_index;
-                    } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                        auto addressed_value = expression_value.value.addressed;
-
-                        value_register = append_load(
-                            context,
-                            cast->expression->range,
-                            addressed_value.pointer_register,
-                            addressed_value.pointed_to_type
-                        );
-                    } else {
-                        abort();
-                    }
-
-                    register_index = append_pointer_from_integer(
-                        context,
-                        cast->range,
-                        value_register
-                    );
-                }
-            } else if(expression_value.type.kind == TypeKind::Pointer) {
-                auto pointer = expression_value.type.pointer;
-                has_cast = true;
-
-                size_t value_register;
-                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = expression_value.value.register_;
-
-                    value_register = register_value.register_index;
-                } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = expression_value.value.addressed;
-
-                    value_register = append_load(
-                        context,
-                        cast->expression->range,
-                        addressed_value.pointer_register,
-                        addressed_value.pointed_to_type
-                    );
-                } else {
-                    abort();
-                }
-
-                register_index = value_register;
-            }
-        } else if(target_type.kind == TypeKind::Enum) {
-            auto target_enum = target_type.enum_;
-
-            if(expression_value.type.kind == TypeKind::Integer) {
-                auto integer = expression_value.type.integer;
-                size_t value_register;
-                if(expression_value.value.kind == RuntimeValueKind::RegisterValue) {
-                    auto register_value = expression_value.value.register_;
-
-                    value_register = register_value.register_index;
-                } else if(expression_value.value.kind == RuntimeValueKind::AddressedValue) {
-                    auto addressed_value = expression_value.value.addressed;
-
-                    value_register = append_load(
-                        context,
-                        cast->expression->range,
-                        addressed_value.pointer_register,
-                        addressed_value.pointed_to_type
-                    );
-                } else {
-                    abort();
-                }
-
-                has_cast = true;
-
-                if(target_enum.backing_type->size > integer.size) {
-                    register_index = append_integer_extension(
-                        context,
-                        cast->range,
-                        integer.is_signed,
-                        target_enum.backing_type->size,
-                        value_register
-                    );
-                } else if(target_enum.backing_type->size < integer.size) {
-                    register_index = append_integer_truncation(
-                        context,
-                        cast->range,
-                        target_enum.backing_type->size,
-                        value_register
-                    );
-                } else {
-                    register_index = value_register;
-                }
-            }
-        } else {
-            abort();
-        }
-
-        if(has_cast) {
-            auto ir_type = get_ir_type(context->arena, info.architecture_sizes, target_type);
-
-            return ok(TypedRuntimeValue(
-                target_type,
-                AnyRuntimeValue(RegisterValue(ir_type, register_index))
-            ));
-        } else {
-            error(scope, cast->range, "Cannot cast from '%.*s' to '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)), STRING_PRINTF_ARGUMENTS(target_type.get_description(context->arena)));
-
-            return err();
-        }
-    } else if(expression->kind == ExpressionKind::Bake) {
-        auto bake = (Bake*)expression;
-
-        auto function_call = bake->function_call;
-
-        expect_delayed(expression_value, generate_expression(info, jobs, scope, context, function_call->expression));
-
-        auto call_parameter_count = function_call->parameters.length;
-
-        auto call_parameters = context->arena->allocate<TypedRuntimeValue>(call_parameter_count);
-        for(size_t i = 0; i < call_parameter_count; i += 1) {
-            expect_delayed(parameter_value, generate_expression(info, jobs, scope, context, function_call->parameters[i]));
-
-            call_parameters[i] = parameter_value;
-        }
-
-        if(expression_value.type.kind == TypeKind::PolymorphicFunction) {
-            auto constant_value = expression_value.value.unwrap_constant_value();
-
-            auto polymorphic_function_value = constant_value.unwrap_polymorphic_function();
-
-            auto declaration_parameters = polymorphic_function_value.declaration->parameters;
-            auto declaration_parameter_count = declaration_parameters.length;
-
-            if(call_parameter_count != declaration_parameter_count) {
-                error(
-                    scope,
-                    function_call->range,
-                    "Incorrect number of parameters. Expected %zu, got %zu",
-                    declaration_parameter_count,
-                    call_parameter_count
-                );
-
-                return err();
-            }
-
-            auto polymorphic_parameters = context->arena->allocate<TypedConstantValue>(declaration_parameter_count);
-
-            for(size_t i = 0; i < declaration_parameter_count; i += 1) {
-                auto declaration_parameter = declaration_parameters[i];
-
-                if(declaration_parameter.is_polymorphic_determiner) {
-                    polymorphic_parameters[i].type = call_parameters[i].type;
-                }
-
-                if(declaration_parameter.is_constant) {
-                    if(call_parameters[i].value.kind != RuntimeValueKind::ConstantValue) {
-                        error(
-                            scope,
-                            function_call->parameters[i]->range,
-                            "Non-constant value provided for constant parameter '%.*s'",
-                            STRING_PRINTF_ARGUMENTS(declaration_parameter.name.text)
-                        );
-
-                        return err();
-                    }
-
-                    polymorphic_parameters[i] = TypedConstantValue(
-                        call_parameters[i].type,
-                        call_parameters[i].value.constant
-                    );
-                }
-            }
-
-            for(size_t i = 0; i < jobs->length; i += 1) {
-                auto job = (*jobs)[i];
-
-                if(job.kind == JobKind::ResolvePolymorphicFunction) {
-                    auto resolve_polymorphic_function = job.resolve_polymorphic_function;
-
-                    if(
-                        resolve_polymorphic_function.declaration == polymorphic_function_value.declaration &&
-                        resolve_polymorphic_function.scope == polymorphic_function_value.scope
-                    ) {
-                        auto matching_polymorphic_parameters = true;
-                        for(size_t i = 0; i < declaration_parameter_count; i += 1) {
-                            auto declaration_parameter = declaration_parameters[i];
-                            auto call_parameter = polymorphic_parameters[i];
-                            auto job_parameter = resolve_polymorphic_function.parameters[i];
-
-                            if(
-                                (declaration_parameter.is_polymorphic_determiner || declaration_parameter.is_constant) &&
-                                job_parameter.type != call_parameter.type
-                            ) {
-                                matching_polymorphic_parameters = false;
-                                break;
-                            }
-
-                            if(
-                                declaration_parameter.is_constant &&
-                                !constant_values_equal( call_parameter.value, job_parameter.value)
-                            ) {
-                                matching_polymorphic_parameters = false;
-                                break;
-                            }
-                        }
-
-                        if(!matching_polymorphic_parameters) {
-                            continue;
-                        }
-
-                        if(job.state == JobState::Done) {
-                            return ok(TypedRuntimeValue(
-                                AnyType(resolve_polymorphic_function.type),
-                                AnyRuntimeValue(AnyConstantValue(resolve_polymorphic_function.value))
-                            ));
-                        } else {
-                            return wait(i);
-                        }  
-                    }
-                }
-            }
-
-            auto call_parameter_ranges = context->arena->allocate<FileRange>(declaration_parameter_count);
-
-            for(size_t i = 0; i < declaration_parameter_count; i += 1) {
-                call_parameter_ranges[i] = function_call->parameters[i]->range;
-            }
-
-            AnyJob job {};
-            job.kind = JobKind::ResolvePolymorphicFunction;
-            job.state = JobState::Working;
-            job.resolve_polymorphic_function.declaration = polymorphic_function_value.declaration;
-            job.resolve_polymorphic_function.parameters = polymorphic_parameters;
-            job.resolve_polymorphic_function.scope = polymorphic_function_value.scope;
-            job.resolve_polymorphic_function.call_scope = scope;
-            job.resolve_polymorphic_function.call_parameter_ranges = call_parameter_ranges;
-
-            auto job_index = jobs->append(job);
-
-            return wait(job_index);
-        } else if(expression_value.type.kind == TypeKind::FunctionTypeType) {
-            auto function_type = expression_value.type.function;
-
-            auto constant_value = expression_value.value.unwrap_constant_value();
-
-            auto function_value = constant_value.unwrap_function();
-
-            if(call_parameter_count != function_type.parameters.length) {
-                error(
-                    scope,
-                    function_call->range,
-                    "Incorrect number of parameters. Expected %zu, got %zu",
-                    function_type.parameters.length,
-                    call_parameter_count
-                );
-
-                return err();
-            }
-
-            return ok(TypedRuntimeValue(
-                AnyType(function_type),
-                AnyRuntimeValue(AnyConstantValue(function_value))
-            ));
-        } else {
-            error(scope, function_call->expression->range, "Expected a function, got '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.type.get_description(context->arena)));
-
-            return err();
-        }
-    } else if(expression->kind == ExpressionKind::ArrayType) {
-        auto array_type = (ArrayType*)expression;
-
-        expect_delayed(type, evaluate_type_expression(info, jobs, scope, context, array_type->expression));
-
-        if(!type.is_runtime_type()) {
-            error(scope, array_type->expression->range, "Cannot have arrays of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
-
-            return err();
-        }
-
-        if(array_type->length != nullptr) {
-            expect_delayed(index_value, evaluate_constant_expression(context->arena, info, jobs, scope, nullptr, array_type->length));
-
-            expect(length, coerce_constant_to_integer_type(
-                context->arena,
-                scope,
-                array_type->length->range,
-                index_value.type,
-                index_value.value,
-                Integer(
-                    info.architecture_sizes.address_size,
-                    false
-                ),
-                false
-            ));
-
-            if(length.kind == ConstantValueKind::UndefConstant) {
-                error(scope, array_type->length->range, "Length cannot be undefined");
-
-                return err();
-            }
-
-            auto length_integer = length.unwrap_integer();
-
-            return ok(TypedRuntimeValue(
-                AnyType::create_type_type(),
-                AnyRuntimeValue(AnyConstantValue(AnyType(StaticArray(
-                    length_integer,
-                    context->arena->heapify(type)
-                ))))
-            ));
-        } else {
-            return ok(TypedRuntimeValue(
-                AnyType::create_type_type(),
-                AnyRuntimeValue(AnyConstantValue(AnyType(ArrayTypeType(
-                    context->arena->heapify(type)
-                ))))
-            ));
-        }
-    } else if(expression->kind == ExpressionKind::FunctionType) {
-        auto function_type = (FunctionType*)expression;
-
-        auto parameter_count = function_type->parameters.length;
-
-        auto parameters = context->arena->allocate<AnyType>(parameter_count);
-
-        for(size_t i = 0; i < parameter_count; i += 1) {
-            auto parameter = function_type->parameters[i];
-
-            if(parameter.is_polymorphic_determiner) {
-                error(scope, parameter.polymorphic_determiner.range, "Function types cannot be polymorphic");
-
-                return err();
-            }
-
-            expect_delayed(type, evaluate_type_expression(info, jobs, scope, context, parameter.type));
-
-            if(!type.is_runtime_type()) {
-                error(scope, function_type->parameters[i].type->range, "Function parameters cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
-
-                return err();
-            }
-
-            parameters[i] = type;
-        }
-
-        auto return_type_count = function_type->return_types.length;
-
-        auto return_types = context->arena->allocate<AnyType>(return_type_count);
-
-        for(size_t i = 0; i < return_type_count; i += 1) {
-            auto expression = function_type->return_types[i];
-
-            expect_delayed(type, evaluate_type_expression(context->arena, info, jobs, scope, (Statement*)nullptr, expression));
-
-            if(!type.is_runtime_type()) {
-                error(scope, expression->range, "Function returns cannot be of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
-
-                return err();
-            }
-
-            return_types[i] = type;
-        }
-
-        auto is_calling_convention_specified = false;
-        auto calling_convention = CallingConvention::Default;
-        for(auto tag : function_type->tags) {
-            if(tag.name.text == u8"extern"_S) {
-                error(scope, tag.range, "Function types cannot be external");
-
-                return err();
-            } else if(tag.name.text == u8"no_mangle"_S) {
-                error(scope, tag.range, "Function types cannot be no_mangle");
-
-                return err();
-            } else if(tag.name.text == u8"call_conv"_S) {
-                if(is_calling_convention_specified) {
-                    error(scope, tag.range, "Duplicate 'call_conv' tag");
-
-                    return err();
-                }
-
-                if(tag.parameters.length != 1) {
-                    error(scope, tag.range, "Expected 1 parameter, got %zu", tag.parameters.length);
-
-                    return err();
-                }
-
-                expect_delayed(parameter, evaluate_constant_expression(context->arena, info, jobs, scope, nullptr, tag.parameters[0]));
-
-                expect(calling_convention_name, array_to_string(context->arena, scope, tag.parameters[0]->range, parameter.type, parameter.value));
-
-                if(calling_convention_name == u8"default"_S) {
-                    calling_convention = CallingConvention::Default;
-                } else if(calling_convention_name == u8"stdcall"_S) {
-                    calling_convention = CallingConvention::StdCall;
-                }
-
-                is_calling_convention_specified = true;
-            } else {
-                error(scope, tag.name.range, "Unknown tag '%.*s'", STRING_PRINTF_ARGUMENTS(tag.name.text));
-
-                return err();
-            }
-        }
-
-        return ok(TypedRuntimeValue(
-            AnyType::create_type_type(),
-            AnyRuntimeValue(AnyConstantValue(AnyType(FunctionTypeType(
-                Array(parameter_count, parameters),
-                Array(return_type_count, return_types),
-                calling_convention
-            ))))
-        ));
+        return AnyRuntimeValue(result_register);
+    } else if(expression.kind == TypedExpressionKind::Coercion) {
+        auto coercion = expression.coercion;
+
+        auto expression_value = generate_expression(info, jobs, scope, context, *coercion.original);
+
+        auto result_register = convert_to_type_register(
+            info,
+            scope,
+            context,
+            expression.range,
+            coercion.original->type,
+            expression_value,
+            expression.type
+        );
+
+        return AnyRuntimeValue(result_register);
     } else {
         abort();
     }
+
+
 }
 
 static bool does_current_block_need_finisher(GenerationContext* context) {
@@ -5159,7 +2667,7 @@ static bool is_runtime_statement(Statement* statement) {
 
 static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
     GlobalInfo info,
-    List<AnyJob>* jobs,
+    List<AnyJob*>* jobs,
     ConstantScope* scope,
     GenerationContext* context,
     Array<Statement*> statements
@@ -5510,7 +3018,7 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
                     binary_operation_assignment->range,
                     binary_operation_assignment->target,
                     binary_operation_assignment->value,
-                    binary_operation_assignment->binary_operator
+                    binary_operation_assignment->kind
                 ));
 
                 expect(register_value, coerce_to_type_register(
@@ -6121,8 +3629,10 @@ static_profiled_function(DelayedResult<void>, generate_runtime_statements, (
 
 profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
     GlobalInfo info,
-    List<AnyJob>* jobs,
+    List<AnyJob*>* jobs,
     Arena* arena,
+    Array<TypedFunction> functions,
+    Array<TypedStaticVariable> static_variables,
     FunctionTypeType type,
     FunctionConstant value,
     Function* function
@@ -6201,6 +3711,10 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
         context.blocks.arena = arena;
         context.instructions.arena = arena;
         context.static_constants.arena = arena;
+        context.scope_search_stack.arena = arena;
+
+        context.functions = functions;
+        context.static_variables = static_variables;
 
         context.return_types = type.return_types;
 
@@ -6303,7 +3817,7 @@ profiled_function(DelayedResult<Array<StaticConstant*>>, do_generate_function, (
 
 profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variable, (
     GlobalInfo info,
-    List<AnyJob>* jobs,
+    List<AnyJob*>* jobs,
     Arena* arena,
     VariableDeclaration* declaration,
     ConstantScope* scope
@@ -6314,6 +3828,8 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
     declaration,
     scope
 )) {
+    List<ConstantScope*> scope_search_stack(arena);
+
     auto is_external = false;
     Array<String> external_libraries;
     auto is_no_mangle = false;
@@ -6328,7 +3844,15 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             List<String> libraries(arena);
 
             for(size_t i = 0; i < tag.parameters.length; i += 1) {
-                expect_delayed(parameter, evaluate_constant_expression(arena, info, jobs, scope, nullptr, tag.parameters[i]));
+                expect_delayed(parameter, evaluate_constant_expression(
+                    arena,
+                    info,
+                    jobs,
+                    scope,
+                    nullptr,
+                    tag.parameters[i],
+                    &scope_search_stack
+                ));
 
                 if(parameter.type.kind == TypeKind::ArrayTypeType) {
                     auto array = parameter.type.array;
@@ -6413,13 +3937,23 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
             return err();
         }
 
-        expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, (Statement*)nullptr, declaration->type));
+        expect_delayed(type, evaluate_type_expression(
+            arena,
+            info,
+            jobs,
+            scope,
+            nullptr,
+            declaration->type,
+            &scope_search_stack
+        ));
 
         if(!type.is_runtime_type()) {
             error(scope, declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
 
             return err();
         }
+
+        assert(scope_search_stack.length == 0);
 
         auto static_variable = arena->allocate_and_construct<StaticVariable>();
         static_variable->name = declaration->name.text;
@@ -6444,7 +3978,15 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
         }
 
         if(declaration->type != nullptr) {
-            expect_delayed(type, evaluate_type_expression(arena, info, jobs, scope, (Statement*)nullptr, declaration->type));
+            expect_delayed(type, evaluate_type_expression(
+                arena,
+                info,
+                jobs,
+                scope,
+                nullptr,
+                declaration->type,
+                &scope_search_stack
+            ));
 
             if(!type.is_runtime_type()) {
                 error(scope, declaration->type->range, "Cannot create variables of type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
@@ -6452,7 +3994,15 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
                 return err();
             }
 
-            expect_delayed(initial_value, evaluate_constant_expression(arena, info, jobs, scope, nullptr, declaration->initializer));
+            expect_delayed(initial_value, evaluate_constant_expression(
+                arena,
+                info,
+                jobs,
+                scope,
+                nullptr,
+                declaration->initializer,
+                &scope_search_stack
+            ));
 
             expect(coerced_initial_value, coerce_constant_to_type(
                 arena,
@@ -6464,6 +4014,8 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
                 type,
                 false
             ));
+
+            assert(scope_search_stack.length == 0);
 
             auto ir_initial_value = get_runtime_ir_constant_value(arena, coerced_initial_value);
 
@@ -6484,7 +4036,15 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
 
             return ok(result);
         } else {
-            expect_delayed(initial_value, evaluate_constant_expression(arena, info, jobs, scope, nullptr, declaration->initializer));
+            expect_delayed(initial_value, evaluate_constant_expression(
+                arena,
+                info,
+                jobs,
+                scope,
+                nullptr,
+                declaration->initializer,
+                &scope_search_stack
+            ));
 
             expect(type, coerce_to_default_type(info, scope, declaration->initializer->range, initial_value.type));
 
@@ -6493,6 +4053,8 @@ profiled_function(DelayedResult<StaticVariableResult>, do_generate_static_variab
 
                 return err();
             }
+
+            assert(scope_search_stack.length == 0);
 
             auto ir_initial_value = get_runtime_ir_constant_value(arena, initial_value.value);
 
