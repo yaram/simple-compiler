@@ -5,12 +5,6 @@
 #include "typed_tree.h"
 #include "jobs.h"
 
-struct TypeStaticIfResult {
-    TypedExpression condition;
-
-    bool condition_value;
-};
-
 struct SearchForMainResult {
     FunctionTypeType type;
     FunctionConstant value;
@@ -23,6 +17,12 @@ DelayedResult<SearchForMainResult> search_for_main(
     Arena* arena,
     ConstantScope* scope
 );
+
+struct TypeStaticIfResult {
+    TypedExpression condition;
+
+    bool condition_value;
+};
 
 DelayedResult<TypeStaticIfResult> do_type_static_if(
     GlobalInfo info,
@@ -174,6 +174,15 @@ DelayedResult<TypeStaticVariableResult> do_type_static_variable(
     Arena* global_arena,
     Arena* arena,
     VariableDeclaration* declaration,
+    ConstantScope* scope
+);
+
+DelayedResult<TypedExpression> do_type_using(
+    GlobalInfo info,
+    List<AnyJob*>* jobs,
+    Arena* global_arena,
+    Arena* arena,
+    UsingStatement* statement,
     ConstantScope* scope
 );
 

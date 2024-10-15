@@ -2210,64 +2210,71 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
             auto using_statement = (UsingStatement*)statement;
 
             if(!external || using_statement->export_) {
-                expect_delayed(expression_value, expect_constant_expression(
-                    info,
-                    jobs,
-                    scope,
-                    context,
-                    using_statement->value
-                ));
+                auto found_job = false;
+                for(size_t i = 0; i < jobs->length; i += 1) {
+                    auto job = (*jobs)[i];
 
-                if(expression_value.typed_expression.type.kind == TypeKind::FileModule) {
-                    auto file_module = expression_value.value.unwrap_file_module();
+                    if(job->kind == JobKind::TypeUsing) {
+                        auto type_using = job->type_using;
 
-                    assert(file_module.scope->is_top_level);
+                        if(type_using.statement == statement) {
+                            found_job = true;
 
-                    expect_delayed(search_value, search_for_name(
-                        info,
-                        jobs,
-                        file_module.scope,
-                        context,
-                        name,
-                        file_module.scope->statements,
-                        true
-                    ));
+                            if(job->state == JobState::Done) {
+                                if(type_using.value.type.kind == TypeKind::FileModule) {
+                                    auto file_module = type_using.value.value.unwrap_constant_value().unwrap_file_module();
 
-                    if(search_value.found) {
-                        context->scope_search_stack.length -= 1;
+                                    assert(file_module.scope->is_top_level);
 
-                        return ok(search_value);
-                    }
-                } else if(expression_value.typed_expression.type.kind == TypeKind::Type) {
-                    auto type = expression_value.value.unwrap_type();
+                                    expect_delayed(search_value, search_for_name(
+                                        info,
+                                        jobs,
+                                        file_module.scope,
+                                        context,
+                                        name,
+                                        file_module.scope->statements,
+                                        true
+                                    ));
 
-                    if(type.kind == TypeKind::Enum) {
-                        auto enum_ = type.enum_;
+                                    if(search_value.found) {
+                                        context->scope_search_stack.length -= 1;
 
-                        for(size_t i = 0; i < enum_.variant_values.length; i += 1) {
-                            if(enum_.definition->variants[i].name.text == name) {
-                                NameSearchResult result {};
-                                result.found = true;
-                                result.scope = scope;
-                                result.type = AnyType(*enum_.backing_type);
-                                result.constant_range = enum_.definition[i].name.range;
-                                result.constant = AnyConstantValue(enum_.variant_values[i]);
+                                        return ok(search_value);
+                                    }
+                                } else if(type_using.value.type.kind == TypeKind::Type) {
+                                    auto type = type_using.value.value.unwrap_constant_value().unwrap_type();
 
-                                context->scope_search_stack.length -= 1;
+                                    if(type.kind == TypeKind::Enum) {
+                                        auto enum_ = type.enum_;
 
-                                return ok(result);
+                                        for(size_t i = 0; i < enum_.variant_values.length; i += 1) {
+                                            if(enum_.definition->variants[i].name.text == name) {
+                                                NameSearchResult result {};
+                                                result.found = true;
+                                                result.scope = scope;
+                                                result.type = AnyType(*enum_.backing_type);
+                                                result.constant_range = enum_.definition[i].name.range;
+                                                result.constant = AnyConstantValue(enum_.variant_values[i]);
+
+                                                context->scope_search_stack.length -= 1;
+
+                                                return ok(result);
+                                            }
+                                        }
+                                    } else {
+                                        abort();
+                                    }
+                                } else {
+                                    abort();
+                                }
+                            } else {
+                                return wait(i);
                             }
                         }
-                    } else {
-                        error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(context->arena)));
-
-                        return err();
                     }
-                } else {
-                    error(scope, using_statement->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.typed_expression.type.get_description(context->arena)));
-
-                    return err();
                 }
+
+                assert(found_job);
             }
         } else if(statement->kind == StatementKind::StaticIf) {
             auto static_if = (StaticIf*)statement;
@@ -2339,7 +2346,7 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                 } else {
                                     return wait(i);
                                 }
-                            }
+                            }   
                         }
                     }
 
@@ -7054,7 +7061,17 @@ profiled_function(Result<void>, process_scope, (
                 }
             } break;
 
-            case StatementKind::UsingStatement: break;
+            case StatementKind::UsingStatement: {
+                auto using_ = (UsingStatement*)statement;
+
+                AnyJob job {};
+                job.kind = JobKind::TypeUsing;
+                job.state = JobState::Working;
+                job.type_using.statement = using_;
+                job.type_using.scope = scope;
+
+                jobs->append(global_arena->heapify(job));
+            } break;
 
             case StatementKind::StaticIf: {
                 auto static_if = (StaticIf*)statement;
@@ -7548,4 +7565,48 @@ profiled_function(DelayedResult<TypeStaticVariableResult>, do_type_static_variab
             return ok(result);
         }
     }
+}
+
+DelayedResult<TypedExpression> do_type_using(
+    GlobalInfo info,
+    List<AnyJob*>* jobs,
+    Arena* global_arena,
+    Arena* arena,
+    UsingStatement* statement,
+    ConstantScope* scope
+) {
+    TypingContext context {};
+    context.arena = arena;
+    context.global_arena = global_arena;
+    context.scope_search_stack.arena = arena;
+    context.search_ignore_statement = statement;
+
+    expect_delayed(expression_value, expect_constant_expression(
+        info,
+        jobs,
+        scope,
+        &context,
+        statement->value
+    ));
+
+    if(expression_value.typed_expression.type.kind == TypeKind::FileModule) {
+        auto file_module = expression_value.value.unwrap_file_module();
+
+        assert(file_module.scope->is_top_level);
+    } else if(expression_value.typed_expression.type.kind == TypeKind::Type) {
+        auto type = expression_value.value.unwrap_type();
+
+        if(type.kind == TypeKind::Enum) {
+        } else {
+            error(scope, statement->value->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(type.get_description(arena)));
+
+            return err();
+        }
+    } else {
+        error(scope, statement->value->range, "Cannot apply 'using' with type '%.*s'", STRING_PRINTF_ARGUMENTS(expression_value.typed_expression.type.get_description(arena)));
+
+        return err();
+    }
+
+    return ok(expression_value.typed_expression);
 }

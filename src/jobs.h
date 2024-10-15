@@ -107,6 +107,13 @@ struct TypeStaticVariable {
     Array<String> external_libraries;
 };
 
+struct TypeUsing {
+    UsingStatement* statement;
+    ConstantScope* scope;
+
+    TypedExpression value;
+};
+
 enum struct JobKind {
     ParseFile,
     TypeStaticIf,
@@ -119,7 +126,8 @@ enum struct JobKind {
     TypePolymorphicUnion,
     TypeEnumDefinition,
     TypeFunctionBody,
-    TypeStaticVariable
+    TypeStaticVariable,
+    TypeUsing
 };
 
 enum struct JobState {
@@ -150,6 +158,7 @@ struct AnyJob {
         TypeEnumDefinition type_enum_definition;
         TypeFunctionBody type_function_body;
         TypeStaticVariable type_static_variable;
+        TypeUsing type_using;
     };
 };
 

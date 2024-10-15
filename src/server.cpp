@@ -569,6 +569,35 @@ static Result<void> compile_source_file(GlobalInfo info, SourceFile* file) {
                         }
                     } break;
 
+                    case JobKind::TypeUsing: {
+                        auto type_using = job->type_using;
+
+                        auto result = do_type_using(
+                            info,
+                            &jobs,
+                            &file->compilation_arena,
+                            &job->arena,
+                            type_using.statement,
+                            type_using.scope
+                        );
+
+                        if(result.has_value) {
+                            if(!result.status) {
+                                file->jobs = jobs;
+                                file->errors = errors;
+
+                                return err();
+                            }
+
+                            job->state = JobState::Done;
+                            job->type_using.value = result.value;
+                        } else {
+                            job->state = JobState::Waiting;
+                            job->waiting_for = result.waiting_for;
+                            job->arena.reset();
+                        }
+                    } break;
+
                     default: abort();
                 }
 
@@ -667,6 +696,13 @@ static Result<void> compile_source_file(GlobalInfo info, SourceFile* file) {
 
                         scope = type_static_variable.scope;
                         range = type_static_variable.declaration->range;
+                    } break;
+
+                    case JobKind::TypeUsing: {
+                        auto type_using = job->type_using;
+
+                        scope = type_using.scope;
+                        range = type_using.statement->range;
                     } break;
 
                     default: abort();
@@ -2999,6 +3035,30 @@ int main(int argument_count, const char* arguments[]) {
 
                                 break;
                             }
+                        } else if(job->kind == JobKind::TypeUsing) {
+                            if(
+                                job->type_using.scope->get_file_path() == absolute_path &&
+                                is_position_in_range(
+                                    job->type_using.statement->range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )
+                            ) {
+                                if(is_position_in_range(
+                                    job->type_using.value.range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )) {
+                                    found_range = true;
+                                    range_info = get_expression_range_info(
+                                        job->type_using.value,
+                                        actual_position.line,
+                                        actual_position.column
+                                    );
+                                }
+
+                                break;
+                            }
                         }
                     }
                 }
@@ -3013,9 +3073,8 @@ int main(int argument_count, const char* arguments[]) {
                             buffer.append(range_info.value.constant.unwrap_type().get_description(&request_arena));
                         } else {
                             buffer.append(range_info.value.constant.get_description(&request_arena));
-                            buffer.append(u8" ("_S);
+                            buffer.append(u8" "_S);
                             buffer.append(range_info.type.get_description(&request_arena));
-                            buffer.append(u8" )"_S);
                         }
                     } else {
                         buffer.append(range_info.type.get_description(&request_arena));
