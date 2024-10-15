@@ -97,6 +97,7 @@ struct TypingContext {
 
     List<ConstantScope*> scope_search_stack;
 
+    bool stop_at_search_ignore_statement;
     Statement* search_ignore_statement;
 };
 
@@ -2066,6 +2067,10 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name_in_sta
 )) {
     for(auto statement : statements) {
         if(statement == context->search_ignore_statement) {
+            if(context->stop_at_search_ignore_statement) {
+                break;
+            }
+
             continue;
         }
 
@@ -6028,6 +6033,7 @@ DelayedResult<TypeStaticIfResult> do_type_static_if(
     context.arena = arena;
     context.global_arena = global_arena;
     context.scope_search_stack.arena = arena;
+    context.stop_at_search_ignore_statement = true;
     context.search_ignore_statement = static_if;
 
     expect_delayed(condition, expect_constant_expression(
@@ -7711,6 +7717,7 @@ DelayedResult<TypedExpression> do_type_using(
     context.arena = arena;
     context.global_arena = global_arena;
     context.scope_search_stack.arena = arena;
+    context.stop_at_search_ignore_statement = true;
     context.search_ignore_statement = statement;
 
     expect_delayed(expression_value, expect_constant_expression(
