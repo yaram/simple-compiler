@@ -1968,7 +1968,17 @@ struct NameSearchResult {
     AnyConstantValue constant;
 };
 
-static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
+static DelayedResult<NameSearchResult> search_for_name(
+    GlobalInfo info,
+    List<AnyJob*>* jobs,
+    ConstantScope* scope,
+    TypingContext* context,
+    String name,
+    Array<Statement*> statements,
+    bool external
+);
+
+static_profiled_function(DelayedResult<NameSearchResult>, search_for_name_in_statements, (
     GlobalInfo info,
     List<AnyJob*>* jobs,
     ConstantScope* scope,
@@ -1986,17 +1996,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
     declarations,
     external
 )) {
-    for(auto stack_scope : context->scope_search_stack) {
-        if(stack_scope == scope) {
-            NameSearchResult result {};
-            result.found = false;
-
-            return ok(result);
-        }
-    }
-
-    context->scope_search_stack.append(scope);
-
     for(auto statement : statements) {
         if(statement == context->search_ignore_statement) {
             continue;
@@ -2018,8 +2017,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                             scope
                         ));
 
-                        context->scope_search_stack.length -= 1;
-
                         return ok(result);
                     }
                 }
@@ -2038,8 +2035,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                 result.type = type_function_declaration.type;
                                 result.constant_range = function_declaration->name.range;
                                 result.constant = type_function_declaration.value;
-
-                                context->scope_search_stack.length -= 1;
 
                                 return ok(result);
                             } else {
@@ -2070,8 +2065,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                 result.constant_range = constant_definition->name.range;
                                 result.constant = type_constant_definition.value.value.constant;
 
-                                context->scope_search_stack.length -= 1;
-
                                 return ok(result);
                             } else {
                                 return wait(i);
@@ -2100,8 +2093,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                 result.type = AnyType::create_type_type();
                                 result.constant_range = struct_definition->name.range;
                                 result.constant = AnyConstantValue(type_struct_definition.type);
-
-                                context->scope_search_stack.length -= 1;
 
                                 return ok(result);
                             } else {
@@ -2132,8 +2123,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                 result.constant_range = union_definition->name.range;
                                 result.constant = AnyConstantValue(type_union_definition.type);
 
-                                context->scope_search_stack.length -= 1;
-
                                 return ok(result);
                             } else {
                                 return wait(i);
@@ -2163,8 +2152,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                 result.constant_range = enum_definition->name.range;
                                 result.constant = AnyConstantValue(AnyType(type_enum_definition.type));
 
-                                context->scope_search_stack.length -= 1;
-
                                 return ok(result);
                             } else {
                                 return wait(i);
@@ -2193,8 +2180,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                 result.type = AnyType::create_file_module();
                                 result.constant_range = import->range;
                                 result.constant = AnyConstantValue(FileModuleConstant(parse_file.scope));
-
-                                context->scope_search_stack.length -= 1;
 
                                 return ok(result);
                             } else {
@@ -2237,8 +2222,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                     ));
 
                                     if(search_value.found) {
-                                        context->scope_search_stack.length -= 1;
-
                                         return ok(search_value);
                                     }
                                 } else if(type_using.value.type.kind == TypeKind::Type) {
@@ -2255,8 +2238,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                                 result.type = AnyType(*enum_.backing_type);
                                                 result.constant_range = enum_.definition[i].name.range;
                                                 result.constant = AnyConstantValue(enum_.variant_values[i]);
-
-                                                context->scope_search_stack.length -= 1;
 
                                                 return ok(result);
                                             }
@@ -2294,19 +2275,17 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
 
                         if(job->state == JobState::Done) {
                             if(type_static_if.condition_value) {
-                                expect_delayed(search_value, search_for_name(
+                                expect_delayed(search_value, search_for_name_in_statements(
                                     info,
                                     jobs,
                                     scope,
                                     context,
                                     name,
                                     static_if->statements,
-                                    false
+                                    external
                                 ));
 
                                 if(search_value.found) {
-                                    context->scope_search_stack.length -= 1;
-
                                     return ok(search_value);
                                 }
                             }
@@ -2340,8 +2319,6 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                                     result.is_static_variable = true;
                                     result.static_variable_declaration = variable_declaration;
 
-                                    context->scope_search_stack.length -= 1;
-
                                     return ok(result);
                                 } else {
                                     return wait(i);
@@ -2354,6 +2331,57 @@ static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
                 }
             }
         }
+    }
+
+    NameSearchResult result {};
+    result.found = false;
+
+    return ok(result);
+}
+
+static_profiled_function(DelayedResult<NameSearchResult>, search_for_name, (
+    GlobalInfo info,
+    List<AnyJob*>* jobs,
+    ConstantScope* scope,
+    TypingContext* context,
+    String name,
+    Array<Statement*> statements,
+    bool external
+), (
+    info,
+    jobs,
+    scope,
+    context,
+    name,
+    statements,
+    declarations,
+    external
+)) {
+    for(auto stack_scope : context->scope_search_stack) {
+        if(stack_scope == scope) {
+            NameSearchResult result {};
+            result.found = false;
+
+            return ok(result);
+        }
+    }
+
+    context->scope_search_stack.append(scope);
+
+    expect_delayed(statements_result, search_for_name_in_statements(
+        info,
+        jobs,
+        scope,
+        context,
+        name,
+        statements,
+        external
+    ));
+
+    if(statements_result.found) {
+        context->scope_search_stack.length -= 1;
+        
+        return ok(statements_result);
     }
 
     for(auto scope_constant : scope->scope_constants) {
