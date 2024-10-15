@@ -4314,6 +4314,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
 
                 has_cast = true;
             } else if(expression_value.type.kind == TypeKind::UndeterminedInteger) {
+                has_cast = true;
                 result_value = expression_value.value;
             } else if(expression_value.type.kind == TypeKind::FloatType) {
                 auto float_type = expression_value.type.float_;
@@ -4443,6 +4444,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                     }
                 }
 
+                has_cast = true;
                 result_value = AnyValue(AnyConstantValue(result));
             } else if(expression_value.type.kind == TypeKind::Enum) {
                 auto enum_ = expression_value.type.enum_;
@@ -4623,6 +4625,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                     } break;
                 }
 
+                has_cast = true;
                 result_value = AnyValue(AnyConstantValue(result));
             } else if(expression_value.type.kind == TypeKind::FloatType) {
                 auto float_type = expression_value.type.float_;
@@ -4688,6 +4691,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                     } break;
                 }
 
+                has_cast = true;
                 result_value = AnyValue(AnyConstantValue(result));
             }
         } else if(target_type.type.kind == TypeKind::Pointer) {
@@ -4709,6 +4713,9 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                         abort();
                     }
                 }
+            } else if(expression_value.type.kind == TypeKind::Integer) {
+                has_cast = true;
+                result_value = expression_value.value;
             } else if(expression_value.type.kind == TypeKind::Pointer) {
                 auto pointer = expression_value.type.pointer;
 
@@ -4791,6 +4798,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
 
                 has_cast = true;
             } else if(expression_value.type.kind == TypeKind::UndeterminedInteger) {
+                has_cast = true;
                 result_value = expression_value.value;
             }
         } else {
