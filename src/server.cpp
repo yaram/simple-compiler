@@ -2786,8 +2786,6 @@ int main(int argument_count, const char* arguments[]) {
                                         actual_position.column
                                     );
                                 }
-
-                                break;
                             }
                         } else if(job->kind == JobKind::TypeFunctionDeclaration) {
                             if(
@@ -2798,6 +2796,21 @@ int main(int argument_count, const char* arguments[]) {
                                     actual_position.column
                                 )
                             ) {
+                                if(is_position_in_range(
+                                    job->type_function_declaration.declaration->name.range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )) {
+                                    found_range = true;
+                                    range_info = {};
+                                    range_info.range = job->type_function_declaration.declaration->name.range;
+                                    range_info.type = job->type_function_declaration.type;
+                                    range_info.has_value = true;
+                                    range_info.value = AnyValue(job->type_function_declaration.value);
+
+                                    break;
+                                }
+
                                 for(auto parameter : job->type_function_declaration.parameters) {
                                     if(is_position_in_range(
                                         parameter.type.range,
@@ -2835,8 +2848,6 @@ int main(int argument_count, const char* arguments[]) {
                                         break;
                                     }
                                 }
-
-                                break;
                             }
                         } else if(job->kind == JobKind::TypePolymorphicFunction) {
                             break;
@@ -2849,6 +2860,21 @@ int main(int argument_count, const char* arguments[]) {
                                     actual_position.column
                                 )
                             ) {
+                                if(is_position_in_range(
+                                    job->type_constant_definition.definition->name.range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )) {
+                                    found_range = true;
+                                    range_info = {};
+                                    range_info.range = job->type_constant_definition.definition->name.range;
+                                    range_info.type = job->type_constant_definition.value.type;
+                                    range_info.has_value = true;
+                                    range_info.value = job->type_constant_definition.value.value;
+
+                                    break;
+                                }
+
                                 if(is_position_in_range(
                                     job->type_constant_definition.value.range,
                                     actual_position.line,
@@ -2873,6 +2899,19 @@ int main(int argument_count, const char* arguments[]) {
                                     actual_position.column
                                 )
                             ) {
+                                if(is_position_in_range(
+                                    job->type_struct_definition.definition->name.range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )) {
+                                    found_range = true;
+                                    range_info = {};
+                                    range_info.range = job->type_struct_definition.definition->name.range;
+                                    range_info.type = job->type_struct_definition.type;
+
+                                    break;
+                                }
+
                                 for(auto member : job->type_struct_definition.members) {
                                     if(is_position_in_range(
                                         member.member.range,
@@ -2903,6 +2942,19 @@ int main(int argument_count, const char* arguments[]) {
                                     actual_position.column
                                 )
                             ) {
+                                if(is_position_in_range(
+                                    job->type_union_definition.definition->name.range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )) {
+                                    found_range = true;
+                                    range_info = {};
+                                    range_info.range = job->type_union_definition.definition->name.range;
+                                    range_info.type = job->type_union_definition.type;
+
+                                    break;
+                                }
+
                                 for(auto member : job->type_union_definition.members) {
                                     if(is_position_in_range(
                                         member.member.range,
@@ -2933,6 +2985,19 @@ int main(int argument_count, const char* arguments[]) {
                                     actual_position.column
                                 )
                             ) {
+                                if(is_position_in_range(
+                                    job->type_enum_definition.definition->name.range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )) {
+                                    found_range = true;
+                                    range_info = {};
+                                    range_info.range = job->type_enum_definition.definition->name.range;
+                                    range_info.type = AnyType(job->type_enum_definition.type);
+
+                                    break;
+                                }
+
                                 for(auto variant : job->type_enum_definition.variants) {
                                     if(
                                         variant.has_value &&
@@ -2996,6 +3061,19 @@ int main(int argument_count, const char* arguments[]) {
                                     actual_position.column
                                 )
                             ) {
+                                if(is_position_in_range(
+                                    job->type_static_variable.declaration->name.range,
+                                    actual_position.line,
+                                    actual_position.column
+                                )) {
+                                    found_range = true;
+                                    range_info = {};
+                                    range_info.range = job->type_static_variable.declaration->name.range;
+                                    range_info.type = job->type_static_variable.actual_type;
+
+                                    break;
+                                }
+
                                 if(
                                     (
                                         job->type_static_variable.is_external ||
