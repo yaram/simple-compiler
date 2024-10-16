@@ -1479,7 +1479,7 @@ static RegisterValue generate_binary_operation(
             } break;
         }
 
-        if(!is_arithmetic) {
+        if(is_arithmetic) {
             result_ir_type = IRType::create_integer(integer.size);
 
             register_index = append_integer_arithmetic_operation(
