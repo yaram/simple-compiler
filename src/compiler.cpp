@@ -1031,6 +1031,7 @@ static_profiled_function(Result<void>, cli_entry, (Array<const char*> arguments)
             TypedFunction typed_function {};
             typed_function.type = job->type_polymorphic_function.type;
             typed_function.constant = job->type_polymorphic_function.value;
+            typed_function.constant_parameters = job->type_polymorphic_function.parameters;
 
             typed_function.function = global_arena.allocate_and_construct<Function>();
 

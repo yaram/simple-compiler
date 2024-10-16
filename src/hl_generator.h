@@ -7,6 +7,7 @@
 struct TypedFunction {
     FunctionTypeType type;
     FunctionConstant constant;
+    Array<TypedConstantValue> constant_parameters;
 
     Function* function;
 };

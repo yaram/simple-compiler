@@ -2161,10 +2161,86 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
     } else if(expression.kind == TypedExpressionKind::FunctionCall) {
         auto function_call = expression.function_call;
 
-        if(function_call.value->type.kind == TypeKind::FunctionTypeType) {
-            auto function_type = function_call.value->type.function;
+        if(function_call.value->type.kind == TypeKind::FunctionTypeType || function_call.value->type.kind == TypeKind::PolymorphicFunction) {
+            FunctionTypeType function_type;
+            FunctionConstant function_value;
+            if(function_call.value->type.kind == TypeKind::PolymorphicFunction) {
+                auto constant_value = function_call.value->value.unwrap_constant_value();
 
-            auto function_value = function_call.value->value.unwrap_constant_value().unwrap_function();
+                auto polymorphic_function_value = constant_value.unwrap_polymorphic_function();
+
+                auto declaration_parameters = polymorphic_function_value.declaration->parameters;
+                auto declaration_parameter_count = declaration_parameters.length;
+
+                assert(function_call.parameters.length == declaration_parameter_count);
+
+                auto polymorphic_parameters = context->arena->allocate<TypedConstantValue>(declaration_parameter_count);
+
+                for(size_t i = 0; i < declaration_parameter_count; i += 1) {
+                    auto declaration_parameter = declaration_parameters[i];
+
+                    if(declaration_parameter.is_polymorphic_determiner) {
+                        polymorphic_parameters[i].type = function_call.parameters[i].type;
+                    }
+
+                    if(declaration_parameter.is_constant) {
+                        assert(function_call.parameters[i].value.kind == ValueKind::ConstantValue);
+
+                        polymorphic_parameters[i] = TypedConstantValue(
+                            function_call.parameters[i].type,
+                            function_call.parameters[i].value.constant
+                        );
+                    }
+                }
+
+                auto found = false;
+                for(auto function : context->functions) {
+                    if(
+                        function.constant.declaration == polymorphic_function_value.declaration &&
+                        function.constant.body_scope->parent == polymorphic_function_value.scope
+                    ) {
+                        auto matching_polymorphic_parameters = true;
+                        for(size_t i = 0; i < declaration_parameter_count; i += 1) {
+                            auto declaration_parameter = declaration_parameters[i];
+                            auto call_parameter = polymorphic_parameters[i];
+                            auto job_parameter = function.constant_parameters[i];
+
+                            if(
+                                (declaration_parameter.is_polymorphic_determiner || declaration_parameter.is_constant) &&
+                                job_parameter.type != call_parameter.type
+                            ) {
+                                matching_polymorphic_parameters = false;
+                                break;
+                            }
+
+                            if(
+                                declaration_parameter.is_constant &&
+                                call_parameter.value != job_parameter.value
+                            ) {
+                                matching_polymorphic_parameters = false;
+                                break;
+                            }
+                        }
+
+                        if(!matching_polymorphic_parameters) {
+                            continue;
+                        }
+
+                        found = true;
+
+                        function_type = function.type;
+                        function_value = function.constant;
+
+                        break;
+                    }
+                }
+
+                assert(found);
+            } else {
+                function_type = function_call.value->type.function;
+
+                function_value = function_call.value->value.unwrap_constant_value().unwrap_function();
+            }
 
             assert(function_type.parameters.length == function_call.parameters.length);
 
