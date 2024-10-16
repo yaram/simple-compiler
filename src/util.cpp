@@ -25,9 +25,9 @@ void error(String path, FileRange range, const char* format, va_list arguments) 
     fprintf(stderr, "\n");
 
     if(range.first_line == range.last_line) {
-        Arena* arena {};
+        Arena arena {};
 
-        auto file = fopen(path.to_c_string(arena), "rb");
+        auto file = fopen(path.to_c_string(&arena), "rb");
 
         if(file != nullptr) {
             unsigned int current_line = 1;
