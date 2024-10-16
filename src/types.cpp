@@ -304,6 +304,8 @@ String AnyType::get_description(Arena* arena) {
         return polymorphic_union.definition->name.text;
     } else if(kind == TypeKind::UndeterminedStruct) {
         return u8"{struct}"_S;
+    } else if(kind == TypeKind::UndeterminedArray) {
+        return u8"{array}"_S;
     } else if(kind == TypeKind::Enum) {
         return enum_.definition->name.text;
     } else if(kind == TypeKind::FileModule) {
