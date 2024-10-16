@@ -47,7 +47,7 @@ bool AnyConstantValue::operator==(AnyConstantValue other) {
         } break;
 
         case ConstantValueKind::ArrayConstant: {
-            return array.length == other.array.length && array.pointer == other.array.pointer;
+            return *array.length == *other.array.length && *array.pointer == *other.array.pointer;
         } break;
 
         case ConstantValueKind::AggregateConstant: {
@@ -2784,7 +2784,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                     if(constant_value.kind == ConstantValueKind::ArrayConstant) {
                         auto array_value = constant_value.unwrap_array();
 
-                        member_value = AnyValue(AnyConstantValue(array_value.length));
+                        member_value = AnyValue(*array_value.length);
                     } else if(constant_value.kind == ConstantValueKind::AggregateConstant) {
                         auto aggregate_value = constant_value.unwrap_aggregate();
 
@@ -2806,7 +2806,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                     if(expression_value.value.constant.kind == ConstantValueKind::ArrayConstant) {
                         auto array_value = expression_value.value.constant.unwrap_array();
 
-                        member_value = AnyValue(AnyConstantValue(array_value.pointer));
+                        member_value = AnyValue(*array_value.pointer);
                     } else {
                         error(scope, member_reference->range, "Cannot take pointer to contents of constant array");
 
