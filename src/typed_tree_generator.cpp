@@ -791,7 +791,7 @@ static Result<AnyValue> coerce_to_type(
                     }
 
                     if(same_members) {
-                        auto elements = context->arena->allocate<AnyConstantValue>(undetermined_struct.members.length);
+                        auto members = context->arena->allocate<AnyConstantValue>(undetermined_struct.members.length);
 
                         auto success = true;
                         for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
@@ -811,10 +811,12 @@ static Result<AnyValue> coerce_to_type(
 
                                 break;
                             }
+
+                            members[i] = result.value.unwrap_constant_value();
                         }
 
                         if(success) {
-                            return ok(AnyValue(AnyConstantValue(AggregateConstant(Array(undetermined_struct.members.length, elements)))));
+                            return ok(AnyValue(AnyConstantValue(AggregateConstant(Array(undetermined_struct.members.length, members)))));
                         }
                     }
                 }
