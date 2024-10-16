@@ -2,5 +2,5 @@ ARRAY :: { "test", "best", "crest" };
 ARRAY_2 :: { length = 99, pointer = 0 } as []u8;
 
 main :: () -> i32 {
-    return (ARRAY[2][0] - ARRAY_2.length) as i32;
+    return (ARRAY[2][0] - ARRAY_2.length as u8) as i32;
 }
