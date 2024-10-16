@@ -218,6 +218,11 @@ struct AnyConstantValue {
         return type;
     }
 
+    bool operator==(AnyConstantValue other);
+    inline bool operator!=(AnyConstantValue other) {
+        return !(*this == other);
+    }
+
     String get_description(Arena* arena);
 };
 

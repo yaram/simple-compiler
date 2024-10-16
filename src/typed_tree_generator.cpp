@@ -12,51 +12,51 @@
 #include "types.h"
 #include "jobs.h"
 
-static bool constant_values_equal(AnyConstantValue a, AnyConstantValue b) {
-    if(a.kind != b.kind) {
+bool AnyConstantValue::operator==(AnyConstantValue other) {
+    if(kind != other.kind) {
         return false;
     }
 
-    switch(a.kind) {
+    switch(kind) {
         case ConstantValueKind::FunctionConstant: {
-            return a.function.declaration == b.function.declaration;
+            return function.declaration == other.function.declaration;
         } break;
 
         case ConstantValueKind::PolymorphicFunctionConstant: {
-            return a.polymorphic_function.declaration == b.polymorphic_function.declaration;
+            return polymorphic_function.declaration == other.polymorphic_function.declaration;
         } break;
 
         case ConstantValueKind::BuiltinFunctionConstant: {
-            return a.builtin_function.name == b.builtin_function.name;
+            return builtin_function.name == other.builtin_function.name;
         } break;
 
         case ConstantValueKind::IntegerConstant: {
-            return a.integer == b.integer;
+            return integer == other.integer;
         } break;
 
         case ConstantValueKind::BooleanConstant: {
-            return a.boolean == b.boolean;
+            return boolean == other.boolean;
         } break;
 
         case ConstantValueKind::FloatConstant: {
-            return a.float_ == b.float_;
+            return float_ == other.float_;
         } break;
 
         case ConstantValueKind::TypeConstant: {
-            return a.type == b.type;
+            return type == other.type;
         } break;
 
         case ConstantValueKind::ArrayConstant: {
-            return a.array.length == b.array.length && a.array.pointer == b.array.pointer;
+            return array.length == other.array.length && array.pointer == other.array.pointer;
         } break;
 
         case ConstantValueKind::AggregateConstant: {
-            if(a.aggregate.values.length != b.aggregate.values.length) {
+            if(aggregate.values.length != other.aggregate.values.length) {
                 return false;
             }
 
-            for(size_t i = 0; i < a.aggregate.values.length; i += 1) {
-                if(!constant_values_equal(a.aggregate.values[i], b.aggregate.values[i])) {
+            for(size_t i = 0; i < aggregate.values.length; i += 1) {
+                if(aggregate.values[i] != other.aggregate.values[i]) {
                     return false;
                 }
             }
@@ -65,7 +65,7 @@ static bool constant_values_equal(AnyConstantValue a, AnyConstantValue b) {
         } break;
 
         case ConstantValueKind::FileModuleConstant: {
-            return a.file_module.scope == b.file_module.scope;
+            return file_module.scope == other.file_module.scope;
         } break;
 
         case ConstantValueKind::UndefConstant: {
@@ -3343,7 +3343,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
 
                                 if(
                                     declaration_parameter.is_constant &&
-                                    !constant_values_equal(call_parameter.value, job_parameter.value)
+                                    call_parameter.value != job_parameter.value
                                 ) {
                                     matching_polymorphic_parameters = false;
                                     break;
@@ -3825,7 +3825,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                         if(type_polymorphic_struct.definition == definition && type_polymorphic_struct.parameters.length != 0) {
                             auto same_parameters = true;
                             for(size_t i = 0; i < parameter_count; i += 1) {
-                                if(!constant_values_equal(parameter_values[i], type_polymorphic_struct.parameters[i])) {
+                                if(parameter_values[i] != type_polymorphic_struct.parameters[i]) {
                                     same_parameters = false;
                                     break;
                                 }
@@ -3908,7 +3908,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                         if(type_polymorphic_union.definition == definition && type_polymorphic_union.parameters.length != 0) {
                             auto same_parameters = true;
                             for(size_t i = 0; i < parameter_count; i += 1) {
-                                if(!constant_values_equal(parameter_values[i], type_polymorphic_union.parameters[i])) {
+                                if(parameter_values[i] != type_polymorphic_union.parameters[i]) {
                                     same_parameters = false;
                                     break;
                                 }
@@ -4891,7 +4891,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
 
                             if(
                                 declaration_parameter.is_constant &&
-                                !constant_values_equal( call_parameter.value, job_parameter.value)
+                                call_parameter.value != job_parameter.value
                             ) {
                                 matching_polymorphic_parameters = false;
                                 break;
