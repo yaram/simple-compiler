@@ -949,18 +949,27 @@ static size_t generate_in_register_value(
     }
 }
 
+static AnyRuntimeValue generate_expression(
+    GlobalInfo info,
+    ConstantScope* scope,
+    GenerationContext* context,
+    TypedExpression expression
+);
+
 static RegisterValue convert_to_type_register(
     GlobalInfo info,
     ConstantScope* scope,
     GenerationContext* context,
     FileRange range,
     AnyType type,
-    AnyRuntimeValue value,
+    TypedExpression expression,
     AnyType target_type
 ) {
     IRType target_ir_type;
     size_t register_index;
     if(target_type.kind == TypeKind::Integer) {
+        auto value = generate_expression(info, scope, context, expression);
+
         auto target_integer = target_type.integer;
 
         target_ir_type = IRType::create_integer(target_integer.size);
@@ -1046,6 +1055,8 @@ static RegisterValue convert_to_type_register(
             abort();
         }
     } else if(target_type.kind == TypeKind::Boolean) {
+        auto value = generate_expression(info, scope, context, expression);
+
         target_ir_type = IRType::create_boolean();
 
         if(type.kind == TypeKind::Boolean) {
@@ -1058,6 +1069,8 @@ static RegisterValue convert_to_type_register(
             abort();
         }
     } else if(target_type.kind == TypeKind::FloatType) {
+        auto value = generate_expression(info, scope, context, expression);
+
         auto target_float_type = target_type.float_;
 
         target_ir_type = IRType::create_float(target_float_type.size);
@@ -1097,6 +1110,8 @@ static RegisterValue convert_to_type_register(
             abort();
         }
     } else if(target_type.kind == TypeKind::Pointer) {
+        auto value = generate_expression(info, scope, context, expression);
+
         auto target_pointer = target_type.pointer;
 
         target_ir_type = IRType::create_pointer();
@@ -1123,6 +1138,8 @@ static RegisterValue convert_to_type_register(
             register_index = value_register;
         }
     } else if(target_type.kind == TypeKind::ArrayTypeType) {
+        auto value = generate_expression(info, scope, context, expression);
+
         auto target_array = target_type.array;
 
         target_ir_type = get_array_ir_type(context->arena, info.architecture_sizes, target_array);
@@ -1192,6 +1209,8 @@ static RegisterValue convert_to_type_register(
             abort();
         }
     } else if(target_type.kind == TypeKind::StaticArray) {
+        auto value = generate_expression(info, scope, context, expression);
+
         auto target_static_array = target_type.static_array;
 
         target_ir_type = get_static_array_ir_type(context->arena, info.architecture_sizes, target_static_array);
@@ -1211,6 +1230,8 @@ static RegisterValue convert_to_type_register(
             abort();
         }
     } else if(target_type.kind == TypeKind::StructType) {
+        auto value = generate_expression(info, scope, context, expression);
+
         auto target_struct_type = target_type.struct_;
 
         target_ir_type = get_struct_ir_type(context->arena, info.architecture_sizes, target_struct_type);
@@ -1280,6 +1301,8 @@ static RegisterValue convert_to_type_register(
         target_ir_type = get_union_ir_type(context->arena, info.architecture_sizes, target_union_type);
 
         if(type.kind == TypeKind::UnionType) {
+            auto value = generate_expression(info, scope, context, expression);
+
             auto union_type = type.union_;
 
             assert(target_union_type.definition == union_type.definition);
@@ -1307,40 +1330,77 @@ static RegisterValue convert_to_type_register(
         } else if(type.kind == TypeKind::UndeterminedStruct) {
             auto undetermined_struct = type.undetermined_struct;
 
-            assert(value.kind == RuntimeValueKind::RuntimeUndeterminedAggregateValue);
-            auto undetermined_aggregate_value = value.undetermined_aggregate;
-
             assert(undetermined_struct.members.length == 1);
 
-            auto found = false;
-            for(size_t i = 0; i < target_union_type.members.length; i += 1) {
-                if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
-                    assert(target_union_type.members[i].type == undetermined_struct.members[0].type);
+            if(expression.value.kind == ValueKind::ConstantValue) {
+                auto aggregate_value = expression.value.constant.unwrap_aggregate();
 
-                    auto pointer_register = append_allocate_local(
-                        context,
-                        range,
-                        target_ir_type
-                    );
+                auto found = false;
+                for(size_t i = 0; i < target_union_type.members.length; i += 1) {
+                    if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
+                        assert(target_union_type.members[i].type == undetermined_struct.members[0].type);
 
-                    auto member_ir_type = get_ir_type(context->arena, info.architecture_sizes, target_union_type.members[i].type);
+                        auto pointer_register = append_allocate_local(
+                            context,
+                            range,
+                            target_ir_type
+                        );
 
-                    auto value_register = generate_in_register_value(context, range, member_ir_type, value);
+                        auto member_ir_type = get_ir_type(context->arena, info.architecture_sizes, target_union_type.members[i].type);
 
-                    append_store(context, range, value_register, pointer_register);
+                        auto ir_constant = get_runtime_ir_constant_value(context->arena, aggregate_value.values[0]);
 
-                    register_index = append_load(context, range, pointer_register, target_ir_type);
+                        auto value_register = append_literal(context, range, member_ir_type, ir_constant);
 
-                    found = true;
-                    break;
+                        append_store(context, range, value_register, pointer_register);
+
+                        register_index = append_load(context, range, pointer_register, target_ir_type);
+
+                        found = true;
+                        break;
+                    }
                 }
-            }
 
-            assert(found);
+                assert(found);
+            } else if(expression.value.kind == ValueKind::UndeterminedAggregateValue) {
+                auto value = generate_expression(info, scope, context, expression);
+
+                auto undetermined_aggregate_value = value.undetermined_aggregate;
+
+                auto found = false;
+                for(size_t i = 0; i < target_union_type.members.length; i += 1) {
+                    if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
+                        assert(target_union_type.members[i].type == undetermined_struct.members[0].type);
+
+                        auto pointer_register = append_allocate_local(
+                            context,
+                            range,
+                            target_ir_type
+                        );
+
+                        auto member_ir_type = get_ir_type(context->arena, info.architecture_sizes, target_union_type.members[i].type);
+
+                        auto value_register = undetermined_aggregate_value.values[0].register_index;
+
+                        append_store(context, range, value_register, pointer_register);
+
+                        register_index = append_load(context, range, pointer_register, target_ir_type);
+
+                        found = true;
+                        break;
+                    }
+                }
+
+                assert(found);
+            } else {
+                abort();
+            }
         } else {
             abort();
         }
     } else if(target_type.kind == TypeKind::Enum) {
+        auto value = generate_expression(info, scope, context, expression);
+
         auto target_enum = target_type.enum_;
 
         target_ir_type = IRType::create_integer(target_enum.backing_type->size);
@@ -1389,13 +1449,6 @@ static RegisterValue convert_to_type_register(
 
     return RegisterValue(target_ir_type, register_index);
 }
-
-static AnyRuntimeValue generate_expression(
-    GlobalInfo info,
-    ConstantScope* scope,
-    GenerationContext* context,
-    TypedExpression expression
-);
 
 static RegisterValue generate_binary_operation(
     GlobalInfo info,
@@ -2690,8 +2743,6 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
     } else if(expression.kind == TypedExpressionKind::Cast) {
         auto cast = expression.cast;
 
-        auto expression_value = generate_expression(info, scope, context, *cast.value);
-
         assert(cast.type->type.kind == TypeKind::Type);
 
         auto target_type = cast.type->value.unwrap_constant_value().unwrap_type();
@@ -2702,7 +2753,7 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
             context,
             expression.range,
             cast.value->type,
-            expression_value,
+            *cast.value,
             target_type
         );
 
@@ -2710,15 +2761,13 @@ static_profiled_function(AnyRuntimeValue, generate_expression, (
     } else if(expression.kind == TypedExpressionKind::Coercion) {
         auto coercion = expression.coercion;
 
-        auto expression_value = generate_expression(info, scope, context, *coercion.original);
-
         auto result_register = convert_to_type_register(
             info,
             scope,
             context,
             expression.range,
             coercion.original->type,
-            expression_value,
+            *coercion.original,
             expression.type
         );
 
