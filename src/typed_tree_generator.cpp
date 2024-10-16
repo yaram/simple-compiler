@@ -1890,56 +1890,6 @@ static DelayedResult<TypedExpression> type_binary_operation(
     return ok(typed_expression);
 }
 
-static Result<String> get_declaration_name(Statement* declaration) {
-    if(declaration->kind == StatementKind::FunctionDeclaration) {
-        auto function_declaration = (FunctionDeclaration*)declaration;
-
-        return ok(function_declaration->name.text);
-    } else if(declaration->kind == StatementKind::ConstantDefinition) {
-        auto constant_definition = (ConstantDefinition*)declaration;
-
-        return ok(constant_definition->name.text);
-    } else if(declaration->kind == StatementKind::StructDefinition) {
-        auto struct_definition = (StructDefinition*)declaration;
-
-        return ok(struct_definition->name.text);
-    } else if(declaration->kind == StatementKind::UnionDefinition) {
-        auto union_definition = (UnionDefinition*)declaration;
-
-        return ok(union_definition->name.text);
-    } else if(declaration->kind == StatementKind::EnumDefinition) {
-        auto enum_definition = (EnumDefinition*)declaration;
-
-        return ok(enum_definition->name.text);
-    } else if(declaration->kind == StatementKind::Import) {
-        auto import = (Import*)declaration;
-
-        return ok(import->name);
-    } else {
-        return err();
-    }
-}
-
-static bool is_declaration_public(Statement* declaration) {
-    if(declaration->kind == StatementKind::FunctionDeclaration) {
-        return true;
-    } else if(declaration->kind == StatementKind::ConstantDefinition) {
-        return true;
-    } else if(declaration->kind == StatementKind::StructDefinition) {
-        return true;
-    } else if(declaration->kind == StatementKind::UnionDefinition) {
-        return true;
-    } else if(declaration->kind == StatementKind::EnumDefinition) {
-        return true;
-    } else if(declaration->kind == StatementKind::EnumDefinition) {
-        return true;
-    } else if(declaration->kind == StatementKind::Import) {
-        return declaration;
-    } else {
-        return false;
-    }
-}
-
 static bool does_or_could_have_name(Statement* statement, String name, bool external) {
     if(statement->kind == StatementKind::FunctionDeclaration) {
         auto function_declaration = (FunctionDeclaration*)statement;
@@ -2704,24 +2654,6 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 element_value = AnyValue::create_assignable_value();
             } else if(expression_value.value.kind == ValueKind::AssignableValue) {
                 element_value = AnyValue::create_assignable_value();
-            } else if(expression_value.value.kind == ValueKind::UndeterminedAggregateValue) {
-                auto aggregate_value = expression_value.value.undetermined_aggregate;
-
-                if(coerced_index.value.kind != ValueKind::ConstantValue) {
-                    error(scope, index_reference->index->range, "Cannot index undetermined array with non-constant index");
-
-                    return err();
-                }
-
-                auto index_integer = coerced_index.value.constant.unwrap_integer();
-
-                if(index_integer >= aggregate_value.values.length) {
-                    error(scope, index_reference->index->range, "Array index %zu out of bounds", index_integer);
-
-                    return err();
-                }
-
-                element_value = AnyValue(aggregate_value.values[index_integer]);
             } else {
                 abort();
             }
@@ -2758,6 +2690,36 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 element_value = AnyValue::create_anonymous_value();
             } else if(expression_value.value.kind == ValueKind::AssignableValue) {
                 element_value = AnyValue::create_assignable_value();
+            } else {
+                abort();
+            }
+        } else if(expression_value.type.kind == TypeKind::UndeterminedArray) {
+            auto undetermined_array = expression_value.type.undetermined_array;
+
+            if(coerced_index.value.kind != ValueKind::ConstantValue) {
+                error(scope, index_reference->index->range, "Cannot index undetermined array with non-constant index");
+
+                return err();
+            }
+
+            auto index_integer = coerced_index.value.constant.unwrap_integer();
+
+            if(index_integer >= undetermined_array.elements.length) {
+                error(scope, index_reference->index->range, "Array index %zu out of bounds", index_integer);
+
+                return err();
+            }
+
+            element_type = undetermined_array.elements[index_integer];
+
+            if(expression_value.value.kind == ValueKind::ConstantValue) {
+                auto aggregate_value = expression_value.value.constant.unwrap_aggregate();
+
+                element_value = AnyValue(aggregate_value.values[index_integer]);
+            } else if(expression_value.value.kind == ValueKind::UndeterminedAggregateValue) {
+                auto aggregate_value = expression_value.value.undetermined_aggregate;
+
+                element_value = aggregate_value.values[index_integer];
             } else {
                 abort();
             }
