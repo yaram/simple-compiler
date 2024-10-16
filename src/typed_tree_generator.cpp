@@ -4774,8 +4774,6 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 has_cast = true;
                 result_value = expression_value.value;
             }
-        } else {
-            abort();
         }
 
         if(has_cast) {
