@@ -452,7 +452,7 @@ static Result<TypedExpression> coerce_to_pointer(
     return ok(typed_expression);
 }
 
-static Result<AnyValue> coerce_to_type(
+static Result<ConversionResult> coerce_to_type(
     GlobalInfo info,
     ConstantScope* scope,
     TypingContext* context,
@@ -465,7 +465,7 @@ static Result<AnyValue> coerce_to_type(
     if(target_type.kind == TypeKind::Integer) {
         auto integer = target_type.integer;
 
-        return coerce_to_integer(
+        expect(result_value, coerce_to_integer(
             scope,
             context,
             range,
@@ -473,11 +473,16 @@ static Result<AnyValue> coerce_to_type(
             value,
             integer,
             probing
-        );
+        ));
+
+        ConversionResult result {};
+        result.value = result_value;
+
+        return ok(result);
     } else if(target_type.kind == TypeKind::FloatType) {
         auto float_type = target_type.float_;
 
-        return coerce_to_float(
+        expect(result_value, coerce_to_float(
             scope,
             context,
             range,
@@ -485,11 +490,16 @@ static Result<AnyValue> coerce_to_type(
             value,
             float_type,
             probing
-        );
+        ));
+
+        ConversionResult result {};
+        result.value = result_value;
+
+        return ok(result);
     } else if(target_type.kind == TypeKind::Pointer) {
         auto pointer = target_type.pointer;
 
-        return coerce_to_pointer(
+        expect(result_value, coerce_to_pointer(
             info,
             scope,
             context,
@@ -498,12 +508,23 @@ static Result<AnyValue> coerce_to_type(
             value,
             pointer,
             probing
-        );
+        ));
+
+        ConversionResult result {};
+        result.value = result_value;
+
+        return ok(result);
     } else if(target_type.kind == TypeKind::Boolean) {
         if(type.kind == TypeKind::Boolean) {
-            return ok(value);
+            ConversionResult result {};
+            result.value = value;
+
+            return ok(result);
         } else if(type.kind == TypeKind::Undef) {
-            return ok(value);
+            ConversionResult result {};
+            result.value = value;
+
+            return ok(result);
         }
     } else if(target_type.kind == TypeKind::ArrayTypeType) {
         auto target_array = target_type.array;
@@ -512,16 +533,25 @@ static Result<AnyValue> coerce_to_type(
             auto array_type = type.array;
 
             if(*target_array.element_type == *array_type.element_type) {
-                return ok(value);
+                ConversionResult result {};
+                result.value = value;
+
+                return ok(result);
             }
         } else if(type.kind == TypeKind::StaticArray) {
             auto static_array = type.static_array;
 
             if(*target_array.element_type == *static_array.element_type) {
                 if(value.kind == ValueKind::AssignableValue) {
-                    return ok(AnyValue::create_anonymous_value());
+                    ConversionResult result {};
+                    result.value = AnyValue::create_anonymous_value();
+
+                    return ok(result);
                 } else if(value.kind == ValueKind::ConstantValue) {
-                    return ok(value);
+                    ConversionResult result {};
+                    result.value = value;
+
+                    return ok(result);
                 }
             }
         } else if(type.kind == TypeKind::UndeterminedArray) {
@@ -530,8 +560,10 @@ static Result<AnyValue> coerce_to_type(
             if(value.kind == ValueKind::ConstantValue) {
                 auto aggregate_value = value.constant.unwrap_aggregate();
 
-                auto elements = context->arena->allocate<AnyConstantValue>(undetermined_array.elements.length);
+                auto child_results = context->arena->allocate<ConversionResult>(undetermined_array.elements.length);
+                auto elements = context->arena->allocate<AnyValue>(undetermined_array.elements.length);
 
+                auto all_constant = true;
                 auto all_valid = true;
                 for(size_t i = 0; i < undetermined_array.elements.length; i += 1) {
                     auto result = coerce_to_type(
@@ -545,24 +577,44 @@ static Result<AnyValue> coerce_to_type(
                         true
                     );
 
-                    assert(result.value.kind == ValueKind::ConstantValue);
-
                     if(!result.status) {
                         all_valid = false;
                         break;
                     }
 
-                    elements[i] = result.value.constant;
+                    if(result.value.value.kind != ValueKind::ConstantValue) {
+                        all_constant = false;
+                    }
+
+                    child_results[i] = result.value;
+                    elements[i] = result.value.value;
                 }
 
                 if(all_valid) {
-                    return ok(AnyValue(AnyConstantValue(AggregateConstant(Array(
-                        undetermined_array.elements.length,
-                        elements
-                    )))));
+                    AnyValue result_value;
+                    if(all_constant) {
+                        auto constant_elements = context->arena->allocate<AnyConstantValue>(undetermined_array.elements.length);
+
+                        for(size_t i = 0; i < undetermined_array.elements.length; i += 1) {
+                            constant_elements[i] = elements[i].constant;
+                        }
+
+                        result_value = AnyValue(AnyConstantValue(AggregateConstant(Array(
+                            undetermined_array.elements.length,
+                            constant_elements
+                        ))));
+                    } else {
+                        result_value = AnyValue::create_anonymous_value();
+                    }
+
+                    ConversionResult result {};
+                    result.value = result_value;
+                    result.child_results = Array(undetermined_array.elements.length, child_results);
                 }
             } else if(value.kind == ValueKind::UndeterminedAggregateValue) {
                 auto aggregate_value = value.unwrap_undetermined_aggregate_value();
+
+                auto child_results = context->arena->allocate<ConversionResult>(undetermined_array.elements.length);
 
                 auto all_valid = true;
                 for(size_t i = 0; i < undetermined_array.elements.length; i += 1) {
@@ -581,10 +633,16 @@ static Result<AnyValue> coerce_to_type(
                         all_valid = false;
                         break;
                     }
+
+                    child_results[i] = result.value;
                 }
 
                 if(all_valid) {
-                    return ok(AnyValue::create_anonymous_value());
+                    ConversionResult result {};
+                    result.value = AnyValue::create_anonymous_value();
+                    result.child_results = Array(undetermined_array.elements.length, child_results);
+
+                    return ok(result);
                 }
             }
         } else if(type.kind == TypeKind::UndeterminedStruct) {
@@ -630,10 +688,20 @@ static Result<AnyValue> coerce_to_type(
                         if(pointer_result.status) {
                             assert(pointer_result.value.kind == ValueKind::ConstantValue);
 
-                            return ok(AnyValue(AnyConstantValue(ArrayConstant(
+                            auto child_results = context->arena->allocate<ConversionResult>(2);
+                            child_results[0] = {};
+                            child_results[0].value = length_result.value;
+                            child_results[1] = {};
+                            child_results[1].value = pointer_result.value;
+
+                            ConversionResult result {};
+                            result.value = AnyValue(AnyConstantValue(ArrayConstant(
                                 context->arena->heapify(length_result.value.constant),
                                 context->arena->heapify(pointer_result.value.constant)
-                            ))));
+                            )));
+                            result.child_results = Array(2, child_results);
+
+                            return ok(result);
                         }
                     }
                 } else if(value.kind == ValueKind::UndeterminedAggregateValue) {
@@ -665,7 +733,17 @@ static Result<AnyValue> coerce_to_type(
                         );
 
                         if(pointer_result.status) {
-                            return ok(AnyValue::create_anonymous_value());
+                            auto child_results = context->arena->allocate<ConversionResult>(2);
+                            child_results[0] = {};
+                            child_results[0].value = length_result.value;
+                            child_results[1] = {};
+                            child_results[1].value = pointer_result.value;
+
+                            ConversionResult result {};
+                            result.value = AnyValue::create_anonymous_value();
+                            result.child_results = Array(2, child_results);
+
+                            return ok(result);
                         }
                     }
                 } else {
@@ -673,7 +751,10 @@ static Result<AnyValue> coerce_to_type(
                 }
             }
         } else if(type.kind == TypeKind::Undef) {
-            return ok(value);
+            ConversionResult result {};
+            result.value = value;
+
+            return ok(result);
         }
     } else if(target_type.kind == TypeKind::StaticArray) {
         auto target_static_array = target_type.static_array;
@@ -682,7 +763,10 @@ static Result<AnyValue> coerce_to_type(
             auto static_array = type.static_array;
 
             if(*target_static_array.element_type == *static_array.element_type && target_static_array.length == static_array.length) {
-                return ok(value);
+                ConversionResult result {};
+                result.value = value;
+
+                return ok(result);
             }
         } else if(type.kind == TypeKind::UndeterminedArray) {
             auto undetermined_array = type.undetermined_array;
@@ -691,8 +775,10 @@ static Result<AnyValue> coerce_to_type(
                 if(value.kind == ValueKind::ConstantValue) {
                     auto aggregate_value = value.constant.unwrap_aggregate();
 
-                    auto elements = context->arena->allocate<AnyConstantValue>(undetermined_array.elements.length);
+                    auto child_results = context->arena->allocate<ConversionResult>(undetermined_array.elements.length);
+                    auto elements = context->arena->allocate<AnyValue>(undetermined_array.elements.length);
 
+                    auto all_constant = true;
                     auto all_valid = true;
                     for(size_t i = 0; i < undetermined_array.elements.length; i += 1) {
                         auto result = coerce_to_type(
@@ -706,21 +792,44 @@ static Result<AnyValue> coerce_to_type(
                             true
                         );
 
-                        assert(result.value.kind == ValueKind::ConstantValue);
-
                         if(!result.status) {
                             all_valid = false;
                             break;
                         }
 
-                        elements[i] = result.value.constant;
+                        if(result.value.value.kind != ValueKind::ConstantValue) {
+                            all_constant = false;
+                        }
+
+                        child_results[i] = result.value;
+                        elements[i] = result.value.value;
                     }
 
                     if(all_valid) {
-                        return ok(AnyValue(AnyConstantValue(AggregateConstant(Array(undetermined_array.elements.length, elements)))));
+                        AnyValue result_value;
+                        if(all_constant) {
+                            auto constant_elements = context->arena->allocate<AnyConstantValue>(undetermined_array.elements.length);
+
+                            for(size_t i = 0; i < undetermined_array.elements.length; i += 1) {
+                                constant_elements[i] = elements[i].constant;
+                            }
+
+                            result_value = AnyValue(AnyConstantValue(AggregateConstant(Array(
+                                undetermined_array.elements.length,
+                                constant_elements
+                            ))));
+                        } else {
+                            result_value = AnyValue::create_anonymous_value();
+                        }
+
+                        ConversionResult result {};
+                        result.value = result_value;
+                        result.child_results = Array(undetermined_array.elements.length, child_results);
                     }
                 } else if(value.kind == ValueKind::UndeterminedAggregateValue) {
                     auto aggregate_value = value.unwrap_undetermined_aggregate_value();
+
+                    auto child_results = context->arena->allocate<ConversionResult>(undetermined_array.elements.length);
 
                     auto all_valid = true;
                     for(size_t i = 0; i < undetermined_array.elements.length; i += 1) {
@@ -739,15 +848,24 @@ static Result<AnyValue> coerce_to_type(
                             all_valid = false;
                             break;
                         }
+
+                        child_results[i] = result.value;
                     }
 
                     if(all_valid) {
-                        return ok(AnyValue::create_anonymous_value());
+                        ConversionResult result {};
+                        result.value = AnyValue::create_anonymous_value();
+                        result.child_results = Array(undetermined_array.elements.length, child_results);
+
+                        return ok(result);
                     }
                 }
             }
         } else if(type.kind == TypeKind::Undef) {
-            return ok(value);
+            ConversionResult result {};
+            result.value = value;
+
+            return ok(result);
         }
     } else if(target_type.kind == TypeKind::StructType) {
         auto target_struct_type = target_type.struct_;
@@ -769,7 +887,10 @@ static Result<AnyValue> coerce_to_type(
                 }
 
                 if(same_members) {
-                    return ok(value);
+                    ConversionResult result {};
+                    result.value = value;
+
+                    return ok(result);
                 }
             }
         } else if(type.kind == TypeKind::UndeterminedStruct) {
@@ -791,9 +912,11 @@ static Result<AnyValue> coerce_to_type(
                     }
 
                     if(same_members) {
-                        auto members = context->arena->allocate<AnyConstantValue>(undetermined_struct.members.length);
+                        auto child_results = context->arena->allocate<ConversionResult>(undetermined_struct.members.length);
+                        auto members = context->arena->allocate<AnyValue>(undetermined_struct.members.length);
 
                         auto success = true;
+                        auto all_constant = true;
                         for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
                             auto result = coerce_to_type(
                                 info,
@@ -812,11 +935,36 @@ static Result<AnyValue> coerce_to_type(
                                 break;
                             }
 
-                            members[i] = result.value.unwrap_constant_value();
+                            if(result.value.value.kind != ValueKind::ConstantValue) {
+                                all_constant = false;
+                            }
+
+                            child_results[i] = result.value;
+                            members[i] = result.value.value;
                         }
 
                         if(success) {
-                            return ok(AnyValue(AnyConstantValue(AggregateConstant(Array(undetermined_struct.members.length, members)))));
+                            AnyValue result_value;
+                            if(all_constant) {
+                                auto constant_members = context->arena->allocate<AnyConstantValue>(undetermined_struct.members.length);
+
+                                for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
+                                    constant_members[i] = members[i].constant;
+                                }
+
+                                result_value = AnyValue(AnyConstantValue(AggregateConstant(Array(
+                                    undetermined_struct.members.length,
+                                    constant_members
+                                ))));
+                            } else {
+                                result_value = AnyValue::create_anonymous_value();
+                            }
+
+                            ConversionResult result {};
+                            result.value = result_value;
+                            result.child_results = Array(undetermined_struct.members.length, child_results);
+
+                            return ok(result);
                         }
                     }
                 }
@@ -834,6 +982,8 @@ static Result<AnyValue> coerce_to_type(
                     }
 
                     if(same_members) {
+                        auto child_results = context->arena->allocate<ConversionResult>(undetermined_struct.members.length);
+
                         auto success = true;
                         for(size_t i = 0; i < undetermined_struct.members.length; i += 1) {
                             auto result = coerce_to_type(
@@ -852,10 +1002,16 @@ static Result<AnyValue> coerce_to_type(
 
                                 break;
                             }
+
+                            child_results[i] = result.value;
                         }
 
                         if(success) {
-                            return ok(AnyValue::create_anonymous_value());
+                            ConversionResult result {};
+                            result.value = AnyValue::create_anonymous_value();
+                            result.child_results = Array(undetermined_struct.members.length, child_results);
+
+                            return ok(result);
                         }
                     }
                 }
@@ -863,7 +1019,10 @@ static Result<AnyValue> coerce_to_type(
                 abort();
             }
         } else if(type.kind == TypeKind::Undef) {
-            return ok(value);
+            ConversionResult result {};
+            result.value = value;
+
+            return ok(result);
         }
     } else if(target_type.kind == TypeKind::UnionType) {
         auto target_union_type = target_type.union_;
@@ -885,7 +1044,10 @@ static Result<AnyValue> coerce_to_type(
                 }
 
                 if(same_members) {
-                    return ok(value);
+                    ConversionResult result {};
+                    result.value = value;
+
+                    return ok(result);
                 }
             }
         } else if(type.kind == TypeKind::UndeterminedStruct) {
@@ -899,7 +1061,7 @@ static Result<AnyValue> coerce_to_type(
                 if(undetermined_struct.members.length == 1) {
                     for(size_t i = 0; i < target_union_type.members.length; i += 1) {
                         if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
-                            auto result = coerce_to_type(
+                            auto member_result = coerce_to_type(
                                 info,
                                 scope,
                                 context,
@@ -910,8 +1072,12 @@ static Result<AnyValue> coerce_to_type(
                                 true
                             );
 
-                            if(result.status) {
-                                return ok(AnyValue::create_anonymous_value());
+                            if(member_result.status) {
+                                ConversionResult result {};
+                                result.value = AnyValue::create_anonymous_value();
+                                result.child_results = Array(1, context->arena->heapify(member_result.value));
+
+                                return ok(result);
                             } else {
                                 break;
                             }
@@ -924,7 +1090,7 @@ static Result<AnyValue> coerce_to_type(
                 if(undetermined_struct.members.length == 1) {
                     for(size_t i = 0; i < target_union_type.members.length; i += 1) {
                         if(target_union_type.members[i].name == undetermined_struct.members[0].name) {
-                            auto result = coerce_to_type(
+                            auto member_result = coerce_to_type(
                                 info,
                                 scope,
                                 context,
@@ -935,8 +1101,12 @@ static Result<AnyValue> coerce_to_type(
                                 true
                             );
 
-                            if(result.status) {
-                                return ok(AnyValue::create_anonymous_value());
+                            if(member_result.status) {
+                                ConversionResult result {};
+                                result.value = AnyValue::create_anonymous_value();
+                                result.child_results = Array(1, context->arena->heapify(member_result.value));
+
+                                return ok(result);
                             } else {
                                 break;
                             }
@@ -947,7 +1117,10 @@ static Result<AnyValue> coerce_to_type(
                 abort();
             }
         } else if(type.kind == TypeKind::Undef) {
-            return ok(AnyValue::create_anonymous_value());
+            ConversionResult result {};
+            result.value = AnyValue::create_anonymous_value();
+
+            return ok(result);
         }
     } else if(target_type.kind == TypeKind::Enum) {
         auto target_enum = target_type.enum_;
@@ -956,7 +1129,10 @@ static Result<AnyValue> coerce_to_type(
             auto integer = type.integer;
 
             if(integer.size == target_enum.backing_type->size && integer.is_signed == target_enum.backing_type->is_signed) {
-                return ok(value);
+                ConversionResult result {};
+                result.value = value;
+
+                return ok(result);
             }
         } else if(type.kind == TypeKind::UndeterminedInteger) {
             auto integer_value = value.unwrap_constant_value().unwrap_integer();
@@ -970,15 +1146,24 @@ static Result<AnyValue> coerce_to_type(
                 probing
             ));
 
-            return ok(value);
+            ConversionResult result {};
+            result.value = value;
+
+            return ok(result);
         } else if(type.kind == TypeKind::Enum) {
             auto enum_ = type.enum_;
 
             if(target_enum.definition == enum_.definition) {
-                return ok(value);
+                ConversionResult result {};
+                result.value = value;
+
+                return ok(result);
             }
         } else if(type.kind == TypeKind::Undef) {
-            return ok(value);
+            ConversionResult result {};
+            result.value = value;
+
+            return ok(result);
         }
     } else {
         abort();
@@ -1039,8 +1224,9 @@ static Result<TypedExpression> coerce_to_type(
     typed_expression.kind = TypedExpressionKind::Coercion;
     typed_expression.range = expression.range;
     typed_expression.type = AnyType(target_type);
-    typed_expression.value = result_value;
+    typed_expression.value = result_value.value;
     typed_expression.coercion.original = context->arena->heapify(expression);
+    typed_expression.coercion.child_results = result_value.child_results;
 
     return ok(typed_expression);
 }
@@ -4174,16 +4360,20 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
             info,
             scope,
             context,
-            expression_value,
+            cast->expression->range,
+            expression_value.type,
+            expression_value.value,
             target_type.type,
             true
         );
 
         auto has_cast = false;
         AnyValue result_value;
+        Array<ConversionResult> child_results;
         if(coercion_result.status) {
             has_cast = true;
             result_value = coercion_result.value.value;
+            child_results = coercion_result.value.child_results;
         } else if(target_type.type.kind == TypeKind::Integer) {
             auto target_integer = target_type.type.integer;
 
@@ -4738,6 +4928,8 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
                 has_cast = true;
                 result_value = expression_value.value;
             }
+
+            child_results = {};
         }
 
         if(has_cast) {
@@ -4748,6 +4940,7 @@ static_profiled_function(DelayedResult<TypedExpression>, type_expression, (
             type_expression.value = result_value;
             type_expression.cast.value = context->arena->heapify(expression_value);
             type_expression.cast.type = context->arena->heapify(target_type.typed_expression);
+            type_expression.cast.child_results = child_results;
 
             return ok(type_expression);
         } else {
@@ -6359,12 +6552,12 @@ profiled_function(DelayedResult<TypePolymorphicFunctionResult>, do_type_polymorp
                 false
             ));
 
-            assert(coerced_value.kind == ValueKind::ConstantValue);
+            assert(coerced_value.value.kind == ValueKind::ConstantValue);
 
             ScopeConstant constant {};
             constant.name = declaration_parameter.name;
             constant.type = parameter_types[i];
-            constant.value = coerced_value.constant;
+            constant.value = coerced_value.value.constant;
 
             scope_constants.append(constant);
         }

@@ -333,13 +333,10 @@ struct AnyValue {
     }
 };
 
-struct TypedValue {
-    inline TypedValue() {}
-    explicit inline TypedValue(AnyType type, AnyValue value) : type(type), value(value) {}
-
-    AnyType type;
-
+struct ConversionResult {
     AnyValue value;
+
+    Array<ConversionResult> child_results;
 };
 
 enum struct TypedExpressionKind {
@@ -448,6 +445,8 @@ struct TypedExpression {
         struct {
             TypedExpression* value;
             TypedExpression* type;
+
+            Array<ConversionResult> child_results;
         } cast;
 
         struct {
@@ -472,6 +471,8 @@ struct TypedExpression {
 
         struct {
             TypedExpression* original;
+
+            Array<ConversionResult> child_results;
         } coercion;
     };
 };
